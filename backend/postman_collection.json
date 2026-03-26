@@ -1,0 +1,2117 @@
+{
+	"info": {
+		"_postman_id": "mpayhub-api-complete",
+		"name": "mPayhub API - Complete Collection",
+		"description": "Complete API collection for mPayhub payment platform covering all endpoints and flows",
+		"schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json",
+		"_exporter_id": "mpayhub"
+	},
+	"item": [
+		{
+			"name": "1. Authentication",
+			"item": [
+				{
+					"name": "Login",
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"exec": [
+									"if (pm.response.code === 200) {",
+									"    var jsonData = pm.response.json();",
+									"    if (jsonData.success && jsonData.data.tokens) {",
+									"        pm.environment.set(\"access_token\", jsonData.data.tokens.access);",
+									"        pm.environment.set(\"refresh_token\", jsonData.data.tokens.refresh);",
+									"        pm.environment.set(\"user_id\", jsonData.data.user.id);",
+									"        pm.environment.set(\"user_role\", jsonData.data.user.role);",
+									"    }",
+									"}"
+								],
+								"type": "text/javascript"
+							}
+						}
+					],
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n    \"phone\": \"9876543210\",\n    \"password\": \"admin123\"\n}",
+							"options": {
+								"raw": {
+									"language": "json"
+								}
+							}
+						},
+						"url": {
+							"raw": "{{base_url}}/api/auth/login/",
+							"host": ["{{base_url}}"],
+							"path": ["api", "auth", "login", ""]
+						},
+						"description": "User login with phone and password. Returns JWT tokens."
+					},
+					"response": []
+				},
+				{
+					"name": "Verify MPIN",
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							},
+							{
+								"key": "Authorization",
+								"value": "Bearer {{access_token}}"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n    \"mpin\": \"1234\"\n}",
+							"options": {
+								"raw": {
+									"language": "json"
+								}
+							}
+						},
+						"url": {
+							"raw": "{{base_url}}/api/auth/verify-mpin/",
+							"host": ["{{base_url}}"],
+							"path": ["api", "auth", "verify-mpin", ""]
+						},
+						"description": "Verify MPIN for authenticated user."
+					},
+					"response": []
+				},
+				{
+					"name": "Send OTP",
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n    \"phone\": \"9876543210\",\n    \"purpose\": \"password_reset\"\n}",
+							"options": {
+								"raw": {
+									"language": "json"
+								}
+							}
+						},
+						"url": {
+							"raw": "{{base_url}}/api/auth/send-otp/",
+							"host": ["{{base_url}}"],
+							"path": ["api", "auth", "send-otp", ""]
+						},
+						"description": "Send OTP to phone number for password reset or other purposes."
+					},
+					"response": []
+				},
+				{
+					"name": "Verify OTP",
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n    \"phone\": \"9876543210\",\n    \"otp\": \"123456\",\n    \"purpose\": \"password_reset\"\n}",
+							"options": {
+								"raw": {
+									"language": "json"
+								}
+							}
+						},
+						"url": {
+							"raw": "{{base_url}}/api/auth/verify-otp/",
+							"host": ["{{base_url}}"],
+							"path": ["api", "auth", "verify-otp", ""]
+						},
+						"description": "Verify OTP sent to phone number."
+					},
+					"response": []
+				},
+				{
+					"name": "Reset Password",
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n    \"phone\": \"9876543210\",\n    \"otp\": \"123456\",\n    \"new_password\": \"newpassword123\"\n}",
+							"options": {
+								"raw": {
+									"language": "json"
+								}
+							}
+						},
+						"url": {
+							"raw": "{{base_url}}/api/auth/reset-password/",
+							"host": ["{{base_url}}"],
+							"path": ["api", "auth", "reset-password", ""]
+						},
+						"description": "Reset password using verified OTP."
+					},
+					"response": []
+				},
+				{
+					"name": "Refresh Token",
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"exec": [
+									"if (pm.response.code === 200) {",
+									"    var jsonData = pm.response.json();",
+									"    if (jsonData.success && jsonData.data.tokens) {",
+									"        pm.environment.set(\"access_token\", jsonData.data.tokens.access);",
+									"        pm.environment.set(\"refresh_token\", jsonData.data.tokens.refresh);",
+									"    }",
+									"}"
+								],
+								"type": "text/javascript"
+							}
+						}
+					],
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n    \"refresh\": \"{{refresh_token}}\"\n}",
+							"options": {
+								"raw": {
+									"language": "json"
+								}
+							}
+						},
+						"url": {
+							"raw": "{{base_url}}/api/auth/refresh-token/",
+							"host": ["{{base_url}}"],
+							"path": ["api", "auth", "refresh-token", ""]
+						},
+						"description": "Refresh access token using refresh token."
+					},
+					"response": []
+				},
+				{
+					"name": "Get Current User",
+					"request": {
+						"method": "GET",
+						"header": [
+							{
+								"key": "Authorization",
+								"value": "Bearer {{access_token}}"
+							}
+						],
+						"url": {
+							"raw": "{{base_url}}/api/auth/me/",
+							"host": ["{{base_url}}"],
+							"path": ["api", "auth", "me", ""]
+						},
+						"description": "Get current authenticated user details."
+					},
+					"response": []
+				},
+				{
+					"name": "Logout",
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Authorization",
+								"value": "Bearer {{access_token}}"
+							}
+						],
+						"url": {
+							"raw": "{{base_url}}/api/auth/logout/",
+							"host": ["{{base_url}}"],
+							"path": ["api", "auth", "logout", ""]
+						},
+						"description": "Logout current user and invalidate session."
+					},
+					"response": []
+				}
+			],
+			"description": "Authentication endpoints for login, MPIN verification, OTP, password reset, and token management."
+		},
+		{
+			"name": "2. Users",
+			"item": [
+				{
+					"name": "List Users",
+					"request": {
+						"method": "GET",
+						"header": [
+							{
+								"key": "Authorization",
+								"value": "Bearer {{access_token}}"
+							}
+						],
+						"url": {
+							"raw": "{{base_url}}/api/users/?role=Distributor",
+							"host": ["{{base_url}}"],
+							"path": ["api", "users", ""],
+							"query": [
+								{
+									"key": "role",
+									"value": "Distributor",
+									"description": "Filter by role (optional)"
+								}
+							]
+						},
+						"description": "Get list of users. Filter by role using query parameter."
+					},
+					"response": []
+				},
+				{
+					"name": "Create User",
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"exec": [
+									"if (pm.response.code === 201) {",
+									"    var jsonData = pm.response.json();",
+									"    if (jsonData.success && jsonData.data.user) {",
+									"        pm.environment.set(\"new_user_id\", jsonData.data.user.id);",
+									"    }",
+									"}"
+								],
+								"type": "text/javascript"
+							}
+						}
+					],
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							},
+							{
+								"key": "Authorization",
+								"value": "Bearer {{access_token}}"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n    \"phone\": \"9876543211\",\n    \"email\": \"newuser@example.com\",\n    \"password\": \"password123\",\n    \"firstName\": \"John\",\n    \"lastName\": \"Doe\",\n    \"role\": \"Retailer\",\n    \"alternatePhone\": \"9876543212\",\n    \"businessName\": \"John's Business\",\n    \"businessAddress\": \"123 Main St, City\",\n    \"pan\": \"ABCDE1234F\",\n    \"aadhaar\": \"123456789012\",\n    \"mpin\": \"123456\"\n}",
+							"options": {
+								"raw": {
+									"language": "json"
+								}
+							}
+						},
+						"url": {
+							"raw": "{{base_url}}/api/users/",
+							"host": ["{{base_url}}"],
+							"path": ["api", "users", ""]
+						},
+						"description": "Create a new user. Requires appropriate role permissions."
+					},
+					"response": []
+				},
+				{
+					"name": "Get User Detail",
+					"request": {
+						"method": "GET",
+						"header": [
+							{
+								"key": "Authorization",
+								"value": "Bearer {{access_token}}"
+							}
+						],
+						"url": {
+							"raw": "{{base_url}}/api/users/{{user_id}}/",
+							"host": ["{{base_url}}"],
+							"path": ["api", "users", "{{user_id}}", ""]
+						},
+						"description": "Get detailed information about a specific user."
+					},
+					"response": []
+				},
+				{
+					"name": "Update User",
+					"request": {
+						"method": "PUT",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							},
+							{
+								"key": "Authorization",
+								"value": "Bearer {{access_token}}"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n    \"firstName\": \"John Updated\",\n    \"lastName\": \"Doe Updated\",\n    \"email\": \"updated@example.com\",\n    \"alternatePhone\": \"9876543212\",\n    \"businessName\": \"Updated Business Name\",\n    \"businessAddress\": \"456 New St, City\",\n    \"is_active\": true\n}",
+							"options": {
+								"raw": {
+									"language": "json"
+								}
+							}
+						},
+						"url": {
+							"raw": "{{base_url}}/api/users/{{user_id}}/",
+							"host": ["{{base_url}}"],
+							"path": ["api", "users", "{{user_id}}", ""]
+						},
+						"description": "Update user information. Supports partial updates (PATCH). Admin can update any user, others can only update their subordinates."
+					},
+					"response": []
+				},
+				{
+					"name": "Partial Update User (PATCH)",
+					"request": {
+						"method": "PATCH",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							},
+							{
+								"key": "Authorization",
+								"value": "Bearer {{access_token}}"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n    \"firstName\": \"John\",\n    \"is_active\": false\n}",
+							"options": {
+								"raw": {
+									"language": "json"
+								}
+							}
+						},
+						"url": {
+							"raw": "{{base_url}}/api/users/{{user_id}}/",
+							"host": ["{{base_url}}"],
+							"path": ["api", "users", "{{user_id}}", ""]
+						},
+						"description": "Partially update user information. Only send fields you want to update."
+					},
+					"response": []
+				},
+				{
+					"name": "Update User Password",
+					"request": {
+						"method": "PATCH",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							},
+							{
+								"key": "Authorization",
+								"value": "Bearer {{access_token}}"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n    \"password\": \"newpassword123\"\n}",
+							"options": {
+								"raw": {
+									"language": "json"
+								}
+							}
+						},
+						"url": {
+							"raw": "{{base_url}}/api/users/{{user_id}}/",
+							"host": ["{{base_url}}"],
+							"path": ["api", "users", "{{user_id}}", ""]
+						},
+						"description": "Update user password. Password must be at least 8 characters."
+					},
+					"response": []
+				},
+				{
+					"name": "Update User MPIN",
+					"request": {
+						"method": "PATCH",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							},
+							{
+								"key": "Authorization",
+								"value": "Bearer {{access_token}}"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n    \"mpin\": \"123456\"\n}",
+							"options": {
+								"raw": {
+									"language": "json"
+								}
+							}
+						},
+						"url": {
+							"raw": "{{base_url}}/api/users/{{user_id}}/",
+							"host": ["{{base_url}}"],
+							"path": ["api", "users", "{{user_id}}", ""]
+						},
+						"description": "Update user MPIN. MPIN must be 6 digits."
+					},
+					"response": []
+				},
+				{
+					"name": "Delete User",
+					"request": {
+						"method": "DELETE",
+						"header": [
+							{
+								"key": "Authorization",
+								"value": "Bearer {{access_token}}"
+							}
+						],
+						"url": {
+							"raw": "{{base_url}}/api/users/{{user_id}}/",
+							"host": ["{{base_url}}"],
+							"path": ["api", "users", "{{user_id}}", ""]
+						},
+						"description": "Delete a user. Requires appropriate permissions."
+					},
+					"response": []
+				},
+				{
+					"name": "Verify PAN",
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							},
+							{
+								"key": "Authorization",
+								"value": "Bearer {{access_token}}"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n    \"pan\": \"ABCDE1234F\"\n}",
+							"options": {
+								"raw": {
+									"language": "json"
+								}
+							}
+						},
+						"url": {
+							"raw": "{{base_url}}/api/users/{{user_id}}/verify_pan/",
+							"host": ["{{base_url}}"],
+							"path": ["api", "users", "{{user_id}}", "verify_pan", ""]
+						},
+						"description": "Verify PAN number for a user."
+					},
+					"response": []
+				},
+				{
+					"name": "Send Aadhaar OTP",
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							},
+							{
+								"key": "Authorization",
+								"value": "Bearer {{access_token}}"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n    \"aadhaar\": \"123456789012\"\n}",
+							"options": {
+								"raw": {
+									"language": "json"
+								}
+							}
+						},
+						"url": {
+							"raw": "{{base_url}}/api/users/{{user_id}}/send_aadhaar_otp/",
+							"host": ["{{base_url}}"],
+							"path": ["api", "users", "{{user_id}}", "send_aadhaar_otp", ""]
+						},
+						"description": "Send OTP for Aadhaar verification."
+					},
+					"response": []
+				},
+				{
+					"name": "Verify Aadhaar OTP",
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							},
+							{
+								"key": "Authorization",
+								"value": "Bearer {{access_token}}"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n    \"otp\": \"123456\"\n}",
+							"options": {
+								"raw": {
+									"language": "json"
+								}
+							}
+						},
+						"url": {
+							"raw": "{{base_url}}/api/users/{{user_id}}/verify_aadhaar_otp/",
+							"host": ["{{base_url}}"],
+							"path": ["api", "users", "{{user_id}}", "verify_aadhaar_otp", ""]
+						},
+						"description": "Verify Aadhaar OTP."
+					},
+					"response": []
+				},
+				{
+					"name": "Get Subordinates",
+					"request": {
+						"method": "GET",
+						"header": [
+							{
+								"key": "Authorization",
+								"value": "Bearer {{access_token}}"
+							}
+						],
+						"url": {
+							"raw": "{{base_url}}/api/users/subordinates/",
+							"host": ["{{base_url}}"],
+							"path": ["api", "users", "subordinates", ""]
+						},
+						"description": "Get all subordinate users in the hierarchy."
+					},
+					"response": []
+				}
+			],
+			"description": "User management endpoints including CRUD operations, KYC verification, and hierarchy management."
+		},
+		{
+			"name": "3. Wallets",
+			"item": [
+				{
+					"name": "Get All Wallets",
+					"request": {
+						"method": "GET",
+						"header": [
+							{
+								"key": "Authorization",
+								"value": "Bearer {{access_token}}"
+							}
+						],
+						"url": {
+							"raw": "{{base_url}}/api/wallets/",
+							"host": ["{{base_url}}"],
+							"path": ["api", "wallets", ""]
+						},
+						"description": "Get all wallets for the authenticated user."
+					},
+					"response": []
+				},
+				{
+					"name": "Get Wallet by Type",
+					"request": {
+						"method": "GET",
+						"header": [
+							{
+								"key": "Authorization",
+								"value": "Bearer {{access_token}}"
+							}
+						],
+						"url": {
+							"raw": "{{base_url}}/api/wallets/main/",
+							"host": ["{{base_url}}"],
+							"path": ["api", "wallets", "main", ""]
+						},
+						"description": "Get specific wallet by type (main, commission, bbps)."
+					},
+					"response": []
+				},
+				{
+					"name": "Get Wallet History",
+					"request": {
+						"method": "GET",
+						"header": [
+							{
+								"key": "Authorization",
+								"value": "Bearer {{access_token}}"
+							}
+						],
+						"url": {
+							"raw": "{{base_url}}/api/wallets/main/history/?limit=10&offset=0",
+							"host": ["{{base_url}}"],
+							"path": ["api", "wallets", "main", "history", ""],
+							"query": [
+								{
+									"key": "limit",
+									"value": "10"
+								},
+								{
+									"key": "offset",
+									"value": "0"
+								}
+							]
+						},
+						"description": "Get transaction history for a specific wallet."
+					},
+					"response": []
+				}
+			],
+			"description": "Wallet management endpoints to view balances and transaction history."
+		},
+		{
+			"name": "4. Fund Management",
+			"item": [
+				{
+					"name": "Load Money",
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							},
+							{
+								"key": "Authorization",
+								"value": "Bearer {{access_token}}"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n    \"amount\": 1000.00,\n    \"gateway\": \"razorpay\"\n}",
+							"options": {
+								"raw": {
+									"language": "json"
+								}
+							}
+						},
+						"url": {
+							"raw": "{{base_url}}/api/fund-management/load-money/",
+							"host": ["{{base_url}}"],
+							"path": ["api", "fund-management", "load-money", ""]
+						},
+						"description": "Load money into main wallet using payment gateway."
+					},
+					"response": []
+				},
+				{
+					"name": "Get Load Money List",
+					"request": {
+						"method": "GET",
+						"header": [
+							{
+								"key": "Authorization",
+								"value": "Bearer {{access_token}}"
+							}
+						],
+						"url": {
+							"raw": "{{base_url}}/api/fund-management/load-money/list/?status=success&limit=10&offset=0",
+							"host": ["{{base_url}}"],
+							"path": ["api", "fund-management", "load-money", "list", ""],
+							"query": [
+								{
+									"key": "status",
+									"value": "success"
+								},
+								{
+									"key": "limit",
+									"value": "10"
+								},
+								{
+									"key": "offset",
+									"value": "0"
+								}
+							]
+						},
+						"description": "Get list of load money transactions with filters."
+					},
+					"response": []
+				},
+				{
+					"name": "Payout",
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							},
+							{
+								"key": "Authorization",
+								"value": "Bearer {{access_token}}"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n    \"bank_account_id\": 1,\n    \"amount\": 500.00,\n    \"mpin\": \"1234\"\n}",
+							"options": {
+								"raw": {
+									"language": "json"
+								}
+							}
+						},
+						"url": {
+							"raw": "{{base_url}}/api/fund-management/payout/",
+							"host": ["{{base_url}}"],
+							"path": ["api", "fund-management", "payout", ""]
+						},
+						"description": "Initiate payout to bank account. Requires MPIN verification."
+					},
+					"response": []
+				},
+				{
+					"name": "Get Payout List",
+					"request": {
+						"method": "GET",
+						"header": [
+							{
+								"key": "Authorization",
+								"value": "Bearer {{access_token}}"
+							}
+						],
+						"url": {
+							"raw": "{{base_url}}/api/fund-management/payout/list/?status=success&limit=10&offset=0",
+							"host": ["{{base_url}}"],
+							"path": ["api", "fund-management", "payout", "list", ""],
+							"query": [
+								{
+									"key": "status",
+									"value": "success"
+								},
+								{
+									"key": "limit",
+									"value": "10"
+								},
+								{
+									"key": "offset",
+									"value": "0"
+								}
+							]
+						},
+						"description": "Get list of payout transactions with filters."
+					},
+					"response": []
+				},
+				{
+					"name": "Get Gateways",
+					"request": {
+						"method": "GET",
+						"header": [
+							{
+								"key": "Authorization",
+								"value": "Bearer {{access_token}}"
+							}
+						],
+						"url": {
+							"raw": "{{base_url}}/api/fund-management/gateways/",
+							"host": ["{{base_url}}"],
+							"path": ["api", "fund-management", "gateways", ""]
+						},
+						"description": "Get available payment and payout gateways."
+					},
+					"response": []
+				}
+			],
+			"description": "Fund management endpoints for loading money and payouts."
+		},
+		{
+			"name": "5. BBPS (Bill Payments)",
+			"item": [
+				{
+					"name": "Get Categories",
+					"request": {
+						"method": "GET",
+						"header": [
+							{
+								"key": "Authorization",
+								"value": "Bearer {{access_token}}"
+							}
+						],
+						"url": {
+							"raw": "{{base_url}}/api/bbps/categories/",
+							"host": ["{{base_url}}"],
+							"path": ["api", "bbps", "categories", ""]
+						},
+						"description": "Get all bill payment categories."
+					},
+					"response": []
+				},
+				{
+					"name": "Get Billers by Category",
+					"request": {
+						"method": "GET",
+						"header": [
+							{
+								"key": "Authorization",
+								"value": "Bearer {{access_token}}"
+							}
+						],
+						"url": {
+							"raw": "{{base_url}}/api/bbps/billers/electricity/",
+							"host": ["{{base_url}}"],
+							"path": ["api", "bbps", "billers", "electricity", ""]
+						},
+						"description": "Get billers for a specific category."
+					},
+					"response": []
+				},
+				{
+					"name": "Fetch Bill",
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							},
+							{
+								"key": "Authorization",
+								"value": "Bearer {{access_token}}"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n    \"biller_id\": \"BILLER001\",\n    \"customer_params\": {\n        \"customer_mobile\": \"9876543210\",\n        \"customer_account\": \"123456789\"\n    }\n}",
+							"options": {
+								"raw": {
+									"language": "json"
+								}
+							}
+						},
+						"url": {
+							"raw": "{{base_url}}/api/bbps/fetch-bill/",
+							"host": ["{{base_url}}"],
+							"path": ["api", "bbps", "fetch-bill", ""]
+						},
+						"description": "Fetch bill details from BBPS provider."
+					},
+					"response": []
+				},
+				{
+					"name": "Pay Bill",
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							},
+							{
+								"key": "Authorization",
+								"value": "Bearer {{access_token}}"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n    \"biller_id\": \"BILLER001\",\n    \"customer_params\": {\n        \"customer_mobile\": \"9876543210\",\n        \"customer_account\": \"123456789\"\n    },\n    \"amount\": 500.00,\n    \"mpin\": \"1234\"\n}",
+							"options": {
+								"raw": {
+									"language": "json"
+								}
+							}
+						},
+						"url": {
+							"raw": "{{base_url}}/api/bbps/pay/",
+							"host": ["{{base_url}}"],
+							"path": ["api", "bbps", "pay", ""]
+						},
+						"description": "Pay a bill through BBPS. Requires MPIN verification."
+					},
+					"response": []
+				},
+				{
+					"name": "Get Bill Payments List",
+					"request": {
+						"method": "GET",
+						"header": [
+							{
+								"key": "Authorization",
+								"value": "Bearer {{access_token}}"
+							}
+						],
+						"url": {
+							"raw": "{{base_url}}/api/bbps/payments/?status=success&limit=10&offset=0",
+							"host": ["{{base_url}}"],
+							"path": ["api", "bbps", "payments", ""],
+							"query": [
+								{
+									"key": "status",
+									"value": "success"
+								},
+								{
+									"key": "limit",
+									"value": "10"
+								},
+								{
+									"key": "offset",
+									"value": "0"
+								}
+							]
+						},
+						"description": "Get list of bill payments with filters."
+					},
+					"response": []
+				},
+				{
+					"name": "Get Bill Payment Detail",
+					"request": {
+						"method": "GET",
+						"header": [
+							{
+								"key": "Authorization",
+								"value": "Bearer {{access_token}}"
+							}
+						],
+						"url": {
+							"raw": "{{base_url}}/api/bbps/payments/1/",
+							"host": ["{{base_url}}"],
+							"path": ["api", "bbps", "payments", "1", ""]
+						},
+						"description": "Get detailed information about a specific bill payment."
+					},
+					"response": []
+				}
+			],
+			"description": "BBPS (Bharat Bill Payment System) endpoints for bill payments."
+		},
+		{
+			"name": "6. Contacts",
+			"item": [
+				{
+					"name": "List Contacts",
+					"request": {
+						"method": "GET",
+						"header": [
+							{
+								"key": "Authorization",
+								"value": "Bearer {{access_token}}"
+							}
+						],
+						"url": {
+							"raw": "{{base_url}}/api/contacts/?name=John&email=john@example.com&phone=9876543210",
+							"host": ["{{base_url}}"],
+							"path": ["api", "contacts", ""],
+							"query": [
+								{
+									"key": "name",
+									"value": "John"
+								},
+								{
+									"key": "email",
+									"value": "john@example.com"
+								},
+								{
+									"key": "phone",
+									"value": "9876543210"
+								}
+							]
+						},
+						"description": "Get list of contacts with optional filters."
+					},
+					"response": []
+				},
+				{
+					"name": "Create Contact",
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"exec": [
+									"if (pm.response.code === 201) {",
+									"    var jsonData = pm.response.json();",
+									"    if (jsonData.success && jsonData.data) {",
+									"        pm.environment.set(\"contact_id\", jsonData.data.id);",
+									"    }",
+									"}"
+								],
+								"type": "text/javascript"
+							}
+						}
+					],
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							},
+							{
+								"key": "Authorization",
+								"value": "Bearer {{access_token}}"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n    \"name\": \"John Doe\",\n    \"email\": \"john@example.com\",\n    \"phone\": \"9876543210\"\n}",
+							"options": {
+								"raw": {
+									"language": "json"
+								}
+							}
+						},
+						"url": {
+							"raw": "{{base_url}}/api/contacts/",
+							"host": ["{{base_url}}"],
+							"path": ["api", "contacts", ""]
+						},
+						"description": "Create a new contact."
+					},
+					"response": []
+				},
+				{
+					"name": "Get Contact Detail",
+					"request": {
+						"method": "GET",
+						"header": [
+							{
+								"key": "Authorization",
+								"value": "Bearer {{access_token}}"
+							}
+						],
+						"url": {
+							"raw": "{{base_url}}/api/contacts/{{contact_id}}/",
+							"host": ["{{base_url}}"],
+							"path": ["api", "contacts", "{{contact_id}}", ""]
+						},
+						"description": "Get detailed information about a specific contact."
+					},
+					"response": []
+				},
+				{
+					"name": "Update Contact",
+					"request": {
+						"method": "PUT",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							},
+							{
+								"key": "Authorization",
+								"value": "Bearer {{access_token}}"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n    \"name\": \"John Doe Updated\",\n    \"email\": \"johnupdated@example.com\",\n    \"phone\": \"9876543210\"\n}",
+							"options": {
+								"raw": {
+									"language": "json"
+								}
+							}
+						},
+						"url": {
+							"raw": "{{base_url}}/api/contacts/{{contact_id}}/",
+							"host": ["{{base_url}}"],
+							"path": ["api", "contacts", "{{contact_id}}", ""]
+						},
+						"description": "Update contact information."
+					},
+					"response": []
+				},
+				{
+					"name": "Delete Contact",
+					"request": {
+						"method": "DELETE",
+						"header": [
+							{
+								"key": "Authorization",
+								"value": "Bearer {{access_token}}"
+							}
+						],
+						"url": {
+							"raw": "{{base_url}}/api/contacts/{{contact_id}}/",
+							"host": ["{{base_url}}"],
+							"path": ["api", "contacts", "{{contact_id}}", ""]
+						},
+						"description": "Delete a contact."
+					},
+					"response": []
+				},
+				{
+					"name": "Search Contact by Phone",
+					"request": {
+						"method": "GET",
+						"header": [
+							{
+								"key": "Authorization",
+								"value": "Bearer {{access_token}}"
+							}
+						],
+						"url": {
+							"raw": "{{base_url}}/api/contacts/search/?phone=9876543210",
+							"host": ["{{base_url}}"],
+							"path": ["api", "contacts", "search", ""],
+							"query": [
+								{
+									"key": "phone",
+									"value": "9876543210",
+									"description": "Phone number to search"
+								}
+							]
+						},
+						"description": "Search for a contact by phone number."
+					},
+					"response": []
+				}
+			],
+			"description": "Contact management endpoints for CRUD operations and search."
+		},
+		{
+			"name": "7. Bank Accounts",
+			"item": [
+				{
+					"name": "List Bank Accounts",
+					"request": {
+						"method": "GET",
+						"header": [
+							{
+								"key": "Authorization",
+								"value": "Bearer {{access_token}}"
+							}
+						],
+						"url": {
+							"raw": "{{base_url}}/api/bank-accounts/?name=John&bank_name=HDFC&account_number=1234567890&ifsc=HDFC0001234",
+							"host": ["{{base_url}}"],
+							"path": ["api", "bank-accounts", ""],
+							"query": [
+								{
+									"key": "name",
+									"value": "John"
+								},
+								{
+									"key": "bank_name",
+									"value": "HDFC"
+								},
+								{
+									"key": "account_number",
+									"value": "1234567890"
+								},
+								{
+									"key": "ifsc",
+									"value": "HDFC0001234"
+								}
+							]
+						},
+						"description": "Get list of bank accounts with optional filters."
+					},
+					"response": []
+				},
+				{
+					"name": "Validate Bank Account",
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"exec": [
+									"if (pm.response.code === 200) {",
+									"    var jsonData = pm.response.json();",
+									"    if (jsonData.success && jsonData.data) {",
+									"        pm.environment.set(\"beneficiary_name\", jsonData.data.beneficiary_name);",
+									"    }",
+									"}"
+								],
+								"type": "text/javascript"
+							}
+						}
+					],
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							},
+							{
+								"key": "Authorization",
+								"value": "Bearer {{access_token}}"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n    \"account_number\": \"1234567890\",\n    \"ifsc\": \"HDFC0001234\"\n}",
+							"options": {
+								"raw": {
+									"language": "json"
+								}
+							}
+						},
+						"url": {
+							"raw": "{{base_url}}/api/bank-accounts/validate/",
+							"host": ["{{base_url}}"],
+							"path": ["api", "bank-accounts", "validate", ""]
+						},
+						"description": "Validate bank account and get beneficiary name. Charges ₹3.00 verification fee."
+					},
+					"response": []
+				},
+				{
+					"name": "Create Bank Account",
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"exec": [
+									"if (pm.response.code === 201) {",
+									"    var jsonData = pm.response.json();",
+									"    if (jsonData.success && jsonData.data) {",
+									"        pm.environment.set(\"bank_account_id\", jsonData.data.id);",
+									"    }",
+									"}"
+								],
+								"type": "text/javascript"
+							}
+						}
+					],
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							},
+							{
+								"key": "Authorization",
+								"value": "Bearer {{access_token}}"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n    \"contact_id\": 1,\n    \"account_number\": \"1234567890\",\n    \"ifsc\": \"HDFC0001234\",\n    \"bank_name\": \"HDFC Bank\",\n    \"account_holder_name\": \"{{beneficiary_name}}\",\n    \"beneficiary_name\": \"{{beneficiary_name}}\"\n}",
+							"options": {
+								"raw": {
+									"language": "json"
+								}
+							}
+						},
+						"url": {
+							"raw": "{{base_url}}/api/bank-accounts/",
+							"host": ["{{base_url}}"],
+							"path": ["api", "bank-accounts", ""]
+						},
+						"description": "Create a new bank account. Should validate first using validate endpoint."
+					},
+					"response": []
+				},
+				{
+					"name": "Get Bank Account Detail",
+					"request": {
+						"method": "GET",
+						"header": [
+							{
+								"key": "Authorization",
+								"value": "Bearer {{access_token}}"
+							}
+						],
+						"url": {
+							"raw": "{{base_url}}/api/bank-accounts/{{bank_account_id}}/",
+							"host": ["{{base_url}}"],
+							"path": ["api", "bank-accounts", "{{bank_account_id}}", ""]
+						},
+						"description": "Get detailed information about a specific bank account."
+					},
+					"response": []
+				},
+				{
+					"name": "Update Bank Account",
+					"request": {
+						"method": "PUT",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							},
+							{
+								"key": "Authorization",
+								"value": "Bearer {{access_token}}"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n    \"account_holder_name\": \"Updated Name\",\n    \"bank_name\": \"Updated Bank\"\n}",
+							"options": {
+								"raw": {
+									"language": "json"
+								}
+							}
+						},
+						"url": {
+							"raw": "{{base_url}}/api/bank-accounts/{{bank_account_id}}/",
+							"host": ["{{base_url}}"],
+							"path": ["api", "bank-accounts", "{{bank_account_id}}", ""]
+						},
+						"description": "Update bank account information."
+					},
+					"response": []
+				},
+				{
+					"name": "Delete Bank Account",
+					"request": {
+						"method": "DELETE",
+						"header": [
+							{
+								"key": "Authorization",
+								"value": "Bearer {{access_token}}"
+							}
+						],
+						"url": {
+							"raw": "{{base_url}}/api/bank-accounts/{{bank_account_id}}/",
+							"host": ["{{base_url}}"],
+							"path": ["api", "bank-accounts", "{{bank_account_id}}", ""]
+						},
+						"description": "Delete a bank account."
+					},
+					"response": []
+				}
+			],
+			"description": "Bank account management endpoints including validation, CRUD operations."
+		},
+		{
+			"name": "8. Transactions",
+			"item": [
+				{
+					"name": "List Transactions",
+					"request": {
+						"method": "GET",
+						"header": [
+							{
+								"key": "Authorization",
+								"value": "Bearer {{access_token}}"
+							}
+						],
+						"url": {
+							"raw": "{{base_url}}/api/transactions/?transaction_type=payin&status=success&limit=10&offset=0",
+							"host": ["{{base_url}}"],
+							"path": ["api", "transactions", ""],
+							"query": [
+								{
+									"key": "transaction_type",
+									"value": "payin",
+									"description": "Filter by type: payin, payout, bbps, commission"
+								},
+								{
+									"key": "status",
+									"value": "success"
+								},
+								{
+									"key": "limit",
+									"value": "10"
+								},
+								{
+									"key": "offset",
+									"value": "0"
+								}
+							]
+						},
+						"description": "Get list of all transactions with filters."
+					},
+					"response": []
+				},
+				{
+					"name": "Get Transaction Detail",
+					"request": {
+						"method": "GET",
+						"header": [
+							{
+								"key": "Authorization",
+								"value": "Bearer {{access_token}}"
+							}
+						],
+						"url": {
+							"raw": "{{base_url}}/api/transactions/1/",
+							"host": ["{{base_url}}"],
+							"path": ["api", "transactions", "1", ""]
+						},
+						"description": "Get detailed information about a specific transaction."
+					},
+					"response": []
+				}
+			],
+			"description": "Transaction endpoints to view transaction history and details."
+		},
+		{
+			"name": "9. Passbook",
+			"item": [
+				{
+					"name": "Get Passbook Entries",
+					"request": {
+						"method": "GET",
+						"header": [
+							{
+								"key": "Authorization",
+								"value": "Bearer {{access_token}}"
+							}
+						],
+						"url": {
+							"raw": "{{base_url}}/api/passbook/?service=payin&start_date=2024-01-01&end_date=2024-12-31&limit=10&offset=0",
+							"host": ["{{base_url}}"],
+							"path": ["api", "passbook", ""],
+							"query": [
+								{
+									"key": "service",
+									"value": "payin",
+									"description": "Filter by service: payin, payout, bbps, commission, bank_verification"
+								},
+								{
+									"key": "start_date",
+									"value": "2024-01-01"
+								},
+								{
+									"key": "end_date",
+									"value": "2024-12-31"
+								},
+								{
+									"key": "limit",
+									"value": "10"
+								},
+								{
+									"key": "offset",
+									"value": "0"
+								}
+							]
+						},
+						"description": "Get passbook entries with filters for service type and date range."
+					},
+					"response": []
+				}
+			],
+			"description": "Passbook endpoints to view account statement and transaction history."
+		},
+		{
+			"name": "10. Reports",
+			"item": [
+				{
+					"name": "Pay In Report",
+					"request": {
+						"method": "GET",
+						"header": [
+							{
+								"key": "Authorization",
+								"value": "Bearer {{access_token}}"
+							}
+						],
+						"url": {
+							"raw": "{{base_url}}/api/reports/payin/?start_date=2024-01-01&end_date=2024-12-31",
+							"host": ["{{base_url}}"],
+							"path": ["api", "reports", "payin", ""],
+							"query": [
+								{
+									"key": "start_date",
+									"value": "2024-01-01"
+								},
+								{
+									"key": "end_date",
+									"value": "2024-12-31"
+								}
+							]
+						},
+						"description": "Get pay in (load money) report for date range."
+					},
+					"response": []
+				},
+				{
+					"name": "Pay Out Report",
+					"request": {
+						"method": "GET",
+						"header": [
+							{
+								"key": "Authorization",
+								"value": "Bearer {{access_token}}"
+							}
+						],
+						"url": {
+							"raw": "{{base_url}}/api/reports/payout/?start_date=2024-01-01&end_date=2024-12-31",
+							"host": ["{{base_url}}"],
+							"path": ["api", "reports", "payout", ""],
+							"query": [
+								{
+									"key": "start_date",
+									"value": "2024-01-01"
+								},
+								{
+									"key": "end_date",
+									"value": "2024-12-31"
+								}
+							]
+						},
+						"description": "Get pay out report for date range."
+					},
+					"response": []
+				},
+				{
+					"name": "BBPS Report",
+					"request": {
+						"method": "GET",
+						"header": [
+							{
+								"key": "Authorization",
+								"value": "Bearer {{access_token}}"
+							}
+						],
+						"url": {
+							"raw": "{{base_url}}/api/reports/bbps/?start_date=2024-01-01&end_date=2024-12-31",
+							"host": ["{{base_url}}"],
+							"path": ["api", "reports", "bbps", ""],
+							"query": [
+								{
+									"key": "start_date",
+									"value": "2024-01-01"
+								},
+								{
+									"key": "end_date",
+									"value": "2024-12-31"
+								}
+							]
+						},
+						"description": "Get BBPS bill payment report for date range."
+					},
+					"response": []
+				},
+				{
+					"name": "Commission Report",
+					"request": {
+						"method": "GET",
+						"header": [
+							{
+								"key": "Authorization",
+								"value": "Bearer {{access_token}}"
+							}
+						],
+						"url": {
+							"raw": "{{base_url}}/api/reports/commission/?start_date=2024-01-01&end_date=2024-12-31",
+							"host": ["{{base_url}}"],
+							"path": ["api", "reports", "commission", ""],
+							"query": [
+								{
+									"key": "start_date",
+									"value": "2024-01-01"
+								},
+								{
+									"key": "end_date",
+									"value": "2024-12-31"
+								}
+							]
+						},
+						"description": "Get commission report for date range."
+					},
+					"response": []
+				}
+			],
+			"description": "Report endpoints for various transaction types and date ranges."
+		},
+		{
+			"name": "11. Admin Panel",
+			"item": [
+				{
+					"name": "Announcements",
+					"item": [
+						{
+							"name": "List Announcements",
+							"request": {
+								"method": "GET",
+								"header": [
+									{
+										"key": "Authorization",
+										"value": "Bearer {{access_token}}"
+									}
+								],
+								"url": {
+									"raw": "{{base_url}}/api/admin/announcements/",
+									"host": ["{{base_url}}"],
+									"path": ["api", "admin", "announcements", ""]
+								},
+								"description": "Get list of announcements. Admin sees all, others see only active ones."
+							},
+							"response": []
+						},
+						{
+							"name": "Create Announcement",
+							"event": [
+								{
+									"listen": "test",
+									"script": {
+										"exec": [
+											"if (pm.response.code === 201) {",
+											"    var jsonData = pm.response.json();",
+											"    if (jsonData.success && jsonData.data) {",
+											"        pm.environment.set(\"announcement_id\", jsonData.data.id);",
+											"    }",
+											"}"
+										],
+										"type": "text/javascript"
+									}
+								}
+							],
+							"request": {
+								"method": "POST",
+								"header": [
+									{
+										"key": "Content-Type",
+										"value": "application/json"
+									},
+									{
+										"key": "Authorization",
+										"value": "Bearer {{access_token}}"
+									}
+								],
+								"body": {
+									"mode": "raw",
+									"raw": "{\n    \"title\": \"System Maintenance\",\n    \"message\": \"System will be under maintenance on Jan 1st\",\n    \"priority\": \"high\",\n    \"target_roles\": [\"Distributor\", \"Retailer\"],\n    \"is_active\": true\n}",
+									"options": {
+										"raw": {
+											"language": "json"
+										}
+									}
+								},
+								"url": {
+									"raw": "{{base_url}}/api/admin/announcements/",
+									"host": ["{{base_url}}"],
+									"path": ["api", "admin", "announcements", ""]
+								},
+								"description": "Create a new announcement. Admin only."
+							},
+							"response": []
+						},
+						{
+							"name": "Get Announcement Detail",
+							"request": {
+								"method": "GET",
+								"header": [
+									{
+										"key": "Authorization",
+										"value": "Bearer {{access_token}}"
+									}
+								],
+								"url": {
+									"raw": "{{base_url}}/api/admin/announcements/{{announcement_id}}/",
+									"host": ["{{base_url}}"],
+									"path": ["api", "admin", "announcements", "{{announcement_id}}", ""]
+								},
+								"description": "Get detailed information about a specific announcement."
+							},
+							"response": []
+						},
+						{
+							"name": "Update Announcement",
+							"request": {
+								"method": "PUT",
+								"header": [
+									{
+										"key": "Content-Type",
+										"value": "application/json"
+									},
+									{
+										"key": "Authorization",
+										"value": "Bearer {{access_token}}"
+									}
+								],
+								"body": {
+									"mode": "raw",
+									"raw": "{\n    \"title\": \"Updated Title\",\n    \"message\": \"Updated message\",\n    \"is_active\": false\n}",
+									"options": {
+										"raw": {
+											"language": "json"
+										}
+									}
+								},
+								"url": {
+									"raw": "{{base_url}}/api/admin/announcements/{{announcement_id}}/",
+									"host": ["{{base_url}}"],
+									"path": ["api", "admin", "announcements", "{{announcement_id}}", ""]
+								},
+								"description": "Update an announcement. Admin only."
+							},
+							"response": []
+						},
+						{
+							"name": "Delete Announcement",
+							"request": {
+								"method": "DELETE",
+								"header": [
+									{
+										"key": "Authorization",
+										"value": "Bearer {{access_token}}"
+									}
+								],
+								"url": {
+									"raw": "{{base_url}}/api/admin/announcements/{{announcement_id}}/",
+									"host": ["{{base_url}}"],
+									"path": ["api", "admin", "announcements", "{{announcement_id}}", ""]
+								},
+								"description": "Delete an announcement. Admin only."
+							},
+							"response": []
+						}
+					],
+					"description": "Announcement management endpoints (Admin only)."
+				},
+				{
+					"name": "Payment Gateways",
+					"item": [
+						{
+							"name": "List Payment Gateways",
+							"request": {
+								"method": "GET",
+								"header": [
+									{
+										"key": "Authorization",
+										"value": "Bearer {{access_token}}"
+									}
+								],
+								"url": {
+									"raw": "{{base_url}}/api/admin/gateways/",
+									"host": ["{{base_url}}"],
+									"path": ["api", "admin", "gateways", ""]
+								},
+								"description": "Get list of payment gateways. Admin only."
+							},
+							"response": []
+						},
+						{
+							"name": "Create Payment Gateway",
+							"event": [
+								{
+									"listen": "test",
+									"script": {
+										"exec": [
+											"if (pm.response.code === 201) {",
+											"    var jsonData = pm.response.json();",
+											"    if (jsonData.success && jsonData.data) {",
+											"        pm.environment.set(\"gateway_id\", jsonData.data.id);",
+											"    }",
+											"}"
+										],
+										"type": "text/javascript"
+									}
+								}
+							],
+							"request": {
+								"method": "POST",
+								"header": [
+									{
+										"key": "Content-Type",
+										"value": "application/json"
+									},
+									{
+										"key": "Authorization",
+										"value": "Bearer {{access_token}}"
+									}
+								],
+								"body": {
+									"mode": "raw",
+									"raw": "{\n    \"name\": \"Razorpay\",\n    \"charge_rate\": 2.5,\n    \"status\": \"active\",\n    \"visible_to_roles\": [\"Admin\", \"Master Distributor\", \"Distributor\", \"Retailer\"]\n}",
+									"options": {
+										"raw": {
+											"language": "json"
+										}
+									}
+								},
+								"url": {
+									"raw": "{{base_url}}/api/admin/gateways/",
+									"host": ["{{base_url}}"],
+									"path": ["api", "admin", "gateways", ""]
+								},
+								"description": "Create a new payment gateway. Admin only."
+							},
+							"response": []
+						},
+						{
+							"name": "Get Payment Gateway Detail",
+							"request": {
+								"method": "GET",
+								"header": [
+									{
+										"key": "Authorization",
+										"value": "Bearer {{access_token}}"
+									}
+								],
+								"url": {
+									"raw": "{{base_url}}/api/admin/gateways/{{gateway_id}}/",
+									"host": ["{{base_url}}"],
+									"path": ["api", "admin", "gateways", "{{gateway_id}}", ""]
+								},
+								"description": "Get detailed information about a specific payment gateway."
+							},
+							"response": []
+						},
+						{
+							"name": "Update Payment Gateway",
+							"request": {
+								"method": "PUT",
+								"header": [
+									{
+										"key": "Content-Type",
+										"value": "application/json"
+									},
+									{
+										"key": "Authorization",
+										"value": "Bearer {{access_token}}"
+									}
+								],
+								"body": {
+									"mode": "raw",
+									"raw": "{\n    \"charge_rate\": 3.0,\n    \"status\": \"active\"\n}",
+									"options": {
+										"raw": {
+											"language": "json"
+										}
+									}
+								},
+								"url": {
+									"raw": "{{base_url}}/api/admin/gateways/{{gateway_id}}/",
+									"host": ["{{base_url}}"],
+									"path": ["api", "admin", "gateways", "{{gateway_id}}", ""]
+								},
+								"description": "Update payment gateway. Admin only."
+							},
+							"response": []
+						},
+						{
+							"name": "Toggle Payment Gateway Status",
+							"request": {
+								"method": "POST",
+								"header": [
+									{
+										"key": "Authorization",
+										"value": "Bearer {{access_token}}"
+									}
+								],
+								"url": {
+									"raw": "{{base_url}}/api/admin/gateways/{{gateway_id}}/toggle_status/",
+									"host": ["{{base_url}}"],
+									"path": ["api", "admin", "gateways", "{{gateway_id}}", "toggle_status", ""]
+								},
+								"description": "Toggle payment gateway status (active/down). Admin only."
+							},
+							"response": []
+						},
+						{
+							"name": "Delete Payment Gateway",
+							"request": {
+								"method": "DELETE",
+								"header": [
+									{
+										"key": "Authorization",
+										"value": "Bearer {{access_token}}"
+									}
+								],
+								"url": {
+									"raw": "{{base_url}}/api/admin/gateways/{{gateway_id}}/",
+									"host": ["{{base_url}}"],
+									"path": ["api", "admin", "gateways", "{{gateway_id}}", ""]
+								},
+								"description": "Delete payment gateway. Admin only."
+							},
+							"response": []
+						}
+					],
+					"description": "Payment gateway management endpoints (Admin only)."
+				},
+				{
+					"name": "Payout Gateways",
+					"item": [
+						{
+							"name": "List Payout Gateways",
+							"request": {
+								"method": "GET",
+								"header": [
+									{
+										"key": "Authorization",
+										"value": "Bearer {{access_token}}"
+									}
+								],
+								"url": {
+									"raw": "{{base_url}}/api/admin/payout-gateways/",
+									"host": ["{{base_url}}"],
+									"path": ["api", "admin", "payout-gateways", ""]
+								},
+								"description": "Get list of payout gateways. Admin only."
+							},
+							"response": []
+						},
+						{
+							"name": "Create Payout Gateway",
+							"event": [
+								{
+									"listen": "test",
+									"script": {
+										"exec": [
+											"if (pm.response.code === 201) {",
+											"    var jsonData = pm.response.json();",
+											"    if (jsonData.success && jsonData.data) {",
+											"        pm.environment.set(\"payout_gateway_id\", jsonData.data.id);",
+											"    }",
+											"}"
+										],
+										"type": "text/javascript"
+									}
+								}
+							],
+							"request": {
+								"method": "POST",
+								"header": [
+									{
+										"key": "Content-Type",
+										"value": "application/json"
+									},
+									{
+										"key": "Authorization",
+										"value": "Bearer {{access_token}}"
+									}
+								],
+								"body": {
+									"mode": "raw",
+									"raw": "{\n    \"name\": \"Razorpay Payout\",\n    \"status\": \"active\",\n    \"visible_to_roles\": [\"Admin\", \"Master Distributor\", \"Distributor\", \"Retailer\"]\n}",
+									"options": {
+										"raw": {
+											"language": "json"
+										}
+									}
+								},
+								"url": {
+									"raw": "{{base_url}}/api/admin/payout-gateways/",
+									"host": ["{{base_url}}"],
+									"path": ["api", "admin", "payout-gateways", ""]
+								},
+								"description": "Create a new payout gateway. Admin only."
+							},
+							"response": []
+						},
+						{
+							"name": "Get Payout Gateway Detail",
+							"request": {
+								"method": "GET",
+								"header": [
+									{
+										"key": "Authorization",
+										"value": "Bearer {{access_token}}"
+									}
+								],
+								"url": {
+									"raw": "{{base_url}}/api/admin/payout-gateways/{{payout_gateway_id}}/",
+									"host": ["{{base_url}}"],
+									"path": ["api", "admin", "payout-gateways", "{{payout_gateway_id}}", ""]
+								},
+								"description": "Get detailed information about a specific payout gateway."
+							},
+							"response": []
+						},
+						{
+							"name": "Update Payout Gateway",
+							"request": {
+								"method": "PUT",
+								"header": [
+									{
+										"key": "Content-Type",
+										"value": "application/json"
+									},
+									{
+										"key": "Authorization",
+										"value": "Bearer {{access_token}}"
+									}
+								],
+								"body": {
+									"mode": "raw",
+									"raw": "{\n    \"status\": \"active\"\n}",
+									"options": {
+										"raw": {
+											"language": "json"
+										}
+									}
+								},
+								"url": {
+									"raw": "{{base_url}}/api/admin/payout-gateways/{{payout_gateway_id}}/",
+									"host": ["{{base_url}}"],
+									"path": ["api", "admin", "payout-gateways", "{{payout_gateway_id}}", ""]
+								},
+								"description": "Update payout gateway. Admin only."
+							},
+							"response": []
+						},
+						{
+							"name": "Toggle Payout Gateway Status",
+							"request": {
+								"method": "POST",
+								"header": [
+									{
+										"key": "Authorization",
+										"value": "Bearer {{access_token}}"
+									}
+								],
+								"url": {
+									"raw": "{{base_url}}/api/admin/payout-gateways/{{payout_gateway_id}}/toggle_status/",
+									"host": ["{{base_url}}"],
+									"path": ["api", "admin", "payout-gateways", "{{payout_gateway_id}}", "toggle_status", ""]
+								},
+								"description": "Toggle payout gateway status (active/down). Admin only."
+							},
+							"response": []
+						},
+						{
+							"name": "Delete Payout Gateway",
+							"request": {
+								"method": "DELETE",
+								"header": [
+									{
+										"key": "Authorization",
+										"value": "Bearer {{access_token}}"
+									}
+								],
+								"url": {
+									"raw": "{{base_url}}/api/admin/payout-gateways/{{payout_gateway_id}}/",
+									"host": ["{{base_url}}"],
+									"path": ["api", "admin", "payout-gateways", "{{payout_gateway_id}}", ""]
+								},
+								"description": "Delete payout gateway. Admin only."
+							},
+							"response": []
+						}
+					],
+					"description": "Payout gateway management endpoints (Admin only)."
+				}
+			],
+			"description": "Admin panel endpoints for managing announcements and gateways (Admin only)."
+		}
+	],
+	"variable": [
+		{
+			"key": "base_url",
+			"value": "http://localhost:8000",
+			"type": "string"
+		}
+	]
+}
