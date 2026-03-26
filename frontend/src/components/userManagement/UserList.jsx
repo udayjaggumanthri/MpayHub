@@ -16,7 +16,8 @@ const UserList = ({ role, onCreateNew, currentUserId }) => {
     setLoading(true);
     try {
       // Fetch users from API
-      const result = await usersAPI.listUsers({ role });
+      const params = role && role !== 'all' ? { role } : {};
+      const result = await usersAPI.listUsers(params);
       
       if (result.success && result.data?.users) {
         // Filter users based on search term

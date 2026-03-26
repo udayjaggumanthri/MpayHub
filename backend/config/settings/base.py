@@ -12,6 +12,14 @@ BASE_DIR = Path(__file__).resolve().parent.parent.parent
 # SECURITY WARNING: keep the secret key used in production secret!
 SECRET_KEY = config('SECRET_KEY', default='django-insecure-change-this-in-production')
 
+
+def get_csv_setting(name, default=''):
+    """
+    Parse comma-separated env vars into a clean list.
+    """
+    raw_value = config(name, default=default)
+    return [item.strip() for item in raw_value.split(',') if item.strip()]
+
 # Application definition
 INSTALLED_APPS = [
     'django.contrib.admin',
@@ -183,13 +191,12 @@ SIMPLE_JWT = {
     'USER_ID_CLAIM': 'user_id',
 }
 
-# CORS Settings
-CORS_ALLOWED_ORIGINS = [
-    "http://localhost:3000",
-    "http://127.0.0.1:3000",
-]
-
-CORS_ALLOW_CREDENTIALS = True
+# CORS Settings (env-driven, with safe local defaults)
+CORS_ALLOWED_ORIGINS = get_csv_setting(
+    'CORS_ALLOWED_ORIGINS',
+    default='http://localhost:3000,http://127.0.0.1:3000'
+)
+CORS_ALLOW_CREDENTIALS = config('CORS_ALLOW_CREDENTIALS', default=True, cast=bool)
 
 # Cache Configuration
 # Cache Configuration (for rate limiting)
@@ -217,8 +224,8 @@ OTP_LENGTH = 6
 WALLET_TYPES = ['main', 'commission', 'bbps']
 
 # Service Charge Settings
-BBPS_SERVICE_CHARGE = 5.00  # ₹5.00 default
-BANK_VERIFICATION_CHARGE = 3.00  # ₹3.00
+BBPS_SERVICE_CHARGE = config('BBPS_SERVICE_CHARGE', default=5.00, cast=float)
+BANK_VERIFICATION_CHARGE = config('BANK_VERIFICATION_CHARGE', default=3.00, cast=float)
 
 # Logging
 LOGGING = {

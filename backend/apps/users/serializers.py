@@ -111,6 +111,34 @@ class UserCreateSerializer(serializers.Serializer):
         if len(value) != 6 or not value.isdigit():
             raise serializers.ValidationError("MPIN must be exactly 6 digits.")
         return value
+
+    def validate_pan(self, value):
+        """Validate optional PAN format and uniqueness."""
+        if not value:
+            return value
+
+        normalized_pan = value.upper().strip()
+        if not validate_pan(normalized_pan):
+            raise serializers.ValidationError("Invalid PAN format.")
+
+        if KYC.objects.filter(pan=normalized_pan).exists():
+            raise serializers.ValidationError("PAN already exists for another user.")
+
+        return normalized_pan
+
+    def validate_aadhaar(self, value):
+        """Validate optional Aadhaar format and uniqueness."""
+        if not value:
+            return value
+
+        normalized_aadhaar = value.strip()
+        if not validate_aadhaar(normalized_aadhaar):
+            raise serializers.ValidationError("Invalid Aadhaar format.")
+
+        if KYC.objects.filter(aadhaar=normalized_aadhaar).exists():
+            raise serializers.ValidationError("Aadhaar already exists for another user.")
+
+        return normalized_aadhaar
     
     def validate(self, attrs):
         """Validate and ensure MPIN is provided."""

@@ -5,13 +5,14 @@ Development settings for mPayhub project.
 from .base import *
 
 # SECURITY WARNING: don't run with debug turned on in production!
-DEBUG = True
+DEBUG = config('DEBUG', default=True, cast=bool)
 
-ALLOWED_HOSTS = ['localhost', '127.0.0.1', '0.0.0.0']
+ALLOWED_HOSTS = get_csv_setting(
+    'ALLOWED_HOSTS',
+    default='localhost,127.0.0.1,0.0.0.0'
+)
 
 # Database - Can use SQLite for development if PostgreSQL is not available
-from decouple import config
-
 USE_SQLITE = config('USE_SQLITE', default=False, cast=bool)
 
 if USE_SQLITE:
@@ -22,8 +23,8 @@ if USE_SQLITE:
         }
     }
 
-# CORS - Allow all origins in development
-CORS_ALLOW_ALL_ORIGINS = True
+# CORS in development (defaults keep existing behavior)
+CORS_ALLOW_ALL_ORIGINS = config('CORS_ALLOW_ALL_ORIGINS', default=True, cast=bool)
 
 # Email Backend (Console for development)
 EMAIL_BACKEND = 'django.core.mail.backends.console.EmailBackend'

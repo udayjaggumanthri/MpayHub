@@ -120,19 +120,14 @@ const AddUser = ({ onCancel, onSuccess }) => {
 
     setLoading(true);
     try {
-      // Note: PAN verification requires userId, so we'll do a mock verification for now
-      // In production, this would be done after user creation or via a separate service
+      // Mock verification for onboarding flow:
+      // Accept any PAN that matches valid format.
+      // Real integration should verify against PAN service API.
       await new Promise((resolve) => setTimeout(resolve, 2000));
-      
-      // Mock verification - check if PAN matches name format
-      const firstNameMatch = formData.firstName.toUpperCase().substring(0, 5);
-      if (formData.pan.substring(0, 5) === firstNameMatch || formData.pan === 'ABCDE1234F') {
-        setFormData({ ...formData, panVerified: true });
-        setErrors({ ...errors, pan: '' });
-        alert('PAN verified successfully!');
-      } else {
-        setErrors({ ...errors, pan: 'PAN verification failed. Please ensure PAN matches the name as per PAN card.' });
-      }
+
+      setFormData({ ...formData, panVerified: true });
+      setErrors({ ...errors, pan: '' });
+      alert('PAN verified successfully! (Mock mode)');
     } catch (error) {
       setErrors({ ...errors, pan: 'Error verifying PAN. Please try again.' });
     } finally {
@@ -235,7 +230,26 @@ Please share these credentials with the user securely.`;
         }
       } else {
         // Handle API errors
-        const errorMessage = result.errors?.join(', ') || result.message || 'Error creating user. Please try again.';
+        let errorMessage = result.message || 'Error creating user. Please try again.';
+
+        if (Array.isArray(result.errors) && result.errors.length > 0) {
+          errorMessage = result.errors.join(', ');
+        } else if (result.errors && typeof result.errors === 'object') {
+          // DRF serializer errors usually come as an object: { field: ["msg"] }
+          const flattened = Object.entries(result.errors)
+            .flatMap(([field, messages]) => {
+              if (Array.isArray(messages)) {
+                return messages.map((msg) => `${field}: ${msg}`);
+              }
+              return [`${field}: ${messages}`];
+            });
+          if (flattened.length > 0) {
+            errorMessage = flattened.join(', ');
+          }
+        } else if (typeof result.errors === 'string' && result.errors.trim()) {
+          errorMessage = result.errors;
+        }
+
         alert(errorMessage);
         setErrors({ submit: errorMessage });
       }

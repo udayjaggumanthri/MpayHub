@@ -61,7 +61,7 @@ class UserViewSet(viewsets.ModelViewSet):
         
         # Filter by role if provided
         role = self.request.query_params.get('role')
-        if role:
+        if role and role.lower() != 'all':
             queryset = queryset.filter(role=role)
         
         return queryset.select_related('profile', 'kyc')

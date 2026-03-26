@@ -97,7 +97,7 @@ const UserManagement = () => {
 
         {/* User List */}
         <UserList
-          role={activeRole === 'all' ? 'all' : activeRole}
+          role={activeRole === 'all' ? undefined : activeRole}
           onCreateNew={
             activeRole !== 'all' && canCreateRole(user?.role, activeRole)
               ? () => handleCreateNew(activeRole)

@@ -5,8 +5,32 @@
 
 import axios from 'axios';
 
-// API Base URL - can be configured via environment variables
-const API_BASE_URL = process.env.REACT_APP_API_BASE_URL || 'http://localhost:8000/api';
+const normalizeApiBaseUrl = (rawBaseUrl) => {
+  const fallback = '/api';
+  if (!rawBaseUrl) return fallback;
+
+  const trimmed = rawBaseUrl.trim().replace(/\/+$/, '');
+  if (!trimmed) return fallback;
+
+  // Accept both:
+  // - http://localhost:8000
+  // - http://localhost:8000/api
+  // and normalize to .../api
+  if (trimmed.endsWith('/api')) {
+    return trimmed;
+  }
+  return `${trimmed}/api`;
+};
+
+// API Base URL - configured via environment variable with normalization
+const API_BASE_URL = normalizeApiBaseUrl(process.env.REACT_APP_API_BASE_URL);
+
+if (!process.env.REACT_APP_API_BASE_URL) {
+  // Keep app running in local/reverse-proxy scenarios, but highlight missing env setup.
+  // For explicit backend target, set REACT_APP_API_BASE_URL in frontend/.env.
+  // eslint-disable-next-line no-console
+  console.warn('REACT_APP_API_BASE_URL is not set. Falling back to relative /api.');
+}
 
 // Create axios instance with default config
 const apiClient = axios.create({
