@@ -26,7 +26,7 @@ const UserList = ({ role, onCreateNew, currentUserId }) => {
           const firstName = (u.first_name || '').toLowerCase();
           const lastName = (u.last_name || '').toLowerCase();
           const fullName = `${firstName} ${lastName}`.trim();
-          const userId = (u.user_id || '').toLowerCase();
+          const userId = String(u.user_id ?? '').toLowerCase();
           const phone = (u.phone || '').toLowerCase();
           const email = (u.email || '').toLowerCase();
           const businessName = (u.profile?.business_name || '').toLowerCase();

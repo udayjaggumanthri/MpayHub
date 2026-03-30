@@ -92,6 +92,6 @@ export const getStatusColor = (status) => {
 
 // Format user ID for display
 export const formatUserId = (userId) => {
-  if (!userId) return '';
-  return userId.toUpperCase();
+  if (userId === null || userId === undefined) return '';
+  return String(userId).toUpperCase();
 };
