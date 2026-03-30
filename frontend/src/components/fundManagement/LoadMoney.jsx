@@ -1,7 +1,9 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../../context/AuthContext';
-import { addTransaction, getContacts, getPaymentGateways, calculateServiceCharge } from '../../services/mockData';
+import { addTransaction, getPaymentGateways, calculateServiceCharge } from '../../services/mockData';
+import { contactsAPI } from '../../services/api';
+import { mapContactRow } from '../../utils/contactsHelpers';
 import Card from '../common/Card';
 import Input from '../common/Input';
 import Button from '../common/Button';
@@ -52,21 +54,16 @@ const LoadMoney = () => {
 
     setSearching(true);
     try {
-      // Simulate API call delay
-      await new Promise((resolve) => setTimeout(resolve, 500));
-      
-      // Fetch contact from Contacts database
-      const { getContactByPhone } = await import('../../services/mockData');
-      const result = getContactByPhone(user.id, phoneNumber);
-      
-      if (result.success && result.contact) {
-        setCustomerDetails({
-          name: result.contact.name,
-          email: result.contact.email,
-          phone: result.contact.phone,
-        });
+      const result = await contactsAPI.searchContactByPhone(phoneNumber);
+      const row = result.success ? result.data?.contact : null;
+      const mapped = mapContactRow(row);
+      if (mapped) {
+        setCustomerDetails(mapped);
       } else {
-        alert('Contact not found. Please check the phone number or add the contact first.');
+        alert(
+          result.message ||
+            'Contact not found. Add this person under User Management → Contacts, then search again.'
+        );
         setCustomerDetails(null);
       }
     } catch (error) {

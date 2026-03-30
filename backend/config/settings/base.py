@@ -49,11 +49,8 @@ INSTALLED_APPS = [
     'apps.bank_accounts',
     'apps.transactions',
     'apps.admin_panel',
-            'apps.integrations',
-        ]
-        
-        # Optional: Uncomment if you need django-extensions
-        # 'django_extensions',
+    'apps.integrations',
+]
 
 MIDDLEWARE = [
     'django.middleware.security.SecurityMiddleware',

@@ -1,8 +1,10 @@
 import React, { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { resetPassword, sendOTP } from '../../services/mockData';
-import { validatePhone, validateMPIN } from '../../utils/validators';
+import { validatePhone } from '../../utils/validators';
 import { FaPhone, FaLock, FaCircleCheck, FaArrowLeft } from 'react-icons/fa6';
+
+const LOGO_SRC = `${process.env.PUBLIC_URL || ''}/images/logo.svg`;
 
 const ForgotPassword = () => {
   const navigate = useNavigate();
@@ -97,24 +99,35 @@ const ForgotPassword = () => {
     }
   };
 
+  const stepTitle =
+    step === 1 ? 'Forgot Password?' : step === 2 ? 'Verify OTP' : 'Set New Password';
+  const stepSubtitle =
+    step === 1
+      ? 'Enter your phone number to receive OTP'
+      : step === 2
+        ? 'Enter the 6-digit OTP sent to your phone'
+        : 'Create a new secure password';
+
   return (
     <div className="min-h-screen flex flex-col lg:flex-row">
-      {/* Left Panel - Branding Section */}
+      {/* Left Panel — matches Login branding (desktop lg+) */}
       <div className="hidden lg:flex lg:w-1/2 relative overflow-hidden">
-        <div 
+        <div
           className="absolute inset-0"
           style={{
-            backgroundImage: 'linear-gradient(135deg, rgba(30, 58, 138, 0.95) 0%, rgba(67, 56, 202, 0.95) 50%, rgba(79, 70, 229, 0.95) 100%), url("data:image/svg+xml,%3Csvg width=\'60\' height=\'60\' viewBox=\'0 0 60 60\' xmlns=\'http://www.w3.org/2000/svg\'%3E%3Cg fill=\'none\' fill-rule=\'evenodd\'%3E%3Cg fill=\'%23ffffff\' fill-opacity=\'0.05\'%3E%3Cpath d=\'M36 34v-4h-2v4h-4v2h4v4h2v-4h2v-2h-4zm0 0v-2h2v2h-2z\'/%3E%3C/g%3E%3C/g%3E%3C/svg%3E")',
+            backgroundImage:
+              'linear-gradient(135deg, rgba(30, 58, 138, 0.95) 0%, rgba(67, 56, 202, 0.95) 50%, rgba(79, 70, 229, 0.95) 100%), url("data:image/svg+xml,%3Csvg width=\'60\' height=\'60\' viewBox=\'0 0 60 60\' xmlns=\'http://www.w3.org/2000/svg\'%3E%3Cg fill=\'none\' fill-rule=\'evenodd\'%3E%3Cg fill=\'%23ffffff\' fill-opacity=\'0.05\'%3E%3Cpath d=\'M36 34v-4h-2v4h-4v2h4v4h2v-4h2v-2h-4zm0 0v-2h2v2h-2z\'/%3E%3C/g%3E%3C/g%3E%3C/svg%3E")',
             backgroundSize: 'cover, 60px 60px',
             backgroundPosition: 'center, center',
           }}
         >
-          <div className="absolute inset-0 bg-gradient-to-br from-blue-900/70 via-indigo-900/60 to-purple-900/70"></div>
+          <div className="absolute inset-0 bg-gradient-to-br from-blue-900/70 via-indigo-900/60 to-purple-900/70" />
         </div>
-        
+
         <div className="absolute inset-0 opacity-5">
-          <div className="absolute top-10 left-10 w-96 h-96 bg-cyan-300 rounded-full blur-3xl animate-pulse"></div>
-          <div className="absolute bottom-10 right-10 w-80 h-80 bg-blue-400 rounded-full blur-3xl animate-pulse delay-1000"></div>
+          <div className="absolute top-10 left-10 w-96 h-96 bg-cyan-300 rounded-full blur-3xl animate-pulse" />
+          <div className="absolute bottom-10 right-10 w-80 h-80 bg-blue-400 rounded-full blur-3xl animate-pulse delay-1000" />
+          <div className="absolute top-1/2 left-1/2 transform -translate-x-1/2 -translate-y-1/2 w-72 h-72 bg-indigo-400 rounded-full blur-3xl animate-pulse delay-500" />
         </div>
 
         <div className="relative z-10 flex flex-col justify-center items-center p-8 xl:p-12 w-full min-h-full">
@@ -122,25 +135,59 @@ const ForgotPassword = () => {
             <h1 className="text-white text-2xl xl:text-3xl font-semibold tracking-wide animate-fadeIn text-center">
               RESET PASSWORD
             </h1>
-            
+
             <div className="flex items-center justify-center">
               <div className="relative w-48 h-48 xl:w-56 xl:h-56">
-                <div className="absolute inset-0 border-4 border-cyan-300 rounded-full opacity-40 animate-spin-slow"></div>
-                <div className="absolute inset-4 border-2 border-cyan-300 rounded-full opacity-60"></div>
-                
+                <div className="absolute inset-0 border-4 border-cyan-300 rounded-full opacity-40 animate-spin-slow" />
+                <div className="absolute inset-4 border-2 border-cyan-300 rounded-full opacity-60" />
+
                 <div className="absolute inset-0 flex items-center justify-center">
-                  <div className="w-32 h-32 xl:w-40 xl:h-40 bg-gradient-to-br from-blue-500 to-indigo-600 rounded-3xl flex items-center justify-center shadow-2xl">
-                    <FaLock className="text-white" size={48} />
+                  <div
+                    className="w-36 h-36 xl:w-44 xl:h-44 bg-white rounded-3xl flex items-center justify-center p-3 xl:p-3.5 overflow-hidden shadow-2xl ring-1 ring-black/5 ring-inset transform hover:scale-105 transition-transform duration-300"
+                    aria-hidden
+                  >
+                    <img
+                      src={LOGO_SRC}
+                      alt="mPayhub"
+                      className="w-full h-full object-contain object-center select-none scale-[1.08] xl:scale-[1.1] origin-center"
+                      draggable={false}
+                    />
                   </div>
                 </div>
               </div>
             </div>
           </div>
 
-          <div className="absolute bottom-8 xl:bottom-12 left-8 xl:left-12 right-8 xl:right-12">
-            <p className="text-cyan-200 text-lg xl:text-xl font-medium tracking-normal text-center">
-              Secure Password Recovery
-            </p>
+          <div className="absolute bottom-8 xl:bottom-12 left-8 xl:left-12 right-8 xl:right-12 space-y-6">
+            <div className="text-center">
+              <p className="text-cyan-200 text-lg xl:text-xl font-medium tracking-normal">
+                Secure password recovery — driven by trust, built for scale
+              </p>
+            </div>
+
+            <div className="space-y-4">
+              <p className="text-gray-300 text-xs xl:text-sm font-normal text-center">Links:</p>
+              <div className="flex flex-wrap justify-center gap-3">
+                <button
+                  type="button"
+                  className="px-4 py-2 bg-gray-800/50 hover:bg-gray-800/70 text-gray-300 hover:text-cyan-300 rounded-lg text-xs xl:text-sm font-normal transition-all duration-200 border border-gray-700/50 hover:border-cyan-400/50"
+                >
+                  Privacy Policy
+                </button>
+                <button
+                  type="button"
+                  className="px-4 py-2 bg-gray-800/50 hover:bg-gray-800/70 text-gray-300 hover:text-cyan-300 rounded-lg text-xs xl:text-sm font-normal transition-all duration-200 border border-gray-700/50 hover:border-cyan-400/50"
+                >
+                  Terms & Conditions
+                </button>
+                <button
+                  type="button"
+                  className="px-4 py-2 bg-gray-800/50 hover:bg-gray-800/70 text-gray-300 hover:text-cyan-300 rounded-lg text-xs xl:text-sm font-normal transition-all duration-200 border border-gray-700/50 hover:border-cyan-400/50"
+                >
+                  Refund & Cancellation
+                </button>
+              </div>
+            </div>
           </div>
         </div>
       </div>
@@ -148,28 +195,29 @@ const ForgotPassword = () => {
       {/* Right Panel - Form */}
       <div className="flex-1 flex items-center justify-center bg-white p-6 sm:p-8 lg:p-12">
         <div className="w-full max-w-md">
-          {/* Mobile Brand Section */}
-          <div className="lg:hidden text-center mb-8">
-            <div className="inline-block mb-4">
-              <div className="w-16 h-16 bg-gradient-to-br from-blue-600 to-indigo-700 rounded-2xl flex items-center justify-center shadow-xl">
-                <FaLock className="text-white" size={32} />
+          {/* Mobile — same visual system as Login (lg:hidden) */}
+          <div className="lg:hidden mb-6 sm:mb-7 rounded-xl bg-slate-50/80 px-4 pt-4 pb-5 ring-1 ring-gray-100">
+            <div className="flex flex-col items-center text-center gap-1.5 sm:gap-2">
+              <p className="text-2xl font-bold uppercase tracking-[0.22em] text-blue-600/85 leading-tight">
+                Reset password
+              </p>
+              <div className="relative flex w-full max-w-[min(94vw,24rem)] justify-center py-1">
+                <img
+                  src={LOGO_SRC}
+                  alt="mPayhub"
+                  className="h-auto w-full max-h-[12rem] sm:max-h-[14rem] object-contain object-center select-none drop-shadow-[0_6px_24px_rgba(30,58,138,0.18)] sm:drop-shadow-[0_8px_28px_rgba(30,58,138,0.2)]"
+                  draggable={false}
+                />
               </div>
+              <h2 className="text-3xl sm:text-4xl font-bold text-gray-900 leading-tight">{stepTitle}</h2>
+              <p className="text-gray-600 text-sm sm:text-base leading-snug max-w-xs">{stepSubtitle}</p>
             </div>
-            <h1 className="text-2xl font-bold text-gray-900 mb-2">RESET PASSWORD</h1>
           </div>
 
           <div className="space-y-8">
-            <div>
-              <h2 className="text-3xl sm:text-4xl font-bold text-gray-900 mb-2">
-                {step === 1 && 'Forgot Password?'}
-                {step === 2 && 'Verify OTP'}
-                {step === 3 && 'Set New Password'}
-              </h2>
-              <p className="text-gray-600 text-base sm:text-lg">
-                {step === 1 && 'Enter your phone number to receive OTP'}
-                {step === 2 && 'Enter the 6-digit OTP sent to your phone'}
-                {step === 3 && 'Create a new secure password'}
-              </p>
+            <div className="hidden lg:block">
+              <h2 className="text-3xl sm:text-4xl font-bold text-gray-900 mb-2">{stepTitle}</h2>
+              <p className="text-gray-600 text-base sm:text-lg">{stepSubtitle}</p>
             </div>
 
             {/* Success Message */}

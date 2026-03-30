@@ -25,7 +25,7 @@ Activation:
 
 ```bash
 pip install --upgrade pip
-pip install -r requirements/development.txt
+pip install -r requirements.txt
 ```
 
 3) Create env file:
@@ -56,13 +56,17 @@ python manage.py runserver
 
 Backend URL: `http://127.0.0.1:8000`
 
-## Dependency Files
+## Dependency Management
 
-- `requirements/base.txt`: shared dependencies
-- `requirements/development.txt`: local development/test tools
-- `requirements/production.txt`: production-only dependencies
-- `requirements.txt`: convenience wrapper to production requirements
-- `requirements-dev.txt`: convenience wrapper to development requirements
+This project now uses one dependency file:
+
+- `requirements.txt`: single source for runtime, production server, development, and test tooling
+
+Install command (all environments):
+
+```bash
+pip install -r requirements.txt
+```
 
 ## Environment Variables
 
@@ -88,10 +92,10 @@ After server start:
 
 ## Production Notes
 
-Install production dependencies:
+Install dependencies:
 
 ```bash
-pip install -r requirements/production.txt
+pip install -r requirements.txt
 ```
 
 Use:
@@ -103,6 +107,5 @@ Use:
 
 - `apps/`: domain apps
 - `config/`: project settings and URL config
-- `requirements/`: dependency groups
 - `tests/`: additional tests
 - `scripts/`: helper scripts

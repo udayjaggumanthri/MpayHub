@@ -4,6 +4,7 @@
  */
 
 import axios from 'axios';
+import { normalizeAuthUser } from '../utils/authUser';
 
 const normalizeApiBaseUrl = (rawBaseUrl) => {
   const fallback = '/api';
@@ -116,7 +117,7 @@ const handleError = (error) => {
     const apiError = error.response.data;
     return {
       success: false,
-      message: apiError.message || 'An error occurred',
+      message: apiError.message || apiError.detail || 'An error occurred',
       errors: apiError.errors || [],
       status: error.response.status,
     };
@@ -137,6 +138,21 @@ const handleError = (error) => {
   }
 };
 
+/** Multipart requests must not use the default JSON Content-Type (boundary required). */
+const formDataRequestConfig = (body) =>
+  typeof FormData !== 'undefined' && body instanceof FormData
+    ? {
+        transformRequest: [
+          (data, headers) => {
+            if (data instanceof FormData) {
+              delete headers['Content-Type'];
+            }
+            return data;
+          },
+        ],
+      }
+    : {};
+
 // ==================== AUTHENTICATION APIs ====================
 
 export const authAPI = {
@@ -154,9 +170,12 @@ export const authAPI = {
         localStorage.setItem('access_token', result.data.tokens.access);
         localStorage.setItem('refresh_token', result.data.tokens.refresh);
         
-        // Store user data
+        // Store user data (normalized for UI: name, userId)
         if (result.data.user) {
-          sessionStorage.setItem('mpayhub_user', JSON.stringify(result.data.user));
+          sessionStorage.setItem(
+            'mpayhub_user',
+            JSON.stringify(normalizeAuthUser(result.data.user))
+          );
         }
       }
       
@@ -260,7 +279,10 @@ export const authAPI = {
       const result = extractData(response);
       
       if (result.success && result.data?.user) {
-        sessionStorage.setItem('mpayhub_user', JSON.stringify(result.data.user));
+        sessionStorage.setItem(
+          'mpayhub_user',
+          JSON.stringify(normalizeAuthUser(result.data.user))
+        );
       }
       
       return result;
@@ -285,6 +307,7 @@ export const authAPI = {
       localStorage.removeItem('refresh_token');
       sessionStorage.removeItem('mpayhub_user');
       sessionStorage.removeItem('mpayhub_mpin_verified');
+      sessionStorage.removeItem('mpayhub_post_mpin_dashboard');
     }
   },
 };
@@ -936,7 +959,11 @@ export const adminAPI = {
    */
   createAnnouncement: async (announcementData) => {
     try {
-      const response = await apiClient.post('/admin/announcements/', announcementData);
+      const response = await apiClient.post(
+        '/admin/announcements/',
+        announcementData,
+        formDataRequestConfig(announcementData)
+      );
       return extractData(response);
     } catch (error) {
       return handleError(error);
@@ -962,7 +989,26 @@ export const adminAPI = {
    */
   updateAnnouncement: async (announcementId, announcementData) => {
     try {
-      const response = await apiClient.put(`/admin/announcements/${announcementId}/`, announcementData);
+      const response = await apiClient.put(
+        `/admin/announcements/${announcementId}/`,
+        announcementData,
+        formDataRequestConfig(announcementData)
+      );
+      return extractData(response);
+    } catch (error) {
+      return handleError(error);
+    }
+  },
+
+  /**
+   * PATCH /api/admin/announcements/{id}/ (e.g. is_active)
+   */
+  patchAnnouncement: async (announcementId, partialData) => {
+    try {
+      const response = await apiClient.patch(
+        `/admin/announcements/${announcementId}/`,
+        partialData
+      );
       return extractData(response);
     } catch (error) {
       return handleError(error);

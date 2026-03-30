@@ -1,14 +1,22 @@
 """
 Admin panel models for announcements and gateway management.
 """
+import uuid
+
+from django.core.validators import FileExtensionValidator
 from django.db import models
 from apps.core.models import BaseModel
-from apps.authentication.models import User
+
+
+def announcement_image_upload_to(instance, filename):
+    ext = filename.rsplit('.', 1)[-1].lower() if '.' in filename else 'bin'
+    return f'announcements/{uuid.uuid4().hex}.{ext}'
 
 
 class Announcement(BaseModel):
     """
     Announcement model for system-wide notifications.
+    Supports text-only, image-only, or combined content.
     """
     PRIORITY_CHOICES = [
         ('low', 'Low'),
@@ -16,10 +24,17 @@ class Announcement(BaseModel):
         ('high', 'High'),
     ]
     
-    title = models.CharField(max_length=200)
-    message = models.TextField()
+    title = models.CharField(max_length=200, blank=True, default='')
+    message = models.TextField(blank=True, default='')
+    image = models.ImageField(
+        upload_to=announcement_image_upload_to,
+        blank=True,
+        null=True,
+        max_length=500,
+        validators=[FileExtensionValidator(allowed_extensions=['jpg', 'jpeg', 'png', 'webp', 'gif'])],
+    )
     priority = models.CharField(max_length=10, choices=PRIORITY_CHOICES, default='medium')
-    target_roles = models.JSONField(default=list)  # List of roles this announcement targets
+    target_roles = models.JSONField(default=list)  # List of roles; include "All" for every role
     is_active = models.BooleanField(default=True)
     
     class Meta:
@@ -27,7 +42,13 @@ class Announcement(BaseModel):
         ordering = ['-created_at']
     
     def __str__(self):
-        return f"{self.title} - {self.priority}"
+        label = (self.title or '').strip() or '(Image or untitled)'
+        return f"{label} - {self.priority}"
+
+    def delete(self, *args, **kwargs):
+        if self.image:
+            self.image.delete(save=False)
+        super().delete(*args, **kwargs)
 
 
 class PaymentGateway(BaseModel):

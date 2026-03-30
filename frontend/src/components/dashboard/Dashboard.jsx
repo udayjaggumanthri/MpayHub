@@ -47,21 +47,18 @@ const Dashboard = () => {
     },
   ];
 
-  if (loading) {
-    return (
-      <div className="flex items-center justify-center min-h-[400px]">
-        <div className="text-center">
-          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600 mx-auto"></div>
-          <p className="mt-4 text-gray-600">Loading dashboard...</p>
-        </div>
-      </div>
-    );
-  }
-
   return (
-    <div className="space-y-8">
+    <>
       <AnnouncementBanner />
-
+      {loading ? (
+        <div className="flex items-center justify-center min-h-[400px]">
+          <div className="text-center">
+            <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600 mx-auto"></div>
+            <p className="mt-4 text-gray-600">Loading dashboard...</p>
+          </div>
+        </div>
+      ) : (
+        <div className="space-y-8">
       {/* Welcome Section */}
       <Card
         className="border-t-4 border-t-blue-600"
@@ -70,13 +67,16 @@ const Dashboard = () => {
         <div className="flex items-center justify-between">
           <div>
             <h1 className="text-3xl font-bold text-gray-900 mb-2">
-              Welcome back, {user?.name}!
+              Welcome back, {user?.name || 'there'}!
             </h1>
             <div className="flex items-center space-x-4 text-sm text-gray-600">
               <div className="flex items-center space-x-2">
                 <FiUser className="text-gray-400" size={16} />
                 <span>
-                  User ID: <span className="font-semibold text-gray-900">{user?.userId}</span>
+                  User ID:{' '}
+                  <span className="font-semibold text-gray-900">
+                    {user?.userId || user?.user_id || '—'}
+                  </span>
                 </span>
               </div>
               <span className="text-gray-300">|</span>
@@ -158,7 +158,9 @@ const Dashboard = () => {
           })}
         </div>
       </Card>
-    </div>
+        </div>
+      )}
+    </>
   );
 };
 

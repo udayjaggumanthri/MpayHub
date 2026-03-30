@@ -1,10 +1,10 @@
 import React, { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../../context/AuthContext';
-import Input from '../common/Input';
-import Button from '../common/Button';
 import { FaEye, FaEyeSlash } from 'react-icons/fa6';
 import { FaPhone, FaLock } from 'react-icons/fa6';
+
+const LOGO_SRC = `${process.env.PUBLIC_URL || ''}/images/logo.svg`;
 
 const Login = () => {
   const navigate = useNavigate();
@@ -107,8 +107,16 @@ const Login = () => {
                 
                 {/* Center Logo */}
                 <div className="absolute inset-0 flex items-center justify-center">
-                  <div className="w-32 h-32 xl:w-40 xl:h-40 bg-gradient-to-br from-blue-500 to-indigo-600 rounded-3xl flex items-center justify-center shadow-2xl transform hover:scale-110 transition-transform duration-300">
-                    <span className="text-white text-4xl xl:text-5xl font-extrabold">mP</span>
+                  <div
+                    className="w-36 h-36 xl:w-44 xl:h-44 bg-white rounded-3xl flex items-center justify-center p-3 xl:p-3.5 overflow-hidden shadow-2xl ring-1 ring-black/5 ring-inset transform hover:scale-105 transition-transform duration-300"
+                    aria-hidden
+                  >
+                    <img
+                      src={LOGO_SRC}
+                      alt="mPayhub"
+                      className="w-full h-full object-contain object-center select-none scale-[1.08] xl:scale-[1.1] origin-center"
+                      draggable={false}
+                    />
                   </div>
                 </div>
               </div>
@@ -155,22 +163,32 @@ const Login = () => {
       {/* Right Panel - Login Form */}
       <div className="flex-1 flex items-center justify-center bg-white p-6 sm:p-8 lg:p-12">
         <div className="w-full max-w-md">
-          {/* Mobile Brand Section (only visible on mobile) */}
-          <div className="lg:hidden text-center mb-8">
-            <div className="inline-block mb-4">
-              <div className="w-16 h-16 bg-gradient-to-br from-blue-600 to-indigo-700 rounded-2xl flex items-center justify-center shadow-xl">
-                <span className="text-white text-2xl font-bold">mP</span>
+          {/* Mobile: single brand + title block (tight vertical rhythm, separated from fields) */}
+          <div className="lg:hidden mb-6 sm:mb-7 rounded-xl bg-slate-50/80 px-4 pt-4 pb-5 ring-1 ring-gray-100">
+            <div className="flex flex-col items-center text-center gap-1.5 sm:gap-2">
+              <p className="text-2xl font-bold uppercase tracking-[0.22em] text-blue-600/85 leading-tight">
+                Welcome to
+              </p>
+              <div className="relative flex w-full max-w-[min(94vw,24rem)] justify-center py-1">
+                <img
+                  src={LOGO_SRC}
+                  alt="mPayhub"
+                  className="h-auto w-full max-h-[12rem] sm:max-h-[14rem] object-contain object-center select-none drop-shadow-[0_6px_24px_rgba(30,58,138,0.18)] sm:drop-shadow-[0_8px_28px_rgba(30,58,138,0.2)]"
+                  draggable={false}
+                />
               </div>
+              <h2 className="text-3xl sm:text-4xl font-bold text-gray-900 leading-tight">
+                LOGIN
+              </h2>
+              <p className="text-gray-600 text-sm sm:text-base leading-snug max-w-xs">
+                Please Log into your account
+              </p>
             </div>
-            <h1 className="text-2xl font-bold text-gray-900 mb-2">WELCOME TO</h1>
-            <h2 className="text-3xl font-extrabold bg-gradient-to-r from-blue-600 to-indigo-600 bg-clip-text text-transparent">
-              mPayhub
-            </h2>
           </div>
 
           {/* Login Form */}
           <div className="space-y-8">
-            <div>
+            <div className="hidden lg:block">
               <h2 className="text-3xl sm:text-4xl font-bold text-gray-900 mb-2">LOGIN</h2>
               <p className="text-gray-600 text-base sm:text-lg">Please Log into your account</p>
             </div>

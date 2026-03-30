@@ -6,10 +6,11 @@ import {
   addTransaction,
   getWallets,
   getPayoutGateways,
-  getContactByPhone,
   validateBankAccount,
   mockBankAccounts,
 } from '../../services/mockData';
+import { contactsAPI } from '../../services/api';
+import { mapContactRow } from '../../utils/contactsHelpers';
 import MPINModal from '../common/MPINModal';
 import Card from '../common/Card';
 import Input from '../common/Input';
@@ -92,24 +93,16 @@ const Payout = () => {
 
     setSearching(true);
     try {
-      // Simulate API call
-      await new Promise((resolve) => setTimeout(resolve, 1000));
-
-      // Try to find contact by phone
-      const contactResult = getContactByPhone(user.id, phoneNumber);
-      if (contactResult.success) {
-        setBeneficiaryDetails({
-          name: contactResult.contact.name,
-          email: contactResult.contact.email,
-          phone: phoneNumber,
-        });
+      const contactResult = await contactsAPI.searchContactByPhone(phoneNumber);
+      const mapped = mapContactRow(contactResult.success ? contactResult.data?.contact : null);
+      if (mapped) {
+        setBeneficiaryDetails(mapped);
       } else {
-        // If contact not found, create mock beneficiary
-        setBeneficiaryDetails({
-          name: 'MURALI PATNALA',
-          email: 'murali@example.com',
-          phone: phoneNumber,
-        });
+        alert(
+          contactResult.message ||
+            'Contact not found. Add the beneficiary under User Management → Contacts, then search again.'
+        );
+        setBeneficiaryDetails(null);
       }
     } catch (error) {
       alert('Error searching for beneficiary. Please try again.');

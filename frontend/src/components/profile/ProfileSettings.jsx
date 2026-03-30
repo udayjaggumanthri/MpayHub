@@ -186,7 +186,7 @@ const ProfileSettings = () => {
           </div>
           <div>
             <h2 className="text-2xl font-bold text-gray-900">{user?.name}</h2>
-            <p className="text-gray-600">User ID: {formatUserId(user?.userId)}</p>
+            <p className="text-gray-600">User ID: {formatUserId(user?.userId || user?.user_id)}</p>
             <p className="text-sm text-gray-500">{user?.role}</p>
           </div>
         </div>
@@ -290,7 +290,7 @@ const ProfileSettings = () => {
                     User ID
                   </label>
                   <div className="px-4 py-3 bg-gray-50 border border-gray-300 rounded-lg">
-                    <p className="text-gray-900 font-semibold">{formatUserId(user?.userId)}</p>
+                    <p className="text-gray-900 font-semibold">{formatUserId(user?.userId || user?.user_id)}</p>
                   </div>
                 </div>
 

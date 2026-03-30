@@ -16,6 +16,8 @@ import {
   HiCog6Tooth 
 } from 'react-icons/hi2';
 
+const LOGO_SRC = `${process.env.PUBLIC_URL || ''}/images/logo.svg`;
+
 const Sidebar = () => {
   const { user } = useAuth();
   const location = useLocation();
@@ -178,9 +180,20 @@ const Sidebar = () => {
         }`}
       >
         <div className="h-full flex flex-col relative overflow-hidden">
-          {/* Logo - Desktop only (mobile logo is in header) */}
-          <div className="hidden lg:block px-4 py-4 border-b border-gray-200 flex-shrink-0">
-            <h1 className="text-xl font-bold text-blue-600">mPayhub</h1>
+          {/* Brand — same rail as nav; no rule between (single chrome column) */}
+          <div className="hidden lg:flex flex-col items-stretch justify-center flex-shrink-0 px-3 sm:px-4 pt-5 pb-1">
+            <Link
+              to="/dashboard"
+              className="flex w-full items-center justify-center rounded-xl py-1 transition-opacity hover:opacity-90 focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 focus-visible:ring-offset-2"
+              aria-label="mPayhub home"
+            >
+              <img
+                src={LOGO_SRC}
+                alt="mPayhub"
+                className="max-h-14 w-auto max-w-[min(100%,13.5rem)] object-contain object-center"
+                draggable={false}
+              />
+            </Link>
           </div>
           
           {/* Mobile: No border or padding - Dashboard starts immediately */}
@@ -189,7 +202,7 @@ const Sidebar = () => {
           {/* Menu Items - Scrollable area - Dashboard always visible at top */}
           <nav 
             ref={menuNavRef}
-            className="flex-1 overflow-y-auto overflow-x-hidden px-3 sm:px-4 pt-[68px] lg:pt-2 pb-2 scroll-smooth" 
+            className="flex-1 overflow-y-auto overflow-x-hidden px-3 sm:px-4 pt-[68px] lg:pt-0 pb-2 scroll-smooth" 
             style={{ scrollPaddingTop: 0 }}
           >
             <div className="space-y-1.5 min-h-0">
@@ -214,7 +227,9 @@ const Sidebar = () => {
                 </div>
                 <div className="min-w-0 flex-1">
                   <p className="text-xs sm:text-sm font-medium text-gray-900 truncate">{user.name}</p>
-                  <p className="text-xs text-gray-500 truncate">{user.userId}</p>
+                  <p className="text-xs text-gray-500 truncate">
+                    {user.userId || user.user_id}
+                  </p>
                 </div>
               </div>
             </div>

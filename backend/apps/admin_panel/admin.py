@@ -7,9 +7,13 @@ from apps.admin_panel.models import Announcement, PaymentGateway, PayoutGateway
 
 @admin.register(Announcement)
 class AnnouncementAdmin(admin.ModelAdmin):
-    list_display = ['title', 'priority', 'is_active', 'created_at']
+    list_display = ['title', 'priority', 'is_active', 'has_image', 'created_at']
     list_filter = ['priority', 'is_active', 'created_at']
     search_fields = ['title', 'message']
+
+    @admin.display(boolean=True)
+    def has_image(self, obj):
+        return bool(obj.image)
 
 
 @admin.register(PaymentGateway)

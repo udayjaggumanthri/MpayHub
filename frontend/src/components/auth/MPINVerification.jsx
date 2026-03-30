@@ -1,6 +1,7 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../../context/AuthContext';
+import { SESSION_POST_MPIN_ANNOUNCE } from '../../utils/announcements';
 
 const MPINVerification = () => {
   const navigate = useNavigate();
@@ -78,6 +79,7 @@ const MPINVerification = () => {
     try {
       const result = await verifyMPIN(mpinValue);
       if (result.success) {
+        sessionStorage.setItem(SESSION_POST_MPIN_ANNOUNCE, '1');
         navigate('/dashboard');
       } else {
         setError(result.message || 'Invalid MPIN');
@@ -106,7 +108,7 @@ const MPINVerification = () => {
           </p>
           {user && (
             <p className="text-sm text-gray-500 mt-2">
-              Logged in as: {user.name} ({user.userId})
+              Logged in as: {user.name} ({user.userId || user.user_id})
             </p>
           )}
         </div>

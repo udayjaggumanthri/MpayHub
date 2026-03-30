@@ -2,6 +2,7 @@ import React, { useState, useEffect, useCallback } from 'react';
 import { useAuth } from '../../context/AuthContext';
 import { contactsAPI } from '../../services/api';
 import { validatePhone, validateEmail } from '../../utils/validators';
+import { contactsFromListResult } from '../../utils/contactsHelpers';
 import Card from '../common/Card';
 import Button from '../common/Button';
 import Input from '../common/Input';
@@ -12,7 +13,8 @@ import {
   FaX,
   FaUser,
   FaEnvelope,
-  FaPhone
+  FaPhone,
+  FaTrash
 } from 'react-icons/fa6';
 
 const Contacts = () => {
@@ -34,21 +36,34 @@ const Contacts = () => {
   });
   const [errors, setErrors] = useState({});
   const [saving, setSaving] = useState(false);
+  const [totalCount, setTotalCount] = useState(null);
+  const [loadError, setLoadError] = useState('');
 
   const loadContacts = useCallback(async () => {
     if (!user) return;
 
     setLoading(true);
+    setLoadError('');
     try {
-      const result = await contactsAPI.listContacts(filters);
-      if (result.success && result.data?.contacts) {
-        setContacts(result.data.contacts);
+      const params = {
+        ...filters,
+        page_size: 100,
+      };
+      const result = await contactsAPI.listContacts(params);
+      const { contacts: rows, totalCount: total } = contactsFromListResult(result);
+      if (result.success) {
+        setContacts(rows);
+        setTotalCount(total);
       } else {
         setContacts([]);
+        setTotalCount(null);
+        setLoadError(result.message || 'Failed to load contacts');
       }
     } catch (error) {
       console.error('Error loading contacts:', error);
       setContacts([]);
+      setTotalCount(null);
+      setLoadError('Failed to load contacts');
     } finally {
       setLoading(false);
     }
@@ -90,9 +105,12 @@ const Contacts = () => {
       newErrors.name = 'Name must be at least 2 characters';
     }
 
-    const emailValidation = validateEmail(formData.email);
-    if (!emailValidation.valid) {
-      newErrors.email = emailValidation.message;
+    const emailTrim = (formData.email || '').trim();
+    if (emailTrim) {
+      const emailValidation = validateEmail(emailTrim);
+      if (!emailValidation.valid) {
+        newErrors.email = emailValidation.message;
+      }
     }
 
     const phoneValidation = validatePhone(formData.phone);
@@ -109,9 +127,14 @@ const Contacts = () => {
 
     setSaving(true);
     try {
+      const payload = {
+        name: formData.name.trim(),
+        email: (formData.email || '').trim() || null,
+        phone: formData.phone.trim(),
+      };
       if (selectedContact) {
         // Update existing contact
-        const result = await contactsAPI.updateContact(selectedContact.id, formData);
+        const result = await contactsAPI.updateContact(selectedContact.id, payload);
         if (result.success) {
           await loadContacts();
           setShowEditModal(false);
@@ -122,7 +145,7 @@ const Contacts = () => {
         }
       } else {
         // Add new contact
-        const result = await contactsAPI.createContact(formData);
+        const result = await contactsAPI.createContact(payload);
         if (result.success) {
           await loadContacts();
           setShowAddModal(false);
@@ -146,6 +169,23 @@ const Contacts = () => {
 
   const clearFilters = () => {
     setFilters({ name: '', email: '', phone: '' });
+  };
+
+  const handleDelete = async (contact) => {
+    if (!contact?.id) return;
+    if (
+      !window.confirm(
+        `Delete contact "${contact.name}" (${contact.phone})? This cannot be undone.`
+      )
+    ) {
+      return;
+    }
+    const result = await contactsAPI.deleteContact(contact.id);
+    if (result.success) {
+      await loadContacts();
+    } else {
+      alert(result.message || 'Failed to delete contact');
+    }
   };
 
   return (
@@ -229,7 +269,24 @@ const Contacts = () => {
 
       {/* Contacts List */}
       <Card padding="lg">
-        <h3 className="text-lg font-semibold text-gray-900 mb-4">All Contacts</h3>
+        <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2 mb-4">
+          <h3 className="text-lg font-semibold text-gray-900">All Contacts</h3>
+          {totalCount != null && !loading && (
+            <p className="text-sm text-gray-500">
+              {contacts.length} shown
+              {typeof totalCount === 'number' && totalCount > contacts.length
+                ? ` of ${totalCount} total`
+                : typeof totalCount === 'number'
+                  ? ` · ${totalCount} total`
+                  : ''}
+            </p>
+          )}
+        </div>
+        {loadError && (
+          <div className="mb-4 rounded-lg bg-red-50 border border-red-100 text-red-700 text-sm px-4 py-2">
+            {loadError}
+          </div>
+        )}
         {loading ? (
           <div className="text-center py-12">
             <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600 mx-auto"></div>
@@ -272,19 +329,30 @@ const Contacts = () => {
                       {contact.name}
                     </td>
                     <td className="px-4 py-4 whitespace-nowrap text-sm text-gray-700">
-                      {contact.email}
+                      {contact.email || '—'}
                     </td>
                     <td className="px-4 py-4 whitespace-nowrap text-sm text-gray-700">
                       {contact.phone}
                     </td>
                     <td className="px-4 py-4 whitespace-nowrap text-center">
-                      <button
-                        onClick={() => handleEdit(contact)}
-                        className="text-blue-600 hover:text-blue-800 transition-colors p-1 rounded hover:bg-blue-50"
-                        title="Edit Contact"
-                      >
-                        <FaPen size={18} />
-                      </button>
+                      <div className="inline-flex items-center justify-center gap-1">
+                        <button
+                          type="button"
+                          onClick={() => handleEdit(contact)}
+                          className="text-blue-600 hover:text-blue-800 transition-colors p-1 rounded hover:bg-blue-50"
+                          title="Edit contact"
+                        >
+                          <FaPen size={18} />
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => handleDelete(contact)}
+                          className="text-red-600 hover:text-red-800 transition-colors p-1 rounded hover:bg-red-50"
+                          title="Delete contact"
+                        >
+                          <FaTrash size={18} />
+                        </button>
+                      </div>
                     </td>
                   </tr>
                 ))}
@@ -328,9 +396,8 @@ const Contacts = () => {
                 type="email"
                 value={formData.email}
                 onChange={(e) => handleInputChange('email', e.target.value)}
-                placeholder="Enter email address"
+                placeholder="Optional — enter email address"
                 icon={FaEnvelope}
-                required
                 error={errors.email}
               />
 
@@ -411,9 +478,8 @@ const Contacts = () => {
                 type="email"
                 value={formData.email}
                 onChange={(e) => handleInputChange('email', e.target.value)}
-                placeholder="Enter email address"
+                placeholder="Optional — enter email address"
                 icon={FaEnvelope}
-                required
                 error={errors.email}
               />
 

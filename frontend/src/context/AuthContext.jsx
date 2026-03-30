@@ -1,5 +1,7 @@
 import React, { createContext, useState, useContext, useEffect } from 'react';
 import { authAPI } from '../services/api';
+import { normalizeAuthUser } from '../utils/authUser';
+import { SESSION_POST_MPIN_ANNOUNCE } from '../utils/announcements';
 
 const AuthContext = createContext();
 
@@ -26,10 +28,17 @@ export const AuthProvider = ({ children }) => {
 
       if (storedUser && accessToken) {
         try {
+          try {
+            setUser(normalizeAuthUser(JSON.parse(storedUser)));
+          } catch {
+            /* ignore bad cache */
+          }
           // Verify token is still valid by fetching current user
           const result = await authAPI.getCurrentUser();
           if (result.success && result.data?.user) {
-            setUser(result.data.user);
+            const u = normalizeAuthUser(result.data.user);
+            setUser(u);
+            sessionStorage.setItem('mpayhub_user', JSON.stringify(u));
             setIsAuthenticated(true);
             setMpinVerified(storedMpinVerified === 'true');
           } else {
@@ -52,9 +61,12 @@ export const AuthProvider = ({ children }) => {
     try {
       const result = await authAPI.login(phone, password);
       if (result.success && result.data?.user) {
-        setUser(result.data.user);
+        const u = normalizeAuthUser(result.data.user);
+        setUser(u);
+        sessionStorage.setItem('mpayhub_user', JSON.stringify(u));
         setIsAuthenticated(true);
         setMpinVerified(false); // MPIN needs to be verified after login
+        sessionStorage.removeItem(SESSION_POST_MPIN_ANNOUNCE);
         return { success: true };
       }
       return {
@@ -108,6 +120,7 @@ export const AuthProvider = ({ children }) => {
     } catch (error) {
       console.error('Logout error:', error);
     } finally {
+      sessionStorage.removeItem(SESSION_POST_MPIN_ANNOUNCE);
       setUser(null);
       setIsAuthenticated(false);
       setMpinVerified(false);

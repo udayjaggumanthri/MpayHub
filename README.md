@@ -47,8 +47,10 @@ Install dependencies:
 
 ```bash
 pip install --upgrade pip
-pip install -r requirements/development.txt
+pip install -r requirements.txt
 ```
+
+Note: backend uses a single dependency file (`backend/requirements.txt`) for development, testing, and production.
 
 Create environment file:
 
@@ -112,11 +114,11 @@ cd frontend
 npm run build
 ```
 
-Backend (production deps):
+Backend dependencies:
 
 ```bash
 cd backend
-pip install -r requirements/production.txt
+pip install -r requirements.txt
 ```
 
 ## 5) VPS Deployment (High Level)

@@ -7,16 +7,44 @@ from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 from apps.contacts.models import Contact
 from apps.contacts.serializers import ContactSerializer
-from apps.core.permissions import IsOwner
 
 
 class ContactViewSet(viewsets.ModelViewSet):
     """
     ViewSet for contact management.
+    Each user only sees and mutates their own contacts (queryset + perform_create).
     """
+
     serializer_class = ContactSerializer
     permission_classes = [IsAuthenticated]
     
+    def list(self, request, *args, **kwargs):
+        """Return a stable envelope with `contacts` for enterprise clients."""
+        response = super().list(request, *args, **kwargs)
+        if response.status_code != status.HTTP_200_OK:
+            return response
+        payload = response.data
+        if isinstance(payload, dict) and 'results' in payload:
+            return Response({
+                'success': True,
+                'data': {
+                    'contacts': payload.get('results', []),
+                    'count': payload.get('count'),
+                    'next': payload.get('next'),
+                    'previous': payload.get('previous'),
+                },
+                'message': 'Contacts retrieved successfully',
+                'errors': [],
+            }, status=status.HTTP_200_OK)
+        if isinstance(payload, list):
+            return Response({
+                'success': True,
+                'data': {'contacts': payload, 'count': len(payload)},
+                'message': 'Contacts retrieved successfully',
+                'errors': [],
+            }, status=status.HTTP_200_OK)
+        return response
+
     def get_queryset(self):
         """Filter contacts by authenticated user."""
         queryset = Contact.objects.filter(user=self.request.user)
