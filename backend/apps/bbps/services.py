@@ -160,6 +160,7 @@ def process_bill_payment(user, bill_data):
             # Create passbook entry
             PassbookEntry.objects.create(
                 user=user,
+                wallet_type='bbps',
                 service='BBPS',
                 service_id=bill_payment.service_id,
                 description=f"PAID FOR {bill_data.get('bill_type', 'BILL PAYMENT')}, BILLER: {bill_data.get('biller', 'N/A')}, AMOUNT: {amount}, CHARGE: {charge_info['charge']}",

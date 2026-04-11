@@ -34,13 +34,16 @@ const BeneficiarySelector = ({ onSelect, selectedBeneficiary }) => {
   const filteredContacts =
     !term && !showDropdown
       ? []
-      : contacts.filter(
-          (contact) =>
-            !term ||
+      : contacts.filter((contact) => {
+          if (!term) return true;
+          const digits = searchTerm.replace(/\D/g, '');
+          return (
             contact.name.toLowerCase().includes(term) ||
-            contact.phone.includes(searchTerm.replace(/\D/g, '')) ||
-            contact.phone.includes(searchTerm)
-        );
+            (contact.email || '').toLowerCase().includes(term) ||
+            contact.phone.includes(digits) ||
+            contact.phone.includes(searchTerm.trim())
+          );
+        });
 
   const handleSelect = (contact) => {
     onSelect(contact);
@@ -96,6 +99,9 @@ const BeneficiarySelector = ({ onSelect, selectedBeneficiary }) => {
                   {contact.email ? (
                     <p className="text-xs text-gray-400 mt-0.5">{contact.email}</p>
                   ) : null}
+                  {contact.contactRoleLabel ? (
+                    <p className="text-xs text-blue-600 mt-0.5">{contact.contactRoleLabel}</p>
+                  ) : null}
                 </button>
               ))
             )}
@@ -108,6 +114,12 @@ const BeneficiarySelector = ({ onSelect, selectedBeneficiary }) => {
           <p className="text-sm text-gray-600">Selected beneficiary</p>
           <p className="font-semibold text-gray-900">{selectedBeneficiary.name}</p>
           <p className="text-sm text-gray-600">{selectedBeneficiary.phone}</p>
+          {selectedBeneficiary.email ? (
+            <p className="text-sm text-gray-600">{selectedBeneficiary.email}</p>
+          ) : null}
+          {selectedBeneficiary.contactRoleLabel ? (
+            <p className="text-xs text-blue-700 mt-1">{selectedBeneficiary.contactRoleLabel}</p>
+          ) : null}
         </div>
       )}
     </div>

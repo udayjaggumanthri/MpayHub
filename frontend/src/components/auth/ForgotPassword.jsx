@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { resetPassword, sendOTP } from '../../services/mockData';
+import { authAPI } from '../../services/api';
 import { validatePhone } from '../../utils/validators';
 import { FaPhone, FaLock, FaCircleCheck, FaArrowLeft } from 'react-icons/fa6';
 
@@ -29,12 +29,12 @@ const ForgotPassword = () => {
 
     setLoading(true);
     try {
-      // Send OTP to phone
-      const result = await sendOTP(phone, 'password-reset');
+      const result = await authAPI.sendOTP(phone, 'password-reset');
       if (result.success) {
         setStep(2);
       } else {
-        setError(result.message || 'Failed to send OTP. Please try again.');
+        const errs = Array.isArray(result.errors) ? result.errors : [];
+        setError(errs[0] || result.message || 'Failed to send OTP. Please try again.');
       }
     } catch (err) {
       setError('An error occurred. Please try again.');
@@ -54,11 +54,12 @@ const ForgotPassword = () => {
 
     setLoading(true);
     try {
-      // Verify OTP (mock: accept 123456)
-      if (otp === '123456') {
+      const result = await authAPI.verifyOTP(phone, otp, 'password-reset');
+      if (result.success) {
         setStep(3);
       } else {
-        setError('Invalid OTP. Please try again. (Mock OTP: 123456)');
+        const errs = Array.isArray(result.errors) ? result.errors : [];
+        setError(errs[0] || result.message || 'Invalid or expired OTP.');
       }
     } catch (err) {
       setError('An error occurred. Please try again.');
@@ -71,8 +72,8 @@ const ForgotPassword = () => {
     e.preventDefault();
     setError('');
 
-    if (!newPassword || newPassword.length < 6) {
-      setError('Password must be at least 6 characters');
+    if (!newPassword || newPassword.length < 8) {
+      setError('Password must be at least 8 characters');
       return;
     }
 
@@ -83,14 +84,20 @@ const ForgotPassword = () => {
 
     setLoading(true);
     try {
-      const result = await resetPassword(phone, otp, newPassword);
+      const result = await authAPI.resetPassword(
+        phone,
+        otp,
+        newPassword,
+        confirmPassword
+      );
       if (result.success) {
         setSuccess(true);
         setTimeout(() => {
           navigate('/login');
         }, 3000);
       } else {
-        setError(result.message || 'Failed to reset password. Please try again.');
+        const errs = Array.isArray(result.errors) ? result.errors : [];
+        setError(errs[0] || result.message || 'Failed to reset password. Please try again.');
       }
     } catch (err) {
       setError('An error occurred. Please try again.');
@@ -309,7 +316,7 @@ const ForgotPassword = () => {
                     className="w-full px-4 py-3.5 border-2 border-gray-200 rounded-xl focus:border-blue-500 focus:ring-2 focus:ring-blue-200 transition-all duration-200 text-base bg-gray-50 focus:bg-white text-center text-2xl font-bold tracking-widest"
                   />
                   <p className="mt-2 text-sm text-gray-500">
-                    OTP sent to {phone.substring(0, 2)}****{phone.substring(6)}. (Mock OTP: 123456)
+                    OTP sent to {phone.substring(0, 2)}****{phone.substring(6)}.
                   </p>
                 </div>
 
@@ -347,9 +354,9 @@ const ForgotPassword = () => {
                       type="password"
                       value={newPassword}
                       onChange={(e) => setNewPassword(e.target.value)}
-                      placeholder="Enter new password (min 6 characters)"
+                      placeholder="Enter new password (min 8 characters)"
                       required
-                      minLength={6}
+                      minLength={8}
                       className="w-full pl-12 pr-4 py-3.5 border-2 border-gray-200 rounded-xl focus:border-blue-500 focus:ring-2 focus:ring-blue-200 transition-all duration-200 text-base bg-gray-50 focus:bg-white"
                     />
                   </div>
@@ -369,7 +376,7 @@ const ForgotPassword = () => {
                       onChange={(e) => setConfirmPassword(e.target.value)}
                       placeholder="Re-enter new password"
                       required
-                      minLength={6}
+                      minLength={8}
                       className="w-full pl-12 pr-4 py-3.5 border-2 border-gray-200 rounded-xl focus:border-blue-500 focus:ring-2 focus:ring-blue-200 transition-all duration-200 text-base bg-gray-50 focus:bg-white"
                     />
                   </div>

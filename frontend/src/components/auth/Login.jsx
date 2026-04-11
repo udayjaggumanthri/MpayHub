@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useLocation } from 'react-router-dom';
 import { useAuth } from '../../context/AuthContext';
+import { getPostLoginPath } from '../../utils/onboardingPaths';
 import { FaEye, FaEyeSlash } from 'react-icons/fa6';
 import { FaPhone, FaLock } from 'react-icons/fa6';
 
@@ -8,6 +9,7 @@ const LOGO_SRC = `${process.env.PUBLIC_URL || ''}/images/logo.svg`;
 
 const Login = () => {
   const navigate = useNavigate();
+  const location = useLocation();
   const { login } = useAuth();
   const [phone, setPhone] = useState('');
   const [password, setPassword] = useState('');
@@ -28,9 +30,9 @@ const Login = () => {
       return;
     }
 
-    // Validate password
-    if (!password || password.length < 3) {
-      setError('Please enter a valid password');
+    // Validate password (backend authenticates any stored hash; do not block short passwords here)
+    if (!password) {
+      setError('Please enter your password');
       setLoading(false);
       return;
     }
@@ -45,8 +47,8 @@ const Login = () => {
           localStorage.removeItem('mpayhub_remember_phone');
         }
 
-        // Navigate to MPIN verification
-        navigate('/mpin-verification');
+        const next = getPostLoginPath(result.user);
+        navigate(next, { replace: true });
       } else {
         setError(result.message || 'Invalid phone number or password');
       }
@@ -65,6 +67,13 @@ const Login = () => {
       setRememberMe(true);
     }
   }, []);
+
+  React.useEffect(() => {
+    if (location.state?.disabledAccount) {
+      setError('Your account has been disabled. Contact your administrator if you need access again.');
+      navigate(location.pathname, { replace: true, state: {} });
+    }
+  }, [location.state, location.pathname, navigate]);
 
   return (
     <div className="min-h-screen flex flex-col lg:flex-row">

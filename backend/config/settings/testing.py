@@ -2,7 +2,13 @@
 Testing settings for mPayhub project.
 """
 
+from copy import deepcopy
+
 from .base import *
+
+# Avoid flaky contact API tests from per-user throttles (production rates stay in base).
+REST_FRAMEWORK = deepcopy(REST_FRAMEWORK)
+REST_FRAMEWORK.setdefault('DEFAULT_THROTTLE_RATES', {})['contacts'] = '100000/min'
 
 # Use in-memory database for faster tests
 DATABASES = {

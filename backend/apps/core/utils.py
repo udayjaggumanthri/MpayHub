@@ -4,6 +4,7 @@ Utility functions for the mPayhub platform.
 import random
 import string
 from datetime import datetime
+import json
 from django.conf import settings
 
 
@@ -36,12 +37,14 @@ def generate_user_id(role, existing_user_ids):
     
     Format:
     - Admin: ADMIN{number}
+    - Super Distributor: SD{number}
     - Master Distributor: MD{number}
     - Distributor: DT{number}
     - Retailer: R{number}
     """
     role_prefix_map = {
         'Admin': 'ADMIN',
+        'Super Distributor': 'SD',
         'Master Distributor': 'MD',
         'Distributor': 'DT',
         'Retailer': 'R',
@@ -176,3 +179,43 @@ def decrypt_mpin(encrypted_mpin):
     f = Fernet(key)
     decrypted = f.decrypt(encrypted_mpin.encode())
     return decrypted.decode()
+
+
+def _get_integration_encryption_key():
+    """
+    Build a stable Fernet key for integration secret storage.
+    Prefers INTEGRATION_SECRET_KEY; falls back to SECRET_KEY-derived key.
+    """
+    from cryptography.fernet import Fernet
+    import base64
+    import hashlib
+
+    raw = getattr(settings, 'INTEGRATION_SECRET_KEY', '') or settings.SECRET_KEY
+    key_material = hashlib.sha256(str(raw).encode()).digest()
+    return base64.urlsafe_b64encode(key_material)
+
+
+def encrypt_secret_payload(payload):
+    """Encrypt a dict payload for integration credentials at rest."""
+    from cryptography.fernet import Fernet
+
+    if payload is None:
+        payload = {}
+    data = json.dumps(payload, separators=(',', ':'))
+    f = Fernet(_get_integration_encryption_key())
+    return f.encrypt(data.encode()).decode()
+
+
+def decrypt_secret_payload(encrypted_text):
+    """Decrypt integration credentials payload; returns dict on failure-safe path."""
+    from cryptography.fernet import Fernet, InvalidToken
+
+    if not encrypted_text:
+        return {}
+    f = Fernet(_get_integration_encryption_key())
+    try:
+        raw = f.decrypt(str(encrypted_text).encode()).decode()
+        data = json.loads(raw)
+        return data if isinstance(data, dict) else {}
+    except (InvalidToken, ValueError, TypeError, json.JSONDecodeError):
+        return {}

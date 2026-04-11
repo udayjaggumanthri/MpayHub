@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { useAuth } from '../../context/AuthContext';
-import { getPassbook } from '../../services/mockData';
+import { passbookAPI } from '../../services/api';
 import { formatCurrency, formatDateTime } from '../../utils/formatters';
 
 const Passbook = () => {
@@ -24,43 +24,69 @@ const Passbook = () => {
 
     setLoading(true);
     try {
-      const filterParams = {
-        ...filters,
-        dateFrom: filters.dateFrom ? new Date(filters.dateFrom) : null,
-        dateTo: filters.dateTo ? new Date(filters.dateTo) : null,
-      };
+      const params = { page: 1, page_size: 500 };
+      const q = filters.search.trim();
+      if (q) params.search = q;
+      if (filters.dateFrom) params.date_from = filters.dateFrom;
+      if (filters.dateTo) params.date_to = filters.dateTo;
 
-      const result = getPassbook(user.id, filterParams);
-      if (result.success) {
-        const sortedEntries = (result.entries || []).sort(
-          (a, b) => new Date(b.date) - new Date(a.date)
-        );
-        setEntries(sortedEntries);
+      const result = await passbookAPI.getPassbookEntries(params);
+      if (!result.success) {
+        setEntries([]);
+        setSummary({
+          openingBalance: 0,
+          creditAmount: 0,
+          debitAmount: 0,
+          availableBalance: 0,
+        });
+        return;
+      }
 
-        // Calculate summary
-        if (sortedEntries.length > 0) {
-          const lastEntry = sortedEntries[sortedEntries.length - 1];
-          const firstEntry = sortedEntries[0];
+      const raw = result.data?.entries || [];
+      const sortedEntries = raw.map((row) => ({
+        id: row.id,
+        date: row.created_at,
+        service: row.service,
+        serviceId: row.service_id,
+        description: row.description,
+        debitAmount: parseFloat(row.debit_amount) || 0,
+        creditAmount: parseFloat(row.credit_amount) || 0,
+        openingBalance: parseFloat(row.opening_balance) || 0,
+        closingBalance: parseFloat(row.closing_balance) || 0,
+        cl: row.wallet_type || '—',
+      }));
 
-          const creditTotal = sortedEntries.reduce(
-            (sum, entry) => sum + (entry.creditAmount || 0),
-            0
-          );
-          const debitTotal = sortedEntries.reduce(
-            (sum, entry) => sum + (entry.debitAmount || 0),
-            0
-          );
+      setEntries(sortedEntries);
 
-          setSummary({
-            openingBalance: lastEntry.openingBalance || 0,
-            creditAmount: creditTotal,
-            debitAmount: debitTotal,
-            availableBalance: firstEntry.closingBalance || firstEntry.openingBalance || 0,
-          });
-        }
+      if (sortedEntries.length > 0) {
+        const creditTotal = sortedEntries.reduce((sum, entry) => sum + (entry.creditAmount || 0), 0);
+        const debitTotal = sortedEntries.reduce((sum, entry) => sum + (entry.debitAmount || 0), 0);
+        const oldest = sortedEntries[sortedEntries.length - 1];
+        const newest = sortedEntries[0];
+
+        setSummary({
+          openingBalance: oldest.openingBalance || 0,
+          creditAmount: creditTotal,
+          debitAmount: debitTotal,
+          availableBalance: newest.closingBalance || 0,
+        });
+      } else {
+        setSummary({
+          openingBalance: 0,
+          creditAmount: 0,
+          debitAmount: 0,
+          availableBalance: 0,
+        });
       }
     } catch (error) {
       console.error('Error loading passbook:', error);
+      setEntries([]);
+      setSummary({
+        openingBalance: 0,
+        creditAmount: 0,
+        debitAmount: 0,
+        availableBalance: 0,
+      });
     } finally {
       setLoading(false);
     }

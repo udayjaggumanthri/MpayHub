@@ -960,7 +960,14 @@ export const getUsers = (currentUserId, role = 'all') => {
   let users = [...mockUsers];
 
   // Filter based on current user's role and requested role
-  if (currentUser.role === 'Master Distributor') {
+  if (currentUser.role === 'Super Distributor') {
+    users = users.filter(
+      (u) =>
+        u.role === 'Master Distributor' ||
+        u.role === 'Distributor' ||
+        u.role === 'Retailer'
+    );
+  } else if (currentUser.role === 'Master Distributor') {
     users = users.filter((u) => u.role === 'Distributor' || u.role === 'Retailer');
   } else if (currentUser.role === 'Distributor') {
     users = users.filter((u) => u.role === 'Retailer');
@@ -989,6 +996,7 @@ export const generateUserId = (role) => {
   // Role-based prefix mapping
   const rolePrefix = {
     Admin: 'ADMIN',
+    'Super Distributor': 'SD',
     'Master Distributor': 'MD', // Can also use 'M' or 'MMD' if needed
     Distributor: 'DT', // Changed from 'D' to 'DT' as per requirements (e.g., DT1151)
     Retailer: 'R',

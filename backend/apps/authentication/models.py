@@ -44,6 +44,7 @@ class User(AbstractUser, TimestampedModel):
     """
     ROLE_CHOICES = [
         ('Admin', 'Admin'),
+        ('Super Distributor', 'Super Distributor'),
         ('Master Distributor', 'Master Distributor'),
         ('Distributor', 'Distributor'),
         ('Retailer', 'Retailer'),

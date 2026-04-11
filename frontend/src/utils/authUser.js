@@ -21,5 +21,8 @@ export function normalizeAuthUser(raw) {
     ...raw,
     name,
     userId,
+    onboarding: raw.onboarding ?? null,
+    // Backend omits is_active only for very old payloads; treat as active.
+    is_active: raw.is_active !== false,
   };
 }

@@ -1,8 +1,12 @@
 """
 Serializers for admin_panel app.
 """
+from decimal import Decimal
+
 from rest_framework import serializers
+from django.utils.text import slugify
 from apps.admin_panel.models import Announcement, PaymentGateway, PayoutGateway
+from apps.fund_management.models import PayInPackage
 
 MAX_IMAGE_BYTES = 5 * 1024 * 1024  # 5 MB
 
@@ -100,14 +104,44 @@ class AnnouncementSerializer(serializers.ModelSerializer):
 
 class PaymentGatewaySerializer(serializers.ModelSerializer):
     """Serializer for PaymentGateway model."""
+    api_master_id = serializers.IntegerField(write_only=True, required=False, allow_null=True)
 
     class Meta:
         model = PaymentGateway
         fields = [
             'id', 'name', 'charge_rate', 'status', 'visible_to_roles',
-            'category', 'created_at', 'updated_at'
+            'category', 'api_master', 'api_master_id', 'created_at', 'updated_at'
         ]
         read_only_fields = ['id', 'created_at', 'updated_at']
+
+    def validate(self, attrs):
+        attrs = super().validate(attrs)
+        api_master = attrs.get('api_master')
+        api_master_id = attrs.get('api_master_id')
+        if api_master_id is not None:
+            from apps.integrations.models import ApiMaster
+
+            api_master = ApiMaster.objects.filter(id=api_master_id, is_deleted=False).first()
+            if api_master_id and not api_master:
+                raise serializers.ValidationError({'api_master_id': ['Invalid API Master id']})
+            if api_master and api_master.provider_type != 'payments':
+                raise serializers.ValidationError(
+                    {'api_master_id': ['Selected API Master must be of provider_type=payments']}
+                )
+            attrs['api_master'] = api_master
+        elif api_master and api_master.provider_type != 'payments':
+            raise serializers.ValidationError(
+                {'api_master': ['Selected API Master must be of provider_type=payments']}
+            )
+        return attrs
+
+    def create(self, validated_data):
+        validated_data.pop('api_master_id', None)
+        return super().create(validated_data)
+
+    def update(self, instance, validated_data):
+        validated_data.pop('api_master_id', None)
+        return super().update(instance, validated_data)
 
 
 class PayoutGatewaySerializer(serializers.ModelSerializer):
@@ -120,3 +154,102 @@ class PayoutGatewaySerializer(serializers.ModelSerializer):
             'created_at', 'updated_at'
         ]
         read_only_fields = ['id', 'created_at', 'updated_at']
+
+
+class PayInPackageAdminSerializer(serializers.ModelSerializer):
+    """Admin serializer for dynamic pay-in commission profiles."""
+
+    payment_gateway_id = serializers.IntegerField(
+        write_only=True, required=False, allow_null=True
+    )
+    total_deduction_pct = serializers.SerializerMethodField(read_only=True)
+
+    class Meta:
+        model = PayInPackage
+        fields = [
+            'id',
+            'code',
+            'display_name',
+            'provider',
+            'payment_gateway',
+            'payment_gateway_id',
+            'min_amount',
+            'max_amount_per_txn',
+            'gateway_fee_pct',
+            'admin_pct',
+            'super_distributor_pct',
+            'master_distributor_pct',
+            'distributor_pct',
+            'retailer_commission_pct',
+            'total_deduction_pct',
+            'is_active',
+            'sort_order',
+            'created_at',
+            'updated_at',
+        ]
+        read_only_fields = ['id', 'created_at', 'updated_at', 'total_deduction_pct']
+
+    def get_total_deduction_pct(self, obj):
+        return (
+            Decimal(str(obj.gateway_fee_pct))
+            + Decimal(str(obj.admin_pct))
+            + Decimal(str(obj.super_distributor_pct))
+            + Decimal(str(obj.master_distributor_pct))
+            + Decimal(str(obj.distributor_pct))
+        )
+
+    def validate_code(self, value):
+        # Accept human-entered labels and normalize into a stable slug code.
+        normalized = slugify(str(value or ''), allow_unicode=False)
+        if not normalized:
+            raise serializers.ValidationError('Code must contain letters or numbers.')
+        return normalized
+
+    def validate(self, attrs):
+        attrs = super().validate(attrs)
+        instance = getattr(self, 'instance', None)
+        provider = attrs.get('provider', getattr(instance, 'provider', 'mock'))
+        payment_gateway = attrs.get('payment_gateway', getattr(instance, 'payment_gateway', None))
+        payment_gateway_id = attrs.get('payment_gateway_id', None)
+        if payment_gateway_id is not None:
+            payment_gateway = PaymentGateway.objects.filter(id=payment_gateway_id).first()
+            attrs['payment_gateway'] = payment_gateway
+        if provider in ('razorpay', 'payu') and not payment_gateway:
+            raise serializers.ValidationError(
+                {'payment_gateway_id': ['Payment gateway is required for non-mock providers.']}
+            )
+
+        min_amount = attrs.get('min_amount', getattr(instance, 'min_amount', Decimal('0')))
+        max_amount = attrs.get('max_amount_per_txn', getattr(instance, 'max_amount_per_txn', Decimal('0')))
+        if Decimal(str(min_amount)) > Decimal(str(max_amount)):
+            raise serializers.ValidationError(
+                {'max_amount_per_txn': ['Max amount must be greater than or equal to min amount.']}
+            )
+
+        pct_fields = [
+            'gateway_fee_pct',
+            'admin_pct',
+            'super_distributor_pct',
+            'master_distributor_pct',
+            'distributor_pct',
+            'retailer_commission_pct',
+        ]
+        for field in pct_fields:
+            val = Decimal(str(attrs.get(field, getattr(instance, field, Decimal('0')))))
+            if val < 0:
+                raise serializers.ValidationError({field: ['Percentage cannot be negative.']})
+            if val > 100:
+                raise serializers.ValidationError({field: ['Percentage cannot exceed 100.']})
+        return attrs
+
+    def create(self, validated_data):
+        payment_gateway_id = validated_data.pop('payment_gateway_id', None)
+        if payment_gateway_id:
+            validated_data['payment_gateway'] = PaymentGateway.objects.filter(id=payment_gateway_id).first()
+        return super().create(validated_data)
+
+    def update(self, instance, validated_data):
+        if 'payment_gateway_id' in validated_data:
+            pg_id = validated_data.pop('payment_gateway_id')
+            instance.payment_gateway = PaymentGateway.objects.filter(id=pg_id).first() if pg_id else None
+        return super().update(instance, validated_data)

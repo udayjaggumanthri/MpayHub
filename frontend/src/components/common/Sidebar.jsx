@@ -26,8 +26,6 @@ const Sidebar = () => {
   const menuNavRef = useRef(null);
 
   const menu = getMenuForRole(user?.role || 'Retailer');
-
-  // Ensure menu is an array and has items
   const menuItems = Array.isArray(menu) ? menu : [];
 
   // Scroll to top when mobile menu opens to ensure Dashboard is visible
@@ -43,7 +41,7 @@ const Sidebar = () => {
       }, 50);
       return () => clearTimeout(timer);
     }
-  }, [mobileMenuOpen, menuItems]);
+  }, [mobileMenuOpen]);
 
   const getIcon = (iconName) => {
     const icons = {
@@ -67,11 +65,33 @@ const Sidebar = () => {
     return location.pathname === path || location.pathname.startsWith(path + '/');
   };
 
+  // Expand submenus when the current route matches a child (e.g. /admin/pay-in-packages under Gateways & pay-in).
+  useEffect(() => {
+    const path = location.pathname;
+    const pathActive = (p) => path === p || path.startsWith(p + '/');
+    const items = getMenuForRole(user?.role || 'Retailer');
+    const list = Array.isArray(items) ? items : [];
+    setExpandedMenus((prev) => {
+      const next = { ...prev };
+      let changed = false;
+      list.forEach((item) => {
+        if (!item.submenu?.length) return;
+        if (item.submenu.some((sub) => pathActive(sub.path)) && !next[item.name]) {
+          next[item.name] = true;
+          changed = true;
+        }
+      });
+      return changed ? next : prev;
+    });
+  }, [location.pathname, user?.role]);
+
   const MenuItem = ({ item, level = 0 }) => {
     const Icon = getIcon(item.icon);
     const hasSubmenu = item.submenu && item.submenu.length > 0;
     const isExpanded = expandedMenus[item.name];
-    const active = isActive(item.path);
+    const active = hasSubmenu
+      ? isActive(item.path) || item.submenu.some((sub) => isActive(sub.path))
+      : isActive(item.path);
 
     if (hasSubmenu) {
       return (

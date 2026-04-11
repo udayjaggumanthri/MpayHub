@@ -1,3 +1,15 @@
+/** API `contact_role` value → display label */
+export const CONTACT_ROLE_LABELS = {
+  end_user: 'End-user',
+  merchant: 'Merchant',
+  dealer: 'Dealer',
+};
+
+export function contactRoleLabel(value) {
+  if (!value) return '';
+  return CONTACT_ROLE_LABELS[value] || value;
+}
+
 /**
  * Normalize contacts list API responses (paginated DRF or legacy `contacts` key).
  */
@@ -27,10 +39,13 @@ export function contactsFromListResult(result) {
 /** Map API contact row to a stable shape for fund flows. */
 export function mapContactRow(row) {
   if (!row) return null;
+  const role = row.contact_role || row.contactRole || '';
   return {
     id: row.id,
     name: row.name || '',
     email: row.email ?? '',
     phone: row.phone || '',
+    contactRole: role,
+    contactRoleLabel: contactRoleLabel(role),
   };
 }

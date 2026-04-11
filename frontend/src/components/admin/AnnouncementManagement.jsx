@@ -22,7 +22,14 @@ import {
   setStoredAnnouncementAdminViewMode,
 } from '../../utils/announcements';
 
-const availableRoles = ['All', 'Admin', 'Master Distributor', 'Distributor', 'Retailer'];
+const availableRoles = [
+  'All',
+  'Admin',
+  'Super Distributor',
+  'Master Distributor',
+  'Distributor',
+  'Retailer',
+];
 
 const PAGE_SIZE_OPTIONS = [12, 24, 48];
 

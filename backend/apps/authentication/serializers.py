@@ -55,10 +55,13 @@ class MPINVerificationSerializer(serializers.Serializer):
         """Verify MPIN."""
         user = self.context['request'].user
         mpin = attrs.get('mpin')
-        
+
+        if not user.is_active:
+            raise serializers.ValidationError('This account has been disabled. Contact support.')
+
         if not user.check_mpin(mpin):
             raise InvalidMPIN("Invalid MPIN.")
-        
+
         return attrs
 
 
@@ -156,9 +159,66 @@ class ResetPasswordSerializer(serializers.Serializer):
 
 
 class UserSerializer(serializers.ModelSerializer):
-    """Serializer for User model."""
-    
+    """Serializer for User model (login /me). Includes onboarding gate for hierarchy-created users."""
+
+    onboarding = serializers.SerializerMethodField()
+
     class Meta:
         model = User
-        fields = ['id', 'user_id', 'phone', 'email', 'first_name', 'last_name', 'role', 'is_active', 'created_at']
+        fields = [
+            'id', 'user_id', 'phone', 'email', 'first_name', 'last_name',
+            'role', 'is_active', 'created_at', 'onboarding',
+        ]
         read_only_fields = ['id', 'user_id', 'created_at']
+
+    def get_onboarding(self, obj):
+        from apps.users.models import KYC
+
+        kyc = KYC.objects.filter(user=obj).first()
+        pan_ok = bool(kyc and kyc.pan_verified)
+        ad_ok = bool(kyc and kyc.aadhaar_verified)
+        kyc_complete = bool(
+            kyc
+            and (
+                kyc.verification_status == 'verified'
+                or (pan_ok and ad_ok)
+            )
+        )
+        has_mpin = bool(obj.mpin_hash)
+        return {
+            'kyc_status': kyc.verification_status if kyc else 'pending',
+            'kyc_complete': kyc_complete,
+            'pan_verified': pan_ok,
+            'aadhaar_verified': ad_ok,
+            'mpin_set': has_mpin,
+            'account_ready': kyc_complete and has_mpin,
+        }
+
+
+class OnboardingPANSerializer(serializers.Serializer):
+    pan = serializers.CharField(max_length=10)
+
+
+class OnboardingAadhaarSerializer(serializers.Serializer):
+    aadhaar = serializers.CharField(max_length=12)
+
+
+class OnboardingAadhaarVerifyOTPSerializer(serializers.Serializer):
+    otp = serializers.CharField(max_length=6)
+
+
+class SetupMPINSerializer(serializers.Serializer):
+    """First-time MPIN after KYC."""
+
+    mpin = serializers.CharField(max_length=6, min_length=6)
+    confirm_mpin = serializers.CharField(max_length=6, min_length=6)
+
+    def validate_mpin(self, value):
+        if not validate_mpin(value):
+            raise serializers.ValidationError('MPIN must be 6 digits.')
+        return value
+
+    def validate(self, attrs):
+        if attrs.get('mpin') != attrs.get('confirm_mpin'):
+            raise serializers.ValidationError({'confirm_mpin': 'MPIN and confirmation do not match.'})
+        return attrs

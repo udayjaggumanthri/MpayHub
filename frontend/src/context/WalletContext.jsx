@@ -59,9 +59,9 @@ export const WalletProvider = ({ children }) => {
     setWallets(newWallets);
   };
 
-  const refreshWallets = () => {
+  const refreshWallets = useCallback(() => {
     loadWallets();
-  };
+  }, [loadWallets]);
 
   const value = {
     wallets,

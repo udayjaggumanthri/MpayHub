@@ -48,8 +48,53 @@ export const roleMenus = {
       icon: 'profile',
     },
     {
-      name: 'Gateway Management',
+      name: 'Gateways & pay-in',
       path: '/admin/gateways',
+      icon: 'profile',
+      submenu: [
+        { name: 'Payment gateways', path: '/admin/gateways' },
+        { name: 'Pay-in packages', path: '/admin/pay-in-packages' },
+      ],
+    },
+    {
+      name: 'API Master',
+      path: '/admin/api-master',
+      icon: 'profile',
+    },
+  ],
+  'Super Distributor': [
+    {
+      name: 'Dashboard',
+      path: '/dashboard',
+      icon: 'dashboard',
+    },
+    {
+      name: 'Bill Payments',
+      path: '/bill-payments',
+      icon: 'bills',
+      submenu: [
+        { name: 'Pay Bills', path: '/bill-payments/pay' },
+        { name: 'My Bills', path: '/bill-payments/my-bills' },
+      ],
+    },
+    {
+      name: 'User Management',
+      path: '/user-management',
+      icon: 'users',
+      submenu: [
+        { name: 'Users', path: '/user-management/users' },
+        { name: 'Contacts', path: '/user-management/contacts' },
+        { name: 'Bank Accounts', path: '/user-management/bank-accounts' },
+      ],
+    },
+    {
+      name: 'Reports',
+      path: '/reports',
+      icon: 'reports',
+    },
+    {
+      name: 'Profile & Settings',
+      path: '/profile',
       icon: 'profile',
     },
   ],
@@ -170,7 +215,13 @@ export const getMenuForRole = (role) => {
 // Check if user can create a specific role
 export const canCreateRole = (currentUserRole, targetRole) => {
   const permissions = {
-    Admin: ['Master Distributor', 'Distributor', 'Retailer'],
+    Admin: [
+      'Super Distributor',
+      'Master Distributor',
+      'Distributor',
+      'Retailer',
+    ],
+    'Super Distributor': ['Master Distributor', 'Distributor', 'Retailer'],
     'Master Distributor': ['Distributor', 'Retailer'],
     Distributor: ['Retailer'],
     Retailer: [],
@@ -181,5 +232,10 @@ export const canCreateRole = (currentUserRole, targetRole) => {
 
 // Check if user can view commission wallet
 export const canViewCommissionWallet = (role) => {
-  return ['Admin', 'Master Distributor', 'Distributor'].includes(role);
+  return [
+    'Admin',
+    'Super Distributor',
+    'Master Distributor',
+    'Distributor',
+  ].includes(role);
 };

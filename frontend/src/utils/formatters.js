@@ -22,6 +22,17 @@ export const formatDateTime = (date) => {
   }
 };
 
+/** Reports / bill-pay style: 22-11-2025 10:30 AM */
+export const formatReportDateTime = (date) => {
+  if (!date) return '';
+  try {
+    const dateObj = date instanceof Date ? date : new Date(date);
+    return format(dateObj, 'dd-MM-yyyy hh:mm a');
+  } catch (error) {
+    return '';
+  }
+};
+
 // Format date only
 export const formatDate = (date) => {
   if (!date) return '';

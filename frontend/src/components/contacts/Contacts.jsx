@@ -6,26 +6,30 @@ import { contactsFromListResult } from '../../utils/contactsHelpers';
 import Card from '../common/Card';
 import Button from '../common/Button';
 import Input from '../common/Input';
-import { 
-  FaMagnifyingGlass, 
-  FaPlus, 
-  FaPen, 
+import {
+  FaMagnifyingGlass,
+  FaPlus,
+  FaPen,
   FaX,
   FaUser,
   FaEnvelope,
   FaPhone,
-  FaTrash
 } from 'react-icons/fa6';
+
+const EMPTY_FILTERS = { name: '', email: '', phone: '' };
+
+const CONTACT_ROLE_OPTIONS = [
+  { value: 'end_user', label: 'End-user' },
+  { value: 'merchant', label: 'Merchant' },
+  { value: 'dealer', label: 'Dealer' },
+];
 
 const Contacts = () => {
   const { user } = useAuth();
   const [contacts, setContacts] = useState([]);
   const [loading, setLoading] = useState(false);
-  const [filters, setFilters] = useState({
-    name: '',
-    email: '',
-    phone: '',
-  });
+  const [filterDraft, setFilterDraft] = useState({ ...EMPTY_FILTERS });
+  const [filterApplied, setFilterApplied] = useState({ ...EMPTY_FILTERS });
   const [showAddModal, setShowAddModal] = useState(false);
   const [showEditModal, setShowEditModal] = useState(false);
   const [selectedContact, setSelectedContact] = useState(null);
@@ -33,6 +37,7 @@ const Contacts = () => {
     name: '',
     email: '',
     phone: '',
+    contact_role: 'end_user',
   });
   const [errors, setErrors] = useState({});
   const [saving, setSaving] = useState(false);
@@ -45,10 +50,14 @@ const Contacts = () => {
     setLoading(true);
     setLoadError('');
     try {
-      const params = {
-        ...filters,
-        page_size: 100,
-      };
+      const params = { page_size: 100 };
+      const n = filterApplied.name?.trim();
+      const e = filterApplied.email?.trim();
+      const p = filterApplied.phone?.replace(/\D/g, '').slice(0, 10);
+      if (n) params.name = n;
+      if (e) params.email = e;
+      if (p) params.phone = p;
+
       const result = await contactsAPI.listContacts(params);
       const { contacts: rows, totalCount: total } = contactsFromListResult(result);
       if (result.success) {
@@ -67,14 +76,19 @@ const Contacts = () => {
     } finally {
       setLoading(false);
     }
-  }, [user, filters]);
+  }, [user, filterApplied]);
 
   useEffect(() => {
     loadContacts();
   }, [loadContacts]);
 
   const handleAddNew = () => {
-    setFormData({ name: '', email: '', phone: '' });
+    setFormData({
+      name: '',
+      email: '',
+      phone: '',
+      contact_role: 'end_user',
+    });
     setErrors({});
     setSelectedContact(null);
     setShowAddModal(true);
@@ -85,6 +99,7 @@ const Contacts = () => {
       name: contact.name || '',
       email: contact.email || '',
       phone: contact.phone || '',
+      contact_role: contact.contact_role || 'end_user',
     });
     setErrors({});
     setSelectedContact(contact);
@@ -102,11 +117,13 @@ const Contacts = () => {
     const newErrors = {};
 
     if (!formData.name || formData.name.trim().length < 2) {
-      newErrors.name = 'Name must be at least 2 characters';
+      newErrors.name = 'Full name must be at least 2 characters';
     }
 
     const emailTrim = (formData.email || '').trim();
-    if (emailTrim) {
+    if (!emailTrim) {
+      newErrors.email = 'Email address is required';
+    } else {
       const emailValidation = validateEmail(emailTrim);
       if (!emailValidation.valid) {
         newErrors.email = emailValidation.message;
@@ -116,6 +133,10 @@ const Contacts = () => {
     const phoneValidation = validatePhone(formData.phone);
     if (!phoneValidation.valid) {
       newErrors.phone = phoneValidation.message;
+    }
+
+    if (!formData.contact_role || !CONTACT_ROLE_OPTIONS.some((o) => o.value === formData.contact_role)) {
+      newErrors.contact_role = 'Select a valid role';
     }
 
     setErrors(newErrors);
@@ -129,29 +150,33 @@ const Contacts = () => {
     try {
       const payload = {
         name: formData.name.trim(),
-        email: (formData.email || '').trim() || null,
-        phone: formData.phone.trim(),
+        email: formData.email.trim(),
+        phone: String(formData.phone || '').replace(/\D/g, '').slice(0, 10),
+        contact_role: formData.contact_role,
       };
       if (selectedContact) {
-        // Update existing contact
         const result = await contactsAPI.updateContact(selectedContact.id, payload);
         if (result.success) {
           await loadContacts();
           setShowEditModal(false);
           setSelectedContact(null);
         } else {
-          const errorMsg = result.errors?.join(', ') || result.message || 'Failed to update contact';
+          const errorMsg = formatApiErrors(result);
           alert(errorMsg);
         }
       } else {
-        // Add new contact
         const result = await contactsAPI.createContact(payload);
         if (result.success) {
           await loadContacts();
           setShowAddModal(false);
-          setFormData({ name: '', email: '', phone: '' });
+          setFormData({
+            name: '',
+            email: '',
+            phone: '',
+            contact_role: 'end_user',
+          });
         } else {
-          const errorMsg = result.errors?.join(', ') || result.message || 'Failed to add contact';
+          const errorMsg = formatApiErrors(result);
           alert(errorMsg);
         }
       }
@@ -163,55 +188,94 @@ const Contacts = () => {
     }
   };
 
-  const handleFilter = () => {
-    loadContacts();
+  const formatApiErrors = (result) => {
+    if (Array.isArray(result.errors) && result.errors.length > 0) {
+      return result.errors.join(', ');
+    }
+    if (result.errors && typeof result.errors === 'object') {
+      const flattened = Object.entries(result.errors).flatMap(([field, messages]) => {
+        if (Array.isArray(messages)) {
+          return messages.map((msg) => `${field}: ${msg}`);
+        }
+        return [`${field}: ${messages}`];
+      });
+      if (flattened.length > 0) return flattened.join(', ');
+    }
+    return result.message || 'Request failed';
+  };
+
+  const applyFilters = () => {
+    setFilterApplied({
+      name: filterDraft.name,
+      email: filterDraft.email,
+      phone: filterDraft.phone,
+    });
   };
 
   const clearFilters = () => {
-    setFilters({ name: '', email: '', phone: '' });
+    setFilterDraft({ ...EMPTY_FILTERS });
+    setFilterApplied({ ...EMPTY_FILTERS });
   };
 
-  const handleDelete = async (contact) => {
-    if (!contact?.id) return;
-    if (
-      !window.confirm(
-        `Delete contact "${contact.name}" (${contact.phone})? This cannot be undone.`
-      )
-    ) {
-      return;
-    }
-    const result = await contactsAPI.deleteContact(contact.id);
-    if (result.success) {
-      await loadContacts();
-    } else {
-      alert(result.message || 'Failed to delete contact');
-    }
+  const closeAddModal = () => {
+    setShowAddModal(false);
+    setFormData({ name: '', email: '', phone: '', contact_role: 'end_user' });
+    setErrors({});
   };
+
+  const closeEditModal = () => {
+    setShowEditModal(false);
+    setSelectedContact(null);
+    setFormData({ name: '', email: '', phone: '', contact_role: 'end_user' });
+    setErrors({});
+  };
+
+  const RoleSelect = ({ idPrefix }) => (
+    <div>
+      <label htmlFor={`${idPrefix}-role`} className="block text-sm font-medium text-gray-700 mb-2">
+        Contact role <span className="text-red-500">*</span>
+      </label>
+      <select
+        id={`${idPrefix}-role`}
+        value={formData.contact_role}
+        onChange={(e) => handleInputChange('contact_role', e.target.value)}
+        className="w-full px-4 py-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent bg-white text-gray-900"
+      >
+        {CONTACT_ROLE_OPTIONS.map((opt) => (
+          <option key={opt.value} value={opt.value}>
+            {opt.label}
+          </option>
+        ))}
+      </select>
+      {errors.contact_role && <p className="mt-1 text-sm text-red-600">{errors.contact_role}</p>}
+      <p className="mt-1 text-xs text-gray-500">Tag as End-user, Merchant, or Dealer for your records.</p>
+    </div>
+  );
 
   return (
     <div className="max-w-7xl mx-auto space-y-6 px-4 sm:px-0">
-      {/* Header */}
-      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between">
+      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
         <div>
-          <h1 className="text-2xl sm:text-3xl font-bold text-gray-900">All Contacts</h1>
-          <p className="mt-1 sm:mt-2 text-sm sm:text-base text-gray-600">
-            Manage your contact directory for quick access
+          <h1 className="text-2xl sm:text-3xl font-bold text-gray-900">Contacts</h1>
+          <p className="mt-1 text-sm sm:text-base text-gray-600">
+            Directory for pay-in and payout verification (phone is the unique key per account)
           </p>
         </div>
-        <Button
+        <button
+          type="button"
           onClick={handleAddNew}
-          variant="primary"
-          icon={FaPlus}
-          iconPosition="left"
-          className="mt-4 sm:mt-0"
+          className="inline-flex items-center justify-center gap-2 rounded-lg bg-blue-600 px-5 py-3 text-sm font-semibold text-white shadow-md hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 transition-colors"
         >
+          <FaPlus className="shrink-0" size={18} />
           Add New Contact
-        </Button>
+        </button>
       </div>
 
-      {/* Filter Section */}
       <Card padding="lg">
         <h3 className="text-lg font-semibold text-gray-900 mb-4">Filter</h3>
+        <p className="text-sm text-gray-500 mb-4">
+          Enter criteria and click <strong>Filter</strong> to run a server-side search.
+        </p>
         <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-2">Name</label>
@@ -219,9 +283,9 @@ const Contacts = () => {
               <FaMagnifyingGlass className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400" size={18} />
               <input
                 type="text"
-                value={filters.name}
-                onChange={(e) => setFilters({ ...filters, name: e.target.value })}
-                placeholder="Enter Name"
+                value={filterDraft.name}
+                onChange={(e) => setFilterDraft({ ...filterDraft, name: e.target.value })}
+                placeholder="Name"
                 className="w-full pl-10 pr-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
               />
             </div>
@@ -231,10 +295,10 @@ const Contacts = () => {
             <div className="relative">
               <FaMagnifyingGlass className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400" size={18} />
               <input
-                type="email"
-                value={filters.email}
-                onChange={(e) => setFilters({ ...filters, email: e.target.value })}
-                placeholder="Enter Email"
+                type="text"
+                value={filterDraft.email}
+                onChange={(e) => setFilterDraft({ ...filterDraft, email: e.target.value })}
+                placeholder="Email"
                 className="w-full pl-10 pr-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
               />
             </div>
@@ -245,32 +309,31 @@ const Contacts = () => {
               <FaMagnifyingGlass className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400" size={18} />
               <input
                 type="tel"
-                value={filters.phone}
+                value={filterDraft.phone}
                 onChange={(e) => {
                   const value = e.target.value.replace(/\D/g, '').slice(0, 10);
-                  setFilters({ ...filters, phone: value });
+                  setFilterDraft({ ...filterDraft, phone: value });
                 }}
-                placeholder="Enter Phone"
+                placeholder="10-digit phone"
                 maxLength={10}
                 className="w-full pl-10 pr-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
               />
             </div>
           </div>
         </div>
-        <div className="mt-4 flex justify-end space-x-3">
-          <Button onClick={clearFilters} variant="outline" size="sm">
+        <div className="mt-4 flex flex-wrap justify-end gap-3">
+          <Button onClick={clearFilters} variant="outline" size="sm" type="button">
             Clear
           </Button>
-          <Button onClick={handleFilter} variant="primary" size="sm">
+          <Button onClick={applyFilters} variant="primary" size="sm" type="button">
             Filter
           </Button>
         </div>
       </Card>
 
-      {/* Contacts List */}
       <Card padding="lg">
         <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2 mb-4">
-          <h3 className="text-lg font-semibold text-gray-900">All Contacts</h3>
+          <h3 className="text-lg font-semibold text-gray-900">Contact list</h3>
           {totalCount != null && !loading && (
             <p className="text-sm text-gray-500">
               {contacts.length} shown
@@ -289,20 +352,20 @@ const Contacts = () => {
         )}
         {loading ? (
           <div className="text-center py-12">
-            <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600 mx-auto"></div>
+            <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600 mx-auto" />
             <p className="mt-4 text-gray-600">Loading contacts...</p>
           </div>
         ) : contacts.length === 0 ? (
           <div className="text-center py-12 text-gray-500">
             <p className="text-lg">No contacts found</p>
-            <p className="text-sm mt-2">Click "Add New Contact" to get started</p>
+            <p className="text-sm mt-2">Use &quot;Add New Contact&quot; or adjust filters.</p>
           </div>
         ) : (
-          <div className="overflow-x-auto">
-            <table className="w-full border-collapse">
+          <div className="overflow-x-auto -mx-4 sm:mx-0">
+            <table className="w-full min-w-[640px] border-collapse">
               <thead>
                 <tr className="bg-gray-50 border-b border-gray-200">
-                  <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                  <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider w-16">
                     S.NO
                   </th>
                   <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
@@ -314,7 +377,7 @@ const Contacts = () => {
                   <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
                     PHONE
                   </th>
-                  <th className="px-4 py-3 text-center text-xs font-medium text-gray-500 uppercase tracking-wider">
+                  <th className="px-4 py-3 text-center text-xs font-medium text-gray-500 uppercase tracking-wider w-28">
                     ACTION
                   </th>
                 </tr>
@@ -322,37 +385,20 @@ const Contacts = () => {
               <tbody>
                 {contacts.map((contact, index) => (
                   <tr key={contact.id} className="border-b border-gray-200 hover:bg-gray-50 transition-colors">
-                    <td className="px-4 py-4 whitespace-nowrap text-sm text-gray-900">
-                      {index + 1}
-                    </td>
-                    <td className="px-4 py-4 whitespace-nowrap text-sm font-medium text-gray-900">
-                      {contact.name}
-                    </td>
-                    <td className="px-4 py-4 whitespace-nowrap text-sm text-gray-700">
-                      {contact.email || '—'}
-                    </td>
-                    <td className="px-4 py-4 whitespace-nowrap text-sm text-gray-700">
-                      {contact.phone}
-                    </td>
-                    <td className="px-4 py-4 whitespace-nowrap text-center">
-                      <div className="inline-flex items-center justify-center gap-1">
-                        <button
-                          type="button"
-                          onClick={() => handleEdit(contact)}
-                          className="text-blue-600 hover:text-blue-800 transition-colors p-1 rounded hover:bg-blue-50"
-                          title="Edit contact"
-                        >
-                          <FaPen size={18} />
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => handleDelete(contact)}
-                          className="text-red-600 hover:text-red-800 transition-colors p-1 rounded hover:bg-red-50"
-                          title="Delete contact"
-                        >
-                          <FaTrash size={18} />
-                        </button>
-                      </div>
+                    <td className="px-4 py-4 text-sm text-gray-900 tabular-nums">{index + 1}</td>
+                    <td className="px-4 py-4 text-sm font-medium text-gray-900">{contact.name}</td>
+                    <td className="px-4 py-4 text-sm text-gray-700 break-all max-w-[220px]">{contact.email}</td>
+                    <td className="px-4 py-4 text-sm text-gray-700 tabular-nums">{contact.phone}</td>
+                    <td className="px-4 py-4 text-center">
+                      <button
+                        type="button"
+                        onClick={() => handleEdit(contact)}
+                        className="inline-flex items-center justify-center text-blue-600 hover:text-blue-800 transition-colors p-2 rounded-lg hover:bg-blue-50"
+                        title="Edit contact (name, email, phone, role)"
+                        aria-label="Edit contact"
+                      >
+                        <FaPen size={18} />
+                      </button>
                     </td>
                   </tr>
                 ))}
@@ -362,164 +408,121 @@ const Contacts = () => {
         )}
       </Card>
 
-      {/* Add Contact Modal */}
       {showAddModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black bg-opacity-50 overflow-y-auto">
-          <div className="bg-white rounded-xl shadow-2xl max-w-md w-full p-6 my-auto">
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 overflow-y-auto">
+          <div className="bg-white rounded-xl shadow-2xl max-w-md w-full p-6 my-auto max-h-[90vh] overflow-y-auto">
             <div className="flex items-center justify-between mb-6">
               <h2 className="text-2xl font-bold text-gray-900">Add New Contact</h2>
-              <button
-                onClick={() => {
-                  setShowAddModal(false);
-                  setFormData({ name: '', email: '', phone: '' });
-                  setErrors({});
-                }}
-                className="text-gray-400 hover:text-gray-600 transition-colors"
-              >
+              <button type="button" onClick={closeAddModal} className="text-gray-400 hover:text-gray-600 transition-colors">
                 <FaX size={24} />
               </button>
             </div>
 
             <div className="space-y-4">
               <Input
-                label="Name"
+                label="Full name"
                 value={formData.name}
                 onChange={(e) => handleInputChange('name', e.target.value)}
-                placeholder="Enter full name"
+                placeholder="Full name"
                 icon={FaUser}
                 required
                 error={errors.name}
               />
-
               <Input
-                label="Email"
+                label="Email address"
                 type="email"
                 value={formData.email}
                 onChange={(e) => handleInputChange('email', e.target.value)}
-                placeholder="Optional — enter email address"
+                placeholder="name@example.com"
                 icon={FaEnvelope}
+                required
                 error={errors.email}
               />
-
               <Input
-                label="Phone Number"
+                label="Phone number (unique)"
                 type="tel"
                 value={formData.phone}
                 onChange={(e) => {
                   const value = e.target.value.replace(/\D/g, '').slice(0, 10);
                   handleInputChange('phone', value);
                 }}
-                placeholder="Enter 10-digit phone number"
+                placeholder="10-digit mobile"
                 icon={FaPhone}
                 maxLength={10}
                 required
                 error={errors.phone}
               />
+              <RoleSelect idPrefix="add" />
             </div>
 
-            <div className="mt-6 flex space-x-3">
-              <Button
-                onClick={() => {
-                  setShowAddModal(false);
-                  setFormData({ name: '', email: '', phone: '' });
-                  setErrors({});
-                }}
-                variant="outline"
-                fullWidth
-              >
+            <div className="mt-6 flex gap-3">
+              <Button onClick={closeAddModal} variant="outline" fullWidth type="button">
                 Cancel
               </Button>
-              <Button
-                onClick={handleSave}
-                variant="primary"
-                fullWidth
-                loading={saving}
-                disabled={saving}
-              >
-                Save Contact
+              <Button onClick={handleSave} variant="primary" fullWidth loading={saving} disabled={saving} type="button">
+                Save contact
               </Button>
             </div>
           </div>
         </div>
       )}
 
-      {/* Edit Contact Modal */}
       {showEditModal && selectedContact && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black bg-opacity-50 overflow-y-auto">
-          <div className="bg-white rounded-xl shadow-2xl max-w-md w-full p-6 my-auto">
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 overflow-y-auto">
+          <div className="bg-white rounded-xl shadow-2xl max-w-md w-full p-6 my-auto max-h-[90vh] overflow-y-auto">
             <div className="flex items-center justify-between mb-6">
-              <h2 className="text-2xl font-bold text-gray-900">Edit Contact</h2>
-              <button
-                onClick={() => {
-                  setShowEditModal(false);
-                  setSelectedContact(null);
-                  setFormData({ name: '', email: '', phone: '' });
-                  setErrors({});
-                }}
-                className="text-gray-400 hover:text-gray-600 transition-colors"
-              >
+              <h2 className="text-2xl font-bold text-gray-900">Edit contact</h2>
+              <button type="button" onClick={closeEditModal} className="text-gray-400 hover:text-gray-600 transition-colors">
                 <FaX size={24} />
               </button>
             </div>
+            <p className="text-sm text-gray-500 mb-4">
+              Update details or role. Phone must stay unique in your directory.
+            </p>
 
             <div className="space-y-4">
               <Input
-                label="Name"
+                label="Full name"
                 value={formData.name}
                 onChange={(e) => handleInputChange('name', e.target.value)}
-                placeholder="Enter full name"
+                placeholder="Full name"
                 icon={FaUser}
                 required
                 error={errors.name}
               />
-
               <Input
-                label="Email"
+                label="Email address"
                 type="email"
                 value={formData.email}
                 onChange={(e) => handleInputChange('email', e.target.value)}
-                placeholder="Optional — enter email address"
+                placeholder="name@example.com"
                 icon={FaEnvelope}
+                required
                 error={errors.email}
               />
-
               <Input
-                label="Phone Number"
+                label="Phone number"
                 type="tel"
                 value={formData.phone}
                 onChange={(e) => {
                   const value = e.target.value.replace(/\D/g, '').slice(0, 10);
                   handleInputChange('phone', value);
                 }}
-                placeholder="Enter 10-digit phone number"
+                placeholder="10-digit mobile"
                 icon={FaPhone}
                 maxLength={10}
                 required
                 error={errors.phone}
               />
+              <RoleSelect idPrefix="edit" />
             </div>
 
-            <div className="mt-6 flex space-x-3">
-              <Button
-                onClick={() => {
-                  setShowEditModal(false);
-                  setSelectedContact(null);
-                  setFormData({ name: '', email: '', phone: '' });
-                  setErrors({});
-                }}
-                variant="outline"
-                fullWidth
-              >
+            <div className="mt-6 flex gap-3">
+              <Button onClick={closeEditModal} variant="outline" fullWidth type="button">
                 Cancel
               </Button>
-              <Button
-                onClick={handleSave}
-                variant="primary"
-                fullWidth
-                loading={saving}
-                disabled={saving}
-              >
-                Update Contact
+              <Button onClick={handleSave} variant="primary" fullWidth loading={saving} disabled={saving} type="button">
+                Update contact
               </Button>
             </div>
           </div>

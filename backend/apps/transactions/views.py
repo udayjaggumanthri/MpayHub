@@ -6,6 +6,7 @@ from rest_framework.decorators import api_view, permission_classes
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 from django.utils import timezone
+from django.utils.dateparse import parse_date
 from django.db import models
 from datetime import timedelta
 from apps.transactions.models import Transaction, PassbookEntry
@@ -35,34 +36,46 @@ def transactions_list_view(request):
     if service_id:
         transactions = transactions.filter(service_id__icontains=service_id)
     
-    date_from = request.query_params.get('date_from')
-    date_to = request.query_params.get('date_to')
-    if date_from and date_to:
-        transactions = transactions.filter(
-            created_at__date__gte=date_from,
-            created_at__date__lte=date_to
-        )
-    
-    # Pagination
-    page_size = 20
-    page = int(request.query_params.get('page', 1))
+    date_from = parse_date((request.query_params.get('date_from') or '').strip())
+    if date_from:
+        transactions = transactions.filter(created_at__date__gte=date_from)
+    date_to = parse_date((request.query_params.get('date_to') or '').strip())
+    if date_to:
+        transactions = transactions.filter(created_at__date__lte=date_to)
+
+    try:
+        page_size = int(request.query_params.get('page_size', 20))
+    except ValueError:
+        page_size = 20
+    page_size = max(1, min(page_size, 500))
+
+    try:
+        page = int(request.query_params.get('page', 1))
+    except ValueError:
+        page = 1
+    page = max(1, page)
+
+    total = transactions.count()
     start = (page - 1) * page_size
     end = start + page_size
-    
+
     paginated_transactions = transactions[start:end]
     serializer = TransactionSerializer(paginated_transactions, many=True)
-    
-    return Response({
-        'success': True,
-        'data': {
-            'transactions': serializer.data,
-            'total': transactions.count(),
-            'page': page,
-            'page_size': page_size
+
+    return Response(
+        {
+            'success': True,
+            'data': {
+                'transactions': serializer.data,
+                'total': total,
+                'page': page,
+                'page_size': page_size,
+            },
+            'message': 'Transactions retrieved successfully',
+            'errors': [],
         },
-        'message': 'Transactions retrieved successfully',
-        'errors': []
-    }, status=status.HTTP_200_OK)
+        status=status.HTTP_200_OK,
+    )
 
 
 @api_view(['GET'])
@@ -100,41 +113,56 @@ def passbook_view(request):
     entries = PassbookEntry.objects.filter(user=request.user)
     
     # Apply filters
-    date_from = request.query_params.get('date_from')
-    date_to = request.query_params.get('date_to')
-    if date_from and date_to:
-        entries = entries.filter(
-            created_at__date__gte=date_from,
-            created_at__date__lte=date_to
-        )
-    
+    date_from = parse_date((request.query_params.get('date_from') or '').strip())
+    if date_from:
+        entries = entries.filter(created_at__date__gte=date_from)
+    date_to = parse_date((request.query_params.get('date_to') or '').strip())
+    if date_to:
+        entries = entries.filter(created_at__date__lte=date_to)
+
     search = request.query_params.get('search')
     if search:
         entries = entries.filter(
-            models.Q(service_id__icontains=search) |
-            models.Q(description__icontains=search)
+            models.Q(service_id__icontains=search) | models.Q(description__icontains=search)
         )
-    
-    # Pagination
-    page_size = 20
-    page = int(request.query_params.get('page', 1))
+
+    wallet_type = request.query_params.get('wallet_type')
+    if wallet_type in ('main', 'commission', 'bbps'):
+        entries = entries.filter(wallet_type=wallet_type)
+
+    try:
+        page_size = int(request.query_params.get('page_size', 20))
+    except ValueError:
+        page_size = 20
+    page_size = max(1, min(page_size, 500))
+
+    try:
+        page = int(request.query_params.get('page', 1))
+    except ValueError:
+        page = 1
+    page = max(1, page)
+
+    total = entries.count()
     start = (page - 1) * page_size
     end = start + page_size
-    
+
     paginated_entries = entries[start:end]
     serializer = PassbookEntrySerializer(paginated_entries, many=True)
-    
-    return Response({
-        'success': True,
-        'data': {
-            'entries': serializer.data,
-            'total': entries.count(),
-            'page': page,
-            'page_size': page_size
+
+    return Response(
+        {
+            'success': True,
+            'data': {
+                'entries': serializer.data,
+                'total': total,
+                'page': page,
+                'page_size': page_size,
+            },
+            'message': 'Passbook entries retrieved successfully',
+            'errors': [],
         },
-        'message': 'Passbook entries retrieved successfully',
-        'errors': []
-    }, status=status.HTTP_200_OK)
+        status=status.HTTP_200_OK,
+    )
 
 
 @api_view(['GET'])

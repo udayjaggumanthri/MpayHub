@@ -20,11 +20,19 @@ class TransactionSerializer(serializers.ModelSerializer):
 
 class PassbookEntrySerializer(serializers.ModelSerializer):
     """Serializer for PassbookEntry model."""
-    
+
     class Meta:
         model = PassbookEntry
         fields = [
-            'id', 'service', 'service_id', 'description', 'debit_amount',
-            'credit_amount', 'opening_balance', 'closing_balance', 'created_at'
+            'id',
+            'wallet_type',
+            'service',
+            'service_id',
+            'description',
+            'debit_amount',
+            'credit_amount',
+            'opening_balance',
+            'closing_balance',
+            'created_at',
         ]
         read_only_fields = ['id', 'created_at']

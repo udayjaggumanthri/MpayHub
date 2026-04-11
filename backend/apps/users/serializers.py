@@ -1,12 +1,14 @@
 """
 Serializers for users app.
 """
+from django.core.exceptions import ObjectDoesNotExist
 from rest_framework import serializers
 from apps.authentication.models import User
+from apps.users.services import assert_admin_may_deactivate_user
 from apps.users.models import UserProfile, KYC, UserHierarchy
+from apps.users.services import build_user_lineage
 from apps.core.utils import (
     validate_phone, validate_email, validate_pan, validate_aadhaar,
-    generate_user_id
 )
 from apps.core.exceptions import InvalidUserRole
 
@@ -24,8 +26,8 @@ class UserProfileSerializer(serializers.ModelSerializer):
 
 
 class KYCSerializer(serializers.ModelSerializer):
-    """Serializer for KYC."""
-    
+    """Full KYC payload (identifiers visible). Restrict to Admin-facing detail responses."""
+
     class Meta:
         model = KYC
         fields = [
@@ -34,10 +36,52 @@ class KYCSerializer(serializers.ModelSerializer):
             'verification_status', 'created_at'
         ]
         read_only_fields = [
-            'id', 'pan_verified', 'pan_verified_at',
+            'id', 'pan', 'aadhaar',
+            'pan_verified', 'pan_verified_at',
             'aadhaar_verified', 'aadhaar_verified_at',
+            'verification_status', 'created_at',
+        ]
+
+
+class KYCListSerializer(serializers.ModelSerializer):
+    """List views: verification flags only (no raw PAN/Aadhaar)."""
+
+    class Meta:
+        model = KYC
+        fields = ['pan_verified', 'aadhaar_verified', 'verification_status']
+        read_only_fields = fields
+
+
+class KYCMaskedSerializer(serializers.ModelSerializer):
+    """Non-Admin detail: masked PAN/Aadhaar."""
+
+    pan = serializers.SerializerMethodField()
+    aadhaar = serializers.SerializerMethodField()
+
+    class Meta:
+        model = KYC
+        fields = [
+            'id', 'pan', 'pan_verified', 'pan_verified_at',
+            'aadhaar', 'aadhaar_verified', 'aadhaar_verified_at',
             'verification_status', 'created_at'
         ]
+        read_only_fields = fields
+
+    def get_pan(self, obj):
+        if not obj.pan:
+            return None
+        p = str(obj.pan).upper()
+        if len(p) <= 4:
+            return '****'
+        return f"{p[:2]}****{p[-2:]}"
+
+    def get_aadhaar(self, obj):
+        if not obj.aadhaar:
+            return None
+        a = str(obj.aadhaar)
+        if len(a) <= 8:
+            return '****'
+        return f"{a[:4]}****{a[-4:]}"
 
 
 class UserCreateSerializer(serializers.Serializer):
@@ -50,8 +94,8 @@ class UserCreateSerializer(serializers.Serializer):
     role = serializers.ChoiceField(choices=User.ROLE_CHOICES)
     business_name = serializers.CharField(max_length=200, required=False, allow_blank=True)
     business_address = serializers.CharField(required=False, allow_blank=True)
-    password = serializers.CharField(write_only=True, min_length=8)
-    mpin = serializers.CharField(max_length=6, write_only=True, required=True, min_length=6)
+    password = serializers.CharField(write_only=True, required=False, allow_blank=True, max_length=128)
+    mpin = serializers.CharField(max_length=6, write_only=True, required=False, allow_blank=True)
     pan = serializers.CharField(max_length=10, required=False, allow_blank=True)
     aadhaar = serializers.CharField(max_length=12, required=False, allow_blank=True)
     
@@ -103,11 +147,19 @@ class UserCreateSerializer(serializers.Serializer):
             if not UserHierarchy.can_create_role(request.user, value):
                 raise InvalidUserRole(f"You cannot create users with role: {value}")
         return value
+
+    def validate_password(self, value):
+        """Optional; if provided must be at least 8 characters."""
+        if value in (None, ''):
+            return ''
+        if len(value) < 8:
+            raise serializers.ValidationError('Password must be at least 8 characters.')
+        return value
     
     def validate_mpin(self, value):
-        """Validate MPIN - mandatory field."""
-        if not value:
-            raise serializers.ValidationError("MPIN is required and cannot be blank.")
+        """Optional at hierarchy onboarding — user sets MPIN after KYC."""
+        if value in (None, ''):
+            return ''
         if len(value) != 6 or not value.isdigit():
             raise serializers.ValidationError("MPIN must be exactly 6 digits.")
         return value
@@ -141,11 +193,11 @@ class UserCreateSerializer(serializers.Serializer):
         return normalized_aadhaar
     
     def validate(self, attrs):
-        """Validate and ensure MPIN is provided."""
-        # MPIN is mandatory
-        if 'mpin' not in attrs or not attrs.get('mpin'):
-            raise serializers.ValidationError({"mpin": "MPIN is required and cannot be blank."})
-        
+        """Normalize optional MPIN."""
+        if attrs.get('mpin') in (None, ''):
+            attrs['mpin'] = ''
+        if attrs.get('password') in (None, ''):
+            attrs.pop('password', None)
         return attrs
 
 
@@ -207,7 +259,24 @@ class UserUpdateSerializer(serializers.ModelSerializer):
         if value and (len(value) != 6 or not value.isdigit()):
             raise serializers.ValidationError("MPIN must be 6 digits.")
         return value
-    
+
+    def validate(self, attrs):
+        """Credential and account state changes are Admin-only (prevents hierarchy takeover)."""
+        request = self.context.get('request')
+        user = getattr(request, 'user', None) if request else None
+        if user and user.is_authenticated and getattr(user, 'role', None) != 'Admin':
+            for field in ('password', 'mpin', 'is_active'):
+                if field in attrs:
+                    raise serializers.ValidationError(
+                        {field: 'Only administrators may change this field.'}
+                    )
+        if attrs.get('is_active') is False and self.instance:
+            try:
+                assert_admin_may_deactivate_user(actor=user, target=self.instance)
+            except ValueError as e:
+                raise serializers.ValidationError({'is_active': str(e)}) from e
+        return attrs
+
     def update(self, instance, validated_data):
         """Update user and related profile."""
         # Extract fields for User model
@@ -250,30 +319,96 @@ class UserUpdateSerializer(serializers.ModelSerializer):
 
 class UserListSerializer(serializers.ModelSerializer):
     """Serializer for listing users."""
-    profile = UserProfileSerializer(read_only=True)
-    kyc = KYCSerializer(read_only=True)
-    
+    profile = serializers.SerializerMethodField()
+    kyc = serializers.SerializerMethodField()
+    mpin_configured = serializers.SerializerMethodField()
+
+    def get_profile(self, obj):
+        try:
+            return UserProfileSerializer(obj.profile).data
+        except ObjectDoesNotExist:
+            return None
+
+    def get_kyc(self, obj):
+        try:
+            return KYCListSerializer(obj.kyc).data
+        except ObjectDoesNotExist:
+            return None
+
+    def get_mpin_configured(self, obj):
+        return bool(obj.mpin_hash)
+
     class Meta:
         model = User
         fields = [
             'id', 'user_id', 'phone', 'email', 'first_name', 'last_name',
-            'role', 'is_active', 'profile', 'kyc', 'created_at'
+            'role', 'is_active', 'profile', 'kyc', 'mpin_configured', 'created_at',
         ]
         read_only_fields = ['id', 'user_id', 'created_at']
 
 
+class UserRoleChangeSerializer(serializers.Serializer):
+    """Admin-only body for PATCH .../users/{id}/role/."""
+
+    role = serializers.ChoiceField(choices=User.ROLE_CHOICES)
+
+
+class UserActiveStatusSerializer(serializers.Serializer):
+    """Admin-only body for PATCH .../users/{id}/active-status/."""
+
+    is_active = serializers.BooleanField()
+
+    def validate(self, attrs):
+        request = self.context.get('request')
+        target = self.context.get('target')
+        actor = getattr(request, 'user', None) if request else None
+        if attrs.get('is_active') is False and target and actor:
+            try:
+                assert_admin_may_deactivate_user(actor=actor, target=target)
+            except ValueError as e:
+                raise serializers.ValidationError({'is_active': str(e)}) from e
+        return attrs
+
+
 class UserDetailSerializer(serializers.ModelSerializer):
     """Serializer for user details."""
-    profile = UserProfileSerializer(read_only=True)
-    kyc = KYCSerializer(read_only=True)
-    
+    profile = serializers.SerializerMethodField()
+    kyc = serializers.SerializerMethodField()
+    hierarchy_lineage = serializers.SerializerMethodField()
+    mpin_configured = serializers.SerializerMethodField()
+
     class Meta:
         model = User
         fields = [
             'id', 'user_id', 'phone', 'email', 'first_name', 'last_name',
-            'role', 'is_active', 'profile', 'kyc', 'created_at', 'updated_at'
+            'role', 'is_active', 'profile', 'kyc', 'hierarchy_lineage',
+            'mpin_configured', 'created_at', 'updated_at',
         ]
-        read_only_fields = ['id', 'user_id', 'created_at', 'updated_at']
+        read_only_fields = ['id', 'user_id', 'created_at', 'updated_at', 'hierarchy_lineage']
+
+    def get_mpin_configured(self, obj):
+        return bool(obj.mpin_hash)
+
+    def get_profile(self, obj):
+        try:
+            return UserProfileSerializer(obj.profile).data
+        except ObjectDoesNotExist:
+            return None
+
+    def get_kyc(self, obj):
+        try:
+            kyc = obj.kyc
+        except ObjectDoesNotExist:
+            return None
+        request = self.context.get('request')
+        if request and getattr(request.user, 'is_authenticated', False) and getattr(
+            request.user, 'role', None
+        ) == 'Admin':
+            return KYCSerializer(kyc).data
+        return KYCMaskedSerializer(kyc).data
+
+    def get_hierarchy_lineage(self, obj):
+        return build_user_lineage(obj)
 
 
 class PANVerificationSerializer(serializers.Serializer):

@@ -29,10 +29,14 @@ import BankAccounts from '../components/bankManagement/BankAccounts';
 
 // Profile
 import ProfileSettings from '../components/profile/ProfileSettings';
+import OnboardingKYC from '../components/onboarding/OnboardingKYC';
+import OnboardingMPINSetup from '../components/onboarding/OnboardingMPINSetup';
 
 // Admin
 import AnnouncementManagement from '../components/admin/AnnouncementManagement';
-import GatewayManagement from '../components/admin/GatewayManagement';
+import PaymentGatewaysAdmin from '../components/admin/PaymentGatewaysAdmin';
+import PayInPackagesAdmin from '../components/admin/PayInPackagesAdmin';
+import APIMasterManagement from '../components/admin/APIMasterManagement';
 
 const AppRoutes = () => {
   return (
@@ -41,6 +45,27 @@ const AppRoutes = () => {
       <Route path="/login" element={<Login />} />
       <Route path="/forgot-password" element={<ForgotPassword />} />
       <Route path="/mpin-verification" element={<MPINVerification />} />
+
+      <Route
+        path="/onboarding/kyc"
+        element={
+          <ProtectedRoute requireMPIN={false}>
+            <Layout>
+              <OnboardingKYC />
+            </Layout>
+          </ProtectedRoute>
+        }
+      />
+      <Route
+        path="/onboarding/mpin-setup"
+        element={
+          <ProtectedRoute requireMPIN={false}>
+            <Layout>
+              <OnboardingMPINSetup />
+            </Layout>
+          </ProtectedRoute>
+        }
+      />
 
       {/* Protected Routes */}
       <Route
@@ -269,13 +294,37 @@ const AppRoutes = () => {
         }
       />
 
-      {/* Admin - Gateway Management */}
+      {/* Admin - Payment gateways */}
       <Route
         path="/admin/gateways"
         element={
           <ProtectedRoute>
             <Layout>
-              <GatewayManagement />
+              <PaymentGatewaysAdmin />
+            </Layout>
+          </ProtectedRoute>
+        }
+      />
+
+      {/* Admin - Pay-in packages */}
+      <Route
+        path="/admin/pay-in-packages"
+        element={
+          <ProtectedRoute>
+            <Layout>
+              <PayInPackagesAdmin />
+            </Layout>
+          </ProtectedRoute>
+        }
+      />
+
+      {/* Admin - API Master */}
+      <Route
+        path="/admin/api-master"
+        element={
+          <ProtectedRoute>
+            <Layout>
+              <APIMasterManagement />
             </Layout>
           </ProtectedRoute>
         }

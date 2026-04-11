@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { useAuth } from '../../context/AuthContext';
-import { getCommissions } from '../../services/mockData';
+import { reportsAPI } from '../../services/api';
 import { formatCurrency, formatDateTime } from '../../utils/formatters';
 
 const CommissionReport = () => {
@@ -14,14 +14,35 @@ const CommissionReport = () => {
 
     setLoading(true);
     try {
-      const result = getCommissions(user.id);
-      if (result.success) {
-        setCommissions(result.commissions || []);
-        const total = result.commissions.reduce((sum, comm) => sum + (comm.commissionAmount || 0), 0);
-        setTotalCommission(total);
+      const result = await reportsAPI.getCommissionReport();
+      if (!result.success) {
+        setCommissions([]);
+        setTotalCommission(0);
+        return;
+      }
+      const raw = result.data?.transactions || [];
+      const mapped = raw.map((row) => ({
+        id: row.id,
+        date: row.created_at,
+        fromUser: row.description || '—',
+        fromUserId: '—',
+        transactionId: row.reference != null && row.reference !== '' ? String(row.reference) : String(row.id),
+        transactionAmount: null,
+        commissionRate: null,
+        commissionAmount: parseFloat(row.amount) || 0,
+        status: 'SUCCESS',
+      }));
+      setCommissions(mapped);
+      const summaryTotal = result.data?.summary?.total_commission;
+      if (summaryTotal != null && !Number.isNaN(Number(summaryTotal))) {
+        setTotalCommission(Number(summaryTotal));
+      } else {
+        setTotalCommission(mapped.reduce((sum, c) => sum + (c.commissionAmount || 0), 0));
       }
     } catch (error) {
       console.error('Error loading commissions:', error);
+      setCommissions([]);
+      setTotalCommission(0);
     } finally {
       setLoading(false);
     }
@@ -72,8 +93,12 @@ const CommissionReport = () => {
                     <td className="px-4 py-3 text-sm text-gray-900 font-medium">{comm.fromUser || '-'}</td>
                     <td className="px-4 py-3 text-sm text-gray-700">{comm.fromUserId || '-'}</td>
                     <td className="px-4 py-3 text-sm text-gray-700">{comm.transactionId || '-'}</td>
-                    <td className="px-4 py-3 text-sm text-gray-900">{formatCurrency(comm.transactionAmount || 0)}</td>
-                    <td className="px-4 py-3 text-sm text-gray-700">{(comm.commissionRate || 0) * 100}%</td>
+                    <td className="px-4 py-3 text-sm text-gray-900">
+                      {comm.transactionAmount != null ? formatCurrency(comm.transactionAmount) : '—'}
+                    </td>
+                    <td className="px-4 py-3 text-sm text-gray-700">
+                      {comm.commissionRate != null ? `${comm.commissionRate * 100}%` : '—'}
+                    </td>
                     <td className="px-4 py-3 text-sm font-semibold text-green-600">{formatCurrency(comm.commissionAmount || 0)}</td>
                     <td className="px-4 py-3">
                       <span className="px-3 py-1 rounded-full text-xs font-semibold bg-green-100 text-green-800 border border-green-200">

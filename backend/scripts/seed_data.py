@@ -45,14 +45,26 @@ def seed_data():
             name='SLPE Gold Travel - Lite',
             charge_rate=1.0,
             status='active',
-            visible_to_roles=['Admin', 'Master Distributor', 'Distributor', 'Retailer'],
+            visible_to_roles=[
+                'Admin',
+                'Super Distributor',
+                'Master Distributor',
+                'Distributor',
+                'Retailer',
+            ],
             category='slpe-gold'
         )
         PaymentGateway.objects.create(
             name='Razorpay',
             charge_rate=1.1,
             status='active',
-            visible_to_roles=['Admin', 'Master Distributor', 'Distributor', 'Retailer'],
+            visible_to_roles=[
+                'Admin',
+                'Super Distributor',
+                'Master Distributor',
+                'Distributor',
+                'Retailer',
+            ],
             category='third-party'
         )
         print("Payment gateways created successfully")
@@ -62,12 +74,24 @@ def seed_data():
         PayoutGateway.objects.create(
             name='IDFC Payout',
             status='active',
-            visible_to_roles=['Admin', 'Master Distributor', 'Distributor', 'Retailer']
+            visible_to_roles=[
+                'Admin',
+                'Super Distributor',
+                'Master Distributor',
+                'Distributor',
+                'Retailer',
+            ]
         )
         PayoutGateway.objects.create(
             name='PAYMAMA - PAYOUT',
             status='active',
-            visible_to_roles=['Admin', 'Master Distributor', 'Distributor', 'Retailer']
+            visible_to_roles=[
+                'Admin',
+                'Super Distributor',
+                'Master Distributor',
+                'Distributor',
+                'Retailer',
+            ]
         )
         print("Payout gateways created successfully")
     

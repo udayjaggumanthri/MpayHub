@@ -60,6 +60,13 @@ class PaymentGateway(BaseModel):
     status = models.CharField(max_length=20, choices=[('active', 'Active'), ('down', 'Down')], default='active')
     visible_to_roles = models.JSONField(default=list)  # List of roles that can see this gateway
     category = models.CharField(max_length=50, blank=True, null=True)
+    api_master = models.ForeignKey(
+        'integrations.ApiMaster',
+        on_delete=models.SET_NULL,
+        related_name='payment_gateways',
+        null=True,
+        blank=True,
+    )
     
     class Meta:
         db_table = 'payment_gateways'

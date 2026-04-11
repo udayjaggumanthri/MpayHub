@@ -72,7 +72,7 @@ class KYC(BaseModel):
 class UserHierarchy(BaseModel):
     """
     User hierarchy model to track parent-child relationships.
-    Admin → Master Distributor → Distributor → Retailer
+    Admin → Super Distributor → Master Distributor → Distributor → Retailer
     """
     parent_user = models.ForeignKey(
         User,
@@ -97,18 +97,32 @@ class UserHierarchy(BaseModel):
     def __str__(self):
         return f"{self.parent_user.user_id} → {self.child_user.user_id}"
     
+    _ROLE_CREATE_MATRIX = {
+        'Admin': [
+            'Super Distributor',
+            'Master Distributor',
+            'Distributor',
+            'Retailer',
+        ],
+        'Super Distributor': ['Master Distributor', 'Distributor', 'Retailer'],
+        'Master Distributor': ['Distributor', 'Retailer'],
+        'Distributor': ['Retailer'],
+        'Retailer': [],
+    }
+
+    @classmethod
+    def can_parent_role_create_child_role(cls, parent_role: str, child_role: str) -> bool:
+        """Whether a user with parent_role may have a direct report with child_role."""
+        if not parent_role:
+            return False
+        return child_role in cls._ROLE_CREATE_MATRIX.get(parent_role, [])
+
     @classmethod
     def can_create_role(cls, parent_user, target_role):
         """
         Check if parent_user can create a user with target_role.
         """
-        role_hierarchy = {
-            'Admin': ['Master Distributor', 'Distributor', 'Retailer'],
-            'Master Distributor': ['Distributor', 'Retailer'],
-            'Distributor': ['Retailer'],
-            'Retailer': []
-        }
-        return target_role in role_hierarchy.get(parent_user.role, [])
+        return cls.can_parent_role_create_child_role(getattr(parent_user, 'role', None), target_role)
     
     @classmethod
     def get_subordinates(cls, user):

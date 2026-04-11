@@ -1,4 +1,4 @@
-import React, { createContext, useState, useContext, useEffect } from 'react';
+import React, { createContext, useState, useContext, useEffect, useCallback } from 'react';
 import { authAPI } from '../services/api';
 import { normalizeAuthUser } from '../utils/authUser';
 import { SESSION_POST_MPIN_ANNOUNCE } from '../utils/announcements';
@@ -37,10 +37,17 @@ export const AuthProvider = ({ children }) => {
           const result = await authAPI.getCurrentUser();
           if (result.success && result.data?.user) {
             const u = normalizeAuthUser(result.data.user);
-            setUser(u);
-            sessionStorage.setItem('mpayhub_user', JSON.stringify(u));
-            setIsAuthenticated(true);
-            setMpinVerified(storedMpinVerified === 'true');
+            if (u && u.is_active === false) {
+              await authAPI.logout();
+              setUser(null);
+              setIsAuthenticated(false);
+              setMpinVerified(false);
+            } else {
+              setUser(u);
+              sessionStorage.setItem('mpayhub_user', JSON.stringify(u));
+              setIsAuthenticated(true);
+              setMpinVerified(storedMpinVerified === 'true');
+            }
           } else {
             // Token invalid, clear session
             authAPI.logout();
@@ -62,17 +69,28 @@ export const AuthProvider = ({ children }) => {
       const result = await authAPI.login(phone, password);
       if (result.success && result.data?.user) {
         const u = normalizeAuthUser(result.data.user);
+        if (u && u.is_active === false) {
+          return {
+            success: false,
+            message: 'This account has been disabled. Contact your administrator.',
+            errors: [],
+          };
+        }
         setUser(u);
         sessionStorage.setItem('mpayhub_user', JSON.stringify(u));
         setIsAuthenticated(true);
-        setMpinVerified(false); // MPIN needs to be verified after login
+        setMpinVerified(false); // Session MPIN gate after account is fully ready
+        sessionStorage.removeItem('mpayhub_mpin_verified');
         sessionStorage.removeItem(SESSION_POST_MPIN_ANNOUNCE);
-        return { success: true };
+        return { success: true, user: u };
       }
+      const errs = Array.isArray(result.errors) ? result.errors : [];
+      const message =
+        errs.length > 0 ? errs[0] : result.message || 'Login failed';
       return {
         success: false,
-        message: result.message || 'Login failed',
-        errors: result.errors || [],
+        message,
+        errors: errs,
       };
     } catch (error) {
       return {
@@ -99,10 +117,13 @@ export const AuthProvider = ({ children }) => {
         setMpinVerified(true);
         return { success: true };
       }
+      const errs = Array.isArray(result.errors) ? result.errors : [];
+      const message =
+        errs.length > 0 ? errs[0] : result.message || 'MPIN verification failed';
       return {
         success: false,
-        message: result.message || 'MPIN verification failed',
-        errors: result.errors || [],
+        message,
+        errors: errs,
       };
     } catch (error) {
       return {
@@ -111,6 +132,33 @@ export const AuthProvider = ({ children }) => {
         errors: [],
       };
     }
+  };
+
+  const refreshUser = useCallback(async () => {
+    try {
+      const result = await authAPI.getCurrentUser();
+      if (result.success && result.data?.user) {
+        const u = normalizeAuthUser(result.data.user);
+        if (u && u.is_active === false) {
+          await authAPI.logout();
+          setUser(null);
+          setIsAuthenticated(false);
+          setMpinVerified(false);
+          return null;
+        }
+        setUser(u);
+        sessionStorage.setItem('mpayhub_user', JSON.stringify(u));
+        return u;
+      }
+    } catch {
+      /* ignore */
+    }
+    return null;
+  }, []);
+
+  const markMpinSessionVerified = () => {
+    setMpinVerified(true);
+    sessionStorage.setItem('mpayhub_mpin_verified', 'true');
   };
 
   // Logout function
@@ -134,6 +182,8 @@ export const AuthProvider = ({ children }) => {
     loading,
     login,
     verifyMPIN,
+    refreshUser,
+    markMpinSessionVerified,
     logout,
   };
 

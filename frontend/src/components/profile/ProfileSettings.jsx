@@ -1,13 +1,15 @@
 import React, { useState } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../../context/AuthContext';
 import { getWallets } from '../../services/mockData';
 import { formatUserId } from '../../utils/formatters';
 import { formatCurrency } from '../../utils/formatters';
 import { validatePhone, validateEmail, validateMPIN } from '../../utils/validators';
-import { FiUser, FiMail, FiPhone, FiLock, FiKey, FiEdit2, FiSave, FiX } from 'react-icons/fi';
+import { FiUser, FiMail, FiPhone, FiLock, FiKey, FiEdit2, FiSave, FiX, FiShield } from 'react-icons/fi';
 
 const ProfileSettings = () => {
-  const { user } = useAuth();
+  const navigate = useNavigate();
+  const { user, refreshUser } = useAuth();
   const [wallets, setWallets] = useState({ main: 0, commission: 0, bbps: 0 });
   const [activeTab, setActiveTab] = useState('profile');
   const [isEditing, setIsEditing] = useState(false);
@@ -45,6 +47,10 @@ const ProfileSettings = () => {
       }
     }
   }, [user]);
+
+  React.useEffect(() => {
+    refreshUser?.();
+  }, [refreshUser]);
 
   const handleProfileChange = (field, value) => {
     setProfileData({ ...profileData, [field]: value });
@@ -156,8 +162,10 @@ const ProfileSettings = () => {
     }
   };
 
+  const ob = user?.onboarding;
   const tabs = [
     { id: 'profile', name: 'Profile', icon: FiUser },
+    { id: 'verification', name: 'Verification', icon: FiShield },
     { id: 'password', name: 'Change Password', icon: FiLock },
     { id: 'mpin', name: 'Change MPIN', icon: FiKey },
   ];
@@ -208,6 +216,47 @@ const ProfileSettings = () => {
             <p className="text-xl font-bold text-yellow-600">{formatCurrency(wallets.bbps)}</p>
           </div>
         </div>
+
+        {ob != null && (
+          <div className="mt-6 pt-6 border-t border-gray-200">
+            <h3 className="text-sm font-semibold text-gray-800 mb-3 flex items-center gap-2">
+              <FiShield className="text-blue-600" />
+              Identity verification
+            </h3>
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-sm">
+              <div className="flex justify-between items-center px-4 py-3 bg-gray-50 rounded-lg border border-gray-100">
+                <span className="text-gray-600">PAN</span>
+                <span className={ob.pan_verified ? 'font-semibold text-green-700' : 'font-medium text-amber-700'}>
+                  {ob.pan_verified ? 'Verified' : 'Not verified'}
+                </span>
+              </div>
+              <div className="flex justify-between items-center px-4 py-3 bg-gray-50 rounded-lg border border-gray-100">
+                <span className="text-gray-600">Aadhaar</span>
+                <span className={ob.aadhaar_verified ? 'font-semibold text-green-700' : 'font-medium text-amber-700'}>
+                  {ob.aadhaar_verified ? 'Verified' : 'Not verified'}
+                </span>
+              </div>
+            </div>
+            {!ob.kyc_complete && (
+              <button
+                type="button"
+                onClick={() => navigate('/onboarding/kyc')}
+                className="mt-4 w-full sm:w-auto px-4 py-2.5 bg-blue-600 text-white text-sm font-semibold rounded-lg hover:bg-blue-700 transition-colors"
+              >
+                Complete verification
+              </button>
+            )}
+            {ob.kyc_complete && !ob.mpin_set && (
+              <button
+                type="button"
+                onClick={() => navigate('/onboarding/mpin-setup')}
+                className="mt-4 w-full sm:w-auto px-4 py-2.5 bg-indigo-600 text-white text-sm font-semibold rounded-lg hover:bg-indigo-700 transition-colors"
+              >
+                Set up MPIN
+              </button>
+            )}
+          </div>
+        )}
       </div>
 
       {/* Settings Tabs */}
@@ -242,6 +291,67 @@ const ProfileSettings = () => {
         {/* Tab Content */}
         <div className="p-6">
           {/* Profile Tab */}
+          {activeTab === 'verification' && (
+            <div className="space-y-6">
+              <h3 className="text-xl font-bold text-gray-900">Verification status</h3>
+              {ob == null ? (
+                <p className="text-gray-600 text-sm">Refresh the page to load verification status.</p>
+              ) : (
+                <>
+                  <div className="space-y-3 text-sm">
+                    <div className="flex justify-between py-2 border-b border-gray-100">
+                      <span className="text-gray-600">PAN verification</span>
+                      <span className={ob.pan_verified ? 'text-green-700 font-semibold' : 'text-amber-700 font-medium'}>
+                        {ob.pan_verified ? 'Complete' : 'Pending'}
+                      </span>
+                    </div>
+                    <div className="flex justify-between py-2 border-b border-gray-100">
+                      <span className="text-gray-600">Aadhaar verification</span>
+                      <span
+                        className={ob.aadhaar_verified ? 'text-green-700 font-semibold' : 'text-amber-700 font-medium'}
+                      >
+                        {ob.aadhaar_verified ? 'Complete' : 'Pending'}
+                      </span>
+                    </div>
+                    <div className="flex justify-between py-2 border-b border-gray-100">
+                      <span className="text-gray-600">KYC overall</span>
+                      <span className={ob.kyc_complete ? 'text-green-700 font-semibold' : 'text-amber-700 font-medium'}>
+                        {ob.kyc_complete ? 'Complete' : 'In progress'}
+                      </span>
+                    </div>
+                    <div className="flex justify-between py-2">
+                      <span className="text-gray-600">MPIN</span>
+                      <span className={ob.mpin_set ? 'text-green-700 font-semibold' : 'text-amber-700 font-medium'}>
+                        {ob.mpin_set ? 'Set' : 'Not set'}
+                      </span>
+                    </div>
+                  </div>
+                  {!ob.kyc_complete && (
+                    <button
+                      type="button"
+                      onClick={() => navigate('/onboarding/kyc')}
+                      className="px-5 py-3 bg-blue-600 text-white font-semibold rounded-lg hover:bg-blue-700"
+                    >
+                      Go to verification
+                    </button>
+                  )}
+                  {ob.kyc_complete && !ob.mpin_set && (
+                    <button
+                      type="button"
+                      onClick={() => navigate('/onboarding/mpin-setup')}
+                      className="px-5 py-3 bg-indigo-600 text-white font-semibold rounded-lg hover:bg-indigo-700"
+                    >
+                      Set MPIN
+                    </button>
+                  )}
+                  {ob.kyc_complete && ob.mpin_set && (
+                    <p className="text-sm text-gray-600">Your identity verification is complete.</p>
+                  )}
+                </>
+              )}
+            </div>
+          )}
+
           {activeTab === 'profile' && (
             <div className="space-y-6">
               <div className="flex items-center justify-between mb-6">

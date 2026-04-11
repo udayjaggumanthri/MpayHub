@@ -11,10 +11,13 @@ from rest_framework.response import Response
 from apps.admin_panel.models import Announcement, PaymentGateway, PayoutGateway
 from apps.admin_panel.serializers import (
     AnnouncementSerializer,
+    PayInPackageAdminSerializer,
     PaymentGatewaySerializer,
     PayoutGatewaySerializer
 )
 from apps.core.permissions import IsAdmin
+from apps.fund_management.models import PayInPackage
+from apps.fund_management.services import quote_payin
 
 
 class AnnouncementViewSet(viewsets.ModelViewSet):
@@ -90,7 +93,7 @@ class PaymentGatewayViewSet(viewsets.ModelViewSet):
     """
     ViewSet for payment gateway management (Admin only).
     """
-    queryset = PaymentGateway.objects.all()
+    queryset = PaymentGateway.objects.select_related('api_master').all()
     serializer_class = PaymentGatewaySerializer
     permission_classes = [IsAuthenticated, IsAdmin]
     
@@ -130,3 +133,57 @@ class PayoutGatewayViewSet(viewsets.ModelViewSet):
             'message': 'Gateway status updated successfully',
             'errors': []
         }, status=status.HTTP_200_OK)
+
+
+class PayInPackageViewSet(viewsets.ModelViewSet):
+    """
+    ViewSet for admin pay-in package + commission configuration.
+    """
+
+    queryset = PayInPackage.objects.filter(is_deleted=False).select_related('payment_gateway').order_by(
+        'sort_order', 'display_name'
+    )
+    serializer_class = PayInPackageAdminSerializer
+    permission_classes = [IsAuthenticated, IsAdmin]
+
+    @action(detail=True, methods=['post'])
+    def preview(self, request, pk=None):
+        """
+        POST /api/admin/pay-in-packages/{id}/preview/
+        Body: {"amount": "100000"}
+        """
+        package = self.get_object()
+        amount = request.data.get('amount')
+        if amount is None:
+            return Response(
+                {
+                    'success': False,
+                    'data': None,
+                    'message': 'amount is required',
+                    'errors': {'amount': ['This field is required.']},
+                },
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        try:
+            q = quote_payin(package, amount)
+        except ValueError as e:
+            return Response(
+                {'success': False, 'data': None, 'message': str(e), 'errors': []},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        return Response(
+            {
+                'success': True,
+                'data': {
+                    'breakdown': q['snapshot'],
+                    'lines': q['lines'],
+                    'net_credit': str(q['net_credit']),
+                    'total_deduction': str(q['total_deduction']),
+                    'retailer_commission': str(q['retailer_commission']),
+                    'retailer_share_absorbed_to_admin': str(q['retailer_share_absorbed_to_admin']),
+                },
+                'message': 'Preview generated',
+                'errors': [],
+            },
+            status=status.HTTP_200_OK,
+        )

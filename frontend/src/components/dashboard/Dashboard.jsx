@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../../context/AuthContext';
 import { useWallet } from '../../context/WalletContext';
@@ -12,8 +12,25 @@ import { FaArrowUp, FaArrowDown, FaMoneyBillWave } from 'react-icons/fa6';
 
 const Dashboard = () => {
   const { user } = useAuth();
-  const { wallets, loading } = useWallet();
+  const { wallets, loading, loadWallets } = useWallet();
   const navigate = useNavigate();
+
+  useEffect(() => {
+    loadWallets();
+  }, [loadWallets]);
+
+  useEffect(() => {
+    const refresh = () => loadWallets();
+    const onVisibility = () => {
+      if (document.visibilityState === 'visible') refresh();
+    };
+    window.addEventListener('focus', refresh);
+    document.addEventListener('visibilitychange', onVisibility);
+    return () => {
+      window.removeEventListener('focus', refresh);
+      document.removeEventListener('visibilitychange', onVisibility);
+    };
+  }, [loadWallets]);
 
   const showCommissionWallet = canViewCommissionWallet(user?.role);
 

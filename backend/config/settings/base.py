@@ -3,6 +3,7 @@ Base settings for mPayhub project.
 """
 
 from pathlib import Path
+from decimal import Decimal
 from decouple import config
 import os
 
@@ -142,8 +143,8 @@ AUTH_USER_MODEL = 'authentication.User'
 # REST Framework Configuration
 REST_FRAMEWORK = {
     'DEFAULT_AUTHENTICATION_CLASSES': [
-        'rest_framework_simplejwt.authentication.JWTAuthentication',
-        'rest_framework.authentication.SessionAuthentication',
+        'apps.authentication.jwt_auth.ActiveUserJWTAuthentication',
+        'apps.authentication.jwt_auth.ActiveUserSessionAuthentication',
     ],
     'DEFAULT_PERMISSION_CLASSES': [
         'rest_framework.permissions.IsAuthenticated',
@@ -160,6 +161,10 @@ REST_FRAMEWORK = {
     ],
     'EXCEPTION_HANDLER': 'apps.core.exceptions.custom_exception_handler',
     'DEFAULT_SCHEMA_CLASS': 'drf_spectacular.openapi.AutoSchema',
+    # Per-scope rates for throttles declared on viewsets (e.g. contacts).
+    'DEFAULT_THROTTLE_RATES': {
+        'contacts': '180/min',
+    },
 }
 
 # API Documentation Settings
@@ -212,6 +217,7 @@ RATELIMIT_USE_CACHE = 'default'
 
 # Encryption Key for MPIN (should be in environment variables)
 ENCRYPTION_KEY = config('ENCRYPTION_KEY', default=SECRET_KEY[:32])
+INTEGRATION_SECRET_KEY = config('INTEGRATION_SECRET_KEY', default=SECRET_KEY)
 
 # OTP Settings
 OTP_EXPIRY_MINUTES = 5
@@ -220,9 +226,38 @@ OTP_LENGTH = 6
 # Wallet Settings
 WALLET_TYPES = ['main', 'commission', 'bbps']
 
+# Pay-in: optional Django user id (pk) who receives 100% of platform gateway + admin shares (commission wallet).
+# If unset/invalid: split those amounts evenly across every active Admin; if no Admin users, first superuser gets 100%.
+def _optional_positive_int(name: str):
+    raw = config(name, default='')
+    if raw is None or str(raw).strip() == '':
+        return None
+    try:
+        v = int(str(raw).strip())
+        return v if v > 0 else None
+    except (TypeError, ValueError):
+        return None
+
+
+PLATFORM_PAYIN_SETTLEMENT_USER_ID = _optional_positive_int('PLATFORM_PAYIN_SETTLEMENT_USER_ID')
+
 # Service Charge Settings
 BBPS_SERVICE_CHARGE = config('BBPS_SERVICE_CHARGE', default=5.00, cast=float)
 BANK_VERIFICATION_CHARGE = config('BANK_VERIFICATION_CHARGE', default=3.00, cast=float)
+
+# Payout slab (addition model): amount ≤ PAYOUT_SLAB_LOW_MAX → low charge; else high charge
+PAYOUT_SLAB_LOW_MAX = Decimal(str(config('PAYOUT_SLAB_LOW_MAX', default='24999')))
+PAYOUT_CHARGE_LOW = Decimal(str(config('PAYOUT_CHARGE_LOW', default='7')))
+PAYOUT_CHARGE_HIGH = Decimal(str(config('PAYOUT_CHARGE_HIGH', default='15')))
+
+# Razorpay (pay-in). Leave blank to use mock / manual complete only.
+RAZORPAY_KEY_ID = config('RAZORPAY_KEY_ID', default='')
+RAZORPAY_KEY_SECRET = config('RAZORPAY_KEY_SECRET', default='')
+RAZORPAY_WEBHOOK_SECRET = config('RAZORPAY_WEBHOOK_SECRET', default='')
+
+# PayU (optional; order + webhook to be extended)
+PAYU_MERCHANT_KEY = config('PAYU_MERCHANT_KEY', default='')
+PAYU_MERCHANT_SALT = config('PAYU_MERCHANT_SALT', default='')
 
 # Logging
 LOGGING = {

@@ -42,9 +42,28 @@ const apiClient = axios.create({
   },
 });
 
+/**
+ * Public auth endpoints must not send Bearer tokens. A stale/invalid JWT in storage
+ * causes SimpleJWT to return 401 ("Given token not valid for any token type") before
+ * AllowAny login logic runs.
+ */
+const isPublicAuthApiUrl = (config) => {
+  const url = config?.url || '';
+  return (
+    url.includes('/auth/login') ||
+    url.includes('/auth/send-otp') ||
+    url.includes('/auth/verify-otp') ||
+    url.includes('/auth/reset-password')
+  );
+};
+
 // Request interceptor - Add auth token to requests
 apiClient.interceptors.request.use(
   (config) => {
+    if (isPublicAuthApiUrl(config)) {
+      delete config.headers.Authorization;
+      return config;
+    }
     const token = localStorage.getItem('access_token') || sessionStorage.getItem('access_token');
     if (token) {
       config.headers.Authorization = `Bearer ${token}`;
@@ -56,6 +75,15 @@ apiClient.interceptors.request.use(
   }
 );
 
+/**
+ * Paths that return 401 for invalid credentials or public auth flows.
+ * Do not attempt JWT refresh on these — avoids retry loops and wrong refresh behavior.
+ */
+const skipTokenRefreshForUrl = (config) => {
+  const url = config?.url || '';
+  return isPublicAuthApiUrl(config) || url.includes('/auth/refresh-token');
+};
+
 // Response interceptor - Handle token refresh and errors
 apiClient.interceptors.response.use(
   (response) => {
@@ -65,7 +93,12 @@ apiClient.interceptors.response.use(
     const originalRequest = error.config;
 
     // Handle 401 Unauthorized - Token expired
-    if (error.response?.status === 401 && !originalRequest._retry) {
+    if (
+      error.response?.status === 401 &&
+      originalRequest &&
+      !originalRequest._retry &&
+      !skipTokenRefreshForUrl(originalRequest)
+    ) {
       originalRequest._retry = true;
 
       try {
@@ -75,12 +108,16 @@ apiClient.interceptors.response.use(
             refresh: refreshToken,
           });
 
-          const { access, refresh } = response.data.data.tokens;
-          localStorage.setItem('access_token', access);
-          localStorage.setItem('refresh_token', refresh);
+          const tokens = response.data?.data?.tokens;
+          if (tokens?.access) {
+            localStorage.setItem('access_token', tokens.access);
+            if (tokens.refresh) {
+              localStorage.setItem('refresh_token', tokens.refresh);
+            }
 
-          originalRequest.headers.Authorization = `Bearer ${access}`;
-          return apiClient(originalRequest);
+            originalRequest.headers.Authorization = `Bearer ${tokens.access}`;
+            return apiClient(originalRequest);
+          }
         }
       } catch (refreshError) {
         // Refresh failed - logout user
@@ -109,16 +146,38 @@ const extractData = (response) => {
 };
 
 /**
+ * Flatten DRF / app error payloads into a string array for UI.
+ */
+const normalizeErrorsList = (errors) => {
+  if (errors == null) return [];
+  if (Array.isArray(errors)) return errors.map((e) => String(e));
+  if (typeof errors === 'object') {
+    return Object.entries(errors).flatMap(([key, val]) => {
+      if (Array.isArray(val)) return val.map((item) => `${key}: ${item}`);
+      return [`${key}: ${val}`];
+    });
+  }
+  return [String(errors)];
+};
+
+/**
  * Handle API errors consistently
  */
 const handleError = (error) => {
   if (error.response) {
     // Server responded with error
-    const apiError = error.response.data;
+    const apiError = error.response.data || {};
+    const normalizedErrors = normalizeErrorsList(apiError.errors);
+    const detail = apiError.detail;
+    const detailMessage = Array.isArray(detail)
+      ? detail.map((d) => (typeof d === 'string' ? d : d?.message || String(d))).join(' ')
+      : typeof detail === 'string'
+        ? detail
+        : '';
     return {
       success: false,
-      message: apiError.message || apiError.detail || 'An error occurred',
-      errors: apiError.errors || [],
+      message: apiError.message || detailMessage || 'An error occurred',
+      errors: normalizedErrors,
       status: error.response.status,
     };
   } else if (error.request) {
@@ -162,7 +221,10 @@ export const authAPI = {
    */
   login: async (phone, password) => {
     try {
-      const response = await apiClient.post('/auth/login/', { phone, password });
+      const response = await apiClient.post('/auth/login/', {
+        phone: String(phone ?? '').trim(),
+        password,
+      });
       const result = extractData(response);
       
       if (result.success && result.data?.tokens) {
@@ -210,7 +272,10 @@ export const authAPI = {
    */
   sendOTP: async (phone, purpose = 'password-reset') => {
     try {
-      const response = await apiClient.post('/auth/send-otp/', { phone, purpose });
+      const response = await apiClient.post('/auth/send-otp/', {
+        phone: String(phone ?? '').trim(),
+        purpose,
+      });
       return extractData(response);
     } catch (error) {
       return handleError(error);
@@ -223,7 +288,11 @@ export const authAPI = {
    */
   verifyOTP: async (phone, code, purpose = 'password-reset') => {
     try {
-      const response = await apiClient.post('/auth/verify-otp/', { phone, code, purpose });
+      const response = await apiClient.post('/auth/verify-otp/', {
+        phone: String(phone ?? '').trim(),
+        code: String(code ?? '').trim(),
+        purpose,
+      });
       return extractData(response);
     } catch (error) {
       return handleError(error);
@@ -237,8 +306,8 @@ export const authAPI = {
   resetPassword: async (phone, otp, newPassword, confirmPassword) => {
     try {
       const response = await apiClient.post('/auth/reset-password/', {
-        phone,
-        otp,
+        phone: String(phone ?? '').trim(),
+        otp: String(otp ?? '').trim(),
         new_password: newPassword,
         confirm_password: confirmPassword,
       });
@@ -285,6 +354,94 @@ export const authAPI = {
         );
       }
       
+      return result;
+    } catch (error) {
+      return handleError(error);
+    }
+  },
+
+  /**
+   * KYC step 1: verify PAN. POST /api/auth/onboarding/kyc/pan/
+   */
+  verifyOnboardingPan: async (pan) => {
+    try {
+      const response = await apiClient.post('/auth/onboarding/kyc/pan/', {
+        pan: String(pan ?? '').toUpperCase().trim(),
+      });
+      const result = extractData(response);
+      if (result.success && result.data?.user) {
+        sessionStorage.setItem(
+          'mpayhub_user',
+          JSON.stringify(normalizeAuthUser(result.data.user))
+        );
+      }
+      return result;
+    } catch (error) {
+      return handleError(error);
+    }
+  },
+
+  /**
+   * KYC step 2a: Aadhaar + send OTP to registered mobile.
+   * POST /api/auth/onboarding/kyc/aadhaar/send-otp/
+   */
+  sendOnboardingAadhaarOtp: async (aadhaar) => {
+    try {
+      const response = await apiClient.post('/auth/onboarding/kyc/aadhaar/send-otp/', {
+        aadhaar: String(aadhaar ?? '').replace(/\D/g, '').slice(0, 12),
+      });
+      const result = extractData(response);
+      if (result.success && result.data?.user) {
+        sessionStorage.setItem(
+          'mpayhub_user',
+          JSON.stringify(normalizeAuthUser(result.data.user))
+        );
+      }
+      return result;
+    } catch (error) {
+      return handleError(error);
+    }
+  },
+
+  /**
+   * KYC step 2b: verify Aadhaar OTP (SMS or demo 123456).
+   * POST /api/auth/onboarding/kyc/aadhaar/verify-otp/
+   */
+  verifyOnboardingAadhaarOtp: async (otp) => {
+    try {
+      const response = await apiClient.post('/auth/onboarding/kyc/aadhaar/verify-otp/', {
+        otp: String(otp ?? '').trim(),
+      });
+      const result = extractData(response);
+      if (result.success && result.data?.user) {
+        sessionStorage.setItem(
+          'mpayhub_user',
+          JSON.stringify(normalizeAuthUser(result.data.user))
+        );
+      }
+      return result;
+    } catch (error) {
+      return handleError(error);
+    }
+  },
+
+  /**
+   * First-time MPIN after KYC.
+   * POST /api/auth/onboarding/setup-mpin/
+   */
+  setupOnboardingMPIN: async (mpin, confirmMpin) => {
+    try {
+      const response = await apiClient.post('/auth/onboarding/setup-mpin/', {
+        mpin: String(mpin ?? '').trim(),
+        confirm_mpin: String(confirmMpin ?? '').trim(),
+      });
+      const result = extractData(response);
+      if (result.success && result.data?.user) {
+        sessionStorage.setItem(
+          'mpayhub_user',
+          JSON.stringify(normalizeAuthUser(result.data.user))
+        );
+      }
       return result;
     } catch (error) {
       return handleError(error);
@@ -374,6 +531,33 @@ export const usersAPI = {
   partialUpdateUser: async (userId, userData) => {
     try {
       const response = await apiClient.patch(`/users/${userId}/`, userData);
+      return extractData(response);
+    } catch (error) {
+      return handleError(error);
+    }
+  },
+
+  /**
+   * PATCH /api/users/{id}/role/ — Admin only; hierarchy-validated role change.
+   */
+  updateUserRole: async (userId, role) => {
+    try {
+      const response = await apiClient.patch(`/users/${userId}/role/`, { role });
+      return extractData(response);
+    } catch (error) {
+      return handleError(error);
+    }
+  },
+
+  /**
+   * Admin only: enable or disable user account (blocks login and API access).
+   * PATCH /api/users/{id}/active-status/
+   */
+  setUserActiveStatus: async (userId, isActive) => {
+    try {
+      const response = await apiClient.patch(`/users/${userId}/active-status/`, {
+        is_active: Boolean(isActive),
+      });
       return extractData(response);
     } catch (error) {
       return handleError(error);
@@ -493,7 +677,104 @@ export const walletsAPI = {
 
 export const fundManagementAPI = {
   /**
-   * Load Money
+   * Pay-in packages (admin-configured)
+   * GET /api/fund-management/pay-in/packages/
+   */
+  listPayInPackages: async () => {
+    try {
+      const response = await apiClient.get('/fund-management/pay-in/packages/');
+      return extractData(response);
+    } catch (error) {
+      return handleError(error);
+    }
+  },
+
+  /**
+   * Pay-in fee quote
+   * POST /api/fund-management/pay-in/quote/
+   */
+  payInQuote: async ({ packageId, amount }) => {
+    try {
+      const response = await apiClient.post('/fund-management/pay-in/quote/', {
+        package_id: packageId,
+        amount,
+      });
+      return extractData(response);
+    } catch (error) {
+      return handleError(error);
+    }
+  },
+
+  /**
+   * Create pay-in order (Razorpay or mock)
+   * POST /api/fund-management/pay-in/create-order/
+   */
+  payInCreateOrder: async ({ packageId, amount, contactId }) => {
+    try {
+      const response = await apiClient.post('/fund-management/pay-in/create-order/', {
+        package_id: packageId,
+        amount,
+        contact_id: contactId,
+      });
+      return extractData(response);
+    } catch (error) {
+      return handleError(error);
+    }
+  },
+
+  /**
+   * Complete mock pay-in (provider=mock only)
+   * POST /api/fund-management/pay-in/complete-mock/
+   */
+  payInCompleteMock: async (transactionId) => {
+    try {
+      const response = await apiClient.post('/fund-management/pay-in/complete-mock/', {
+        transaction_id: transactionId,
+      });
+      return extractData(response);
+    } catch (error) {
+      return handleError(error);
+    }
+  },
+
+  /**
+   * Verify Razorpay Checkout response and credit wallet (signature + payment fetch).
+   * POST /api/fund-management/pay-in/verify-razorpay/
+   */
+  payInVerifyRazorpay: async ({
+    transactionId,
+    razorpayOrderId,
+    razorpayPaymentId,
+    razorpaySignature,
+  }) => {
+    try {
+      const response = await apiClient.post('/fund-management/pay-in/verify-razorpay/', {
+        transaction_id: transactionId,
+        razorpay_order_id: razorpayOrderId,
+        razorpay_payment_id: razorpayPaymentId,
+        razorpay_signature: razorpaySignature,
+      });
+      return extractData(response);
+    } catch (error) {
+      return handleError(error);
+    }
+  },
+
+  /**
+   * Payout quote (max eligible + slab hints)
+   * GET /api/fund-management/payout/quote/
+   */
+  getPayoutQuote: async (params = {}) => {
+    try {
+      const response = await apiClient.get('/fund-management/payout/quote/', { params });
+      return extractData(response);
+    } catch (error) {
+      return handleError(error);
+    }
+  },
+
+  /**
+   * Load Money (legacy immediate success)
    * POST /api/fund-management/load-money/
    */
   loadMoney: async (amount, gateway) => {
@@ -525,13 +806,18 @@ export const fundManagementAPI = {
    * Payout
    * POST /api/fund-management/payout/
    */
-  payout: async (bankAccountId, amount, gateway) => {
+  payout: async ({ bankAccountId, amount, mpin, transferMode = 'IMPS', gateway = null }) => {
     try {
-      const response = await apiClient.post('/fund-management/payout/', {
-        bank_account: bankAccountId,
+      const body = {
+        bank_account_id: bankAccountId,
         amount,
-        gateway,
-      });
+        mpin,
+        transfer_mode: transferMode,
+      };
+      if (gateway != null && gateway !== '') {
+        body.gateway = gateway;
+      }
+      const response = await apiClient.post('/fund-management/payout/', body);
       return extractData(response);
     } catch (error) {
       return handleError(error);
@@ -553,11 +839,11 @@ export const fundManagementAPI = {
 
   /**
    * Get Gateways
-   * GET /api/fund-management/gateways/
+   * GET /api/fund-management/gateways/?type=payment|payout
    */
-  getGateways: async () => {
+  getGateways: async (params = {}) => {
     try {
-      const response = await apiClient.get('/fund-management/gateways/');
+      const response = await apiClient.get('/fund-management/gateways/', { params });
       return extractData(response);
     } catch (error) {
       return handleError(error);
@@ -741,7 +1027,54 @@ export const contactsAPI = {
    */
   searchContactByPhone: async (phone) => {
     try {
-      const response = await apiClient.get('/contacts/search/', { params: { phone } });
+      const digits = String(phone ?? '')
+        .replace(/\D/g, '')
+        .slice(0, 10);
+      const response = await apiClient.get('/contacts/search/', { params: { phone: digits } });
+      return extractData(response);
+    } catch (error) {
+      return handleError(error);
+    }
+  },
+
+  /**
+   * Search contact for transactions: phone (10 digits) or name (unique match).
+   * GET /api/contacts/search/?phone=... OR ?name=...
+   */
+  /**
+   * Typeahead: partial name or phone match (min 2 chars).
+   * GET /api/contacts/suggest/?q=...
+   */
+  suggestContacts: async (q) => {
+    try {
+      const trimmed = String(q ?? '').trim();
+      const response = await apiClient.get('/contacts/suggest/', {
+        params: { q: trimmed },
+      });
+      return extractData(response);
+    } catch (error) {
+      return handleError(error);
+    }
+  },
+
+  searchContactForTransaction: async ({ phone, name } = {}) => {
+    try {
+      const digits = String(phone ?? '')
+        .replace(/\D/g, '')
+        .slice(0, 10);
+      const params = {};
+      if (digits.length === 10) {
+        params.phone = digits;
+      } else if (name != null && String(name).trim().length >= 2) {
+        params.name = String(name).trim();
+      } else {
+        return {
+          success: false,
+          message: 'Enter a 10-digit phone number or at least 2 characters of the contact name',
+          errors: [],
+        };
+      }
+      const response = await apiClient.get('/contacts/search/', { params });
       return extractData(response);
     } catch (error) {
       return handleError(error);
@@ -1081,12 +1414,168 @@ export const adminAPI = {
   },
 
   /**
+   * Delete Payment Gateway
+   * DELETE /api/admin/gateways/{id}/
+   */
+  deletePaymentGateway: async (gatewayId) => {
+    try {
+      const response = await apiClient.delete(`/admin/gateways/${gatewayId}/`);
+      return extractData(response);
+    } catch (error) {
+      return handleError(error);
+    }
+  },
+
+  /**
    * Toggle Payment Gateway Status
    * POST /api/admin/gateways/{id}/toggle-status/
    */
   togglePaymentGatewayStatus: async (gatewayId) => {
     try {
       const response = await apiClient.post(`/admin/gateways/${gatewayId}/toggle-status/`);
+      return extractData(response);
+    } catch (error) {
+      return handleError(error);
+    }
+  },
+
+  /**
+   * List Pay-in Packages (Admin)
+   * GET /api/admin/pay-in-packages/
+   */
+  listPayInPackages: async (params = {}) => {
+    try {
+      const response = await apiClient.get('/admin/pay-in-packages/', { params });
+      return extractData(response);
+    } catch (error) {
+      return handleError(error);
+    }
+  },
+
+  /**
+   * Create Pay-in Package (Admin)
+   * POST /api/admin/pay-in-packages/
+   */
+  createPayInPackage: async (payload) => {
+    try {
+      const response = await apiClient.post('/admin/pay-in-packages/', payload);
+      return extractData(response);
+    } catch (error) {
+      return handleError(error);
+    }
+  },
+
+  /**
+   * Update Pay-in Package (Admin)
+   * PUT /api/admin/pay-in-packages/{id}/
+   */
+  updatePayInPackage: async (packageId, payload) => {
+    try {
+      const response = await apiClient.put(`/admin/pay-in-packages/${packageId}/`, payload);
+      return extractData(response);
+    } catch (error) {
+      return handleError(error);
+    }
+  },
+
+  /**
+   * Delete Pay-in Package (Admin)
+   * DELETE /api/admin/pay-in-packages/{id}/
+   */
+  deletePayInPackage: async (packageId) => {
+    try {
+      const response = await apiClient.delete(`/admin/pay-in-packages/${packageId}/`);
+      return extractData(response);
+    } catch (error) {
+      return handleError(error);
+    }
+  },
+
+  /**
+   * Preview Pay-in Package settlement for amount (Admin)
+   * POST /api/admin/pay-in-packages/{id}/preview/
+   */
+  previewPayInPackage: async (packageId, amount) => {
+    try {
+      const response = await apiClient.post(`/admin/pay-in-packages/${packageId}/preview/`, { amount });
+      return extractData(response);
+    } catch (error) {
+      return handleError(error);
+    }
+  },
+
+  /**
+   * List API Masters
+   * GET /api/integrations/api-masters/
+   */
+  listApiMasters: async (params = {}) => {
+    try {
+      const response = await apiClient.get('/integrations/api-masters/', { params });
+      return extractData(response);
+    } catch (error) {
+      return handleError(error);
+    }
+  },
+
+  /**
+   * Create API Master
+   * POST /api/integrations/api-masters/
+   */
+  createApiMaster: async (payload) => {
+    try {
+      const response = await apiClient.post('/integrations/api-masters/', payload);
+      return extractData(response);
+    } catch (error) {
+      return handleError(error);
+    }
+  },
+
+  /**
+   * Update API Master
+   * PUT /api/integrations/api-masters/{id}/
+   */
+  updateApiMaster: async (id, payload) => {
+    try {
+      const response = await apiClient.put(`/integrations/api-masters/${id}/`, payload);
+      return extractData(response);
+    } catch (error) {
+      return handleError(error);
+    }
+  },
+
+  /**
+   * Delete API Master
+   * DELETE /api/integrations/api-masters/{id}/
+   */
+  deleteApiMaster: async (id) => {
+    try {
+      const response = await apiClient.delete(`/integrations/api-masters/${id}/`);
+      return extractData(response);
+    } catch (error) {
+      return handleError(error);
+    }
+  },
+
+  /**
+   * Test API Master connection
+   * POST /api/integrations/api-masters/{id}/test_connection/
+   */
+  testApiMasterConnection: async (id) => {
+    try {
+      const response = await apiClient.post(`/integrations/api-masters/${id}/test_connection/`);
+      return extractData(response);
+    } catch (error) {
+      return handleError(error);
+    }
+  },
+
+  /**
+   * Clone API Master
+   * POST /api/integrations/api-masters/{id}/clone/
+   */
+  cloneApiMaster: async (id) => {
+    try {
+      const response = await apiClient.post(`/integrations/api-masters/${id}/clone/`);
       return extractData(response);
     } catch (error) {
       return handleError(error);

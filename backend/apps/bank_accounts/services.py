@@ -59,6 +59,7 @@ def validate_bank_account(user, account_number, ifsc):
     # Create passbook entry
     PassbookEntry.objects.create(
         user=user,
+        wallet_type='main',
         service='BANK VERIFICATION',
         service_id=f"BV{generate_service_id('bank_verify')}",
         description=f"BANK VERIFICATION for A/C: {account_number[-4:]}, IFSC: {ifsc}",

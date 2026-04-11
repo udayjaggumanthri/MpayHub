@@ -42,27 +42,36 @@ class IsAdmin(permissions.BasePermission):
 
 
 class IsMasterDistributorOrAbove(permissions.BasePermission):
-    """Permission for Master Distributor and above."""
-    
+    """Permission for Master Distributor and above (includes Super Distributor and Admin)."""
+
     def has_permission(self, request, view):
         if not request.user or not request.user.is_authenticated:
             return False
-        return request.user.role in ['Admin', 'Master Distributor']
+        return request.user.role in [
+            'Admin',
+            'Super Distributor',
+            'Master Distributor',
+        ]
 
 
 class IsDistributorOrAbove(permissions.BasePermission):
     """Permission for Distributor and above."""
-    
+
     def has_permission(self, request, view):
         if not request.user or not request.user.is_authenticated:
             return False
-        return request.user.role in ['Admin', 'Master Distributor', 'Distributor']
+        return request.user.role in [
+            'Admin',
+            'Super Distributor',
+            'Master Distributor',
+            'Distributor',
+        ]
 
 
 class IsHierarchy(permissions.BasePermission):
     """
     Permission to check if user can access resources based on hierarchy.
-    Admin can access all, MD can access D and R, D can access R.
+    Admin: all roles below; Super Distributor: MD/D/R; Master Distributor: D/R; Distributor: R.
     """
     
     def has_permission(self, request, view):
@@ -97,10 +106,16 @@ class IsHierarchy(permissions.BasePermission):
         target_role = target_user.role
         
         hierarchy = {
-            'Admin': ['Master Distributor', 'Distributor', 'Retailer'],
+            'Admin': [
+                'Super Distributor',
+                'Master Distributor',
+                'Distributor',
+                'Retailer',
+            ],
+            'Super Distributor': ['Master Distributor', 'Distributor', 'Retailer'],
             'Master Distributor': ['Distributor', 'Retailer'],
             'Distributor': ['Retailer'],
-            'Retailer': []
+            'Retailer': [],
         }
         
         return target_role in hierarchy.get(current_role, [])
