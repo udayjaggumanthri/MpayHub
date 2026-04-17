@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useCallback } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { usersAPI } from '../../services/api';
 import { formatUserId } from '../../utils/formatters';
 import {
@@ -8,26 +9,16 @@ import {
   FaBuilding,
   FaPhone,
   FaEnvelope,
-  FaChevronRight,
-  FaSitemap,
   FaUserCheck,
   FaUserSlash,
   FaCircleCheck,
   FaClock,
   FaBan,
   FaUsers,
+  FaXmark,
 } from 'react-icons/fa6';
-import { FiX } from 'react-icons/fi';
 import Button from '../common/Button';
 import FeedbackModal from '../common/FeedbackModal';
-
-const ADMIN_ASSIGNABLE_ROLES = [
-  'Admin',
-  'Super Distributor',
-  'Master Distributor',
-  'Distributor',
-  'Retailer',
-];
 
 const accountIsActive = (u) => u && u.is_active !== false;
 
@@ -44,19 +35,12 @@ const roleBadgeClass = (role) => {
 };
 
 const UserList = ({ role, onCreateNew, currentUserId, isAdmin = false }) => {
+  const navigate = useNavigate();
   const [users, setUsers] = useState([]);
   const [searchTerm, setSearchTerm] = useState('');
   const [accountFilter, setAccountFilter] = useState('all');
   const [loading, setLoading] = useState(false);
-  const [selectedUser, setSelectedUser] = useState(null);
-  const [showDetailsModal, setShowDetailsModal] = useState(false);
-  const [detailLoading, setDetailLoading] = useState(false);
-  const [detailError, setDetailError] = useState('');
-  const [roleDraft, setRoleDraft] = useState('');
-  const [roleSaving, setRoleSaving] = useState(false);
-  const [roleMessage, setRoleMessage] = useState('');
   const [activeStatusSaving, setActiveStatusSaving] = useState(false);
-  const [activeStatusMessage, setActiveStatusMessage] = useState('');
   const [accountConfirm, setAccountConfirm] = useState(null);
   const [selfBlockOpen, setSelfBlockOpen] = useState(false);
 
@@ -105,77 +89,19 @@ const UserList = ({ role, onCreateNew, currentUserId, isAdmin = false }) => {
     loadUsers();
   }, [loadUsers]);
 
-  const handleViewDetails = async (user) => {
-    setShowDetailsModal(true);
-    setSelectedUser(user);
-    setDetailError('');
-    setRoleMessage('');
-    setDetailLoading(true);
-    try {
-      const res = await usersAPI.getUserDetail(user.id);
-      const u = res.data?.user ?? res.data;
-      if (res.success && u && u.id != null) {
-        setSelectedUser(u);
-        setRoleDraft(u.role || '');
-      } else {
-        setDetailError(res.message || 'Could not load full user details.');
-      }
-    } catch {
-      setDetailError('Could not load full user details.');
-    } finally {
-      setDetailLoading(false);
-    }
-  };
-
-  const closeDetailsModal = () => {
-    setShowDetailsModal(false);
-    setSelectedUser(null);
-    setDetailError('');
-    setRoleMessage('');
-    setActiveStatusMessage('');
-    setDetailLoading(false);
-  };
-
-  const handleSaveRole = async () => {
-    if (!selectedUser?.id || !roleDraft) return;
-    setRoleSaving(true);
-    setRoleMessage('');
-    try {
-      const res = await usersAPI.updateUserRole(selectedUser.id, roleDraft);
-      const u = res.data?.user ?? res.data;
-      if (res.success && u && u.id != null) {
-        setSelectedUser(u);
-        setRoleDraft(u.role || '');
-        setRoleMessage('Role updated successfully.');
-        await loadUsers();
-      } else {
-        setRoleMessage(res.message || 'Role update failed.');
-      }
-    } catch {
-      setRoleMessage('Role update failed.');
-    } finally {
-      setRoleSaving(false);
-    }
+  const handleViewDetails = (user) => {
+    navigate(`/admin/users/${user.id}`);
   };
 
   const performActiveToggle = async (userRow, nextActive) => {
     setActiveStatusSaving(true);
-    setActiveStatusMessage('');
     try {
       const res = await usersAPI.setUserActiveStatus(userRow.id, nextActive);
-      const u = res.data?.user ?? res.data;
-      if (res.success && u && u.id != null) {
-        if (selectedUser && String(selectedUser.id) === String(u.id)) {
-          setSelectedUser(u);
-        }
-        setActiveStatusMessage(res.message || (nextActive ? 'Account enabled.' : 'Account disabled.'));
+      if (res.success) {
         await loadUsers();
-      } else {
-        const msg = res.message || res.errors?.[0] || 'Update failed.';
-        setActiveStatusMessage(typeof msg === 'string' ? msg : 'Update failed.');
       }
     } catch {
-      setActiveStatusMessage('Update failed.');
+      console.error('Failed to toggle account status');
     } finally {
       setActiveStatusSaving(false);
       setAccountConfirm(null);
@@ -460,7 +386,7 @@ const UserList = ({ role, onCreateNew, currentUserId, isAdmin = false }) => {
                 className="rounded-lg p-2 text-slate-400 transition-colors hover:bg-slate-100 hover:text-slate-600 disabled:opacity-50"
                 aria-label="Close"
               >
-                <FiX size={22} />
+                <FaXmark size={22} />
               </button>
             </div>
             <h2 id="account-confirm-title" className="mt-2 text-lg font-bold text-slate-900">
@@ -511,369 +437,6 @@ const UserList = ({ role, onCreateNew, currentUserId, isAdmin = false }) => {
         title="Cannot change your own access"
         description="Use another administrator account to enable or disable your user, or manage your profile from settings where applicable."
       />
-
-      {/* User Details Modal */}
-      {showDetailsModal && selectedUser && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/50 backdrop-blur-[2px] overflow-y-auto">
-          <div className="bg-white rounded-2xl shadow-2xl max-w-2xl w-full p-6 sm:p-8 my-auto max-h-[90vh] overflow-y-auto ring-1 ring-slate-900/10">
-            <div className="flex items-center justify-between mb-6 gap-4">
-              <div>
-                <p className="text-xs font-semibold uppercase tracking-wider text-indigo-600">User profile</p>
-                <h2 className="text-2xl font-bold text-slate-900 tracking-tight">Directory record</h2>
-              </div>
-              <button
-                type="button"
-                onClick={closeDetailsModal}
-                className="rounded-xl p-2 text-slate-400 transition-colors hover:bg-slate-100 hover:text-slate-700"
-                aria-label="Close"
-              >
-                <FiX size={24} />
-              </button>
-            </div>
-
-            <div className="space-y-6 relative">
-              {detailLoading && (
-                <div className="absolute inset-0 z-10 flex items-center justify-center rounded-xl bg-white/80">
-                  <div className="flex flex-col items-center gap-2">
-                    <div className="h-10 w-10 animate-spin rounded-full border-2 border-indigo-600 border-t-transparent" />
-                    <p className="text-sm text-slate-600">Loading…</p>
-                  </div>
-                </div>
-              )}
-
-              {detailError ? (
-                <div className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900">
-                  {detailError}
-                </div>
-              ) : null}
-
-              <div className="rounded-2xl border border-indigo-100 bg-gradient-to-br from-indigo-50/90 to-white p-5 ring-1 ring-indigo-100/80">
-                <div className="grid gap-4 sm:grid-cols-3">
-                  <div>
-                    <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">User ID</p>
-                    <p className="mt-1 font-mono text-lg font-bold text-indigo-700 tabular-nums">
-                      {formatUserId(selectedUser.user_id || selectedUser.id)}
-                    </p>
-                  </div>
-                  <div>
-                    <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">Role</p>
-                    <span
-                      className={`mt-2 inline-flex rounded-lg px-2.5 py-1 text-xs font-semibold ${roleBadgeClass(
-                        selectedUser.role,
-                      )}`}
-                    >
-                      {selectedUser.role}
-                    </span>
-                  </div>
-                  <div>
-                    <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">Account access</p>
-                    <div className="mt-2 flex items-center gap-2">
-                      <span
-                        className={`h-2 w-2 rounded-full ${accountIsActive(selectedUser) ? 'bg-emerald-500' : 'bg-slate-400'}`}
-                      />
-                      <span className="text-sm font-semibold text-slate-800">
-                        {accountIsActive(selectedUser) ? 'Active' : 'Disabled'}
-                      </span>
-                    </div>
-                  </div>
-                </div>
-
-                {isAdmin &&
-                selectedUser?.id != null &&
-                String(selectedUser.id) !== String(currentUserId) ? (
-                  <div className="mt-5 border-t border-indigo-100 pt-5">
-                    <p className="text-xs font-semibold uppercase tracking-wide text-slate-600 mb-2">Change role</p>
-                    <p className="text-xs text-slate-500 mb-3">
-                      Hierarchy rules apply for promotions and demotions.
-                    </p>
-                    <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
-                      <select
-                        value={roleDraft}
-                        onChange={(e) => {
-                          setRoleDraft(e.target.value);
-                          setRoleMessage('');
-                        }}
-                        className="w-full sm:max-w-xs rounded-xl border border-slate-200 px-3 py-2.5 text-sm focus:border-indigo-300 focus:ring-2 focus:ring-indigo-500/20"
-                      >
-                        {ADMIN_ASSIGNABLE_ROLES.map((r) => (
-                          <option key={r} value={r}>
-                            {r}
-                          </option>
-                        ))}
-                      </select>
-                      <Button
-                        type="button"
-                        variant="primary"
-                        onClick={handleSaveRole}
-                        disabled={roleSaving || !roleDraft || roleDraft === selectedUser.role}
-                      >
-                        {roleSaving ? 'Saving…' : 'Apply role'}
-                      </Button>
-                    </div>
-                    {roleMessage ? (
-                      <p
-                        className={`mt-2 text-sm ${roleMessage.includes('success') ? 'text-emerald-700' : 'text-red-600'}`}
-                      >
-                        {roleMessage}
-                      </p>
-                    ) : null}
-                  </div>
-                ) : null}
-
-                {isAdmin &&
-                selectedUser?.id != null &&
-                String(selectedUser.id) !== String(currentUserId) ? (
-                  <div className="mt-5 border-t border-indigo-100 pt-5">
-                    <p className="text-xs font-semibold uppercase tracking-wide text-slate-600 mb-2">
-                      Enable / disable account
-                    </p>
-                    <p className="text-xs text-slate-500 mb-3">
-                      Disabled users cannot sign in or call APIs until re-enabled.
-                    </p>
-                    <div className="flex flex-wrap gap-2">
-                      <Button
-                        type="button"
-                        variant="outline"
-                        onClick={() => requestToggleAccountActive(selectedUser, false)}
-                        disabled={activeStatusSaving || !accountIsActive(selectedUser)}
-                        className="border-amber-200 text-amber-900 hover:bg-amber-50"
-                      >
-                        Disable account
-                      </Button>
-                      <Button
-                        type="button"
-                        variant="success"
-                        onClick={() => requestToggleAccountActive(selectedUser, true)}
-                        disabled={activeStatusSaving || accountIsActive(selectedUser)}
-                      >
-                        Enable account
-                      </Button>
-                    </div>
-                    {activeStatusMessage ? (
-                      <p
-                        className={`mt-2 text-sm ${
-                          activeStatusMessage.includes('success') ||
-                          activeStatusMessage.includes('enabled') ||
-                          activeStatusMessage.includes('disabled')
-                            ? 'text-emerald-700'
-                            : 'text-red-600'
-                        }`}
-                      >
-                        {activeStatusMessage}
-                      </p>
-                    ) : null}
-                  </div>
-                ) : isAdmin && String(selectedUser.id) === String(currentUserId) ? (
-                  <p className="mt-5 text-xs text-slate-500 border-t border-indigo-100 pt-5">
-                    You cannot change your own account access from this screen.
-                  </p>
-                ) : null}
-              </div>
-
-              {selectedUser.hierarchy_lineage ? (
-                <div className="rounded-2xl border border-slate-200 bg-slate-50/80 p-5">
-                  <h3 className="mb-3 flex items-center gap-2 text-sm font-semibold text-slate-800">
-                    <FaSitemap className="text-indigo-600" aria-hidden />
-                    Hierarchy
-                  </h3>
-                  <p className="mb-3 text-xs text-slate-500">
-                    Path:{' '}
-                    <span className="font-mono text-slate-800">{selectedUser.hierarchy_lineage.map_path || '—'}</span>
-                  </p>
-                  <div className="mb-4 flex flex-wrap items-center gap-1 text-sm">
-                    {(selectedUser.hierarchy_lineage.upline || []).map((node, idx) => (
-                      <React.Fragment key={`${node.user_id}-${idx}`}>
-                        {idx > 0 ? <FaChevronRight className="mx-0.5 text-slate-400" aria-hidden /> : null}
-                        <span className="inline-flex flex-col rounded-lg border border-slate-200 bg-white px-2 py-1 shadow-sm">
-                          <span className="font-mono text-xs font-bold text-indigo-700">{formatUserId(node.user_id)}</span>
-                          <span className="text-[10px] uppercase text-slate-500">{node.role}</span>
-                        </span>
-                      </React.Fragment>
-                    ))}
-                    {(selectedUser.hierarchy_lineage.upline || []).length > 0 ? (
-                      <FaChevronRight className="mx-0.5 text-slate-400" aria-hidden />
-                    ) : null}
-                    <span className="inline-flex flex-col rounded-lg border-2 border-indigo-300 bg-indigo-50 px-2 py-1">
-                      <span className="font-mono text-xs font-bold text-indigo-800">
-                        {formatUserId(selectedUser.user_id || selectedUser.id)}
-                      </span>
-                      <span className="text-[10px] uppercase text-slate-600">{selectedUser.role}</span>
-                    </span>
-                  </div>
-
-                  {(selectedUser.hierarchy_lineage.direct_parents || []).length > 0 ? (
-                    <div className="mb-4">
-                      <p className="mb-2 text-xs font-semibold uppercase text-slate-600">Direct parent</p>
-                      <div className="overflow-x-auto rounded-xl border border-slate-200 bg-white">
-                        <table className="w-full text-left text-sm">
-                          <thead className="bg-slate-50 text-xs uppercase text-slate-500">
-                            <tr>
-                              <th className="px-3 py-2">User ID</th>
-                              <th className="px-3 py-2">Role</th>
-                              <th className="px-3 py-2">Name</th>
-                              <th className="px-3 py-2">Linked at</th>
-                            </tr>
-                          </thead>
-                          <tbody>
-                            {selectedUser.hierarchy_lineage.direct_parents.map((p) => (
-                              <tr key={p.user_id} className="border-t border-slate-100">
-                                <td className="px-3 py-2 font-mono text-indigo-700">{formatUserId(p.user_id)}</td>
-                                <td className="px-3 py-2">{p.role}</td>
-                                <td className="px-3 py-2">{p.name}</td>
-                                <td className="px-3 py-2 text-slate-600">
-                                  {p.linked_at ? new Date(p.linked_at).toLocaleString() : '—'}
-                                </td>
-                              </tr>
-                            ))}
-                          </tbody>
-                        </table>
-                      </div>
-                    </div>
-                  ) : (
-                    <p className="mb-4 text-xs text-slate-500">No parent link in hierarchy.</p>
-                  )}
-
-                  {selectedUser.hierarchy_lineage.direct_reports_total > 0 ? (
-                    <div>
-                      <p className="mb-2 text-xs font-semibold uppercase text-slate-600">
-                        Direct reports ({selectedUser.hierarchy_lineage.direct_reports_total})
-                      </p>
-                      <ul className="max-h-32 space-y-1 overflow-y-auto rounded-xl border border-slate-200 bg-white p-2 text-sm">
-                        {(selectedUser.hierarchy_lineage.direct_reports || []).map((c) => (
-                          <li key={c.user_id} className="flex flex-wrap gap-2 border-b border-slate-50 py-1 last:border-0">
-                            <span className="font-mono text-indigo-700">{formatUserId(c.user_id)}</span>
-                            <span className="text-slate-500">{c.role}</span>
-                            <span className="text-slate-700">{c.name}</span>
-                          </li>
-                        ))}
-                      </ul>
-                      {selectedUser.hierarchy_lineage.direct_reports_total >
-                      (selectedUser.hierarchy_lineage.direct_reports || []).length ? (
-                        <p className="mt-1 text-xs text-slate-500">
-                          Showing first {selectedUser.hierarchy_lineage.direct_reports.length}.
-                        </p>
-                      ) : null}
-                    </div>
-                  ) : null}
-                </div>
-              ) : null}
-
-              <div className="rounded-2xl border border-slate-200 bg-white p-5">
-                <h3 className="text-sm font-semibold text-slate-800 mb-4">Personal &amp; business</h3>
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-4 text-sm">
-                  <div>
-                    <label className="text-xs font-medium text-slate-500">Full name</label>
-                    <p className="mt-1 font-medium text-slate-900 capitalize">
-                      {`${selectedUser.first_name || ''} ${selectedUser.last_name || ''}`.trim() || 'N/A'}
-                    </p>
-                  </div>
-                  <div>
-                    <label className="text-xs font-medium text-slate-500">Email</label>
-                    <p className="mt-1 font-medium text-slate-900 flex items-center gap-2">
-                      <FaEnvelope size={14} className="text-slate-400 shrink-0" />
-                      {selectedUser.email || 'N/A'}
-                    </p>
-                  </div>
-                  <div>
-                    <label className="text-xs font-medium text-slate-500">Phone</label>
-                    <p className="mt-1 font-medium text-slate-900 flex items-center gap-2 tabular-nums">
-                      <FaPhone size={14} className="text-slate-400 shrink-0" />
-                      {selectedUser.phone || 'N/A'}
-                    </p>
-                  </div>
-                  {(selectedUser.profile?.alternate_phone || selectedUser.alternatePhone) && (
-                    <div>
-                      <label className="text-xs font-medium text-slate-500">Alternate phone</label>
-                      <p className="mt-1 font-medium text-slate-900">{selectedUser.profile?.alternate_phone || selectedUser.alternatePhone}</p>
-                    </div>
-                  )}
-                  <div className="md:col-span-2">
-                    <label className="text-xs font-medium text-slate-500">Business</label>
-                    <p className="mt-1 font-medium text-slate-900 flex items-start gap-2">
-                      <FaBuilding size={14} className="text-slate-400 mt-0.5 shrink-0" />
-                      {selectedUser.profile?.business_name || selectedUser.businessName || 'N/A'}
-                    </p>
-                  </div>
-                  {(selectedUser.profile?.business_address || selectedUser.businessAddress) && (
-                    <div className="md:col-span-2">
-                      <label className="text-xs font-medium text-slate-500">Address</label>
-                      <p className="mt-1 text-slate-800">
-                        {selectedUser.profile?.business_address || selectedUser.businessAddress}
-                      </p>
-                    </div>
-                  )}
-                </div>
-              </div>
-
-              <div className="rounded-2xl border border-slate-200 bg-slate-50/50 p-5">
-                <h3 className="text-sm font-semibold text-slate-800 mb-3">Compliance</h3>
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-4 text-sm">
-                  <div>
-                    <label className="text-xs font-medium text-slate-500">KYC</label>
-                    <p className="mt-1 font-medium text-slate-900 capitalize">
-                      {selectedUser.kyc?.verification_status || 'pending'}
-                    </p>
-                  </div>
-                  <div>
-                    <label className="text-xs font-medium text-slate-500">MPIN</label>
-                    <p className="mt-1 font-medium text-slate-900">
-                      {selectedUser.mpin_configured ? 'Configured' : 'Not set'}
-                    </p>
-                  </div>
-                </div>
-              </div>
-
-              {(selectedUser.kyc?.pan_number || selectedUser.kyc?.aadhaar_number || selectedUser.pan || selectedUser.aadhaar) && (
-                <div className="rounded-2xl border border-slate-200 bg-white p-5">
-                  <h3 className="text-sm font-semibold text-slate-800 mb-3">KYC identifiers</h3>
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                    {(selectedUser.kyc?.pan_number || selectedUser.pan) && (
-                      <div>
-                        <label className="text-xs font-medium text-slate-500">PAN</label>
-                        <p className="mt-1 font-mono text-sm font-medium text-slate-900">
-                          {selectedUser.kyc?.pan_number || selectedUser.pan}
-                          {(selectedUser.kyc?.pan_verified || selectedUser.panVerified) && (
-                            <span className="ml-2 text-emerald-600 text-xs">Verified</span>
-                          )}
-                        </p>
-                      </div>
-                    )}
-                    {(selectedUser.kyc?.aadhaar_number || selectedUser.aadhaar) && (
-                      <div>
-                        <label className="text-xs font-medium text-slate-500">Aadhaar</label>
-                        <p className="mt-1 font-mono text-sm font-medium text-slate-900">
-                          {(() => {
-                            const aadhaar = selectedUser.kyc?.aadhaar_number || selectedUser.aadhaar;
-                            return aadhaar ? `${aadhaar.substring(0, 4)} **** ${aadhaar.substring(8)}` : 'N/A';
-                          })()}
-                          {(selectedUser.kyc?.aadhaar_verified || selectedUser.aadhaarVerified) && (
-                            <span className="ml-2 text-emerald-600 text-xs">Verified</span>
-                          )}
-                        </p>
-                      </div>
-                    )}
-                  </div>
-                </div>
-              )}
-
-              {(selectedUser.created_at || selectedUser.createdAt) && (
-                <div className="rounded-xl border border-slate-200 bg-white px-4 py-3">
-                  <label className="text-xs font-medium text-slate-500">Created</label>
-                  <p className="mt-1 text-sm font-medium text-slate-900">
-                    {new Date(selectedUser.created_at || selectedUser.createdAt).toLocaleString()}
-                  </p>
-                </div>
-              )}
-            </div>
-
-            <div className="mt-8 flex justify-end border-t border-slate-100 pt-6">
-              <Button onClick={closeDetailsModal} variant="primary" size="lg">
-                Close
-              </Button>
-            </div>
-          </div>
-        </div>
-      )}
     </div>
   );
 };

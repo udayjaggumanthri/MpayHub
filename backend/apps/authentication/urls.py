@@ -15,6 +15,8 @@ urlpatterns = [
     path('refresh-token/', views.refresh_token_view, name='refresh-token'),
     path('logout/', views.logout_view, name='logout'),
     path('me/', views.current_user_view, name='current-user'),
+    path('change-password/', views.change_password_view, name='change-password'),
+    path('change-mpin/', views.change_mpin_view, name='change-mpin'),
     path('onboarding/kyc/pan/', views.onboarding_kyc_verify_pan_view, name='onboarding-kyc-pan'),
     path(
         'onboarding/kyc/aadhaar/send-otp/',

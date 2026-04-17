@@ -1,22 +1,20 @@
-import React, { useState, useEffect } from 'react';
-import { useAuth } from '../../context/AuthContext';
-import { getTransactions } from '../../services/mockData';
+import React, { useState, useEffect, useCallback } from 'react';
+import { bbpsAPI } from '../../services/api';
 import { formatCurrency, formatDateTime } from '../../utils/formatters';
 import Card from '../common/Card';
-import { 
-  FaCircleCheck, 
-  FaClock, 
-  FaCircleXmark, 
-  FaMagnifyingGlass, 
+import {
+  FaCircleCheck,
+  FaClock,
+  FaCircleXmark,
+  FaMagnifyingGlass,
   FaFilter,
   FaEye,
-  FaX
+  FaX,
 } from 'react-icons/fa6';
 import Input from '../common/Input';
 import Button from '../common/Button';
 
 const MyBills = () => {
-  const { user } = useAuth();
   const [transactions, setTransactions] = useState([]);
   const [loading, setLoading] = useState(true);
   const [filters, setFilters] = useState({
@@ -29,22 +27,49 @@ const MyBills = () => {
   const [selectedTransaction, setSelectedTransaction] = useState(null);
   const [showDetailsModal, setShowDetailsModal] = useState(false);
 
+  const loadTransactions = useCallback(async () => {
+    setLoading(true);
+    try {
+      const params = {};
+      if (filters.serviceId) params.search = filters.serviceId;
+      if (filters.status && filters.status !== 'ALL') params.status = filters.status;
+      if (filters.dateFrom) params.date_from = filters.dateFrom;
+      if (filters.dateTo) params.date_to = filters.dateTo;
+
+      const result = await bbpsAPI.getBillPayments(params);
+
+      if (result.success) {
+        const payments = result.data?.payments || result.data?.results || [];
+        setTransactions(
+          payments.map((p) => ({
+            id: p.id,
+            serviceId: p.service_id || p.id,
+            requestId: p.request_id || p.external_ref || null,
+            amount: parseFloat(p.amount || 0),
+            charge: parseFloat(p.charge || p.service_charge || 0),
+            billType: p.category || p.bill_type || 'Bill Payment',
+            biller: p.biller_name || p.biller || 'N/A',
+            billerId: p.biller_id || null,
+            date: p.created_at || p.transaction_date,
+            status: (p.status || 'PENDING').toUpperCase(),
+            cardLast4: p.card_last4 || null,
+            mobile: p.mobile || null,
+          }))
+        );
+      } else {
+        setTransactions([]);
+      }
+    } catch (err) {
+      console.error('Failed to load bill payments', err);
+      setTransactions([]);
+    } finally {
+      setLoading(false);
+    }
+  }, [filters]);
+
   useEffect(() => {
     loadTransactions();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [user, filters]);
-
-  const loadTransactions = () => {
-    if (!user) return;
-
-    setLoading(true);
-    const result = getTransactions(user.id, 'bbps', filters);
-    
-    if (result.success) {
-      setTransactions(result.transactions || []);
-    }
-    setLoading(false);
-  };
+  }, [loadTransactions]);
 
   const getStatusColor = (status) => {
     switch (status) {
@@ -128,7 +153,6 @@ const MyBills = () => {
         </Button>
       </div>
 
-      {/* Filters */}
       {showFilters && (
         <Card padding="lg">
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
@@ -173,7 +197,6 @@ const MyBills = () => {
         </Card>
       )}
 
-      {/* Transactions Table */}
       <Card padding="lg">
         {transactions.length === 0 ? (
           <div className="text-center py-12">
@@ -224,9 +247,7 @@ const MyBills = () => {
                 <tbody className="bg-white divide-y divide-gray-200">
                   {transactions.map((txn, index) => (
                     <tr key={txn.id} className="hover:bg-gray-50 transition-colors">
-                      <td className="px-3 py-4 whitespace-nowrap text-sm text-gray-900">
-                        {index + 1}
-                      </td>
+                      <td className="px-3 py-4 whitespace-nowrap text-sm text-gray-900">{index + 1}</td>
                       <td className="px-3 py-4 whitespace-nowrap">
                         <div className="text-sm font-medium text-blue-600">{txn.serviceId || txn.id}</div>
                       </td>
@@ -245,9 +266,7 @@ const MyBills = () => {
                       <td className="px-3 py-4 whitespace-nowrap">
                         <div className="text-sm text-gray-900">
                           <div className="font-medium">{txn.biller || 'N/A'}</div>
-                          {txn.billerId && (
-                            <div className="text-xs text-gray-500">ID: {txn.billerId}</div>
-                          )}
+                          {txn.billerId && <div className="text-xs text-gray-500">ID: {txn.billerId}</div>}
                         </div>
                       </td>
                       <td className="px-3 py-4 whitespace-nowrap text-sm text-gray-600">
@@ -284,7 +303,6 @@ const MyBills = () => {
         )}
       </Card>
 
-      {/* Transaction Details Modal */}
       {showDetailsModal && selectedTransaction && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black bg-opacity-50 overflow-y-auto">
           <div className="bg-white rounded-xl shadow-2xl max-w-2xl w-full p-6 my-auto max-h-[90vh] overflow-y-auto">
@@ -299,7 +317,6 @@ const MyBills = () => {
             </div>
 
             <div className="space-y-6">
-              {/* Status Badge */}
               <div className="flex justify-center">
                 <span
                   className={`inline-flex items-center space-x-2 px-6 py-3 rounded-full text-sm font-semibold border ${getStatusColor(
@@ -311,7 +328,6 @@ const MyBills = () => {
                 </span>
               </div>
 
-              {/* IDs Section */}
               <div className="bg-gray-50 rounded-lg p-4 border border-gray-200">
                 <h3 className="text-sm font-semibold text-gray-700 mb-3 uppercase tracking-wide">
                   Transaction Identifiers
@@ -332,15 +348,12 @@ const MyBills = () => {
                   {selectedTransaction.id && (
                     <div>
                       <label className="text-xs text-gray-500 uppercase">Internal ID</label>
-                      <p className="text-sm font-medium text-gray-900 mt-1">
-                        {selectedTransaction.id}
-                      </p>
+                      <p className="text-sm font-medium text-gray-900 mt-1">{selectedTransaction.id}</p>
                     </div>
                   )}
                 </div>
               </div>
 
-              {/* Financial Breakdown */}
               <div className="bg-blue-50 rounded-lg p-4 border border-blue-200">
                 <h3 className="text-sm font-semibold text-gray-700 mb-3 uppercase tracking-wide">
                   Financial Breakdown
@@ -367,7 +380,6 @@ const MyBills = () => {
                 </div>
               </div>
 
-              {/* Biller Information */}
               <div className="bg-gray-50 rounded-lg p-4 border border-gray-200">
                 <h3 className="text-sm font-semibold text-gray-700 mb-3 uppercase tracking-wide">
                   Biller Information
@@ -388,16 +400,15 @@ const MyBills = () => {
                   {selectedTransaction.billerId && (
                     <div>
                       <label className="text-xs text-gray-500 uppercase">Biller ID</label>
-                      <p className="text-sm font-medium text-gray-900 mt-1">
-                        {selectedTransaction.billerId}
-                      </p>
+                      <p className="text-sm font-medium text-gray-900 mt-1">{selectedTransaction.billerId}</p>
                     </div>
                   )}
                 </div>
               </div>
 
-              {/* Identity Markers (for Credit Card payments) */}
-              {(selectedTransaction.billType === 'Credit Card' || selectedTransaction.cardLast4 || selectedTransaction.mobile) && (
+              {(selectedTransaction.billType === 'Credit Card' ||
+                selectedTransaction.cardLast4 ||
+                selectedTransaction.mobile) && (
                 <div className="bg-gray-50 rounded-lg p-4 border border-gray-200">
                   <h3 className="text-sm font-semibold text-gray-700 mb-3 uppercase tracking-wide">
                     Identity Markers
@@ -414,16 +425,13 @@ const MyBills = () => {
                     {selectedTransaction.mobile && (
                       <div>
                         <label className="text-xs text-gray-500 uppercase">Registered Mobile Number</label>
-                        <p className="text-sm font-medium text-gray-900 mt-1">
-                          {selectedTransaction.mobile}
-                        </p>
+                        <p className="text-sm font-medium text-gray-900 mt-1">{selectedTransaction.mobile}</p>
                       </div>
                     )}
                   </div>
                 </div>
               )}
 
-              {/* Transaction Date */}
               <div className="bg-gray-50 rounded-lg p-4 border border-gray-200">
                 <h3 className="text-sm font-semibold text-gray-700 mb-3 uppercase tracking-wide">
                   Transaction Information

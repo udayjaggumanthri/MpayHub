@@ -1,10 +1,11 @@
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import { useAuth } from '../../context/AuthContext';
-import { usersAPI } from '../../services/api';
+import { usersAPI, fundManagementAPI } from '../../services/api';
 import { validatePhone, validateEmail } from '../../utils/validators';
 import { canCreateRole } from '../../utils/rolePermissions';
 import Card from '../common/Card';
 import FeedbackModal from '../common/FeedbackModal';
+import { FaBox, FaStar, FaTimes } from 'react-icons/fa';
 
 /**
  * Hierarchy onboarding: basic details only. The new user completes KYC + MPIN after first login.
@@ -31,6 +32,29 @@ const AddUser = ({ onCancel, onSuccess, initialRole = '' }) => {
     createdUser: null,
   });
 
+  // Package assignment state
+  const [availablePackages, setAvailablePackages] = useState([]);
+  const [selectedPackageIds, setSelectedPackageIds] = useState([]);
+  const [packagesLoading, setPackagesLoading] = useState(false);
+
+  const loadAssignablePackages = useCallback(async () => {
+    setPackagesLoading(true);
+    try {
+      const result = await fundManagementAPI.getAssignablePackages();
+      if (result.success && result.data?.packages) {
+        setAvailablePackages(result.data.packages);
+      }
+    } catch (err) {
+      console.error('Failed to load assignable packages:', err);
+    } finally {
+      setPackagesLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    loadAssignablePackages();
+  }, [loadAssignablePackages]);
+
   const availableRoles = useMemo(() => {
     if (!currentUser) return [];
     const roles = [];
@@ -49,6 +73,12 @@ const AddUser = ({ onCancel, onSuccess, initialRole = '' }) => {
   const handleInputChange = (field, value) => {
     setFormData((prev) => ({ ...prev, [field]: value }));
     setErrors((prev) => ({ ...prev, [field]: '' }));
+  };
+
+  const togglePackage = (packageId) => {
+    setSelectedPackageIds((prev) =>
+      prev.includes(packageId) ? prev.filter((id) => id !== packageId) : [...prev, packageId]
+    );
   };
 
   const validate = () => {
@@ -96,6 +126,7 @@ const AddUser = ({ onCancel, onSuccess, initialRole = '' }) => {
         alternatePhone: formData.alternatePhone || '',
         businessName: formData.businessName,
         businessAddress: formData.businessAddress,
+        package_ids: selectedPackageIds.length > 0 ? selectedPackageIds : undefined,
       };
 
       const result = await usersAPI.createUser(userData);
@@ -260,6 +291,51 @@ const AddUser = ({ onCancel, onSuccess, initialRole = '' }) => {
               ))}
             </select>
             {errors.role && <p className="mt-1 text-sm text-red-600">{errors.role}</p>}
+          </div>
+
+          {/* Package Assignment */}
+          <div className="border border-gray-200 rounded-lg p-4 bg-slate-50">
+            <div className="flex items-center gap-2 mb-3">
+              <FaBox className="text-violet-600" />
+              <label className="text-sm font-medium text-gray-700">
+                Assign Pay-in Packages (optional)
+              </label>
+            </div>
+            <p className="text-xs text-gray-500 mb-3">
+              Select packages this user can access for load money. If none selected, the default package will be assigned automatically.
+            </p>
+            {packagesLoading ? (
+              <p className="text-sm text-gray-500">Loading packages...</p>
+            ) : availablePackages.length === 0 ? (
+              <p className="text-sm text-gray-500">No packages available to assign.</p>
+            ) : (
+              <div className="flex flex-wrap gap-2">
+                {availablePackages.map((pkg) => {
+                  const isSelected = selectedPackageIds.includes(pkg.id);
+                  return (
+                    <button
+                      key={pkg.id}
+                      type="button"
+                      onClick={() => togglePackage(pkg.id)}
+                      className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-sm font-medium transition-colors ${
+                        isSelected
+                          ? 'bg-violet-600 text-white'
+                          : 'bg-white border border-gray-300 text-gray-700 hover:border-violet-400 hover:bg-violet-50'
+                      }`}
+                    >
+                      {pkg.is_default && <FaStar className="text-amber-400" size={12} />}
+                      {pkg.display_name}
+                      {isSelected && <FaTimes size={12} className="ml-1" />}
+                    </button>
+                  );
+                })}
+              </div>
+            )}
+            {selectedPackageIds.length > 0 && (
+              <p className="mt-2 text-xs text-violet-600">
+                {selectedPackageIds.length} package{selectedPackageIds.length > 1 ? 's' : ''} selected
+              </p>
+            )}
           </div>
 
           {errors.submit && (

@@ -235,46 +235,6 @@ const LoadMoney = () => {
     }
   };
 
-  const handleMockComplete = async () => {
-    const tid = orderPayload?.load_money?.transaction_id || orderPayload?.transaction_id;
-    if (!tid) {
-      alert('Missing transaction reference. Close and try again.');
-      return;
-    }
-    setLoading(true);
-    try {
-      const res = await fundManagementAPI.payInCompleteMock(tid);
-      if (res.success) {
-        refreshWallets();
-        const net = res.data?.load_money?.net_credit ?? quote?.net_credit;
-        setShowGatewayInterface(false);
-        setOrderPayload(null);
-        setAmount('');
-        setCustomerDetails(null);
-        setCustomerSearch('');
-        setQuote(null);
-        setPayFeedbackModal({
-          open: true,
-          title: 'Payment completed',
-          description: `Your wallet has been credited. Net credit: ${formatCurrency(parseFloat(net || 0))}.\n\nFull history: Reports → Pay In.`,
-          primaryAction: {
-            label: 'Open Pay In report',
-            onClick: () => navigate('/reports/payin'),
-          },
-        });
-      } else {
-        setPayFeedbackModal({
-          open: true,
-          title: 'Completion failed',
-          description: res.message || 'Mock completion failed.',
-          primaryAction: null,
-        });
-      }
-    } finally {
-      setLoading(false);
-    }
-  };
-
   const handleRazorpayPay = async () => {
     const rz = orderPayload?.razorpay;
     const txnId = orderPayload?.transaction_id;
@@ -698,9 +658,7 @@ const LoadMoney = () => {
               <div className="flex items-center justify-between mb-6">
                 <div>
                   <h2 className="text-2xl font-bold text-gray-900">Checkout</h2>
-                  <p className="text-sm text-gray-600 mt-1">
-                    {orderPayload.provider === 'mock' ? 'Mock provider (development)' : orderPayload.provider}
-                  </p>
+                  <p className="text-sm text-gray-600 mt-1 capitalize">{orderPayload.provider}</p>
                 </div>
                 <button
                   type="button"
@@ -729,24 +687,6 @@ const LoadMoney = () => {
                 </div>
               </div>
 
-              {orderPayload.provider === 'mock' && (
-                <div className="space-y-4">
-                  <p className="text-sm text-gray-600">
-                    No real bank call is made. Complete simulation to credit wallets using the mock completion API.
-                  </p>
-                  <Button
-                    onClick={handleMockComplete}
-                    disabled={loading}
-                    loading={loading}
-                    variant="primary"
-                    size="lg"
-                    fullWidth
-                  >
-                    Complete simulated payment
-                  </Button>
-                </div>
-              )}
-
               {orderPayload.provider === 'razorpay' && orderPayload.razorpay && (
                 <div className="space-y-4">
                   <p className="text-sm text-gray-600">
@@ -762,7 +702,13 @@ const LoadMoney = () => {
 
               {orderPayload.provider === 'payu' && (
                 <p className="text-sm text-amber-800 bg-amber-50 border border-amber-200 rounded-lg p-4">
-                  PayU checkout is not enabled for this build. Choose a mock or Razorpay package.
+                  PayU checkout is not enabled yet. Please choose a Razorpay package.
+                </p>
+              )}
+
+              {!['razorpay', 'payu'].includes(orderPayload.provider) && (
+                <p className="text-sm text-red-800 bg-red-50 border border-red-200 rounded-lg p-4">
+                  Unknown provider "{orderPayload.provider}". Please contact support or select a different package.
                 </p>
               )}
             </div>

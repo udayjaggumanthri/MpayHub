@@ -66,7 +66,9 @@ def validate_bank_account(user, account_number, ifsc):
         debit_amount=verification_charge,
         credit_amount=Decimal('0.00'),
         opening_balance=opening_balance,
-        closing_balance=closing_balance
+        closing_balance=closing_balance,
+        service_charge=Decimal('0.00'),
+        principal_amount=verification_charge,
     )
     
     return {

@@ -4,16 +4,17 @@ Admin panel views for the mPayhub platform.
 from django.db.models import Q
 from django.utils.dateparse import parse_date
 from rest_framework import status, viewsets
-from rest_framework.decorators import action
+from rest_framework.decorators import action, api_view, permission_classes
 from rest_framework.parsers import FormParser, JSONParser, MultiPartParser
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
-from apps.admin_panel.models import Announcement, PaymentGateway, PayoutGateway
+from apps.admin_panel.models import Announcement, PaymentGateway, PayoutGateway, PayoutSlabConfig
 from apps.admin_panel.serializers import (
     AnnouncementSerializer,
     PayInPackageAdminSerializer,
     PaymentGatewaySerializer,
-    PayoutGatewaySerializer
+    PayoutGatewaySerializer,
+    PayoutSlabConfigSerializer,
 )
 from apps.core.permissions import IsAdmin
 from apps.fund_management.models import PayInPackage
@@ -187,3 +188,37 @@ class PayInPackageViewSet(viewsets.ModelViewSet):
             },
             status=status.HTTP_200_OK,
         )
+
+
+@api_view(['GET', 'PUT'])
+@permission_classes([IsAuthenticated, IsAdmin])
+def payout_slab_config_view(request):
+    """Get/update singleton payout slab configuration used by payout quote/processing."""
+    config = (
+        PayoutSlabConfig.objects.filter(is_active=True).order_by('-updated_at', '-id').first()
+        or PayoutSlabConfig.objects.order_by('-updated_at', '-id').first()
+    )
+
+    if request.method == 'GET':
+        if not config:
+            config = PayoutSlabConfig.objects.create()
+        ser = PayoutSlabConfigSerializer(config)
+        return Response(
+            {'success': True, 'data': {'config': ser.data}, 'message': 'Payout slab config retrieved', 'errors': []},
+            status=status.HTTP_200_OK,
+        )
+
+    if not config:
+        config = PayoutSlabConfig.objects.create()
+    ser = PayoutSlabConfigSerializer(config, data=request.data, partial=True)
+    if not ser.is_valid():
+        return Response(
+            {'success': False, 'data': None, 'message': 'Invalid input', 'errors': ser.errors},
+            status=status.HTTP_400_BAD_REQUEST,
+        )
+    cfg = ser.save()
+    out = PayoutSlabConfigSerializer(cfg).data
+    return Response(
+        {'success': True, 'data': {'config': out}, 'message': 'Payout slab config updated', 'errors': []},
+        status=status.HTTP_200_OK,
+    )

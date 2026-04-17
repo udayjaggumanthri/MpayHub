@@ -118,6 +118,22 @@ def create_user(user_data, created_by):
     Wallet.objects.create(user=user, wallet_type='main', balance=0.00)
     Wallet.objects.create(user=user, wallet_type='commission', balance=0.00)
     Wallet.objects.create(user=user, wallet_type='bbps', balance=0.00)
+
+    # Auto-assign default package (if configured) or packages passed during creation
+    from apps.fund_management.services import auto_assign_default_package, assign_package_to_user
+    
+    package_ids = user_data.get('package_ids', [])
+    if package_ids:
+        # Assign specific packages passed during user creation
+        for pkg_id in package_ids:
+            assign_package_to_user(
+                assigner=created_by,
+                target_user=user,
+                package_id=pkg_id,
+            )
+    else:
+        # Auto-assign default package for new users
+        auto_assign_default_package(user, assigner=created_by)
     
     return user, temporary_plain_password
 

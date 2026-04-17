@@ -13,6 +13,7 @@ import {
   FaChartPie,
   FaCreditCard,
   FaArrowRight,
+  FaStar,
 } from 'react-icons/fa6';
 import {
   parseList,
@@ -34,10 +35,17 @@ const PayInPackagesAdmin = () => {
   const [previewAmount, setPreviewAmount] = useState('100000');
   const [previewResult, setPreviewResult] = useState(null);
   const [previewLoading, setPreviewLoading] = useState(false);
+  const [slabLoading, setSlabLoading] = useState(false);
+  const [defaultLoading, setDefaultLoading] = useState(null);
+  const [payoutSlabForm, setPayoutSlabForm] = useState({
+    low_max_amount: '24999',
+    low_charge: '7',
+    high_charge: '15',
+  });
   const [packageForm, setPackageForm] = useState({
     code: '',
     display_name: '',
-    provider: 'mock',
+    provider: 'razorpay',
     payment_gateway_id: '',
     min_amount: '1',
     max_amount_per_txn: '200000',
@@ -46,7 +54,6 @@ const PayInPackagesAdmin = () => {
     super_distributor_pct: '0.01',
     master_distributor_pct: '0.02',
     distributor_pct: '0.03',
-    retailer_commission_pct: '0.06',
     is_active: true,
     sort_order: '0',
   });
@@ -56,12 +63,39 @@ const PayInPackagesAdmin = () => {
   }, []);
 
   const loadData = async () => {
-    const [gRes, pRes] = await Promise.all([
+    const [gRes, pRes, sRes] = await Promise.all([
       adminAPI.listPaymentGateways(),
       adminAPI.listPayInPackages(),
+      adminAPI.getPayoutSlabConfig(),
     ]);
     if (gRes.success) setGateways(parseList(gRes));
     if (pRes.success) setPackages(parseList(pRes));
+    if (sRes.success && sRes.data?.config) {
+      const cfg = sRes.data.config;
+      setPayoutSlabForm({
+        low_max_amount: String(cfg.low_max_amount ?? '24999'),
+        low_charge: String(cfg.low_charge ?? '7'),
+        high_charge: String(cfg.high_charge ?? '15'),
+      });
+    }
+  };
+
+  const savePayoutSlab = async (e) => {
+    e.preventDefault();
+    setSlabLoading(true);
+    const payload = {
+      low_max_amount: payoutSlabForm.low_max_amount,
+      low_charge: payoutSlabForm.low_charge,
+      high_charge: payoutSlabForm.high_charge,
+    };
+    const res = await adminAPI.updatePayoutSlabConfig(payload);
+    setSlabLoading(false);
+    if (!res.success) {
+      alert(firstErrorMessage(res, 'Could not update payout slab config'));
+      return;
+    }
+    alert('Payout slab updated');
+    await loadData();
   };
 
   const openAddPackage = () => {
@@ -70,7 +104,7 @@ const PayInPackagesAdmin = () => {
     setPackageForm({
       code: '',
       display_name: '',
-      provider: 'mock',
+      provider: 'razorpay',
       payment_gateway_id: defaultGatewayId,
       min_amount: '1',
       max_amount_per_txn: '200000',
@@ -79,7 +113,6 @@ const PayInPackagesAdmin = () => {
       super_distributor_pct: '0.01',
       master_distributor_pct: '0.02',
       distributor_pct: '0.03',
-      retailer_commission_pct: '0.06',
       is_active: true,
       sort_order: '0',
     });
@@ -91,7 +124,7 @@ const PayInPackagesAdmin = () => {
     setPackageForm({
       code: pkg.code || '',
       display_name: pkg.display_name || '',
-      provider: pkg.provider || 'mock',
+      provider: pkg.provider || 'razorpay',
       payment_gateway_id: pkg.payment_gateway?.id ? String(pkg.payment_gateway.id) : '',
       min_amount: pkg.min_amount?.toString?.() || '1',
       max_amount_per_txn: pkg.max_amount_per_txn?.toString?.() || '200000',
@@ -100,7 +133,6 @@ const PayInPackagesAdmin = () => {
       super_distributor_pct: pkg.super_distributor_pct?.toString?.() || '0',
       master_distributor_pct: pkg.master_distributor_pct?.toString?.() || '0',
       distributor_pct: pkg.distributor_pct?.toString?.() || '0',
-      retailer_commission_pct: pkg.retailer_commission_pct?.toString?.() || '0',
       is_active: Boolean(pkg.is_active),
       sort_order: pkg.sort_order?.toString?.() || '0',
     });
@@ -113,8 +145,8 @@ const PayInPackagesAdmin = () => {
       alert('Code and Display Name are required');
       return;
     }
-    if (packageForm.provider !== 'mock' && !packageForm.payment_gateway_id) {
-      alert('Please select a Payment Gateway for Razorpay/PayU packages.');
+    if (!packageForm.payment_gateway_id) {
+      alert('Please select a Payment Gateway.');
       return;
     }
     setLoading(true);
@@ -130,7 +162,6 @@ const PayInPackagesAdmin = () => {
       super_distributor_pct: packageForm.super_distributor_pct,
       master_distributor_pct: packageForm.master_distributor_pct,
       distributor_pct: packageForm.distributor_pct,
-      retailer_commission_pct: packageForm.retailer_commission_pct,
       is_active: packageForm.is_active,
       sort_order: Number(packageForm.sort_order || 0),
     };
@@ -155,6 +186,29 @@ const PayInPackagesAdmin = () => {
     const result = await adminAPI.deletePayInPackage(pkgId);
     if (!result.success) {
       alert(result.message || 'Delete failed');
+      return;
+    }
+    await loadData();
+  };
+
+  const handleSetDefaultPackage = async (pkgId) => {
+    setDefaultLoading(pkgId);
+    const result = await adminAPI.setDefaultPackage(pkgId);
+    setDefaultLoading(null);
+    if (!result.success) {
+      alert(firstErrorMessage(result, 'Could not set default package'));
+      return;
+    }
+    await loadData();
+  };
+
+  const handleClearDefaultPackage = async () => {
+    if (!window.confirm('Clear default package? New users will not have any package auto-assigned.')) return;
+    setDefaultLoading('clear');
+    const result = await adminAPI.clearDefaultPackage();
+    setDefaultLoading(null);
+    if (!result.success) {
+      alert(firstErrorMessage(result, 'Could not clear default package'));
       return;
     }
     await loadData();
@@ -199,7 +253,7 @@ const PayInPackagesAdmin = () => {
               </p>
               <h1 className="text-2xl sm:text-3xl font-bold text-slate-900 tracking-tight">Pay-in packages</h1>
               <p className="mt-2 text-sm sm:text-base text-slate-600 max-w-xl leading-relaxed">
-                Fee split for load money: gateway, platform admin, upline (SD / MD / D), and retailer→platform %. Use
+                Fee split for load money: gateway, platform admin, and upline commissions (SD / MD / D). Use
                 Preview to sanity-check amounts.
               </p>
             </div>
@@ -213,6 +267,35 @@ const PayInPackagesAdmin = () => {
             </Link>
           </div>
         </header>
+
+        <section className="rounded-2xl border border-slate-200/90 bg-white shadow-sm overflow-hidden">
+          <div className="border-b border-slate-100 bg-slate-50/80 px-5 py-4 sm:px-6">
+            <h3 className="text-lg font-semibold text-slate-900">Payout slab configuration (add-on mode)</h3>
+            <p className="text-sm text-slate-600 mt-1">
+              Wallet debit = transfer amount + slab charge. Configure thresholds and flat charges below.
+            </p>
+          </div>
+          <form onSubmit={savePayoutSlab} className="px-5 py-4 sm:px-6 grid grid-cols-1 md:grid-cols-4 gap-3 items-end">
+            <Input
+              label="Low slab max amount"
+              value={payoutSlabForm.low_max_amount}
+              onChange={(e) => setPayoutSlabForm((f) => ({ ...f, low_max_amount: e.target.value }))}
+            />
+            <Input
+              label="Charge up to low slab max"
+              value={payoutSlabForm.low_charge}
+              onChange={(e) => setPayoutSlabForm((f) => ({ ...f, low_charge: e.target.value }))}
+            />
+            <Input
+              label="Charge above low slab max"
+              value={payoutSlabForm.high_charge}
+              onChange={(e) => setPayoutSlabForm((f) => ({ ...f, high_charge: e.target.value }))}
+            />
+            <Button type="submit" loading={slabLoading}>
+              Save Slab
+            </Button>
+          </form>
+        </section>
 
         <section className="rounded-2xl border border-slate-200/90 bg-white shadow-sm overflow-hidden">
           <div className="flex flex-col gap-4 border-b border-slate-100 bg-slate-50/80 px-5 py-4 sm:flex-row sm:items-center sm:justify-between sm:px-6">
@@ -261,7 +344,15 @@ const PayInPackagesAdmin = () => {
                     >
                       <div className="flex items-start justify-between gap-2">
                         <div className="min-w-0 flex-1">
-                          <h3 className="font-bold text-slate-900 truncate text-base leading-snug">{pkg.display_name}</h3>
+                          <div className="flex items-center gap-2">
+                            <h3 className="font-bold text-slate-900 truncate text-base leading-snug">{pkg.display_name}</h3>
+                            {pkg.is_default && (
+                              <span className="shrink-0 inline-flex items-center gap-1 rounded-full bg-amber-50 px-2 py-0.5 text-xs font-semibold text-amber-700 ring-1 ring-amber-200">
+                                <FaStar size={10} />
+                                Default
+                              </span>
+                            )}
+                          </div>
                           <code className="mt-1 inline-block text-xs text-slate-600 bg-slate-100 px-2 py-0.5 rounded-md font-mono">
                             {pkg.code}
                           </code>
@@ -288,7 +379,7 @@ const PayInPackagesAdmin = () => {
 
                       <div className="mt-4">
                         <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-500 mb-2">
-                          Split (%) · Gw / Adm / SD / MD / D / R→P
+                          Split (%) · Gw / Adm / SD / MD / D
                         </p>
                         <div className="flex h-2 w-full overflow-hidden rounded-full bg-slate-100 ring-1 ring-slate-200/80">
                           {strip.map((seg) => {
@@ -322,7 +413,29 @@ const PayInPackagesAdmin = () => {
                         </div>
                       </div>
 
-                      <div className="mt-4 flex items-center justify-end gap-1 border-t border-slate-50 pt-3">
+                      <div className="mt-4 flex items-center justify-end gap-1 border-t border-slate-50 pt-3 flex-wrap">
+                        {!pkg.is_default && pkg.is_active && (
+                          <button
+                            type="button"
+                            onClick={() => handleSetDefaultPackage(pkg.id)}
+                            disabled={defaultLoading === pkg.id}
+                            className="inline-flex items-center gap-1.5 rounded-lg px-3 py-2 text-xs font-semibold text-amber-700 hover:bg-amber-50 transition-colors disabled:opacity-50"
+                          >
+                            <FaStar size={14} />
+                            {defaultLoading === pkg.id ? 'Setting...' : 'Set Default'}
+                          </button>
+                        )}
+                        {pkg.is_default && (
+                          <button
+                            type="button"
+                            onClick={handleClearDefaultPackage}
+                            disabled={defaultLoading === 'clear'}
+                            className="inline-flex items-center gap-1.5 rounded-lg px-3 py-2 text-xs font-semibold text-slate-600 hover:bg-slate-100 transition-colors disabled:opacity-50"
+                          >
+                            <FaXmark size={14} />
+                            {defaultLoading === 'clear' ? 'Clearing...' : 'Clear Default'}
+                          </button>
+                        )}
                         <button
                           type="button"
                           onClick={() => openPreview(pkg)}
@@ -405,10 +518,7 @@ const PayInPackagesAdmin = () => {
                     onChange={(e) =>
                       setPackageForm((p) => {
                         const nextProvider = e.target.value;
-                        const nextGateway =
-                          nextProvider === 'mock'
-                            ? p.payment_gateway_id
-                            : p.payment_gateway_id || (gateways.length ? String(gateways[0].id) : '');
+                        const nextGateway = p.payment_gateway_id || (gateways.length ? String(gateways[0].id) : '');
                         return {
                           ...p,
                           provider: nextProvider,
@@ -418,31 +528,29 @@ const PayInPackagesAdmin = () => {
                     }
                     className="w-full px-4 py-3 border border-gray-300 rounded-lg"
                   >
-                    <option value="mock">mock</option>
-                    <option value="razorpay">razorpay</option>
-                    <option value="payu">payu</option>
+                    <option value="razorpay">Razorpay</option>
+                    <option value="payu">PayU</option>
                   </select>
                 </div>
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-2">
-                    Linked Payment Gateway{' '}
-                    {packageForm.provider !== 'mock' ? <span className="text-red-500">*</span> : null}
+                    Linked Payment Gateway <span className="text-red-500">*</span>
                   </label>
                   <select
                     value={packageForm.payment_gateway_id}
                     onChange={(e) => setPackageForm((p) => ({ ...p, payment_gateway_id: e.target.value }))}
                     className="w-full px-4 py-3 border border-gray-300 rounded-lg"
-                    required={packageForm.provider !== 'mock'}
+                    required
                   >
-                    <option value="">-- Optional for mock --</option>
+                    <option value="">-- Select Gateway --</option>
                     {gateways.map((g) => (
                       <option key={g.id} value={g.id}>
                         {g.name}
                       </option>
                     ))}
                   </select>
-                  {packageForm.provider !== 'mock' && !packageForm.payment_gateway_id && (
-                    <p className="mt-1 text-xs text-red-600">Non-mock providers require a gateway.</p>
+                  {!packageForm.payment_gateway_id && (
+                    <p className="mt-1 text-xs text-red-600">Please select a payment gateway.</p>
                   )}
                 </div>
                 <div className="flex items-end">
@@ -506,8 +614,8 @@ const PayInPackagesAdmin = () => {
                     Sum (gateway + admin + SD + MD + D): {totalDeductionPct}%
                   </span>
                   <p className="text-slate-600 mt-1 text-xs leading-relaxed">
-                    “Retailer % (to platform)” is merged into the platform admin share on pay-in (not the retailer’s
-                    commission wallet). Net credit uses the full split including that field.
+                    Total deduction includes gateway fee, admin share, and upline commissions (SD, MD, D).
+                    The remainder is credited to the user's main wallet.
                   </p>
                 </div>
               </div>
@@ -581,12 +689,6 @@ const PayInPackagesAdmin = () => {
                       <span>Total Deduction</span>
                       <span className="font-semibold">₹{previewResult.total_deduction}</span>
                     </div>
-                    {parseFloat(previewResult.retailer_share_absorbed_to_admin || 0) > 0 ? (
-                      <div className="flex justify-between text-gray-600">
-                        <span>Retailer % → platform (in Admin row)</span>
-                        <span className="font-semibold">₹{previewResult.retailer_share_absorbed_to_admin}</span>
-                      </div>
-                    ) : null}
                     <div className="flex justify-between">
                       <span>Net Credit</span>
                       <span className="font-bold text-blue-700">₹{previewResult.net_credit}</span>

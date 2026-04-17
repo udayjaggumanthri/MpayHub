@@ -5,6 +5,7 @@ import hmac
 import json
 import logging
 import re
+import time
 
 from decimal import Decimal, ROUND_HALF_UP
 
@@ -225,6 +226,41 @@ def verify_razorpay_checkout_signature(
     return hmac.compare_digest(expected, str(signature).strip())
 
 
+def capture_razorpay_payment(
+    payment_id: str, *, amount_paise: int, currency: str = 'INR', key_id: str, key_secret: str
+):
+    """
+    POST /v1/payments/{id}/capture — for manual-capture accounts or when checkout returns before auto-capture.
+    amount_paise: full payment amount in paise (from payment entity).
+    Returns (data dict or None, error str or None).
+    """
+    kid, ksec = resolve_razorpay_credentials(key_id, key_secret)
+    if not kid or not ksec:
+        return None, 'not_configured'
+    auth = base64.b64encode(f'{kid}:{ksec}'.encode()).decode()
+    try:
+        r = requests.post(
+            f'https://api.razorpay.com/v1/payments/{payment_id}/capture',
+            headers={
+                'Authorization': f'Basic {auth}',
+                'Content-Type': 'application/json',
+            },
+            data=json.dumps({'amount': int(amount_paise), 'currency': currency}),
+            timeout=30,
+        )
+        try:
+            data = r.json()
+        except ValueError:
+            data = {}
+        if r.status_code >= 400:
+            msg = data.get('error', {}).get('description', 'capture_failed') if isinstance(data, dict) else 'capture_failed'
+            return None, msg
+        return data if isinstance(data, dict) else None, None
+    except requests.RequestException as e:
+        logger.warning('Razorpay capture request error: %s', e)
+        return None, str(e)
+
+
 def fetch_razorpay_payment(payment_id: str, *, key_id: str, key_secret: str):
     """
     GET /v1/payments/{id} — confirm status (e.g. captured) after checkout.
@@ -253,7 +289,77 @@ def fetch_razorpay_payment(payment_id: str, *, key_id: str, key_secret: str):
         return None, str(e)
 
 
+def fetch_razorpay_payment_until_captured(
+    payment_id: str,
+    *,
+    key_id: str,
+    key_secret: str,
+    max_attempts: int = 12,
+    delay_sec: float = 0.45,
+):
+    """
+    Checkout success handler often runs before Razorpay marks the payment ``captured``.
+    Poll briefly, then optionally call capture (manual-capture mode / slow auto-capture).
+
+    Returns (pay dict or None, error str or None).
+    """
+    payment_id = str(payment_id).strip()
+    last_pay = None
+    last_err = None
+    for attempt in range(max(1, max_attempts)):
+        pay, err = fetch_razorpay_payment(payment_id, key_id=key_id, key_secret=key_secret)
+        last_pay, last_err = pay, err
+        if err:
+            if attempt == 0:
+                return None, err
+            break
+        status = str((pay or {}).get('status') or '').lower()
+        if status == 'captured':
+            return pay, None
+        if status in ('failed', 'refunded'):
+            return None, f'payment_{status}'
+        if attempt < max_attempts - 1:
+            time.sleep(delay_sec)
+
+    status = str((last_pay or {}).get('status') or '').lower()
+    if status == 'authorized' and last_pay:
+        amt = (last_pay or {}).get('amount')
+        try:
+            amount_paise = int(amt) if amt is not None else 0
+        except (TypeError, ValueError):
+            amount_paise = 0
+        if amount_paise > 0:
+            cap, cap_err = capture_razorpay_payment(
+                payment_id,
+                amount_paise=amount_paise,
+                currency=str((last_pay or {}).get('currency') or 'INR'),
+                key_id=key_id,
+                key_secret=key_secret,
+            )
+            if not cap_err and isinstance(cap, dict) and str(cap.get('status') or '').lower() == 'captured':
+                return cap, None
+            if cap_err:
+                logger.info(
+                    'Razorpay capture after authorized skipped/failed payment=%s err=%s',
+                    payment_id,
+                    cap_err,
+                )
+        pay2, err2 = fetch_razorpay_payment(payment_id, key_id=key_id, key_secret=key_secret)
+        if not err2 and pay2 and str(pay2.get('status') or '').lower() == 'captured':
+            return pay2, None
+
+    return last_pay, (
+        last_err
+        or f'Payment not captured yet (status={status or "unknown"}). '
+        'If money was debited, wait a minute or ensure the Razorpay webhook is configured.'
+    )
+
+
 def verify_webhook_signature(body_bytes: bytes, signature_header: str) -> bool:
+    """
+    Razorpay signs webhooks with the secret from Dashboard → Webhooks (not always the API key secret).
+    Set RAZORPAY_WEBHOOK_SECRET to that value; RAZORPAY_KEY_SECRET is only a fallback and may fail verification.
+    """
     secret = getattr(settings, 'RAZORPAY_WEBHOOK_SECRET', '') or getattr(settings, 'RAZORPAY_KEY_SECRET', '')
     if not secret or not signature_header:
         return False
@@ -263,6 +369,42 @@ def verify_webhook_signature(body_bytes: bytes, signature_header: str) -> bool:
         hashlib.sha256,
     ).hexdigest()
     return hmac.compare_digest(expected, signature_header)
+
+
+def meta_from_razorpay_payment_entity(pay: dict) -> dict:
+    """
+    Normalize Razorpay payment entity fields we persist on LoadMoney.payment_meta
+    (card last4, wallet/upi hints, acquirer_data for UTR, payer email/contact).
+    """
+    if not isinstance(pay, dict):
+        return {}
+    meta: dict = {}
+    method = str(pay.get('method') or '').strip().lower()
+    if method == 'card' and isinstance(pay.get('card'), dict):
+        c = pay['card']
+        if c.get('type'):
+            meta['card_type'] = str(c.get('type')).lower()
+        if c.get('network'):
+            meta['network'] = str(c.get('network'))
+        if c.get('last4'):
+            meta['last4'] = ''.join(x for x in str(c.get('last4')) if x.isdigit())[-4:]
+    if method == 'wallet' and isinstance(pay.get('wallet'), dict):
+        w = pay['wallet']
+        if w.get('type'):
+            meta['wallet_type'] = str(w.get('type')).lower()
+    if pay.get('vpa'):
+        meta['vpa'] = str(pay.get('vpa')).strip()
+    if pay.get('email'):
+        meta['rzp_email'] = str(pay.get('email')).strip()
+    if pay.get('contact'):
+        meta['rzp_contact'] = str(pay.get('contact')).strip()
+    if pay.get('description'):
+        meta['rzp_description'] = str(pay.get('description')).strip()
+    if pay.get('acquirer_data'):
+        meta['acquirer_data'] = pay.get('acquirer_data')
+    if isinstance(pay.get('bank'), dict):
+        meta['bank'] = pay.get('bank')
+    return meta
 
 
 def parse_payment_captured_event(body_json: dict):
@@ -276,13 +418,27 @@ def parse_payment_captured_event(body_json: dict):
         order_id = pay.get('order_id')
         payment_id = pay.get('id')
         method = pay.get('method')
-        meta = {}
-        if (pay.get('method') or '').lower() == 'card' and isinstance(pay.get('card'), dict):
-            c = pay['card']
-            if c.get('type'):
-                meta['card_type'] = c.get('type')
-            if c.get('network'):
-                meta['network'] = c.get('network')
+        meta = meta_from_razorpay_payment_entity(pay)
+        return order_id, payment_id, method, meta
+    except (TypeError, AttributeError):
+        return None, None, None, {}
+
+
+def parse_order_paid_event(body_json: dict):
+    """
+    order.paid — order fully paid; payload often includes both order and payment entities.
+    Returns (order_id, payment_id, method, meta_dict) same shape as parse_payment_captured_event.
+    """
+    try:
+        payload = body_json.get('payload', {})
+        order_ent = (payload.get('order') or {}).get('entity', {}) or {}
+        pay = (payload.get('payment') or {}).get('entity', {}) or {}
+        order_id = order_ent.get('id') or pay.get('order_id')
+        payment_id = pay.get('id')
+        if not payment_id:
+            return order_id, None, None, {}
+        method = pay.get('method')
+        meta = meta_from_razorpay_payment_entity(pay)
         return order_id, payment_id, method, meta
     except (TypeError, AttributeError):
         return None, None, None, {}

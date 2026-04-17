@@ -25,6 +25,7 @@ def generate_service_id(transaction_type):
         'payout': 'PMPO',
         'bbps': 'PMBBPS',
         'load_money': 'PMLM',
+        'wallet_transfer': 'PMWT',
     }
     
     prefix = prefix_map.get(transaction_type.lower(), 'PMTX')

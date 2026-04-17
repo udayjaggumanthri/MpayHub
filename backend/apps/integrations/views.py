@@ -23,6 +23,7 @@ from apps.core.utils import decrypt_secret_payload
 from apps.integrations.razorpay_orders import (
     extract_razorpay_key_pair_from_secrets,
     is_razorpay_like_provider_code,
+    parse_order_paid_event,
     parse_payment_captured_event,
     resolve_razorpay_credentials,
     verify_razorpay_basic_auth,
@@ -42,7 +43,10 @@ class RazorpayWebhookView(APIView):
         body = request.body
         sig = request.META.get('HTTP_X_RAZORPAY_SIGNATURE', '')
         if not verify_webhook_signature(body, sig):
-            logger.warning('Razorpay webhook signature failed')
+            logger.warning(
+                'Razorpay webhook signature failed — set RAZORPAY_WEBHOOK_SECRET to the signing secret '
+                'from Razorpay Dashboard → Webhooks (API key secret often does not match).'
+            )
             return Response({'success': False}, status=400)
         try:
             data = json.loads(body.decode('utf-8'))
@@ -50,12 +54,19 @@ class RazorpayWebhookView(APIView):
             return Response({'success': False}, status=400)
 
         event = data.get('event') or ''
-        if event != 'payment.captured':
+        order_id = payment_id = None
+        pay_method = None
+        pay_meta = {}
+
+        if event == 'payment.captured':
+            order_id, payment_id, pay_method, pay_meta = parse_payment_captured_event(data)
+        elif event == 'order.paid':
+            order_id, payment_id, pay_method, pay_meta = parse_order_paid_event(data)
+        else:
             return Response({'success': True, 'ignored': event})
 
-        order_id, payment_id, pay_method, pay_meta = parse_payment_captured_event(data)
         if not order_id or not payment_id:
-            return Response({'success': True, 'message': 'no payment id'})
+            return Response({'success': True, 'message': 'no order/payment id'})
 
         try:
             with transaction.atomic():
@@ -74,7 +85,8 @@ class RazorpayWebhookView(APIView):
                     payment_meta=pay_meta or None,
                 )
                 logger.info(
-                    'Razorpay webhook payment.captured applied: order_id=%s payment_id=%s load_money_id=%s',
+                    'Razorpay webhook %s applied: order_id=%s payment_id=%s load_money_id=%s',
+                    event,
                     order_id,
                     payment_id,
                     lm.pk,

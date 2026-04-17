@@ -18,12 +18,14 @@ import Payout from '../components/fundManagement/Payout';
 // BBPS
 import BillPayment from '../components/bbps/BillPayment';
 import MyBills from '../components/bbps/MyBills';
+import BbpsWalletFund from '../components/bbps/BbpsWalletFund';
 
 // Reports
 import Reports from '../components/reports/Reports';
 
 // User Management
 import UserManagement from '../components/userManagement/UserManagement';
+import UserDetail from '../components/userManagement/UserDetail';
 import Contacts from '../components/contacts/Contacts';
 import BankAccounts from '../components/bankManagement/BankAccounts';
 
@@ -37,6 +39,7 @@ import AnnouncementManagement from '../components/admin/AnnouncementManagement';
 import PaymentGatewaysAdmin from '../components/admin/PaymentGatewaysAdmin';
 import PayInPackagesAdmin from '../components/admin/PayInPackagesAdmin';
 import APIMasterManagement from '../components/admin/APIMasterManagement';
+import WalletHistoryPage from '../components/wallets/WalletHistoryPage';
 
 const AppRoutes = () => {
   return (
@@ -94,7 +97,7 @@ const AppRoutes = () => {
       <Route
         path="/fund-management/load-money"
         element={
-          <ProtectedRoute>
+          <ProtectedRoute blockFinancialTransactions>
             <Layout>
               <LoadMoney />
             </Layout>
@@ -105,7 +108,7 @@ const AppRoutes = () => {
       <Route
         path="/fund-management/payout"
         element={
-          <ProtectedRoute>
+          <ProtectedRoute blockFinancialTransactions>
             <Layout>
               <Payout />
             </Layout>
@@ -117,7 +120,7 @@ const AppRoutes = () => {
       <Route
         path="/bill-payments"
         element={
-          <ProtectedRoute>
+          <ProtectedRoute blockFinancialTransactions>
             <Layout>
               <BillPayment />
             </Layout>
@@ -128,7 +131,7 @@ const AppRoutes = () => {
       <Route
         path="/bill-payments/pay"
         element={
-          <ProtectedRoute>
+          <ProtectedRoute blockFinancialTransactions>
             <Layout>
               <BillPayment />
             </Layout>
@@ -139,7 +142,7 @@ const AppRoutes = () => {
       <Route
         path="/bill-payments/pay/:category"
         element={
-          <ProtectedRoute>
+          <ProtectedRoute blockFinancialTransactions>
             <Layout>
               <BillPayment />
             </Layout>
@@ -150,9 +153,20 @@ const AppRoutes = () => {
       <Route
         path="/bill-payments/my-bills"
         element={
-          <ProtectedRoute>
+          <ProtectedRoute blockFinancialTransactions>
             <Layout>
               <MyBills />
+            </Layout>
+          </ProtectedRoute>
+        }
+      />
+
+      <Route
+        path="/bill-payments/fund-wallet"
+        element={
+          <ProtectedRoute blockFinancialTransactions>
+            <Layout>
+              <BbpsWalletFund />
             </Layout>
           </ProtectedRoute>
         }
@@ -176,6 +190,17 @@ const AppRoutes = () => {
           <ProtectedRoute>
             <Layout>
               <UserManagement />
+            </Layout>
+          </ProtectedRoute>
+        }
+      />
+
+      <Route
+        path="/admin/users/:userId"
+        element={
+          <ProtectedRoute>
+            <Layout>
+              <UserDetail />
             </Layout>
           </ProtectedRoute>
         }
@@ -265,6 +290,27 @@ const AppRoutes = () => {
           <ProtectedRoute>
             <Layout>
               <Reports />
+            </Layout>
+          </ProtectedRoute>
+        }
+      />
+
+      <Route
+        path="/wallets/:walletType-history"
+        element={
+          <ProtectedRoute>
+            <Layout>
+              <WalletHistoryPage />
+            </Layout>
+          </ProtectedRoute>
+        }
+      />
+      <Route
+        path="/wallets/:walletType"
+        element={
+          <ProtectedRoute>
+            <Layout>
+              <WalletHistoryPage />
             </Layout>
           </ProtectedRoute>
         }

@@ -416,3 +416,96 @@ def setup_mpin_view(request):
         'message': 'MPIN set successfully',
         'errors': [],
     }, status=status.HTTP_200_OK)
+
+
+@api_view(['POST'])
+@permission_classes([IsAuthenticated])
+def change_password_view(request):
+    """
+    Change password for authenticated user.
+    POST /api/auth/change-password/
+    Body: { "current_password": "...", "new_password": "..." }
+    """
+    current_password = request.data.get('current_password', '')
+    new_password = request.data.get('new_password', '')
+
+    if not current_password or not new_password:
+        return Response({
+            'success': False,
+            'data': None,
+            'message': 'Both current_password and new_password are required',
+            'errors': [],
+        }, status=status.HTTP_400_BAD_REQUEST)
+
+    if len(new_password) < 6:
+        return Response({
+            'success': False,
+            'data': None,
+            'message': 'New password must be at least 6 characters',
+            'errors': [],
+        }, status=status.HTTP_400_BAD_REQUEST)
+
+    user = request.user
+    if not user.check_password(current_password):
+        return Response({
+            'success': False,
+            'data': None,
+            'message': 'Current password is incorrect',
+            'errors': [],
+        }, status=status.HTTP_400_BAD_REQUEST)
+
+    user.set_password(new_password)
+    user.save(update_fields=['password'])
+
+    return Response({
+        'success': True,
+        'data': None,
+        'message': 'Password changed successfully',
+        'errors': [],
+    }, status=status.HTTP_200_OK)
+
+
+@api_view(['POST'])
+@permission_classes([IsAuthenticated])
+def change_mpin_view(request):
+    """
+    Change MPIN for authenticated user.
+    POST /api/auth/change-mpin/
+    Body: { "current_mpin": "123456", "new_mpin": "654321" }
+    """
+    current_mpin = str(request.data.get('current_mpin', '')).strip()
+    new_mpin = str(request.data.get('new_mpin', '')).strip()
+
+    if not current_mpin or not new_mpin:
+        return Response({
+            'success': False,
+            'data': None,
+            'message': 'Both current_mpin and new_mpin are required',
+            'errors': [],
+        }, status=status.HTTP_400_BAD_REQUEST)
+
+    if len(new_mpin) != 6 or not new_mpin.isdigit():
+        return Response({
+            'success': False,
+            'data': None,
+            'message': 'New MPIN must be exactly 6 digits',
+            'errors': [],
+        }, status=status.HTTP_400_BAD_REQUEST)
+
+    user = request.user
+    if not user.check_mpin(current_mpin):
+        return Response({
+            'success': False,
+            'data': None,
+            'message': 'Current MPIN is incorrect',
+            'errors': [],
+        }, status=status.HTTP_400_BAD_REQUEST)
+
+    user.set_mpin(new_mpin)
+
+    return Response({
+        'success': True,
+        'data': None,
+        'message': 'MPIN changed successfully',
+        'errors': [],
+    }, status=status.HTTP_200_OK)

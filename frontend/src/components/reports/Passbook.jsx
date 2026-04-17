@@ -1,15 +1,21 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { useAuth } from '../../context/AuthContext';
-import { passbookAPI } from '../../services/api';
+import { FiDownload } from 'react-icons/fi';
+import { passbookAPI, reportsAPI } from '../../services/api';
+import { canUseTeamReportScope } from '../../utils/rolePermissions';
 import { formatCurrency, formatDateTime } from '../../utils/formatters';
 
 const Passbook = () => {
   const { user } = useAuth();
+  const [reportScope, setReportScope] = useState('self');
   const [entries, setEntries] = useState([]);
   const [filters, setFilters] = useState({
     search: '',
     dateFrom: '',
     dateTo: '',
+    mobile: '',
+    amountMin: '',
+    amountMax: '',
   });
   const [loading, setLoading] = useState(false);
   const [summary, setSummary] = useState({
@@ -25,10 +31,16 @@ const Passbook = () => {
     setLoading(true);
     try {
       const params = { page: 1, page_size: 500 };
+      if (reportScope === 'team' && canUseTeamReportScope(user?.role)) {
+        params.scope = 'team';
+      }
       const q = filters.search.trim();
       if (q) params.search = q;
       if (filters.dateFrom) params.date_from = filters.dateFrom;
       if (filters.dateTo) params.date_to = filters.dateTo;
+      if (filters.mobile.trim()) params.mobile = filters.mobile.trim();
+      if (filters.amountMin) params.amount_min = filters.amountMin;
+      if (filters.amountMax) params.amount_max = filters.amountMax;
 
       const result = await passbookAPI.getPassbookEntries(params);
       if (!result.success) {
@@ -40,6 +52,16 @@ const Passbook = () => {
           availableBalance: 0,
         });
         return;
+      }
+
+      const ps = result.data?.period_summary;
+      if (ps) {
+        setSummary({
+          openingBalance: parseFloat(ps.opening_balance) || 0,
+          creditAmount: parseFloat(ps.total_credits) || 0,
+          debitAmount: parseFloat(ps.total_debits) || 0,
+          availableBalance: parseFloat(ps.closing_balance) || 0,
+        });
       }
 
       const raw = result.data?.entries || [];
@@ -54,29 +76,35 @@ const Passbook = () => {
         openingBalance: parseFloat(row.opening_balance) || 0,
         closingBalance: parseFloat(row.closing_balance) || 0,
         cl: row.wallet_type || '—',
+        ownerUserId: row.owner_user_id || '',
+        serviceCharge: parseFloat(row.service_charge) || 0,
+        principalAmount:
+          row.principal_amount != null ? parseFloat(row.principal_amount) : null,
       }));
 
       setEntries(sortedEntries);
 
-      if (sortedEntries.length > 0) {
-        const creditTotal = sortedEntries.reduce((sum, entry) => sum + (entry.creditAmount || 0), 0);
-        const debitTotal = sortedEntries.reduce((sum, entry) => sum + (entry.debitAmount || 0), 0);
-        const oldest = sortedEntries[sortedEntries.length - 1];
-        const newest = sortedEntries[0];
+      if (!ps) {
+        if (sortedEntries.length > 0) {
+          const creditTotal = sortedEntries.reduce((sum, entry) => sum + (entry.creditAmount || 0), 0);
+          const debitTotal = sortedEntries.reduce((sum, entry) => sum + (entry.debitAmount || 0), 0);
+          const oldest = sortedEntries[sortedEntries.length - 1];
+          const newest = sortedEntries[0];
 
-        setSummary({
-          openingBalance: oldest.openingBalance || 0,
-          creditAmount: creditTotal,
-          debitAmount: debitTotal,
-          availableBalance: newest.closingBalance || 0,
-        });
-      } else {
-        setSummary({
-          openingBalance: 0,
-          creditAmount: 0,
-          debitAmount: 0,
-          availableBalance: 0,
-        });
+          setSummary({
+            openingBalance: oldest.openingBalance || 0,
+            creditAmount: creditTotal,
+            debitAmount: debitTotal,
+            availableBalance: newest.closingBalance || 0,
+          });
+        } else {
+          setSummary({
+            openingBalance: 0,
+            creditAmount: 0,
+            debitAmount: 0,
+            availableBalance: 0,
+          });
+        }
       }
     } catch (error) {
       console.error('Error loading passbook:', error);
@@ -90,7 +118,7 @@ const Passbook = () => {
     } finally {
       setLoading(false);
     }
-  }, [user, filters]);
+  }, [user, filters, reportScope]);
 
   useEffect(() => {
     loadPassbook();
@@ -99,7 +127,62 @@ const Passbook = () => {
   return (
     <div className="space-y-6">
       <div className="bg-white rounded-xl shadow-sm p-6 border border-gray-200">
-        <h2 className="text-2xl font-bold text-gray-900 mb-6">Passbook</h2>
+        <h2 className="text-2xl font-bold text-gray-900 mb-4">Passbook</h2>
+        <div className="mb-4 flex justify-end">
+          <button
+            type="button"
+            onClick={async () => {
+              const params = { page: 1, page_size: 5000 };
+              if (reportScope === 'team' && canUseTeamReportScope(user?.role)) params.scope = 'team';
+              const q = filters.search.trim();
+              if (q) params.search = q;
+              if (filters.dateFrom) params.date_from = filters.dateFrom;
+              if (filters.dateTo) params.date_to = filters.dateTo;
+              if (filters.mobile.trim()) params.mobile = filters.mobile.trim();
+              if (filters.amountMin) params.amount_min = filters.amountMin;
+              if (filters.amountMax) params.amount_max = filters.amountMax;
+              const res = await reportsAPI.downloadReportCsv('/reports/passbook/export.csv', params);
+              if (!res.success || !res.blob) return;
+              const url = window.URL.createObjectURL(res.blob);
+              const a = document.createElement('a');
+              a.href = url;
+              a.download = 'passbook_report.csv';
+              a.click();
+              window.URL.revokeObjectURL(url);
+            }}
+            className="inline-flex items-center gap-2 rounded-lg border border-gray-300 bg-white px-4 py-2 text-sm font-semibold text-gray-800 shadow-sm hover:bg-gray-50"
+          >
+            <FiDownload className="h-4 w-4" aria-hidden />
+            Download CSV
+          </button>
+        </div>
+
+        {canUseTeamReportScope(user?.role) && (
+          <div className="flex flex-wrap gap-2 mb-6">
+            <button
+              type="button"
+              onClick={() => setReportScope('self')}
+              className={`px-4 py-2 rounded-lg text-sm font-semibold border ${
+                reportScope === 'self'
+                  ? 'bg-blue-600 text-white border-blue-600'
+                  : 'bg-white text-gray-700 border-gray-300'
+              }`}
+            >
+              My wallets
+            </button>
+            <button
+              type="button"
+              onClick={() => setReportScope('team')}
+              className={`px-4 py-2 rounded-lg text-sm font-semibold border ${
+                reportScope === 'team'
+                  ? 'bg-blue-600 text-white border-blue-600'
+                  : 'bg-white text-gray-700 border-gray-300'
+              }`}
+            >
+              Team passbooks
+            </button>
+          </div>
+        )}
 
         {/* Summary Cards */}
         <div className="grid grid-cols-1 md:grid-cols-4 gap-4 mb-6">
@@ -124,7 +207,7 @@ const Passbook = () => {
         {/* Filters */}
         <div className="mb-6 p-4 bg-gray-50 rounded-lg border border-gray-200">
           <h3 className="text-lg font-semibold text-gray-900 mb-4">FILTERS</h3>
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+          <div className="grid grid-cols-1 md:grid-cols-3 lg:grid-cols-6 gap-4">
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-2">Search Anywhere</label>
               <input
@@ -155,6 +238,33 @@ const Passbook = () => {
                 className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
               />
             </div>
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-2">Mobile</label>
+              <input
+                type="text"
+                value={filters.mobile}
+                onChange={(e) => setFilters({ ...filters, mobile: e.target.value })}
+                className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
+              />
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-2">Amount min</label>
+              <input
+                type="text"
+                value={filters.amountMin}
+                onChange={(e) => setFilters({ ...filters, amountMin: e.target.value })}
+                className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
+              />
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-2">Amount max</label>
+              <input
+                type="text"
+                value={filters.amountMax}
+                onChange={(e) => setFilters({ ...filters, amountMax: e.target.value })}
+                className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
+              />
+            </div>
           </div>
         </div>
 
@@ -175,6 +285,8 @@ const Passbook = () => {
                   <th className="px-4 py-3 text-left text-sm font-semibold text-gray-700">SERVICE</th>
                   <th className="px-4 py-3 text-left text-sm font-semibold text-gray-700">SERVICE ID</th>
                   <th className="px-4 py-3 text-left text-sm font-semibold text-gray-700">DESCRIPTION</th>
+                  <th className="px-4 py-3 text-left text-sm font-semibold text-gray-700">USER ID</th>
+                  <th className="px-4 py-3 text-right text-sm font-semibold text-gray-700">CHARGE</th>
                   <th className="px-4 py-3 text-right text-sm font-semibold text-gray-700">DEBIT AMOUNT</th>
                   <th className="px-4 py-3 text-right text-sm font-semibold text-gray-700">CREDIT AMOUNT</th>
                   <th className="px-4 py-3 text-left text-sm font-semibold text-gray-700">CL</th>
@@ -188,6 +300,10 @@ const Passbook = () => {
                     <td className="px-4 py-3 text-sm text-gray-900 font-medium">{entry.service || '-'}</td>
                     <td className="px-4 py-3 text-sm text-gray-700">{entry.serviceId || '-'}</td>
                     <td className="px-4 py-3 text-sm text-gray-700 max-w-md">{entry.description || '-'}</td>
+                    <td className="px-4 py-3 text-sm text-gray-600">{entry.ownerUserId || '—'}</td>
+                    <td className="px-4 py-3 text-sm text-gray-700 text-right">
+                      {entry.serviceCharge > 0 ? formatCurrency(entry.serviceCharge) : '—'}
+                    </td>
                     <td className="px-4 py-3 text-sm text-red-600 text-right font-medium">
                       {entry.debitAmount > 0 ? formatCurrency(entry.debitAmount) : '-'}
                     </td>

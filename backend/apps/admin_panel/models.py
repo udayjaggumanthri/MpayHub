@@ -90,3 +90,22 @@ class PayoutGateway(BaseModel):
     
     def __str__(self):
         return f"{self.name} - {self.status}"
+
+
+class PayoutSlabConfig(BaseModel):
+    """Admin-editable payout slab configuration (add-on charge mode)."""
+
+    name = models.CharField(max_length=80, default='default', unique=True)
+    low_max_amount = models.DecimalField(max_digits=18, decimal_places=4, default=24999)
+    low_charge = models.DecimalField(max_digits=18, decimal_places=4, default=7)
+    high_charge = models.DecimalField(max_digits=18, decimal_places=4, default=15)
+    is_active = models.BooleanField(default=True, db_index=True)
+
+    class Meta:
+        db_table = 'payout_slab_config'
+        ordering = ['-is_active', 'id']
+
+    def __str__(self):
+        return (
+            f"{self.name} | <= {self.low_max_amount}: {self.low_charge} | > {self.low_max_amount}: {self.high_charge}"
+        )

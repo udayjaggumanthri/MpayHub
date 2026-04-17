@@ -1,7 +1,8 @@
 import React, { useState, useEffect, useCallback } from 'react';
-import { FiEye, FiFilter, FiHelpCircle } from 'react-icons/fi';
+import { FiDownload, FiEye, FiFilter, FiHelpCircle } from 'react-icons/fi';
 import { useAuth } from '../../context/AuthContext';
-import { fundManagementAPI, transactionsAPI } from '../../services/api';
+import { reportsAPI } from '../../services/api';
+import { canUseTeamReportScope } from '../../utils/rolePermissions';
 import FeedbackModal from '../common/FeedbackModal';
 import ReportTransactionDetailModal from './ReportTransactionDetailModal';
 import {
@@ -21,6 +22,11 @@ const TransactionReport = ({ type = 'all' }) => {
     status: 'ALL',
     dateFrom: '',
     dateTo: '',
+    mobile: '',
+    amountMin: '',
+    amountMax: '',
+    serviceType: 'all',
+    agentRole: '',
   });
   /** Pay In / Pay Out: API query; updated on Apply (not on every keystroke). */
   const [appliedLedgerFilters, setAppliedLedgerFilters] = useState({
@@ -28,6 +34,11 @@ const TransactionReport = ({ type = 'all' }) => {
     status: 'ALL',
     dateFrom: '',
     dateTo: '',
+    mobile: '',
+    amountMin: '',
+    amountMax: '',
+    serviceType: 'all',
+    agentRole: '',
   });
   const [loading, setLoading] = useState(false);
   const [summary, setSummary] = useState({
@@ -37,203 +48,136 @@ const TransactionReport = ({ type = 'all' }) => {
   });
   const [detailRecord, setDetailRecord] = useState(null);
   const [helpTxnId, setHelpTxnId] = useState(null);
+  const [reportScope, setReportScope] = useState('self');
+
+  const buildReportParams = useCallback(() => {
+    const teamMode = reportScope === 'team' && canUseTeamReportScope(user?.role);
+    const scope = teamMode ? 'team' : 'self';
+    const q = ledgerStyleTypes.includes(type) ? appliedLedgerFilters : filters;
+    const params = { scope, page: 1, page_size: 500 };
+    if (q.dateFrom) params.date_from = q.dateFrom;
+    if (q.dateTo) params.date_to = q.dateTo;
+    if (q.status && q.status !== 'ALL') params.status = q.status === 'FAILURE' ? 'FAILED' : q.status;
+    const sid = q.serviceId.trim();
+    if (sid) params.service_id = sid;
+    if (q.mobile.trim()) params.mobile = q.mobile.trim();
+    if (q.amountMin) params.amount_min = q.amountMin;
+    if (q.amountMax) params.amount_max = q.amountMax;
+    if (q.serviceType && q.serviceType !== 'all') params.service_type = q.serviceType;
+    if (q.agentRole.trim()) params.agent_role = q.agentRole.trim();
+    return params;
+  }, [reportScope, user?.role, type, appliedLedgerFilters, filters]);
 
   const loadTransactions = useCallback(async () => {
     if (!user) return;
+    if (!['payin', 'payout', 'bbps'].includes(type)) return;
 
     setLoading(true);
     try {
+      const params = buildReportParams();
+      let result;
+      if (type === 'payin') result = await reportsAPI.getPayInReport(params);
+      else if (type === 'payout') result = await reportsAPI.getPayOutReport(params);
+      else result = await reportsAPI.getBBPSReport(params);
+
+      if (!result.success) {
+        setTransactions([]);
+        setSummary({ success: 0, pending: 0, failure: 0 });
+        return;
+      }
+
+      const by = result.data?.summary?.by_status || {};
+      const parseAmt = (x) => parseFloat(x || '0') || 0;
+      setSummary({
+        success: parseAmt(by.SUCCESS?.amount),
+        pending: parseAmt(by.PENDING?.amount),
+        failure: parseAmt(by.FAILED?.amount),
+      });
+
+      const rows = result.data?.rows || [];
       if (type === 'payin') {
-        const q = appliedLedgerFilters;
-        const params = { page: 1, page_size: 500 };
-        const sid = q.serviceId.trim();
-        if (sid) params.search = sid;
-        if (q.status && q.status !== 'ALL') {
-          params.status = q.status === 'FAILURE' ? 'FAILED' : q.status;
-        }
-        if (q.dateFrom) params.date_from = q.dateFrom;
-        if (q.dateTo) params.date_to = q.dateTo;
-
-        const result = await fundManagementAPI.getLoadMoneyList(params);
-        if (!result.success) {
-          setTransactions([]);
-          setSummary({ success: 0, pending: 0, failure: 0 });
-          return;
-        }
-
-        const raw = result.data?.transactions || [];
-        const mapped = raw.map((row) => {
-          const orderAmount = parseFloat(row.amount) || 0;
-          const billAmount = parseFloat(row.net_credit) || 0;
-          const charges = parseFloat(row.charge) || 0;
-          const requestId = row.provider_order_id?.trim() ? row.provider_order_id : '—';
-          const st = (row.status || '').toUpperCase();
-          const modeOfPayment =
-            row.payment_mode_display ||
-            (row.payment_method
-              ? String(row.payment_method).replace(/_/g, ' ')
-              : st === 'PENDING'
-                ? 'Pending'
-                : '—');
-          const paymentGatewayName = row.payment_gateway_name || '—';
-          return {
-            id: row.id,
-            transactionId: row.transaction_id,
-            requestId,
-            orderAmount,
-            billAmount,
-            modeOfPayment,
-            paymentGatewayName,
-            charges,
-            date: row.created_at,
-            status: row.status,
-            failureReason: row.failure_reason || '',
-            detailLine1: row.package != null ? `Package ID: ${row.package}` : 'Package: —',
-            detailLine2:
-              [row.customer_name, row.customer_phone].filter(Boolean).join(' · ') || 'Customer: —',
+        setTransactions(
+          rows.map((r) => ({
+            id: r.id,
+            transactionId: r.service_id,
+            requestId: r.reference || r.provider_order_id || '—',
+            orderAmount: parseFloat(r.principal) || 0,
+            billAmount: parseFloat(r.net_credit) || 0,
+            modeOfPayment: r.mode || '—',
+            paymentGatewayName: r.payment_gateway_name || '—',
+            charges: parseFloat(r.service_charge) || 0,
+            date: r.created_at,
+            status: r.status,
+            failureReason: '',
+            detailLine1: `${r.agent_details?.user_code || ''} · ${r.agent_details?.name || ''}`,
+            detailLine2: `Customer: ${r.customer_phone || r.customer_id || '—'}`,
+            accountMasked: '',
+            category: '',
             detail: {
-              packageId: row.package ?? '—',
-              packageCode: row.gateway || '',
-              paymentModeDisplay: modeOfPayment,
-              paymentGatewayName,
-              customerName: row.customer_name || '',
-              customerEmail: row.customer_email || '',
-              customerPhone: row.customer_phone || '',
-              gatewayTransactionId: row.gateway_transaction_id || '',
-              providerOrderId: row.provider_order_id || '',
-              feeSnapshot: row.fee_breakdown_snapshot,
+              cardLast4: r.card_last4,
+              bankTxnId: r.bank_txn_id,
+              gatewayPaymentMeta: r.gateway_payment_meta,
+              customerId: r.customer_user_code || r.customer_id,
+              customerPhone: r.customer_phone || r.customer_id,
+              customerName: r.customer_name,
+              customerEmail: r.customer_email,
+              agentDetails: r.agent_details,
+              packageId: r.package_id,
+              packageCode: r.package_code,
+              packageDisplayName: r.package_display_name,
+              paymentGatewayName: r.payment_gateway_name,
+              paymentModeDisplay: r.mode,
+              providerOrderId: r.provider_order_id,
+              providerPaymentId: r.provider_payment_id,
+              gatewayTransactionId: r.gateway_transaction_id,
+              gatewayUtr: r.gateway_utr,
+              feeSnapshot: r.fee_breakdown_snapshot,
             },
-          };
-        });
-
-        setTransactions(mapped);
-
-        const summaryData = { success: 0, pending: 0, failure: 0 };
-        mapped.forEach((txn) => {
-          const status = (txn.status || 'PENDING').toUpperCase();
-          const amt = txn.orderAmount || 0;
-          if (status === 'SUCCESS') summaryData.success += amt;
-          else if (status === 'PENDING') summaryData.pending += amt;
-          else summaryData.failure += amt;
-        });
-        setSummary(summaryData);
-        return;
-      }
-
-      if (type === 'payout') {
-        const q = appliedLedgerFilters;
-        const params = { page: 1, page_size: 500 };
-        const sid = q.serviceId.trim();
-        if (sid) params.search = sid;
-        if (q.status && q.status !== 'ALL') {
-          params.status = q.status === 'FAILURE' ? 'FAILED' : q.status;
-        }
-        if (q.dateFrom) params.date_from = q.dateFrom;
-        if (q.dateTo) params.date_to = q.dateTo;
-
-        const result = await fundManagementAPI.getPayoutList(params);
-        if (!result.success) {
-          setTransactions([]);
-          setSummary({ success: 0, pending: 0, failure: 0 });
-          return;
-        }
-
-        const raw = result.data?.transactions || [];
-        const mapped = raw.map((row) => {
-          const acct = row.bank_account || {};
-          const orderAmount = parseFloat(row.total_deducted) || 0;
-          const billAmount = parseFloat(row.amount) || 0;
-          const charge = parseFloat(row.charge) || 0;
-          const platformFee = parseFloat(row.platform_fee) || 0;
-          const charges = charge + platformFee;
-          const acctNum = acct.account_number || '';
-          const requestId = row.gateway_transaction_id?.trim() ? row.gateway_transaction_id : '—';
-          const beneficiary =
-            acct.beneficiary_name || acct.account_holder_name || acct.bank_name || '—';
-          return {
-            id: row.id,
-            transactionId: row.transaction_id,
-            requestId,
-            orderAmount,
-            billAmount,
-            category: row.transfer_mode || 'Payout',
-            charges,
-            date: row.created_at,
-            status: row.status,
-            failureReason: row.failure_reason || '',
-            detailLine1: acct.ifsc ? `IFSC: ${acct.ifsc}` : 'IFSC: —',
-            detailLine2: acct.bank_name || '—',
-            accountMasked: acctNum ? formatAccountNumber(acctNum) : '—',
+          }))
+        );
+      } else if (type === 'payout') {
+        setTransactions(
+          rows.map((r) => ({
+            id: r.id,
+            transactionId: r.transaction_id,
+            requestId: r.reference || '—',
+            orderAmount: parseFloat(r.net_debit) || 0,
+            billAmount: parseFloat(r.transfer_amount) || 0,
+            category: 'Payout',
+            charges: (parseFloat(r.payout_charge) || 0) + (parseFloat(r.platform_fee) || 0),
+            date: r.created_at,
+            status: r.status,
+            failureReason: '',
+            detailLine1: `${r.agent_details?.user_code || ''} · ${r.agent_details?.name || ''}`,
+            detailLine2: r.bank_name || '—',
+            accountMasked: r.account_number_masked || '—',
             detail: {
-              bankName: acct.bank_name || '',
-              accountDisplay: acctNum || '—',
-              ifsc: acct.ifsc || '',
-              beneficiaryName: beneficiary,
-              transferMode: row.transfer_mode || '',
-              gatewayTransactionId: row.gateway_transaction_id || '',
-              platformFee,
-              totalDeducted: orderAmount,
+              bankName: r.bank_name,
+              accountMasked: r.account_number_masked,
+              accountDisplay: r.account_number_masked,
+              commissionBreakdown: r.commission_breakdown,
+              agentDetails: r.agent_details,
+              platformFee: parseFloat(r.platform_fee || '0'),
+              netDebit: parseFloat(r.net_debit || '0'),
+              totalDeducted: parseFloat(r.net_debit || '0'),
+              gatewayTransactionId: r.reference,
             },
-          };
-        });
-
-        setTransactions(mapped);
-
-        const summaryData = { success: 0, pending: 0, failure: 0 };
-        mapped.forEach((txn) => {
-          const st = (txn.status || 'PENDING').toUpperCase();
-          const amt = txn.orderAmount || 0;
-          if (st === 'SUCCESS') summaryData.success += amt;
-          else if (st === 'PENDING') summaryData.pending += amt;
-          else summaryData.failure += amt;
-        });
-        setSummary(summaryData);
-        return;
+          }))
+        );
+      } else {
+        setTransactions(
+          rows.map((r) => ({
+            id: r.id,
+            date: r.created_at,
+            serviceId: r.transaction_id,
+            biller: r.biller || r.category || '—',
+            amount: parseFloat(r.bill_amount) || 0,
+            status: r.status,
+            statusToken: r.status_token,
+            detail: { agentDetails: r.agent_details, requestId: r.request_id },
+          }))
+        );
       }
-
-      if (type === 'bbps') {
-        const params = { page: 1, page_size: 500, type: 'bbps' };
-        const sid = filters.serviceId.trim();
-        if (sid) params.service_id = sid;
-        if (filters.status && filters.status !== 'ALL') {
-          params.status = filters.status === 'FAILURE' ? 'FAILED' : filters.status;
-        }
-        if (filters.dateFrom) params.date_from = filters.dateFrom;
-        if (filters.dateTo) params.date_to = filters.dateTo;
-
-        const result = await transactionsAPI.listTransactions(params);
-        if (!result.success) {
-          setTransactions([]);
-          setSummary({ success: 0, pending: 0, failure: 0 });
-          return;
-        }
-
-        const raw = result.data?.transactions || [];
-        const mapped = raw.map((row) => ({
-          id: row.id,
-          date: row.created_at,
-          serviceId: row.service_id,
-          biller: row.biller || row.bill_type || row.reference || '—',
-          amount: parseFloat(row.amount) || 0,
-          status: row.status,
-        }));
-
-        setTransactions(mapped);
-
-        const summaryData = { success: 0, pending: 0, failure: 0 };
-        mapped.forEach((txn) => {
-          const st = (txn.status || 'PENDING').toUpperCase();
-          const amt = txn.amount || 0;
-          if (st === 'SUCCESS') summaryData.success += amt;
-          else if (st === 'PENDING') summaryData.pending += amt;
-          else summaryData.failure += amt;
-        });
-        setSummary(summaryData);
-        return;
-      }
-
-      setTransactions([]);
-      setSummary({ success: 0, pending: 0, failure: 0 });
     } catch (error) {
       console.error('Error loading transactions:', error);
       setTransactions([]);
@@ -241,17 +185,28 @@ const TransactionReport = ({ type = 'all' }) => {
     } finally {
       setLoading(false);
     }
-  }, [user, type, filters, appliedLedgerFilters]);
+  }, [user, type, buildReportParams]);
+
+  const exportCsv = useCallback(async () => {
+    if (!['payin', 'payout', 'bbps'].includes(type)) return;
+    const params = buildReportParams();
+    const path =
+      type === 'payin' ? '/reports/payin/export.csv' : type === 'payout' ? '/reports/payout/export.csv' : '/reports/bbps/export.csv';
+    const res = await reportsAPI.downloadReportCsv(path, params);
+    if (!res.success || !res.blob) return;
+    const url = window.URL.createObjectURL(res.blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `${type}_report.csv`;
+    a.click();
+    window.URL.revokeObjectURL(url);
+  }, [buildReportParams, type]);
 
   useEffect(() => {
-    if (!user || type === 'bbps' || !ledgerStyleTypes.includes(type)) return;
+    if (!user) return;
+    if (!['payin', 'payout', 'bbps'].includes(type)) return;
     loadTransactions();
-  }, [user, type, appliedLedgerFilters, loadTransactions]);
-
-  useEffect(() => {
-    if (!user || type !== 'bbps') return;
-    loadTransactions();
-  }, [user, type, filters, loadTransactions]);
+  }, [user, type, loadTransactions, appliedLedgerFilters, filters, reportScope]);
 
   const getStatusBadge = (status) => {
     const statusUpper = status?.toUpperCase() || 'PENDING';
@@ -300,17 +255,56 @@ const TransactionReport = ({ type = 'all' }) => {
         <h2 className="text-xl sm:text-2xl font-bold text-gray-900 mb-2">
           {reportTitle[type] || 'Transaction Report'}
         </h2>
+        {canUseTeamReportScope(user?.role) && (
+          <div className="flex flex-wrap gap-2 mb-4">
+            <button
+              type="button"
+              onClick={() => setReportScope('self')}
+              className={`px-4 py-2 rounded-lg text-sm font-semibold border ${
+                reportScope === 'self'
+                  ? 'bg-blue-600 text-white border-blue-600'
+                  : 'bg-white text-gray-700 border-gray-300'
+              }`}
+            >
+              My activity
+            </button>
+            <button
+              type="button"
+              onClick={() => setReportScope('team')}
+              className={`px-4 py-2 rounded-lg text-sm font-semibold border ${
+                reportScope === 'team'
+                  ? 'bg-blue-600 text-white border-blue-600'
+                  : 'bg-white text-gray-700 border-gray-300'
+              }`}
+            >
+              Team activity
+            </button>
+          </div>
+        )}
         {type === 'payin' && (
           <p className="text-sm text-gray-600 mb-4 sm:mb-6">
-            Load-money records for your account. Order amount is gross pay-in; bill amount is net
-            credit to wallet after charges.
+            Pay-in ledger view (principal, charges, net credit). Team scope follows your role visibility
+            rules.
           </p>
         )}
         {type === 'payout' && (
           <p className="text-sm text-gray-600 mb-4 sm:mb-6">
-            Transfer records for your account. Order amount is total debited from your wallet;
-            bill amount is the amount sent to the beneficiary.
+            Payout ledger: transfer amount, charges, and net debit. Use filters and CSV export for
+            reconciliation.
           </p>
+        )}
+
+        {['payin', 'payout', 'bbps'].includes(type) && (
+          <div className="mb-4 flex flex-wrap justify-end gap-2">
+            <button
+              type="button"
+              onClick={() => exportCsv()}
+              className="inline-flex items-center gap-2 rounded-lg border border-gray-300 bg-white px-4 py-2 text-sm font-semibold text-gray-800 shadow-sm hover:bg-gray-50"
+            >
+              <FiDownload className="h-4 w-4" aria-hidden />
+              Download CSV
+            </button>
+          </div>
         )}
 
         {/* Summary Cards */}
@@ -380,6 +374,46 @@ const TransactionReport = ({ type = 'all' }) => {
                     <option value="FAILURE">FAILED</option>
                   </select>
                 </div>
+                <div className="min-w-0 flex-1 lg:min-w-[160px]">
+                  <label className="block text-sm font-medium text-gray-700 mb-1.5">Mobile</label>
+                  <input
+                    type="text"
+                    value={filters.mobile}
+                    onChange={(e) => setFilters({ ...filters, mobile: e.target.value })}
+                    placeholder="User / customer mobile"
+                    className="w-full px-4 py-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
+                  />
+                </div>
+                <div className="w-full sm:w-auto sm:min-w-[120px]">
+                  <label className="block text-sm font-medium text-gray-700 mb-1.5">Amount min</label>
+                  <input
+                    type="text"
+                    value={filters.amountMin}
+                    onChange={(e) => setFilters({ ...filters, amountMin: e.target.value })}
+                    className="w-full px-4 py-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
+                  />
+                </div>
+                <div className="w-full sm:w-auto sm:min-w-[120px]">
+                  <label className="block text-sm font-medium text-gray-700 mb-1.5">Amount max</label>
+                  <input
+                    type="text"
+                    value={filters.amountMax}
+                    onChange={(e) => setFilters({ ...filters, amountMax: e.target.value })}
+                    className="w-full px-4 py-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
+                  />
+                </div>
+                {canUseTeamReportScope(user?.role) && (
+                  <div className="w-full sm:w-auto sm:min-w-[180px]">
+                    <label className="block text-sm font-medium text-gray-700 mb-1.5">Agent role</label>
+                    <input
+                      type="text"
+                      value={filters.agentRole}
+                      onChange={(e) => setFilters({ ...filters, agentRole: e.target.value })}
+                      placeholder="e.g. Retailer"
+                      className="w-full px-4 py-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
+                    />
+                  </div>
+                )}
                 <button
                   type="button"
                   onClick={() => {
@@ -498,6 +532,9 @@ const TransactionReport = ({ type = 'all' }) => {
                     Charges
                   </th>
                   <th className="px-3 py-3 text-xs font-semibold uppercase tracking-wide text-gray-600 sm:px-4">
+                    Agent
+                  </th>
+                  <th className="px-3 py-3 text-xs font-semibold uppercase tracking-wide text-gray-600 sm:px-4">
                     Transaction date
                   </th>
                   <th className="px-3 py-3 text-xs font-semibold uppercase tracking-wide text-gray-600 sm:px-4">
@@ -547,6 +584,11 @@ const TransactionReport = ({ type = 'all' }) => {
                     </td>
                     <td className="px-3 py-3 text-sm text-gray-900 sm:px-4">
                       {formatCurrency(txn.charges)}
+                    </td>
+                    <td className="px-3 py-3 text-xs text-gray-700 sm:px-4 max-w-[200px] break-words">
+                      {txn.detail?.agentDetails
+                        ? `${txn.detail.agentDetails.user_code || ''} · ${txn.detail.agentDetails.name || ''} · ${txn.detail.agentDetails.mobile || ''}`
+                        : txn.detailLine1}
                     </td>
                     <td className="px-3 py-3 text-sm whitespace-nowrap text-gray-700 sm:px-4">
                       {formatReportDateTime(txn.date)}

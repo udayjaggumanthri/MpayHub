@@ -37,8 +37,8 @@ class PayInPackage(BaseModel):
         default='mock',
         db_index=True,
     )
-    min_amount = models.DecimalField(max_digits=12, decimal_places=2, default=Decimal('1'))
-    max_amount_per_txn = models.DecimalField(max_digits=12, decimal_places=2, default=Decimal('200000'))
+    min_amount = models.DecimalField(max_digits=18, decimal_places=4, default=Decimal('1'))
+    max_amount_per_txn = models.DecimalField(max_digits=18, decimal_places=4, default=Decimal('200000'))
     gateway_fee_pct = models.DecimalField(max_digits=8, decimal_places=4, default=Decimal('1'))
     admin_pct = models.DecimalField(max_digits=8, decimal_places=4, default=Decimal('0.24'))
     super_distributor_pct = models.DecimalField(max_digits=8, decimal_places=4, default=Decimal('0.01'))
@@ -46,6 +46,11 @@ class PayInPackage(BaseModel):
     distributor_pct = models.DecimalField(max_digits=8, decimal_places=4, default=Decimal('0.03'))
     retailer_commission_pct = models.DecimalField(max_digits=8, decimal_places=4, default=Decimal('0.06'))
     is_active = models.BooleanField(default=True, db_index=True)
+    is_default = models.BooleanField(
+        default=False,
+        db_index=True,
+        help_text='If true, this package is auto-assigned to new users. Only one package can be default.',
+    )
     sort_order = models.PositiveIntegerField(default=0)
 
     class Meta:
@@ -54,6 +59,11 @@ class PayInPackage(BaseModel):
 
     def __str__(self):
         return f"{self.display_name} ({self.code})"
+
+    def save(self, *args, **kwargs):
+        if self.is_default:
+            PayInPackage.objects.filter(is_default=True).exclude(pk=self.pk).update(is_default=False)
+        super().save(*args, **kwargs)
 
 
 class LoadMoney(BaseModel):
@@ -81,18 +91,18 @@ class LoadMoney(BaseModel):
         related_name='load_money_transactions',
     )
     amount = models.DecimalField(
-        max_digits=12,
-        decimal_places=2,
+        max_digits=18,
+        decimal_places=4,
         help_text='Gross pay-in amount (principal before deductions).',
     )
     gateway = models.CharField(max_length=100)
     charge = models.DecimalField(
-        max_digits=12,
-        decimal_places=2,
+        max_digits=18,
+        decimal_places=4,
         default=Decimal('0'),
         help_text='Total system deduction (sum of gateway+admin+chain slices on principal).',
     )
-    net_credit = models.DecimalField(max_digits=12, decimal_places=2)
+    net_credit = models.DecimalField(max_digits=18, decimal_places=4)
     fee_breakdown_snapshot = models.JSONField(default=dict, blank=True)
     customer_name = models.CharField(max_length=200, blank=True, default='')
     customer_email = models.EmailField(blank=True, default='')
@@ -155,10 +165,10 @@ class Payout(BaseModel):
         on_delete=models.CASCADE,
         related_name='payouts',
     )
-    amount = models.DecimalField(max_digits=12, decimal_places=2)
-    charge = models.DecimalField(max_digits=12, decimal_places=2, default=Decimal('0'))
-    platform_fee = models.DecimalField(max_digits=12, decimal_places=2, default=Decimal('0'))
-    total_deducted = models.DecimalField(max_digits=12, decimal_places=2)
+    amount = models.DecimalField(max_digits=18, decimal_places=4)
+    charge = models.DecimalField(max_digits=18, decimal_places=4, default=Decimal('0'))
+    platform_fee = models.DecimalField(max_digits=18, decimal_places=4, default=Decimal('0'))
+    total_deducted = models.DecimalField(max_digits=18, decimal_places=4)
     transfer_mode = models.CharField(
         max_length=10,
         choices=TRANSFER_MODE_CHOICES,
@@ -180,3 +190,39 @@ class Payout(BaseModel):
 
     def __str__(self):
         return f"{self.transaction_id} - {self.user.user_id} - ₹{self.amount}"
+
+
+class UserPackageAssignment(BaseModel):
+    """
+    Links users to their assigned pay-in packages.
+    Users can only access packages explicitly assigned to them.
+    If no packages are assigned, the user falls back to the default package.
+    """
+
+    user = models.ForeignKey(
+        User,
+        on_delete=models.CASCADE,
+        related_name='package_assignments',
+        db_index=True,
+    )
+    package = models.ForeignKey(
+        PayInPackage,
+        on_delete=models.CASCADE,
+        related_name='user_assignments',
+    )
+    assigned_by = models.ForeignKey(
+        User,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name='packages_assigned_to_others',
+        help_text='The user who assigned this package (Admin or upline).',
+    )
+
+    class Meta:
+        db_table = 'user_package_assignments'
+        unique_together = ['user', 'package']
+        ordering = ['-created_at']
+
+    def __str__(self):
+        return f"{self.user.user_id} -> {self.package.display_name}"

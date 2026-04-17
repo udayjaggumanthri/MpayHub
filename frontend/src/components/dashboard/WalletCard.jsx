@@ -1,7 +1,7 @@
 import React from 'react';
 import { formatCurrency } from '../../utils/formatters';
 import { FiArrowRight } from 'react-icons/fi';
-import { FaWallet, FaChartLine, FaReceipt } from 'react-icons/fa6';
+import { FaWallet, FaChartLine, FaReceipt, FaBuildingColumns } from 'react-icons/fa6';
 
 const WalletCard = ({ type, amount, onClick }) => {
   const config = {
@@ -30,6 +30,17 @@ const WalletCard = ({ type, amount, onClick }) => {
     bbps: {
       title: 'BBPS Wallet',
       icon: FaReceipt,
+      iconBg: 'bg-gradient-to-br from-blue-500 via-blue-600 to-indigo-600',
+      gradient: 'from-blue-50 via-blue-50 to-indigo-50',
+      borderColor: 'border-blue-300',
+      textColor: 'text-blue-700',
+      amountColor: 'text-blue-900',
+      hoverBg: 'hover:from-blue-100 hover:via-blue-100 hover:to-indigo-100',
+      shadow: 'shadow-blue-200',
+    },
+    profit: {
+      title: 'Profit Wallet',
+      icon: FaBuildingColumns,
       iconBg: 'bg-gradient-to-br from-blue-500 via-blue-600 to-indigo-600',
       gradient: 'from-blue-50 via-blue-50 to-indigo-50',
       borderColor: 'border-blue-300',

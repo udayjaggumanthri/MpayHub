@@ -22,7 +22,7 @@ def main():
     if len(sys.argv) > 1:
         command = sys.argv[1]
         # Skip checks for all commands except 'check' itself
-        if command != 'check' and '--skip-checks' not in sys.argv:
+        if command not in ('check', 'test') and '--skip-checks' not in sys.argv:
             sys.argv.append('--skip-checks')
     
     execute_from_command_line(sys.argv)

@@ -81,6 +81,8 @@ class PayInPackageSerializer(serializers.ModelSerializer):
             'master_distributor_pct',
             'distributor_pct',
             'retailer_commission_pct',
+            'is_active',
+            'is_default',
             'sort_order',
         ]
         read_only_fields = fields

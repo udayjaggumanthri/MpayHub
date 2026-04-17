@@ -253,6 +253,7 @@ PAYOUT_CHARGE_HIGH = Decimal(str(config('PAYOUT_CHARGE_HIGH', default='15')))
 # Razorpay (pay-in). Leave blank to use mock / manual complete only.
 RAZORPAY_KEY_ID = config('RAZORPAY_KEY_ID', default='')
 RAZORPAY_KEY_SECRET = config('RAZORPAY_KEY_SECRET', default='')
+# Webhook signing secret from Dashboard → Webhooks (not the same as KEY_SECRET); required for /api/integrations/razorpay/webhook/
 RAZORPAY_WEBHOOK_SECRET = config('RAZORPAY_WEBHOOK_SECRET', default='')
 
 # PayU (optional; order + webhook to be extended)

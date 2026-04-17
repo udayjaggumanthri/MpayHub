@@ -18,6 +18,7 @@ export const WalletProvider = ({ children }) => {
     main: 0,
     commission: 0,
     bbps: 0,
+    profit: 0,
   });
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
@@ -37,6 +38,7 @@ export const WalletProvider = ({ children }) => {
           main: parseFloat(walletData.main?.balance || walletData.main || 0) || 0,
           commission: parseFloat(walletData.commission?.balance || walletData.commission || 0) || 0,
           bbps: parseFloat(walletData.bbps?.balance || walletData.bbps || 0) || 0,
+          profit: parseFloat(walletData.profit?.balance || walletData.profit || 0) || 0,
         });
       } else {
         setError(result.message || 'Failed to load wallets');

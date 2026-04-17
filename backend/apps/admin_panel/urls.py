@@ -15,4 +15,5 @@ app_name = 'admin_panel'
 
 urlpatterns = [
     path('', include(router.urls)),
+    path('payout-slab-config/', views.payout_slab_config_view, name='payout-slab-config'),
 ]

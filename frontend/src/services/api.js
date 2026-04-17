@@ -467,6 +467,38 @@ export const authAPI = {
       sessionStorage.removeItem('mpayhub_post_mpin_dashboard');
     }
   },
+
+  /**
+   * Change Password
+   * POST /api/auth/change-password/
+   */
+  changePassword: async ({ current_password, new_password }) => {
+    try {
+      const response = await apiClient.post('/auth/change-password/', {
+        current_password,
+        new_password,
+      });
+      return extractData(response);
+    } catch (error) {
+      return handleError(error);
+    }
+  },
+
+  /**
+   * Change MPIN
+   * POST /api/auth/change-mpin/
+   */
+  changeMPIN: async ({ current_mpin, new_mpin }) => {
+    try {
+      const response = await apiClient.post('/auth/change-mpin/', {
+        current_mpin,
+        new_mpin,
+      });
+      return extractData(response);
+    } catch (error) {
+      return handleError(error);
+    }
+  },
 };
 
 // ==================== USERS APIs ====================
@@ -671,6 +703,19 @@ export const walletsAPI = {
       return handleError(error);
     }
   },
+
+  /**
+   * Transfer main → BBPS wallet (MPIN required)
+   * POST /api/wallets/transfer-to-bbps/
+   */
+  transferMainToBbps: async ({ amount, mpin }) => {
+    try {
+      const response = await apiClient.post('/wallets/transfer-to-bbps/', { amount, mpin });
+      return extractData(response);
+    } catch (error) {
+      return handleError(error);
+    }
+  },
 };
 
 // ==================== FUND MANAGEMENT APIs ====================
@@ -715,21 +760,6 @@ export const fundManagementAPI = {
         package_id: packageId,
         amount,
         contact_id: contactId,
-      });
-      return extractData(response);
-    } catch (error) {
-      return handleError(error);
-    }
-  },
-
-  /**
-   * Complete mock pay-in (provider=mock only)
-   * POST /api/fund-management/pay-in/complete-mock/
-   */
-  payInCompleteMock: async (transactionId) => {
-    try {
-      const response = await apiClient.post('/fund-management/pay-in/complete-mock/', {
-        transaction_id: transactionId,
       });
       return extractData(response);
     } catch (error) {
@@ -844,6 +874,68 @@ export const fundManagementAPI = {
   getGateways: async (params = {}) => {
     try {
       const response = await apiClient.get('/fund-management/gateways/', { params });
+      return extractData(response);
+    } catch (error) {
+      return handleError(error);
+    }
+  },
+
+  // ─────────────────────────────────────────────────────────────────────────
+  // Package Assignment
+  // ─────────────────────────────────────────────────────────────────────────
+
+  /**
+   * Get packages assigned to a specific user
+   * GET /api/fund-management/packages/user/<userId>/
+   */
+  getUserPackages: async (userId) => {
+    try {
+      const response = await apiClient.get(`/fund-management/packages/user/${userId}/`);
+      return extractData(response);
+    } catch (error) {
+      return handleError(error);
+    }
+  },
+
+  /**
+   * Get packages the current user can assign to their downline
+   * GET /api/fund-management/packages/assignable/
+   */
+  getAssignablePackages: async () => {
+    try {
+      const response = await apiClient.get('/fund-management/packages/assignable/');
+      return extractData(response);
+    } catch (error) {
+      return handleError(error);
+    }
+  },
+
+  /**
+   * Assign a package to a user
+   * POST /api/fund-management/packages/assign/
+   */
+  assignPackageToUser: async (userId, packageId) => {
+    try {
+      const response = await apiClient.post('/fund-management/packages/assign/', {
+        user_id: userId,
+        package_id: packageId,
+      });
+      return extractData(response);
+    } catch (error) {
+      return handleError(error);
+    }
+  },
+
+  /**
+   * Remove a package assignment from a user
+   * POST /api/fund-management/packages/unassign/
+   */
+  removePackageAssignment: async (userId, packageId) => {
+    try {
+      const response = await apiClient.post('/fund-management/packages/unassign/', {
+        user_id: userId,
+        package_id: packageId,
+      });
       return extractData(response);
     } catch (error) {
       return handleError(error);
@@ -1268,6 +1360,32 @@ export const reportsAPI = {
       return handleError(error);
     }
   },
+
+  /**
+   * Analytics summary grouped by gateway + interval
+   * GET /api/reports/analytics/summary/
+   */
+  getAnalyticsSummary: async (params = {}) => {
+    try {
+      const response = await apiClient.get('/reports/analytics/summary/', { params });
+      return extractData(response);
+    } catch (error) {
+      return handleError(error);
+    }
+  },
+
+  /** Download CSV (blob). Caller should create object URL or save file. */
+  downloadReportCsv: async (path, params = {}) => {
+    try {
+      const response = await apiClient.get(path, {
+        params,
+        responseType: 'blob',
+      });
+      return { success: true, blob: response.data, filename: path.split('/').filter(Boolean).join('_') };
+    } catch (error) {
+      return handleError(error);
+    }
+  },
 };
 
 // ==================== ADMIN APIs ====================
@@ -1505,6 +1623,32 @@ export const adminAPI = {
   },
 
   /**
+   * Get payout slab config (Admin)
+   * GET /api/admin/payout-slab-config/
+   */
+  getPayoutSlabConfig: async () => {
+    try {
+      const response = await apiClient.get('/admin/payout-slab-config/');
+      return extractData(response);
+    } catch (error) {
+      return handleError(error);
+    }
+  },
+
+  /**
+   * Update payout slab config (Admin)
+   * PUT /api/admin/payout-slab-config/
+   */
+  updatePayoutSlabConfig: async (payload) => {
+    try {
+      const response = await apiClient.put('/admin/payout-slab-config/', payload);
+      return extractData(response);
+    } catch (error) {
+      return handleError(error);
+    }
+  },
+
+  /**
    * List API Masters
    * GET /api/integrations/api-masters/
    */
@@ -1576,6 +1720,38 @@ export const adminAPI = {
   cloneApiMaster: async (id) => {
     try {
       const response = await apiClient.post(`/integrations/api-masters/${id}/clone/`);
+      return extractData(response);
+    } catch (error) {
+      return handleError(error);
+    }
+  },
+
+  // ─────────────────────────────────────────────────────────────────────────
+  // Package Assignment (Admin)
+  // ─────────────────────────────────────────────────────────────────────────
+
+  /**
+   * Set default package (Admin only)
+   * POST /api/fund-management/packages/set-default/
+   */
+  setDefaultPackage: async (packageId) => {
+    try {
+      const response = await apiClient.post('/fund-management/packages/set-default/', {
+        package_id: packageId,
+      });
+      return extractData(response);
+    } catch (error) {
+      return handleError(error);
+    }
+  },
+
+  /**
+   * Clear default package (Admin only)
+   * POST /api/fund-management/packages/clear-default/
+   */
+  clearDefaultPackage: async () => {
+    try {
+      const response = await apiClient.post('/fund-management/packages/clear-default/');
       return extractData(response);
     } catch (error) {
       return handleError(error);

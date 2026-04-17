@@ -1,35 +1,32 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../../context/AuthContext';
-import { getWallets } from '../../services/mockData';
-import { formatUserId } from '../../utils/formatters';
-import { formatCurrency } from '../../utils/formatters';
+import { walletsAPI, authAPI } from '../../services/api';
+import { formatUserId, formatCurrency } from '../../utils/formatters';
 import { validatePhone, validateEmail, validateMPIN } from '../../utils/validators';
-import { FiUser, FiMail, FiPhone, FiLock, FiKey, FiEdit2, FiSave, FiX, FiShield } from 'react-icons/fi';
+import { FiUser, FiMail, FiPhone, FiLock, FiKey, FiEdit2, FiSave, FiX, FiShield, FiRefreshCw } from 'react-icons/fi';
 
 const ProfileSettings = () => {
   const navigate = useNavigate();
   const { user, refreshUser } = useAuth();
-  const [wallets, setWallets] = useState({ main: 0, commission: 0, bbps: 0 });
+  const [wallets, setWallets] = useState({ main: 0, commission: 0, bbps: 0, profit: 0 });
+  const [walletsLoading, setWalletsLoading] = useState(false);
   const [activeTab, setActiveTab] = useState('profile');
   const [isEditing, setIsEditing] = useState(false);
   const [loading, setLoading] = useState(false);
 
-  // Profile form state
   const [profileData, setProfileData] = useState({
     name: user?.name || '',
     email: user?.email || '',
     phone: user?.phone || '',
   });
 
-  // Password change state
   const [passwordData, setPasswordData] = useState({
     currentPassword: '',
     newPassword: '',
     confirmPassword: '',
   });
 
-  // MPIN change state
   const [mpinData, setMpinData] = useState({
     currentMPIN: '',
     newMPIN: '',
@@ -39,18 +36,43 @@ const ProfileSettings = () => {
   const [errors, setErrors] = useState({});
   const [successMessage, setSuccessMessage] = useState('');
 
-  React.useEffect(() => {
-    if (user) {
-      const result = getWallets(user.id);
-      if (result.success) {
-        setWallets(result.wallets);
+  const loadWallets = useCallback(async () => {
+    setWalletsLoading(true);
+    try {
+      const res = await walletsAPI.getAllWallets();
+      if (res.success && res.data?.wallets) {
+        const w = res.data.wallets;
+        setWallets({
+          main: parseFloat(w.main?.balance || 0),
+          commission: parseFloat(w.commission?.balance || 0),
+          bbps: parseFloat(w.bbps?.balance || 0),
+          profit: parseFloat(w.profit?.balance || 0),
+        });
       }
+    } catch (err) {
+      console.error('Failed to load wallets', err);
+    } finally {
+      setWalletsLoading(false);
     }
-  }, [user]);
+  }, []);
 
-  React.useEffect(() => {
+  useEffect(() => {
+    loadWallets();
+  }, [loadWallets]);
+
+  useEffect(() => {
     refreshUser?.();
   }, [refreshUser]);
+
+  useEffect(() => {
+    if (user) {
+      setProfileData({
+        name: user.name || '',
+        email: user.email || '',
+        phone: user.phone || '',
+      });
+    }
+  }, [user]);
 
   const handleProfileChange = (field, value) => {
     setProfileData({ ...profileData, [field]: value });
@@ -61,7 +83,7 @@ const ProfileSettings = () => {
 
   const handleProfileSave = async () => {
     const newErrors = {};
-    
+
     const emailValidation = validateEmail(profileData.email);
     if (!emailValidation.valid) {
       newErrors.email = emailValidation.message;
@@ -83,7 +105,6 @@ const ProfileSettings = () => {
 
     setLoading(true);
     try {
-      // Simulate API call
       await new Promise((resolve) => setTimeout(resolve, 1000));
       setSuccessMessage('Profile updated successfully!');
       setIsEditing(false);
@@ -117,10 +138,17 @@ const ProfileSettings = () => {
 
     setLoading(true);
     try {
-      await new Promise((resolve) => setTimeout(resolve, 1000));
-      setSuccessMessage('Password changed successfully!');
-      setPasswordData({ currentPassword: '', newPassword: '', confirmPassword: '' });
-      setTimeout(() => setSuccessMessage(''), 3000);
+      const res = await authAPI.changePassword({
+        current_password: passwordData.currentPassword,
+        new_password: passwordData.newPassword,
+      });
+      if (res.success) {
+        setSuccessMessage('Password changed successfully!');
+        setPasswordData({ currentPassword: '', newPassword: '', confirmPassword: '' });
+        setTimeout(() => setSuccessMessage(''), 3000);
+      } else {
+        setErrors({ general: res.message || 'Failed to change password.' });
+      }
     } catch (error) {
       setErrors({ general: 'Failed to change password. Please try again.' });
     } finally {
@@ -151,10 +179,17 @@ const ProfileSettings = () => {
 
     setLoading(true);
     try {
-      await new Promise((resolve) => setTimeout(resolve, 1000));
-      setSuccessMessage('MPIN changed successfully!');
-      setMpinData({ currentMPIN: '', newMPIN: '', confirmMPIN: '' });
-      setTimeout(() => setSuccessMessage(''), 3000);
+      const res = await authAPI.changeMPIN({
+        current_mpin: mpinData.currentMPIN,
+        new_mpin: mpinData.newMPIN,
+      });
+      if (res.success) {
+        setSuccessMessage('MPIN changed successfully!');
+        setMpinData({ currentMPIN: '', newMPIN: '', confirmMPIN: '' });
+        setTimeout(() => setSuccessMessage(''), 3000);
+      } else {
+        setErrors({ general: res.message || 'Failed to change MPIN.' });
+      }
     } catch (error) {
       setErrors({ general: 'Failed to change MPIN. Please try again.' });
     } finally {
@@ -163,6 +198,9 @@ const ProfileSettings = () => {
   };
 
   const ob = user?.onboarding;
+  const showCommissionWallet = user?.role && user.role !== 'Retailer';
+  const showProfitWallet = user?.role?.toLowerCase() === 'admin';
+
   const tabs = [
     { id: 'profile', name: 'Profile', icon: FiUser },
     { id: 'verification', name: 'Verification', icon: FiShield },
@@ -172,21 +210,18 @@ const ProfileSettings = () => {
 
   return (
     <div className="max-w-4xl mx-auto space-y-6">
-      {/* Success Message */}
       {successMessage && (
         <div className="bg-green-50 border border-green-200 text-green-700 px-4 py-3 rounded-lg">
           {successMessage}
         </div>
       )}
 
-      {/* Error Message */}
       {errors.general && (
         <div className="bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded-lg">
           {errors.general}
         </div>
       )}
 
-      {/* Profile Overview Card */}
       <div className="bg-white rounded-xl shadow-sm p-6 border border-gray-200">
         <div className="flex items-center space-x-4 mb-6">
           <div className="w-20 h-20 bg-blue-600 rounded-full flex items-center justify-center text-white text-3xl font-bold">
@@ -199,22 +234,64 @@ const ProfileSettings = () => {
           </div>
         </div>
 
-        {/* Wallet Summary */}
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-4 pt-6 border-t border-gray-200">
-          <div className="text-center p-4 bg-blue-50 rounded-lg">
+        <div className="flex items-center justify-between mb-4">
+          <h3 className="text-sm font-semibold text-gray-700 uppercase tracking-wide">Wallet Balances</h3>
+          <button
+            type="button"
+            onClick={loadWallets}
+            disabled={walletsLoading}
+            className="flex items-center gap-1.5 text-sm text-blue-600 hover:text-blue-700 disabled:opacity-50"
+          >
+            <FiRefreshCw className={walletsLoading ? 'animate-spin' : ''} size={14} />
+            Refresh
+          </button>
+        </div>
+
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-4 pt-4 border-t border-gray-200">
+          <button
+            type="button"
+            onClick={() => navigate('/reports/passbook')}
+            className="text-center p-4 bg-blue-50 rounded-lg hover:bg-blue-100 transition-colors cursor-pointer border border-blue-100"
+          >
             <p className="text-sm text-gray-600 mb-1">Main Wallet</p>
-            <p className="text-xl font-bold text-blue-600">{formatCurrency(wallets.main)}</p>
-          </div>
-          {user?.role !== 'Retailer' && (
-            <div className="text-center p-4 bg-green-50 rounded-lg">
+            <p className="text-xl font-bold text-blue-600">
+              {walletsLoading ? '...' : formatCurrency(wallets.main)}
+            </p>
+          </button>
+          {showCommissionWallet && (
+            <button
+              type="button"
+              onClick={() => navigate('/reports/commission')}
+              className="text-center p-4 bg-green-50 rounded-lg hover:bg-green-100 transition-colors cursor-pointer border border-green-100"
+            >
               <p className="text-sm text-gray-600 mb-1">Commission Wallet</p>
-              <p className="text-xl font-bold text-green-600">{formatCurrency(wallets.commission)}</p>
-            </div>
+              <p className="text-xl font-bold text-green-600">
+                {walletsLoading ? '...' : formatCurrency(wallets.commission)}
+              </p>
+            </button>
           )}
-          <div className="text-center p-4 bg-yellow-50 rounded-lg">
+          <button
+            type="button"
+            onClick={() => navigate('/reports/bbps')}
+            className="text-center p-4 bg-yellow-50 rounded-lg hover:bg-yellow-100 transition-colors cursor-pointer border border-yellow-100"
+          >
             <p className="text-sm text-gray-600 mb-1">BBPS Wallet</p>
-            <p className="text-xl font-bold text-yellow-600">{formatCurrency(wallets.bbps)}</p>
-          </div>
+            <p className="text-xl font-bold text-yellow-600">
+              {walletsLoading ? '...' : formatCurrency(wallets.bbps)}
+            </p>
+          </button>
+          {showProfitWallet && (
+            <button
+              type="button"
+              onClick={() => navigate('/wallets/profit')}
+              className="text-center p-4 bg-purple-50 rounded-lg hover:bg-purple-100 transition-colors cursor-pointer border border-purple-100"
+            >
+              <p className="text-sm text-gray-600 mb-1">Profit Wallet</p>
+              <p className="text-xl font-bold text-purple-600">
+                {walletsLoading ? '...' : formatCurrency(wallets.profit)}
+              </p>
+            </button>
+          )}
         </div>
 
         {ob != null && (
@@ -259,11 +336,9 @@ const ProfileSettings = () => {
         )}
       </div>
 
-      {/* Settings Tabs */}
       <div className="bg-white rounded-xl shadow-sm border border-gray-200">
-        {/* Tab Navigation */}
         <div className="border-b border-gray-200">
-          <nav className="flex -mb-px px-6">
+          <nav className="flex -mb-px px-6 overflow-x-auto">
             {tabs.map((tab) => {
               const Icon = tab.icon;
               return (
@@ -274,7 +349,7 @@ const ProfileSettings = () => {
                     setErrors({});
                     setSuccessMessage('');
                   }}
-                  className={`flex items-center space-x-2 px-6 py-4 text-sm font-medium border-b-2 transition-colors ${
+                  className={`flex items-center space-x-2 px-6 py-4 text-sm font-medium border-b-2 transition-colors whitespace-nowrap ${
                     activeTab === tab.id
                       ? 'border-blue-600 text-blue-600'
                       : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
@@ -288,9 +363,7 @@ const ProfileSettings = () => {
           </nav>
         </div>
 
-        {/* Tab Content */}
         <div className="p-6">
-          {/* Profile Tab */}
           {activeTab === 'verification' && (
             <div className="space-y-6">
               <h3 className="text-xl font-bold text-gray-900">Verification status</h3>
@@ -307,9 +380,7 @@ const ProfileSettings = () => {
                     </div>
                     <div className="flex justify-between py-2 border-b border-gray-100">
                       <span className="text-gray-600">Aadhaar verification</span>
-                      <span
-                        className={ob.aadhaar_verified ? 'text-green-700 font-semibold' : 'text-amber-700 font-medium'}
-                      >
+                      <span className={ob.aadhaar_verified ? 'text-green-700 font-semibold' : 'text-amber-700 font-medium'}>
                         {ob.aadhaar_verified ? 'Complete' : 'Pending'}
                       </span>
                     </div>
@@ -394,27 +465,20 @@ const ProfileSettings = () => {
               </div>
 
               <div className="space-y-4">
-                {/* User ID - Read Only */}
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-2">
-                    User ID
-                  </label>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">User ID</label>
                   <div className="px-4 py-3 bg-gray-50 border border-gray-300 rounded-lg">
                     <p className="text-gray-900 font-semibold">{formatUserId(user?.userId || user?.user_id)}</p>
                   </div>
                 </div>
 
-                {/* Role - Read Only */}
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-2">
-                    Role
-                  </label>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">Role</label>
                   <div className="px-4 py-3 bg-gray-50 border border-gray-300 rounded-lg">
                     <p className="text-gray-900 font-semibold">{user?.role}</p>
                   </div>
                 </div>
 
-                {/* Name */}
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-2">
                     <FiUser className="inline mr-2" />
@@ -437,7 +501,6 @@ const ProfileSettings = () => {
                   )}
                 </div>
 
-                {/* Email */}
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-2">
                     <FiMail className="inline mr-2" />
@@ -460,7 +523,6 @@ const ProfileSettings = () => {
                   )}
                 </div>
 
-                {/* Phone */}
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-2">
                     <FiPhone className="inline mr-2" />
@@ -490,31 +552,24 @@ const ProfileSettings = () => {
             </div>
           )}
 
-          {/* Change Password Tab */}
           {activeTab === 'password' && (
             <div className="space-y-6">
               <h3 className="text-xl font-bold text-gray-900 mb-6">Change Password</h3>
-              
+
               <div className="space-y-4">
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-2">
-                    Current Password
-                  </label>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">Current Password</label>
                   <input
                     type="password"
                     value={passwordData.currentPassword}
                     onChange={(e) => setPasswordData({ ...passwordData, currentPassword: e.target.value })}
                     className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
                   />
-                  {errors.currentPassword && (
-                    <p className="mt-1 text-sm text-red-600">{errors.currentPassword}</p>
-                  )}
+                  {errors.currentPassword && <p className="mt-1 text-sm text-red-600">{errors.currentPassword}</p>}
                 </div>
 
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-2">
-                    New Password
-                  </label>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">New Password</label>
                   <input
                     type="password"
                     value={passwordData.newPassword}
@@ -522,24 +577,18 @@ const ProfileSettings = () => {
                     className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
                     placeholder="Minimum 6 characters"
                   />
-                  {errors.newPassword && (
-                    <p className="mt-1 text-sm text-red-600">{errors.newPassword}</p>
-                  )}
+                  {errors.newPassword && <p className="mt-1 text-sm text-red-600">{errors.newPassword}</p>}
                 </div>
 
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-2">
-                    Confirm New Password
-                  </label>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">Confirm New Password</label>
                   <input
                     type="password"
                     value={passwordData.confirmPassword}
                     onChange={(e) => setPasswordData({ ...passwordData, confirmPassword: e.target.value })}
                     className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
                   />
-                  {errors.confirmPassword && (
-                    <p className="mt-1 text-sm text-red-600">{errors.confirmPassword}</p>
-                  )}
+                  {errors.confirmPassword && <p className="mt-1 text-sm text-red-600">{errors.confirmPassword}</p>}
                 </div>
 
                 <button
@@ -553,16 +602,13 @@ const ProfileSettings = () => {
             </div>
           )}
 
-          {/* Change MPIN Tab */}
           {activeTab === 'mpin' && (
             <div className="space-y-6">
               <h3 className="text-xl font-bold text-gray-900 mb-6">Change MPIN</h3>
-              
+
               <div className="space-y-4">
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-2">
-                    Current MPIN
-                  </label>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">Current MPIN</label>
                   <input
                     type="password"
                     inputMode="numeric"
@@ -575,15 +621,11 @@ const ProfileSettings = () => {
                     className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent text-center text-2xl font-bold tracking-widest"
                     placeholder="000000"
                   />
-                  {errors.currentMPIN && (
-                    <p className="mt-1 text-sm text-red-600">{errors.currentMPIN}</p>
-                  )}
+                  {errors.currentMPIN && <p className="mt-1 text-sm text-red-600">{errors.currentMPIN}</p>}
                 </div>
 
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-2">
-                    New MPIN (6 digits)
-                  </label>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">New MPIN (6 digits)</label>
                   <input
                     type="password"
                     inputMode="numeric"
@@ -596,15 +638,11 @@ const ProfileSettings = () => {
                     className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent text-center text-2xl font-bold tracking-widest"
                     placeholder="000000"
                   />
-                  {errors.newMPIN && (
-                    <p className="mt-1 text-sm text-red-600">{errors.newMPIN}</p>
-                  )}
+                  {errors.newMPIN && <p className="mt-1 text-sm text-red-600">{errors.newMPIN}</p>}
                 </div>
 
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-2">
-                    Confirm New MPIN
-                  </label>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">Confirm New MPIN</label>
                   <input
                     type="password"
                     inputMode="numeric"
@@ -617,9 +655,7 @@ const ProfileSettings = () => {
                     className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent text-center text-2xl font-bold tracking-widest"
                     placeholder="000000"
                   />
-                  {errors.confirmMPIN && (
-                    <p className="mt-1 text-sm text-red-600">{errors.confirmMPIN}</p>
-                  )}
+                  {errors.confirmMPIN && <p className="mt-1 text-sm text-red-600">{errors.confirmMPIN}</p>}
                 </div>
 
                 <button

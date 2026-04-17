@@ -71,7 +71,7 @@ class IsDistributorOrAbove(permissions.BasePermission):
 class IsHierarchy(permissions.BasePermission):
     """
     Permission to check if user can access resources based on hierarchy.
-    Admin: all roles below; Super Distributor: MD/D/R; Master Distributor: D/R; Distributor: R.
+    Admin: all roles below; Super Distributor: D/R (skips MD tier for onboarding); Master Distributor: D/R; Distributor: R.
     """
     
     def has_permission(self, request, view):
@@ -112,7 +112,7 @@ class IsHierarchy(permissions.BasePermission):
                 'Distributor',
                 'Retailer',
             ],
-            'Super Distributor': ['Master Distributor', 'Distributor', 'Retailer'],
+            'Super Distributor': ['Distributor', 'Retailer'],
             'Master Distributor': ['Distributor', 'Retailer'],
             'Distributor': ['Retailer'],
             'Retailer': [],

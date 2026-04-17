@@ -20,6 +20,7 @@ from apps.bbps.services import (
     get_billers_by_category
 )
 from apps.core.exceptions import InsufficientBalance, TransactionFailed
+from apps.core.financial_access import assert_can_perform_financial_txn
 
 
 @api_view(['GET'])
@@ -100,6 +101,7 @@ def pay_bill_view(request):
     Process bill payment.
     POST /api/bbps/pay/
     """
+    assert_can_perform_financial_txn(request.user)
     serializer = BillPaymentCreateSerializer(data=request.data)
     if serializer.is_valid():
         try:

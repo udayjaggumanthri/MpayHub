@@ -36,5 +36,11 @@ PASSWORD_HASHERS = [
 # Disable rate limiting in tests
 RATELIMIT_ENABLE = False
 
+# LocMem cache triggers django-ratelimit system checks; tests do not rely on shared Redis.
+SILENCED_SYSTEM_CHECKS = [
+    'django_ratelimit.E003',
+    'django_ratelimit.W001',
+]
+
 # Email backend
 EMAIL_BACKEND = 'django.core.mail.backends.locmem.EmailBackend'

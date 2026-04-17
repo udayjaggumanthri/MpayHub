@@ -1,5 +1,5 @@
 """
-Who receives pay-in **platform** amounts (gateway fee + admin / absorbed pool) on the commission wallet.
+Who receives pay-in **platform** amounts (gateway fee + admin / absorbed pool) on the profit wallet.
 
 Decoupled from fee math so ops can extend resolution (env, role rules, onboarding parent) without
 touching distribution formulas.
@@ -73,7 +73,7 @@ def log_missing_platform_recipients(
 ) -> None:
     if gateway_amount > 0 or admin_amount > 0:
         logger.warning(
-            'pay_in_settlement: no recipients for platform slices (commission wallet will stay 0). '
+            'pay_in_settlement: no recipients for platform slices (profit wallet will stay 0). '
             'txn=%s payer_id=%s gw=%s admin_total=%s — set PLATFORM_PAYIN_SETTLEMENT_USER_ID or ensure '
             'an active Admin / superuser exists.',
             transaction_id,

@@ -14,11 +14,6 @@ export const roleFields = [
   { key: 'super_distributor_pct', label: 'Super Distributor %', help: 'Upline SD commission' },
   { key: 'master_distributor_pct', label: 'Master Distributor %', help: 'Upline MD commission' },
   { key: 'distributor_pct', label: 'Distributor %', help: 'Upline distributor commission' },
-  {
-    key: 'retailer_commission_pct',
-    label: 'Retailer % (to platform)',
-    help: 'Merged into Admin (platform) share on pay-in — not paid to the retailer commission wallet',
-  },
 ];
 
 export const firstErrorMessage = (result, fallback) => {
@@ -80,7 +75,6 @@ export const packageCommissionStrip = (pkg) => [
   { k: 'SD', v: pkg.super_distributor_pct, c: 'bg-sky-500' },
   { k: 'MD', v: pkg.master_distributor_pct, c: 'bg-teal-500' },
   { k: 'D', v: pkg.distributor_pct, c: 'bg-emerald-500' },
-  { k: 'R→P', v: pkg.retailer_commission_pct, c: 'bg-amber-500' },
 ];
 
 export const packageTotalDeductionDisplay = (pkg) => {
@@ -93,8 +87,7 @@ export const packageTotalDeductionDisplay = (pkg) => {
     n('admin_pct') +
     n('super_distributor_pct') +
     n('master_distributor_pct') +
-    n('distributor_pct') +
-    n('retailer_commission_pct')
+    n('distributor_pct')
   ).toFixed(2);
 };
 

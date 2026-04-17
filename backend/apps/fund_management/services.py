@@ -23,20 +23,60 @@ from apps.fund_management.platform_settlement import (
     log_missing_platform_recipients,
     resolve_platform_payin_recipients,
 )
+from apps.transactions.agent_snapshot import (
+    card_last4_from_payment_meta,
+    passbook_initiator_db_fields,
+    transaction_agent_db_fields,
+)
 from apps.transactions.models import CommissionLedger, PassbookEntry, Transaction
 from apps.wallets.models import Wallet
 
 logger = logging.getLogger(__name__)
 
 
-def money_q(v: Decimal) -> Decimal:
-    return v.quantize(Decimal('0.01'))
+def money_q(v) -> Decimal:
+    """
+    Quantize money to 4 dp safely (enterprise ledger / reporting).
+    Accepts Decimal/float/int/str to avoid runtime errors from mixed numeric sources.
+    """
+    return Decimal(str(v)).quantize(Decimal('0.0001'))
+
+
+def _payin_source_agent_meta(payer: Optional[User]) -> dict:
+    """Identifies the retailer (or loading user) that generated a pay-in commission."""
+    if not payer:
+        return {}
+    name = ''
+    try:
+        prof = getattr(payer, 'profile', None)
+        if prof is not None:
+            name = (getattr(prof, 'full_name', None) or '').strip()
+    except Exception:
+        name = ''
+    if not name:
+        name = (getattr(payer, 'email', None) or '') or ''
+    code = getattr(payer, 'user_id', None) or ''
+    return {
+        'source_user_id': payer.pk,
+        'source_user_code': str(code),
+        'source_role': getattr(payer, 'role', None) or '',
+        'source_name': (name.strip() or str(code) or str(payer.pk)),
+    }
+
+
+def _commission_source_index_fields(meta: dict) -> dict:
+    """Denormalized columns on CommissionLedger (fast reporting)."""
+    return {
+        'source_user_code': str(meta.get('source_user_code') or ''),
+        'source_role': str(meta.get('source_role') or ''),
+        'source_name_snapshot': str(meta.get('source_name') or meta.get('source_user_code') or ''),
+    }
 
 
 def _split_total_evenly(total: Decimal, parts: int) -> list[Decimal]:
     """
-    Split ``total`` (₹, 2 dp) into ``parts`` amounts that sum exactly to ``money_q(total)``.
-    Remaining paise go to the first recipients so totals stay balanced.
+    Split ``total`` (money_q precision) into ``parts`` amounts that sum exactly to ``money_q(total)``.
+    Remainder micro-units go to the first recipients so totals stay balanced.
     """
     total = money_q(total)
     if parts <= 0:
@@ -45,13 +85,13 @@ def _split_total_evenly(total: Decimal, parts: int) -> list[Decimal]:
         return [total]
     if total <= 0:
         return [money_q(Decimal('0'))] * parts
-    cents = int(total * 100)
-    base = cents // parts
-    rem = cents % parts
+    micro = int((total * Decimal('10000')).to_integral_value())
+    base = micro // parts
+    rem = micro % parts
     out: list[Decimal] = []
     for i in range(parts):
         c = base + (1 if i < rem else 0)
-        out.append(money_q(Decimal(c) / Decimal(100)))
+        out.append(money_q(Decimal(c) / Decimal('10000')))
     return out
 
 
@@ -93,6 +133,22 @@ def payout_slab_charge(amount: Decimal) -> Decimal:
     low_max = getattr(settings, 'PAYOUT_SLAB_LOW_MAX', Decimal('24999'))
     low_c = getattr(settings, 'PAYOUT_CHARGE_LOW', Decimal('7'))
     high_c = getattr(settings, 'PAYOUT_CHARGE_HIGH', Decimal('15'))
+    try:
+        from apps.admin_panel.models import PayoutSlabConfig
+
+        cfg = (
+            PayoutSlabConfig.objects.filter(is_active=True)
+            .only('low_max_amount', 'low_charge', 'high_charge')
+            .order_by('-updated_at', '-id')
+            .first()
+        )
+        if cfg:
+            low_max = Decimal(str(cfg.low_max_amount))
+            low_c = money_q(cfg.low_charge)
+            high_c = money_q(cfg.high_charge)
+    except Exception:
+        # Fallback to settings constants when admin config table is unavailable.
+        pass
     if amount <= low_max:
         return low_c
     return high_c
@@ -105,6 +161,21 @@ def max_payout_eligible(balance: Decimal) -> Decimal:
     low_max = getattr(settings, 'PAYOUT_SLAB_LOW_MAX', Decimal('24999'))
     low_c = getattr(settings, 'PAYOUT_CHARGE_LOW', Decimal('7'))
     high_c = getattr(settings, 'PAYOUT_CHARGE_HIGH', Decimal('15'))
+    try:
+        from apps.admin_panel.models import PayoutSlabConfig
+
+        cfg = (
+            PayoutSlabConfig.objects.filter(is_active=True)
+            .only('low_max_amount', 'low_charge', 'high_charge')
+            .order_by('-updated_at', '-id')
+            .first()
+        )
+        if cfg:
+            low_max = Decimal(str(cfg.low_max_amount))
+            low_c = money_q(cfg.low_charge)
+            high_c = money_q(cfg.high_charge)
+    except Exception:
+        pass
     cand_low = Decimal('0')
     if balance >= low_c:
         cand_low = money_q(min(low_max, balance - low_c))
@@ -164,6 +235,7 @@ def _compute_payin_distribution(package: PayInPackage, gross: Decimal, payer_use
     dt_full = _pct_amount(gross, package.distributor_pct)
     retailer_absorbed = _pct_amount(gross, package.retailer_commission_pct)
 
+    payer_role = None
     if payer_user is None:
         sd_p, md_p, dt_p = sd_full, md_full, dt_full
         absorbed_to_admin = money_q(Decimal('0'))
@@ -172,6 +244,10 @@ def _compute_payin_distribution(package: PayInPackage, gross: Decimal, payer_use
         hierarchy_adjusted = False
     else:
         assign = _chain_role_assignments(upline_chain(payer_user))
+        payer_role = (getattr(payer_user, 'role', None) or '').strip()
+        # Always seed the performer's own role slice to self before roll-up logic.
+        if payer_role in CHAIN_COMMISSION_ROLES:
+            assign[payer_role] = payer_user
         rem = money_q(Decimal('0'))
         if assign['Distributor']:
             dt_p = dt_full
@@ -234,32 +310,35 @@ def _compute_payin_distribution(package: PayInPackage, gross: Decimal, payer_use
     lines.append(admin_line)
 
     if payer_user is None or sd_p > 0:
-        lines.append(
-            {
-                'key': 'super_distributor',
-                'label': 'Super Distributor',
-                'pct': str(package.super_distributor_pct),
-                'amount': str(sd_p if payer_user is not None else sd_full),
-            }
-        )
+        sd_line = {
+            'key': 'super_distributor',
+            'label': 'Super Distributor',
+            'pct': str(package.super_distributor_pct),
+            'amount': str(sd_p if payer_user is not None else sd_full),
+        }
+        if payer_user is not None and payer_role == 'Super Distributor':
+            sd_line['note'] = 'Performer receives this own-role slice.'
+        lines.append(sd_line)
     if payer_user is None or md_p > 0:
-        lines.append(
-            {
-                'key': 'master_distributor',
-                'label': 'Master Distributor',
-                'pct': str(package.master_distributor_pct),
-                'amount': str(md_p if payer_user is not None else md_full),
-            }
-        )
+        md_line = {
+            'key': 'master_distributor',
+            'label': 'Master Distributor',
+            'pct': str(package.master_distributor_pct),
+            'amount': str(md_p if payer_user is not None else md_full),
+        }
+        if payer_user is not None and payer_role == 'Master Distributor':
+            md_line['note'] = 'Performer receives this own-role slice.'
+        lines.append(md_line)
     if payer_user is None or dt_p > 0:
-        lines.append(
-            {
-                'key': 'distributor',
-                'label': 'Distributor',
-                'pct': str(package.distributor_pct),
-                'amount': str(dt_p if payer_user is not None else dt_full),
-            }
-        )
+        dt_line = {
+            'key': 'distributor',
+            'label': 'Distributor',
+            'pct': str(package.distributor_pct),
+            'amount': str(dt_p if payer_user is not None else dt_full),
+        }
+        if payer_user is not None and payer_role == 'Distributor':
+            dt_line['note'] = 'Performer receives this own-role slice.'
+        lines.append(dt_line)
 
     snapshot = {
         'gross': str(gross),
@@ -306,13 +385,28 @@ def quote_payin(package: PayInPackage, gross: Decimal, payer_user: Optional[User
     }
 
 
-def _passbook_credit(user, wallet_type: str, service: str, service_id: str, description: str, amount: Decimal, reference: str):
+def _passbook_credit(
+    user,
+    wallet_type: str,
+    service: str,
+    service_id: str,
+    description: str,
+    amount: Decimal,
+    reference: str,
+    *,
+    service_charge: Optional[Decimal] = None,
+    principal_amount: Optional[Decimal] = None,
+    initiator_user: Optional[User] = None,
+):
     amount = money_q(amount)
+    sc = money_q(service_charge) if service_charge is not None else Decimal('0')
+    pa = money_q(principal_amount) if principal_amount is not None else amount
     w = Wallet.get_wallet(user, wallet_type)
     ob = money_q(w.balance)
-    w.credit(amount, reference=reference)
+    w.credit(amount, reference=reference, description=description)
     w.refresh_from_db()
     cb = money_q(w.balance)
+    init = initiator_user if initiator_user is not None else user
     PassbookEntry.objects.create(
         user=user,
         wallet_type=wallet_type,
@@ -323,16 +417,34 @@ def _passbook_credit(user, wallet_type: str, service: str, service_id: str, desc
         credit_amount=amount,
         opening_balance=ob,
         closing_balance=cb,
+        service_charge=sc,
+        principal_amount=pa,
+        **passbook_initiator_db_fields(init),
     )
 
 
-def _passbook_debit(user, wallet_type: str, service: str, service_id: str, description: str, amount: Decimal, reference: str):
+def _passbook_debit(
+    user,
+    wallet_type: str,
+    service: str,
+    service_id: str,
+    description: str,
+    amount: Decimal,
+    reference: str,
+    *,
+    service_charge: Optional[Decimal] = None,
+    principal_amount: Optional[Decimal] = None,
+    initiator_user: Optional[User] = None,
+):
     amount = money_q(amount)
+    sc = money_q(service_charge) if service_charge is not None else Decimal('0')
+    pa = money_q(principal_amount) if principal_amount is not None else amount
     w = Wallet.get_wallet(user, wallet_type)
     ob = money_q(w.balance)
-    w.debit(amount, reference=reference)
+    w.debit(amount, reference=reference, description=description)
     w.refresh_from_db()
     cb = money_q(w.balance)
+    init = initiator_user if initiator_user is not None else user
     PassbookEntry.objects.create(
         user=user,
         wallet_type=wallet_type,
@@ -343,6 +455,9 @@ def _passbook_debit(user, wallet_type: str, service: str, service_id: str, descr
         credit_amount=Decimal('0'),
         opening_balance=ob,
         closing_balance=cb,
+        service_charge=sc,
+        principal_amount=pa,
+        **passbook_initiator_db_fields(init),
     )
 
 
@@ -358,14 +473,22 @@ def _pay_chain_commission_slice(
     if not user_obj or amount <= 0:
         return
     amt = money_q(amount)
+    payer = load_money.user
+    src = _payin_source_agent_meta(payer)
+    suffix = (
+        f" (from {src.get('source_user_code', '')}, {src.get('source_role', '')})"
+        if src.get('source_user_code')
+        else ''
+    )
     _passbook_credit(
         user_obj,
         'commission',
         'COMMISSION',
         load_money.transaction_id,
-        f'Pay-in commission ({role_label}) on {load_money.transaction_id}',
+        f'Pay-in commission ({role_label}) on {load_money.transaction_id}{suffix}',
         amt,
         tx_ref,
+        initiator_user=payer,
     )
     CommissionLedger.objects.create(
         user=user_obj,
@@ -374,7 +497,8 @@ def _pay_chain_commission_slice(
         source='payin',
         reference_service_id=load_money.transaction_id,
         wallet_type='commission',
-        meta={'slice': slice_key},
+        meta={'slice': slice_key, **src},
+        **_commission_source_index_fields(src),
     )
 
 
@@ -386,8 +510,14 @@ def _credit_platform_payin_slices(
     dist: dict,
     tx_ref: str,
 ) -> None:
-    """Credit gateway + admin platform shares; split across Admin recipients when multiple."""
+    """Credit gateway + admin platform shares into Admin profit wallet(s)."""
     recipients = resolve_platform_payin_recipients(load_money.user)
+    src_meta = _payin_source_agent_meta(load_money.user)
+    suffix = (
+        f" (from {src_meta.get('source_user_code', '')}, {src_meta.get('source_role', '')})"
+        if src_meta.get('source_user_code')
+        else ''
+    )
     n = len(recipients)
     if n == 0 and (gw > 0 or ad_total > 0):
         log_missing_platform_recipients(
@@ -397,16 +527,19 @@ def _credit_platform_payin_slices(
             admin_amount=ad_total,
         )
 
+    src_idx = _commission_source_index_fields(src_meta)
+
     if gw > 0:
         if n == 0:
             CommissionLedger.objects.create(
                 user=None,
                 role_at_time='PLATFORM_GATEWAY',
                 amount=gw,
-                source='payin',
+                source='profit',
                 reference_service_id=load_money.transaction_id,
-                wallet_type='commission',
-                meta={'slice': 'gateway_absorbed'},
+                wallet_type='profit',
+                meta={'slice': 'gateway_absorbed', **src_meta},
+                **src_idx,
             )
         else:
             parts = _split_total_evenly(gw, n)
@@ -415,21 +548,23 @@ def _credit_platform_payin_slices(
                     continue
                 _passbook_credit(
                     user,
-                    'commission',
-                    'COMMISSION',
+                    'profit',
+                    'PROFIT',
                     load_money.transaction_id,
-                    f'Pay-in platform (gateway share) on {load_money.transaction_id}',
+                    f'Pay-in platform (gateway share) on {load_money.transaction_id}{suffix}',
                     part,
                     tx_ref,
+                    initiator_user=load_money.user,
                 )
                 CommissionLedger.objects.create(
                     user=user,
                     role_at_time='PLATFORM_GATEWAY',
                     amount=part,
-                    source='payin',
+                    source='profit',
                     reference_service_id=load_money.transaction_id,
-                    wallet_type='commission',
-                    meta={'slice': 'gateway_absorbed', 'split_recipients': n},
+                    wallet_type='profit',
+                    meta={'slice': 'gateway_absorbed', 'split_recipients': n, **src_meta},
+                    **src_idx,
                 )
 
     if ad_total > 0:
@@ -438,15 +573,17 @@ def _credit_platform_payin_slices(
                 user=None,
                 role_at_time='PLATFORM_ADMIN',
                 amount=ad_total,
-                source='payin',
+                source='profit',
                 reference_service_id=load_money.transaction_id,
-                wallet_type='commission',
+                wallet_type='profit',
                 meta={
                     'slice': 'admin_absorbed',
                     'admin_base_amount': str(dist['ad_base']),
                     'absorbed_chain_amount': str(dist['absorbed']),
                     'retailer_absorbed_to_admin': str(dist.get('retailer_absorbed_to_admin', '0')),
+                    **src_meta,
                 },
+                **src_idx,
             )
         else:
             parts = _split_total_evenly(ad_total, n)
@@ -455,27 +592,30 @@ def _credit_platform_payin_slices(
                     continue
                 _passbook_credit(
                     user,
-                    'commission',
-                    'COMMISSION',
+                    'profit',
+                    'PROFIT',
                     load_money.transaction_id,
-                    f'Pay-in platform (admin share) on {load_money.transaction_id}',
+                    f'Pay-in platform (admin share) on {load_money.transaction_id}{suffix}',
                     part,
                     tx_ref,
+                    initiator_user=load_money.user,
                 )
                 CommissionLedger.objects.create(
                     user=user,
                     role_at_time='PLATFORM_ADMIN',
                     amount=part,
-                    source='payin',
+                    source='profit',
                     reference_service_id=load_money.transaction_id,
-                    wallet_type='commission',
+                    wallet_type='profit',
                     meta={
                         'slice': 'admin_absorbed',
                         'admin_base_amount': str(dist['ad_base']),
                         'absorbed_chain_amount': str(dist['absorbed']),
                         'retailer_absorbed_to_admin': str(dist.get('retailer_absorbed_to_admin', '0')),
                         'split_recipients': n,
+                        **src_meta,
                     },
+                    **src_idx,
                 )
 
     if gw > 0 or ad_total > 0:
@@ -529,16 +669,12 @@ def _distribute_payin_commissions(load_money: LoadMoney, package: PayInPackage, 
 
 def _payment_capture_from_razorpay_payment(pay: Optional[dict]) -> tuple[str, dict]:
     """Normalize Razorpay GET payment / webhook entity into (method, meta) for LoadMoney."""
+    from apps.integrations.razorpay_orders import meta_from_razorpay_payment_entity
+
     if not pay or not isinstance(pay, dict):
         return '', {}
     method = str(pay.get('method') or '').strip().lower()[:32]
-    meta = {}
-    if method == 'card' and isinstance(pay.get('card'), dict):
-        c = pay['card']
-        if c.get('type'):
-            meta['card_type'] = str(c.get('type')).lower()
-        if c.get('network'):
-            meta['network'] = str(c.get('network'))
+    meta = meta_from_razorpay_payment_entity(pay)
     return method, meta
 
 
@@ -617,8 +753,11 @@ def finalize_payin_success(
         f"LOAD MONEY net credit, gross ₹{gross}, ref {ref}",
         net_credit,
         ref,
+        service_charge=total_charge,
+        principal_amount=gross,
     )
 
+    meta_for_card = lm.payment_meta if isinstance(lm.payment_meta, dict) else {}
     Transaction.objects.create(
         user=lm.user,
         transaction_type='payin',
@@ -628,6 +767,10 @@ def finalize_payin_success(
         status='SUCCESS',
         service_id=lm.transaction_id,
         reference=ref,
+        service_family='payin',
+        bank_txn_id=(ref or '')[:191] or None,
+        card_last4=card_last4_from_payment_meta(meta_for_card) or None,
+        **transaction_agent_db_fields(lm.user),
     )
 
     if package:
@@ -818,13 +961,14 @@ def verify_and_finalize_razorpay_payin(
     Use this on localhost or when webhooks are delayed; production should still configure webhooks.
     """
     from apps.integrations.razorpay_orders import (
-        fetch_razorpay_payment,
+        fetch_razorpay_payment_until_captured,
         verify_razorpay_checkout_signature,
     )
 
+    # PostgreSQL does not allow FOR UPDATE on nullable-side OUTER JOINs.
+    # Keep the row lock on LoadMoney only, then lazily read related fields.
     lm = (
         LoadMoney.objects.select_for_update()
-        .select_related('package', 'package__payment_gateway', 'package__payment_gateway__api_master')
         .filter(transaction_id=transaction_id, user=user)
         .first()
     )
@@ -857,16 +1001,20 @@ def verify_and_finalize_razorpay_payin(
         )
         raise TransactionFailed('Payment verification failed (invalid signature).')
 
-    pay, fetch_err = fetch_razorpay_payment(
+    pay, fetch_err = fetch_razorpay_payment_until_captured(
         str(razorpay_payment_id).strip(), key_id=key_id, key_secret=key_secret
     )
-    if fetch_err:
-        raise TransactionFailed(f'Could not confirm payment with Razorpay: {fetch_err}')
-    pay_status = (pay or {}).get('status') or ''
+    if fetch_err or not pay:
+        raise TransactionFailed(
+            fetch_err
+            or 'Could not confirm a captured payment with Razorpay. '
+            'If payment succeeded at Razorpay, try again in a few seconds or rely on the webhook.'
+        )
+    pay_status = str((pay or {}).get('status') or '').lower()
     if pay_status != 'captured':
         raise TransactionFailed(
-            f'Payment is not captured yet (status={pay_status}). You can retry after it settles, '
-            'or wait for the webhook to credit your wallet.'
+            f'Payment could not be confirmed as captured (status={pay_status}). '
+            'Retry verification shortly or ensure webhooks are configured.'
         )
     linked_order = (pay or {}).get('order_id') or ''
     if linked_order and linked_order != str(razorpay_order_id).strip():
@@ -924,6 +1072,8 @@ def process_load_money(user, amount, gateway_id):
             f"LOAD MONEY (legacy), GATEWAY: {gateway_id or 'default'}, AMOUNT: {amount}, CHARGE: {charge_info['charge']}",
             charge_info['net_amount'],
             gateway_transaction_id,
+            service_charge=charge_info['charge'],
+            principal_amount=amount,
         )
 
         Transaction.objects.create(
@@ -935,6 +1085,9 @@ def process_load_money(user, amount, gateway_id):
             status='SUCCESS',
             service_id=load_money.transaction_id,
             reference=gateway_transaction_id,
+            service_family='payin',
+            bank_txn_id=gateway_transaction_id[:191],
+            **transaction_agent_db_fields(user),
         )
 
         return load_money
@@ -997,6 +1150,9 @@ def process_payout(user, bank_account_id, amount, gateway_id=None, transfer_mode
             status='SUCCESS',
             service_id=payout.transaction_id,
             reference=gateway_transaction_id,
+            service_family='payout',
+            bank_txn_id=gateway_transaction_id[:191],
+            **transaction_agent_db_fields(user),
         )
 
         PassbookEntry.objects.create(
@@ -1012,6 +1168,9 @@ def process_payout(user, bank_account_id, amount, gateway_id=None, transfer_mode
             credit_amount=Decimal('0'),
             opening_balance=opening_balance,
             closing_balance=closing_balance,
+            service_charge=charge_amt,
+            principal_amount=amount,
+            **passbook_initiator_db_fields(user),
         )
 
         return payout
@@ -1022,17 +1181,311 @@ def process_payout(user, bank_account_id, amount, gateway_id=None, transfer_mode
         raise TransactionFailed(f'Payout failed: {str(e)}') from e
 
 
-def get_available_gateways(user_role, gateway_type='payment'):
+def get_available_gateways(user_role=None, gateway_type='payment'):
+    """
+    Returns active gateways. Access is now controlled via Package Assignment system,
+    not role-based visibility.
+    """
     if gateway_type == 'payment':
-        return PaymentGateway.objects.filter(
-            status='active',
-            visible_to_roles__contains=[user_role],
-        )
-    return PayoutGateway.objects.filter(
-        status='active',
-        visible_to_roles__contains=[user_role],
-    )
+        return PaymentGateway.objects.filter(status='active')
+    return PayoutGateway.objects.filter(status='active')
 
 
 def list_active_pay_in_packages():
     return PayInPackage.objects.filter(is_active=True, is_deleted=False).order_by('sort_order', 'display_name')
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Package Assignment System - Access Control Functions
+# ─────────────────────────────────────────────────────────────────────────────
+
+def get_user_accessible_packages(user: User):
+    """
+    Returns packages the user can access for pay-in:
+    1. Packages explicitly assigned to the user
+    2. If no explicit assignments exist, returns default package (if any)
+    
+    Admin users have access to ALL active packages.
+    """
+    from apps.fund_management.models import UserPackageAssignment
+
+    # Admin users can access all packages
+    user_role = (getattr(user, 'role', None) or '').strip()
+    if user_role == 'Admin':
+        return PayInPackage.objects.filter(is_active=True, is_deleted=False).order_by('sort_order', 'display_name')
+
+    # Check explicit assignments
+    assigned_pkg_ids = UserPackageAssignment.objects.filter(
+        user=user, is_deleted=False
+    ).values_list('package_id', flat=True)
+
+    if assigned_pkg_ids:
+        return PayInPackage.objects.filter(
+            id__in=assigned_pkg_ids,
+            is_active=True,
+            is_deleted=False,
+        ).order_by('sort_order', 'display_name')
+
+    # Fallback to default package
+    return PayInPackage.objects.filter(
+        is_default=True,
+        is_active=True,
+        is_deleted=False,
+    ).order_by('sort_order', 'display_name')
+
+
+def get_user_assigned_packages(user: User):
+    """
+    Returns packages explicitly assigned to a user (for admin/upline viewing).
+    Does NOT include default fallback.
+    """
+    from apps.fund_management.models import UserPackageAssignment
+
+    assigned_pkg_ids = UserPackageAssignment.objects.filter(
+        user=user, is_deleted=False
+    ).values_list('package_id', flat=True)
+
+    return PayInPackage.objects.filter(
+        id__in=assigned_pkg_ids,
+        is_deleted=False,
+    ).order_by('sort_order', 'display_name')
+
+
+def can_user_assign_package(assigner: User, package_id: int) -> bool:
+    """
+    Check if assigner has access to a package and can delegate it to others.
+    Admin can assign any active package.
+    Non-admin can only assign packages they have been assigned.
+    """
+    from apps.fund_management.models import UserPackageAssignment
+
+    assigner_role = (getattr(assigner, 'role', None) or '').strip()
+    
+    # Admin can assign any active package
+    if assigner_role == 'Admin':
+        return PayInPackage.objects.filter(
+            id=package_id, is_active=True, is_deleted=False
+        ).exists()
+
+    # Non-admin must have the package assigned to them
+    return UserPackageAssignment.objects.filter(
+        user=assigner,
+        package_id=package_id,
+        is_deleted=False,
+    ).exists()
+
+
+def is_user_in_downline(senior: User, junior: User) -> bool:
+    """
+    Check if junior is in senior's direct downline hierarchy.
+    Uses the parent chain to verify.
+    """
+    if senior.pk == junior.pk:
+        return False
+    
+    senior_role = (getattr(senior, 'role', None) or '').strip()
+    if senior_role == 'Admin':
+        return True  # Admin can assign to anyone
+
+    # Walk up the junior's parent chain
+    current = junior
+    visited = set()
+    while current:
+        if current.pk in visited:
+            break
+        visited.add(current.pk)
+        
+        parent = getattr(current, 'parent', None)
+        if parent and parent.pk == senior.pk:
+            return True
+        current = parent
+    
+    return False
+
+
+def assign_package_to_user(
+    *,
+    assigner: User,
+    target_user: User,
+    package_id: int,
+) -> dict:
+    """
+    Assign a package from assigner's pool to target_user.
+    
+    Validation:
+    - Assigner must have access to the package (or be Admin)
+    - Target must be in assigner's downline (or assigner is Admin)
+    - Package must be active
+    
+    Returns dict with 'success', 'assignment', 'message'.
+    """
+    from apps.fund_management.models import UserPackageAssignment
+
+    # Validate package exists and is active
+    package = PayInPackage.objects.filter(
+        id=package_id, is_active=True, is_deleted=False
+    ).first()
+    if not package:
+        return {'success': False, 'message': 'Package not found or inactive.', 'assignment': None}
+
+    # Check assigner can assign this package
+    if not can_user_assign_package(assigner, package_id):
+        return {
+            'success': False,
+            'message': 'You do not have access to this package and cannot assign it.',
+            'assignment': None,
+        }
+
+    # Check target is in assigner's downline
+    assigner_role = (getattr(assigner, 'role', None) or '').strip()
+    if assigner_role != 'Admin' and not is_user_in_downline(assigner, target_user):
+        return {
+            'success': False,
+            'message': 'You can only assign packages to users in your downline.',
+            'assignment': None,
+        }
+
+    # Create or update assignment
+    assignment, created = UserPackageAssignment.objects.update_or_create(
+        user=target_user,
+        package=package,
+        defaults={
+            'assigned_by': assigner,
+            'is_deleted': False,
+        },
+    )
+
+    if created:
+        logger.info(
+            'Package assigned: package=%s (%s) to user=%s by assigner=%s',
+            package.pk,
+            package.display_name,
+            target_user.user_id,
+            assigner.user_id,
+        )
+        return {
+            'success': True,
+            'message': f'Package "{package.display_name}" assigned successfully.',
+            'assignment': assignment,
+        }
+    else:
+        return {
+            'success': True,
+            'message': f'Package "{package.display_name}" assignment updated.',
+            'assignment': assignment,
+        }
+
+
+def remove_package_assignment(
+    *,
+    remover: User,
+    target_user: User,
+    package_id: int,
+) -> dict:
+    """
+    Remove a package assignment from target_user.
+    
+    Validation:
+    - Remover must be Admin or the original assigner or an upline of target
+    
+    Returns dict with 'success', 'message'.
+    """
+    from apps.fund_management.models import UserPackageAssignment
+
+    remover_role = (getattr(remover, 'role', None) or '').strip()
+
+    assignment = UserPackageAssignment.objects.filter(
+        user=target_user,
+        package_id=package_id,
+        is_deleted=False,
+    ).first()
+
+    if not assignment:
+        return {'success': False, 'message': 'Assignment not found.'}
+
+    # Permission check: Admin, original assigner, or upline can remove
+    can_remove = (
+        remover_role == 'Admin'
+        or (assignment.assigned_by and assignment.assigned_by.pk == remover.pk)
+        or is_user_in_downline(remover, target_user)
+    )
+
+    if not can_remove:
+        return {
+            'success': False,
+            'message': 'You do not have permission to remove this assignment.',
+        }
+
+    assignment.is_deleted = True
+    assignment.save(update_fields=['is_deleted', 'updated_at'])
+
+    logger.info(
+        'Package assignment removed: package=%s from user=%s by remover=%s',
+        package_id,
+        target_user.user_id,
+        remover.user_id,
+    )
+
+    return {'success': True, 'message': 'Package assignment removed.'}
+
+
+def auto_assign_default_package(user: User, assigner: User = None) -> dict:
+    """
+    Automatically assign the default package to a new user.
+    Called during user creation.
+    
+    Returns dict with 'success', 'assignment', 'message'.
+    """
+    from apps.fund_management.models import UserPackageAssignment
+
+    default_pkg = PayInPackage.objects.filter(
+        is_default=True, is_active=True, is_deleted=False
+    ).first()
+
+    if not default_pkg:
+        return {
+            'success': False,
+            'message': 'No default package configured.',
+            'assignment': None,
+        }
+
+    assignment, created = UserPackageAssignment.objects.get_or_create(
+        user=user,
+        package=default_pkg,
+        defaults={'assigned_by': assigner},
+    )
+
+    if created:
+        logger.info(
+            'Default package auto-assigned: package=%s (%s) to new user=%s',
+            default_pkg.pk,
+            default_pkg.display_name,
+            user.user_id,
+        )
+        return {
+            'success': True,
+            'message': f'Default package "{default_pkg.display_name}" assigned.',
+            'assignment': assignment,
+        }
+    else:
+        return {
+            'success': True,
+            'message': 'User already has the default package.',
+            'assignment': assignment,
+        }
+
+
+def get_assignable_packages_for_user(assigner: User):
+    """
+    Returns packages that the assigner can assign to their downline.
+    Admin: all active packages.
+    Non-admin: only packages assigned to them.
+    """
+    assigner_role = (getattr(assigner, 'role', None) or '').strip()
+    
+    if assigner_role == 'Admin':
+        return PayInPackage.objects.filter(
+            is_active=True, is_deleted=False
+        ).order_by('sort_order', 'display_name')
+
+    return get_user_assigned_packages(assigner)

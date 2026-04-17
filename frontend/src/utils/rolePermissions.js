@@ -13,6 +13,7 @@ export const roleMenus = {
       icon: 'bills',
       submenu: [
         { name: 'Pay Bills', path: '/bill-payments/pay' },
+        { name: 'Fund BBPS wallet', path: '/bill-payments/fund-wallet' },
         { name: 'My Bills', path: '/bill-payments/my-bills' },
       ],
     },
@@ -69,15 +70,6 @@ export const roleMenus = {
       icon: 'dashboard',
     },
     {
-      name: 'Bill Payments',
-      path: '/bill-payments',
-      icon: 'bills',
-      submenu: [
-        { name: 'Pay Bills', path: '/bill-payments/pay' },
-        { name: 'My Bills', path: '/bill-payments/my-bills' },
-      ],
-    },
-    {
       name: 'User Management',
       path: '/user-management',
       icon: 'users',
@@ -91,6 +83,13 @@ export const roleMenus = {
       name: 'Reports',
       path: '/reports',
       icon: 'reports',
+      submenu: [
+        { name: 'Pay In', path: '/reports/payin' },
+        { name: 'Pay Out', path: '/reports/payout' },
+        { name: 'BBPS', path: '/reports/bbps' },
+        { name: 'Passbook', path: '/reports/passbook' },
+        { name: 'Commission', path: '/reports/commission' },
+      ],
     },
     {
       name: 'Profile & Settings',
@@ -110,6 +109,7 @@ export const roleMenus = {
       icon: 'bills',
       submenu: [
         { name: 'Pay Bills', path: '/bill-payments/pay' },
+        { name: 'Fund BBPS wallet', path: '/bill-payments/fund-wallet' },
         { name: 'My Bills', path: '/bill-payments/my-bills' },
       ],
     },
@@ -146,6 +146,7 @@ export const roleMenus = {
       icon: 'bills',
       submenu: [
         { name: 'Pay Bills', path: '/bill-payments/pay' },
+        { name: 'Fund BBPS wallet', path: '/bill-payments/fund-wallet' },
         { name: 'My Bills', path: '/bill-payments/my-bills' },
       ],
     },
@@ -182,6 +183,7 @@ export const roleMenus = {
       icon: 'bills',
       submenu: [
         { name: 'Pay Bills', path: '/bill-payments/pay' },
+        { name: 'Fund BBPS wallet', path: '/bill-payments/fund-wallet' },
         { name: 'My Bills', path: '/bill-payments/my-bills' },
       ],
     },
@@ -221,7 +223,7 @@ export const canCreateRole = (currentUserRole, targetRole) => {
       'Distributor',
       'Retailer',
     ],
-    'Super Distributor': ['Master Distributor', 'Distributor', 'Retailer'],
+    'Super Distributor': ['Distributor', 'Retailer'],
     'Master Distributor': ['Distributor', 'Retailer'],
     Distributor: ['Retailer'],
     Retailer: [],
@@ -239,3 +241,10 @@ export const canViewCommissionWallet = (role) => {
     'Distributor',
   ].includes(role);
 };
+
+/** Roles that cannot load money, payout, pay BBPS bills, or transfer to BBPS (management-only). */
+export const isFinancialTxBlockedRole = (role) => role === 'Super Distributor';
+
+/** Roles that may request downline-scoped reports (scope=team). */
+export const canUseTeamReportScope = (role) =>
+  ['Admin', 'Super Distributor', 'Master Distributor', 'Distributor'].includes(role);

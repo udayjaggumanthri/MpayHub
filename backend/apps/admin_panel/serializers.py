@@ -5,7 +5,7 @@ from decimal import Decimal
 
 from rest_framework import serializers
 from django.utils.text import slugify
-from apps.admin_panel.models import Announcement, PaymentGateway, PayoutGateway
+from apps.admin_panel.models import Announcement, PaymentGateway, PayoutGateway, PayoutSlabConfig
 from apps.fund_management.models import PayInPackage
 
 MAX_IMAGE_BYTES = 5 * 1024 * 1024  # 5 MB
@@ -105,6 +105,7 @@ class AnnouncementSerializer(serializers.ModelSerializer):
 class PaymentGatewaySerializer(serializers.ModelSerializer):
     """Serializer for PaymentGateway model."""
     api_master_id = serializers.IntegerField(write_only=True, required=False, allow_null=True)
+    visible_to_roles = serializers.JSONField(required=False, default=list)
 
     class Meta:
         model = PaymentGateway
@@ -146,6 +147,7 @@ class PaymentGatewaySerializer(serializers.ModelSerializer):
 
 class PayoutGatewaySerializer(serializers.ModelSerializer):
     """Serializer for PayoutGateway model."""
+    visible_to_roles = serializers.JSONField(required=False, default=list)
 
     class Meta:
         model = PayoutGateway
@@ -240,6 +242,26 @@ class PayInPackageAdminSerializer(serializers.ModelSerializer):
                 raise serializers.ValidationError({field: ['Percentage cannot be negative.']})
             if val > 100:
                 raise serializers.ValidationError({field: ['Percentage cannot exceed 100.']})
+
+        total_deduction = (
+            Decimal(str(attrs.get('gateway_fee_pct', getattr(instance, 'gateway_fee_pct', Decimal('0')))))
+            + Decimal(str(attrs.get('admin_pct', getattr(instance, 'admin_pct', Decimal('0')))))
+            + Decimal(
+                str(attrs.get('super_distributor_pct', getattr(instance, 'super_distributor_pct', Decimal('0'))))
+            )
+            + Decimal(
+                str(attrs.get('master_distributor_pct', getattr(instance, 'master_distributor_pct', Decimal('0'))))
+            )
+            + Decimal(str(attrs.get('distributor_pct', getattr(instance, 'distributor_pct', Decimal('0')))))
+        )
+        if total_deduction <= 0:
+            raise serializers.ValidationError(
+                {'non_field_errors': ['Total deduction percentage must be greater than zero.']}
+            )
+        if total_deduction > 100:
+            raise serializers.ValidationError(
+                {'non_field_errors': ['Total deduction percentage cannot exceed 100%.']}
+            )
         return attrs
 
     def create(self, validated_data):
@@ -253,3 +275,35 @@ class PayInPackageAdminSerializer(serializers.ModelSerializer):
             pg_id = validated_data.pop('payment_gateway_id')
             instance.payment_gateway = PaymentGateway.objects.filter(id=pg_id).first() if pg_id else None
         return super().update(instance, validated_data)
+
+
+class PayoutSlabConfigSerializer(serializers.ModelSerializer):
+    """Serializer for payout slab add-on charges."""
+
+    class Meta:
+        model = PayoutSlabConfig
+        fields = [
+            'id',
+            'name',
+            'low_max_amount',
+            'low_charge',
+            'high_charge',
+            'is_active',
+            'created_at',
+            'updated_at',
+        ]
+        read_only_fields = ['id', 'created_at', 'updated_at']
+
+    def validate(self, attrs):
+        attrs = super().validate(attrs)
+        instance = getattr(self, 'instance', None)
+        low_max = Decimal(str(attrs.get('low_max_amount', getattr(instance, 'low_max_amount', Decimal('24999')))))
+        low_c = Decimal(str(attrs.get('low_charge', getattr(instance, 'low_charge', Decimal('7')))))
+        high_c = Decimal(str(attrs.get('high_charge', getattr(instance, 'high_charge', Decimal('15')))))
+        if low_max < 0:
+            raise serializers.ValidationError({'low_max_amount': ['Must be zero or positive.']})
+        if low_c < 0:
+            raise serializers.ValidationError({'low_charge': ['Must be zero or positive.']})
+        if high_c < 0:
+            raise serializers.ValidationError({'high_charge': ['Must be zero or positive.']})
+        return attrs

@@ -20,9 +20,7 @@ import {
 import {
   parseList,
   categoryShortLabel,
-  VisibleRolesSummary,
   GATEWAY_CATEGORIES,
-  VISIBLE_ROLES,
 } from './gatewayAdminShared';
 
 const PaymentGatewaysAdmin = () => {
@@ -37,7 +35,6 @@ const PaymentGatewaysAdmin = () => {
     chargeRate: '',
     category: 'third-party',
     apiMasterId: '',
-    visibleToRoles: [],
   });
 
   useEffect(() => {
@@ -64,7 +61,6 @@ const PaymentGatewaysAdmin = () => {
       chargeRate: '',
       category: 'third-party',
       apiMasterId: '',
-      visibleToRoles: [],
     });
     setShowAddModal(true);
   };
@@ -76,7 +72,6 @@ const PaymentGatewaysAdmin = () => {
       chargeRate: gateway.charge_rate?.toString?.() || '',
       category: gateway.category || 'third-party',
       apiMasterId: gateway.api_master?.id ? String(gateway.api_master.id) : '',
-      visibleToRoles: [...(gateway.visible_to_roles || [])],
     });
     setShowEditModal(true);
   };
@@ -97,18 +92,9 @@ const PaymentGatewaysAdmin = () => {
     }
   };
 
-  const handleRoleToggle = (role) => {
-    const currentRoles = formData.visibleToRoles;
-    if (currentRoles.includes(role)) {
-      setFormData({ ...formData, visibleToRoles: currentRoles.filter((r) => r !== role) });
-    } else {
-      setFormData({ ...formData, visibleToRoles: [...currentRoles, role] });
-    }
-  };
-
   const handleSubmit = async (e) => {
     e.preventDefault();
-    if (!formData.name || !formData.chargeRate || formData.visibleToRoles.length === 0) {
+    if (!formData.name || !formData.chargeRate) {
       alert('Please fill in all required fields');
       return;
     }
@@ -123,7 +109,6 @@ const PaymentGatewaysAdmin = () => {
       charge_rate: parseFloat(formData.chargeRate),
       category: formData.category,
       api_master_id: Number(formData.apiMasterId),
-      visible_to_roles: formData.visibleToRoles,
     };
 
     let result;
@@ -207,24 +192,6 @@ const PaymentGatewaysAdmin = () => {
           required
         />
       </div>
-      <div>
-        <label className="block text-sm font-medium text-gray-700 mb-3">
-          Visible To Roles <span className="text-red-500">*</span>
-        </label>
-        <div className="space-y-2">
-          {VISIBLE_ROLES.map((role) => (
-            <label key={role} className="flex items-center space-x-2 cursor-pointer">
-              <input
-                type="checkbox"
-                checked={formData.visibleToRoles.includes(role)}
-                onChange={() => handleRoleToggle(role)}
-                className="w-4 h-4 text-blue-600 border-gray-300 rounded focus:ring-blue-500"
-              />
-              <span className="text-gray-700">{role}</span>
-            </label>
-          ))}
-        </div>
-      </div>
     </>
   );
 
@@ -240,7 +207,7 @@ const PaymentGatewaysAdmin = () => {
               </p>
               <h1 className="text-2xl sm:text-3xl font-bold text-slate-900 tracking-tight">Payment gateways</h1>
               <p className="mt-2 text-sm sm:text-base text-slate-600 max-w-xl leading-relaxed">
-                Connect Razorpay, PayU, or internal rails. Control service charge and which roles can use checkout.
+                Connect Razorpay, PayU, or internal rails. Configure service charges for payment processing.
               </p>
             </div>
             <Link
@@ -262,7 +229,7 @@ const PaymentGatewaysAdmin = () => {
               </span>
               <div>
                 <h2 className="text-lg font-bold text-slate-900">Your gateways</h2>
-                <p className="text-sm text-slate-600 mt-0.5">Linked API credentials and visibility by role.</p>
+                <p className="text-sm text-slate-600 mt-0.5">Linked API credentials for payment processing.</p>
               </div>
             </div>
             <div className="flex items-center gap-3 shrink-0">
@@ -312,9 +279,6 @@ const PaymentGatewaysAdmin = () => {
                     <th className="text-right py-3.5 px-4 text-xs font-semibold uppercase tracking-wide text-slate-500 w-24">
                       Fee
                     </th>
-                    <th className="text-left py-3.5 px-4 text-xs font-semibold uppercase tracking-wide text-slate-500 min-w-[140px]">
-                      Visible to
-                    </th>
                     <th className="text-center py-3.5 px-4 text-xs font-semibold uppercase tracking-wide text-slate-500 w-28">
                       Status
                     </th>
@@ -356,9 +320,6 @@ const PaymentGatewaysAdmin = () => {
                       </td>
                       <td className="py-4 px-4 align-middle text-right">
                         <span className="tabular-nums font-semibold text-slate-900">{gateway.charge_rate}%</span>
-                      </td>
-                      <td className="py-4 px-4 align-middle">
-                        <VisibleRolesSummary roles={gateway.visible_to_roles} />
                       </td>
                       <td className="py-4 px-4 align-middle text-center">
                         <span

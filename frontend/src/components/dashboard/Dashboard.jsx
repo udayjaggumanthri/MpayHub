@@ -1,8 +1,10 @@
-import React, { useEffect } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../../context/AuthContext';
 import { useWallet } from '../../context/WalletContext';
-import { canViewCommissionWallet } from '../../utils/rolePermissions';
+import { canViewCommissionWallet, isFinancialTxBlockedRole } from '../../utils/rolePermissions';
+import { reportsAPI } from '../../services/api';
+import { formatCurrency } from '../../utils/formatters';
 import WalletCard from './WalletCard';
 import AnnouncementBanner from './AnnouncementBanner';
 import Card from '../common/Card';
@@ -33,36 +35,104 @@ const Dashboard = () => {
   }, [loadWallets]);
 
   const showCommissionWallet = canViewCommissionWallet(user?.role);
+  const showProfitWallet = String(user?.role || '').toLowerCase() === 'admin';
+  const txBlocked = isFinancialTxBlockedRole(user?.role);
+  const [analyticsLoading, setAnalyticsLoading] = useState(false);
+  const [analyticsRows, setAnalyticsRows] = useState([]);
+  const [analyticsGateways, setAnalyticsGateways] = useState([]);
+  const [analyticsTotals, setAnalyticsTotals] = useState({
+    payin_sales: '0',
+    payin_charges: '0',
+    platform_profit: '0',
+    transactions_count: 0,
+  });
+  const [analyticsFilters, setAnalyticsFilters] = useState({
+    interval: 'daily',
+    dateFrom: '',
+    dateTo: '',
+    gateway: '',
+  });
 
-  const quickActions = [
-    {
-      id: 'load-money',
-      title: 'Load Money',
-      description: 'Add funds to wallet',
-      icon: FaArrowUp,
-      color: 'blue',
-      gradient: 'from-blue-500 to-indigo-600',
-      onClick: () => navigate('/fund-management/load-money'),
-    },
-    {
-      id: 'payout',
-      title: 'Payout',
-      description: 'Withdraw funds',
-      icon: FaArrowDown,
-      color: 'blue',
-      gradient: 'from-blue-500 to-indigo-600',
-      onClick: () => navigate('/fund-management/payout'),
-    },
-    {
-      id: 'pay-bills',
-      title: 'Pay Bills',
-      description: 'BBPS bill payments',
-      icon: FaMoneyBillWave,
-      color: 'blue',
-      gradient: 'from-blue-500 to-indigo-600',
-      onClick: () => navigate('/bill-payments/pay'),
-    },
-  ];
+  const quickActions = useMemo(() => {
+    const base = [
+      {
+        id: 'load-money',
+        title: 'Load Money',
+        description: 'Add funds to wallet',
+        icon: FaArrowUp,
+        color: 'blue',
+        gradient: 'from-blue-500 to-indigo-600',
+        onClick: () => navigate('/fund-management/load-money'),
+      },
+      {
+        id: 'payout',
+        title: 'Payout',
+        description: 'Withdraw funds',
+        icon: FaArrowDown,
+        color: 'blue',
+        gradient: 'from-blue-500 to-indigo-600',
+        onClick: () => navigate('/fund-management/payout'),
+      },
+      {
+        id: 'pay-bills',
+        title: 'Pay Bills',
+        description: 'BBPS bill payments',
+        icon: FaMoneyBillWave,
+        color: 'blue',
+        gradient: 'from-blue-500 to-indigo-600',
+        onClick: () => navigate('/bill-payments/pay'),
+      },
+    ];
+    if (txBlocked) {
+      return [
+        {
+          id: 'team-payin',
+          title: 'Team activity',
+          description: 'Pay-in and passbook for your downline',
+          icon: FaArrowUp,
+          color: 'blue',
+          gradient: 'from-blue-500 to-indigo-600',
+          onClick: () => navigate('/reports/payin'),
+        },
+        {
+          id: 'commission-report',
+          title: 'Commission',
+          description: 'Commission wallet activity',
+          icon: FaArrowDown,
+          color: 'blue',
+          gradient: 'from-blue-500 to-indigo-600',
+          onClick: () => navigate('/reports/commission'),
+        },
+      ];
+    }
+    return base;
+  }, [txBlocked, navigate]);
+
+  useEffect(() => {
+    let mounted = true;
+    const loadAnalytics = async () => {
+      setAnalyticsLoading(true);
+      const params = { interval: analyticsFilters.interval };
+      if (analyticsFilters.dateFrom) params.date_from = analyticsFilters.dateFrom;
+      if (analyticsFilters.dateTo) params.date_to = analyticsFilters.dateTo;
+      if (analyticsFilters.gateway) params.gateway = analyticsFilters.gateway;
+      const res = await reportsAPI.getAnalyticsSummary(params);
+      if (!mounted) return;
+      if (res.success) {
+        setAnalyticsRows(res.data?.rows || []);
+        setAnalyticsGateways(res.data?.available_gateways || []);
+        setAnalyticsTotals(res.data?.totals || analyticsTotals);
+      } else {
+        setAnalyticsRows([]);
+        setAnalyticsGateways([]);
+      }
+      setAnalyticsLoading(false);
+    };
+    loadAnalytics();
+    return () => {
+      mounted = false;
+    };
+  }, [analyticsFilters]);
 
   return (
     <>
@@ -106,11 +176,11 @@ const Dashboard = () => {
       </Card>
 
       {/* Wallet Cards */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4 sm:gap-6">
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 sm:gap-6">
         <WalletCard
           type="main"
           amount={wallets.main}
-          onClick={() => navigate('/fund-management/load-money')}
+          onClick={() => navigate('/reports/passbook')}
         />
         {showCommissionWallet && (
           <WalletCard
@@ -122,8 +192,15 @@ const Dashboard = () => {
         <WalletCard
           type="bbps"
           amount={wallets.bbps}
-          onClick={() => navigate('/bill-payments')}
+          onClick={() => navigate('/reports/bbps')}
         />
+        {showProfitWallet && (
+          <WalletCard
+            type="profit"
+            amount={wallets.profit}
+            onClick={() => navigate('/wallets/profit')}
+          />
+        )}
       </div>
 
       {/* Quick Actions */}
@@ -174,6 +251,87 @@ const Dashboard = () => {
             );
           })}
         </div>
+      </Card>
+
+      <Card title="Gateway Sales & Profit" subtitle="Daily/Monthly profitability by payment gateway" padding="lg">
+        <div className="mb-4 grid grid-cols-1 gap-3 md:grid-cols-5">
+          <select
+            value={analyticsFilters.interval}
+            onChange={(e) => setAnalyticsFilters((f) => ({ ...f, interval: e.target.value }))}
+            className="rounded-lg border border-gray-300 px-3 py-2 text-sm"
+          >
+            <option value="daily">Daily</option>
+            <option value="monthly">Monthly</option>
+          </select>
+          <input
+            type="date"
+            value={analyticsFilters.dateFrom}
+            onChange={(e) => setAnalyticsFilters((f) => ({ ...f, dateFrom: e.target.value }))}
+            className="rounded-lg border border-gray-300 px-3 py-2 text-sm"
+          />
+          <input
+            type="date"
+            value={analyticsFilters.dateTo}
+            onChange={(e) => setAnalyticsFilters((f) => ({ ...f, dateTo: e.target.value }))}
+            className="rounded-lg border border-gray-300 px-3 py-2 text-sm"
+          />
+          <select
+            value={analyticsFilters.gateway}
+            onChange={(e) => setAnalyticsFilters((f) => ({ ...f, gateway: e.target.value }))}
+            className="rounded-lg border border-gray-300 px-3 py-2 text-sm"
+          >
+            <option value="">All gateways</option>
+            {analyticsGateways.map((g) => (
+              <option key={g} value={g}>
+                {g}
+              </option>
+            ))}
+          </select>
+          <div className="rounded-lg border border-blue-200 bg-blue-50 px-3 py-2 text-sm">
+            <p className="font-semibold text-blue-900">
+              Total Profit: {formatCurrency(parseFloat(analyticsTotals.platform_profit || 0))}
+            </p>
+          </div>
+        </div>
+
+        {analyticsLoading ? (
+          <div className="py-10 text-center text-gray-600">Loading analytics...</div>
+        ) : analyticsRows.length === 0 ? (
+          <div className="py-10 text-center text-gray-500">No analytics rows for selected filters.</div>
+        ) : (
+          <div className="overflow-x-auto">
+            <table className="min-w-full border-collapse">
+              <thead>
+                <tr className="border-b border-gray-200 bg-gray-50">
+                  <th className="px-3 py-2 text-left text-xs font-semibold uppercase text-gray-600">Period</th>
+                  <th className="px-3 py-2 text-left text-xs font-semibold uppercase text-gray-600">Gateway</th>
+                  <th className="px-3 py-2 text-right text-xs font-semibold uppercase text-gray-600">Sales</th>
+                  <th className="px-3 py-2 text-right text-xs font-semibold uppercase text-gray-600">Charges</th>
+                  <th className="px-3 py-2 text-right text-xs font-semibold uppercase text-gray-600">Profit</th>
+                  <th className="px-3 py-2 text-right text-xs font-semibold uppercase text-gray-600">Count</th>
+                </tr>
+              </thead>
+              <tbody>
+                {analyticsRows.map((r, i) => (
+                  <tr key={`${r.period}-${r.gateway}-${i}`} className="border-b border-gray-100">
+                    <td className="px-3 py-2 text-sm text-gray-700">{r.period}</td>
+                    <td className="px-3 py-2 text-sm text-gray-700">{r.gateway}</td>
+                    <td className="px-3 py-2 text-right text-sm text-gray-900">
+                      {formatCurrency(parseFloat(r.payin_sales || 0))}
+                    </td>
+                    <td className="px-3 py-2 text-right text-sm text-amber-800">
+                      {formatCurrency(parseFloat(r.payin_charges || 0))}
+                    </td>
+                    <td className="px-3 py-2 text-right text-sm font-semibold text-green-700">
+                      {formatCurrency(parseFloat(r.platform_profit || 0))}
+                    </td>
+                    <td className="px-3 py-2 text-right text-sm text-gray-700">{r.transactions_count || 0}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
       </Card>
         </div>
       )}

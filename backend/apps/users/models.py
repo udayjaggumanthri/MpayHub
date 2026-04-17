@@ -72,7 +72,7 @@ class KYC(BaseModel):
 class UserHierarchy(BaseModel):
     """
     User hierarchy model to track parent-child relationships.
-    Admin → Super Distributor → Master Distributor → Distributor → Retailer
+    Admin → Super Distributor → … → Distributor → Retailer (SD may onboard D/R directly without MD)
     """
     parent_user = models.ForeignKey(
         User,
@@ -104,7 +104,7 @@ class UserHierarchy(BaseModel):
             'Distributor',
             'Retailer',
         ],
-        'Super Distributor': ['Master Distributor', 'Distributor', 'Retailer'],
+        'Super Distributor': ['Distributor', 'Retailer'],
         'Master Distributor': ['Distributor', 'Retailer'],
         'Distributor': ['Retailer'],
         'Retailer': [],

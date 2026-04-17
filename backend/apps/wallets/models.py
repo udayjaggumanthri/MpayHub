@@ -12,12 +12,13 @@ from apps.core.exceptions import InsufficientBalance
 class Wallet(BaseModel):
     """
     Wallet model for storing user balances.
-    Each user has 3 wallets: main, commission, bbps
+    Each user has wallets for operations and earnings.
     """
     WALLET_TYPE_CHOICES = [
         ('main', 'Main Wallet'),
         ('commission', 'Commission Wallet'),
         ('bbps', 'BBPS Wallet'),
+        ('profit', 'Profit Wallet'),
     ]
     
     user = models.ForeignKey(
@@ -31,7 +32,7 @@ class Wallet(BaseModel):
         choices=WALLET_TYPE_CHOICES,
         db_index=True
     )
-    balance = models.DecimalField(max_digits=12, decimal_places=2, default=0.00)
+    balance = models.DecimalField(max_digits=18, decimal_places=4, default=0)
     
     class Meta:
         db_table = 'wallets'
@@ -44,13 +45,14 @@ class Wallet(BaseModel):
         return f"{self.user.user_id} - {self.wallet_type} - ₹{self.balance}"
     
     @db_transaction.atomic
-    def credit(self, amount, reference=None):
+    def credit(self, amount, reference=None, description=None):
         """
         Credit amount to wallet.
         
         Args:
             amount: Amount to credit (Decimal)
             reference: Optional reference for the transaction
+            description: Optional business description for history/reporting
         
         Returns:
             WalletTransaction object
@@ -67,19 +69,21 @@ class Wallet(BaseModel):
             wallet=self,
             amount=amount,
             transaction_type='credit',
-            reference=reference
+            reference=reference,
+            description=description,
         )
         
         return transaction
     
     @db_transaction.atomic
-    def debit(self, amount, reference=None):
+    def debit(self, amount, reference=None, description=None):
         """
         Debit amount from wallet.
         
         Args:
             amount: Amount to debit (Decimal)
             reference: Optional reference for the transaction
+            description: Optional business description for history/reporting
         
         Returns:
             WalletTransaction object
@@ -106,7 +110,8 @@ class Wallet(BaseModel):
             wallet=self,
             amount=amount,
             transaction_type='debit',
-            reference=reference
+            reference=reference,
+            description=description,
         )
         
         return transaction
@@ -118,7 +123,7 @@ class Wallet(BaseModel):
         
         Args:
             user: User object
-            wallet_type: Wallet type (main, commission, bbps)
+            wallet_type: Wallet type (main, commission, bbps, profit)
         
         Returns:
             Wallet object
@@ -146,7 +151,7 @@ class WalletTransaction(BaseModel):
         related_name='transactions',
         db_index=True
     )
-    amount = models.DecimalField(max_digits=12, decimal_places=2)
+    amount = models.DecimalField(max_digits=18, decimal_places=4)
     transaction_type = models.CharField(max_length=10, choices=TRANSACTION_TYPE_CHOICES)
     reference = models.CharField(max_length=255, blank=True, null=True)
     description = models.TextField(blank=True, null=True)

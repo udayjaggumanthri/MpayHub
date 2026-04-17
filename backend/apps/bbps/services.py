@@ -6,6 +6,7 @@ from decimal import Decimal
 from django.conf import settings
 from apps.bbps.models import Biller, Bill, BillPayment
 from apps.wallets.models import Wallet
+from apps.transactions.agent_snapshot import passbook_initiator_db_fields, transaction_agent_db_fields
 from apps.transactions.models import Transaction, PassbookEntry
 from apps.core.utils import generate_service_id
 from apps.core.exceptions import InsufficientBalance, TransactionFailed
@@ -154,9 +155,11 @@ def process_bill_payment(user, bill_data):
                 service_id=bill_payment.service_id,
                 request_id=bill_payment.request_id,
                 bill_type=bill_data.get('bill_type', ''),
-                biller=bill_data.get('biller', '')
+                biller=bill_data.get('biller', ''),
+                service_family='bbps',
+                **transaction_agent_db_fields(user),
             )
-            
+
             # Create passbook entry
             PassbookEntry.objects.create(
                 user=user,
@@ -167,7 +170,10 @@ def process_bill_payment(user, bill_data):
                 debit_amount=charge_info['total_deducted'],
                 credit_amount=Decimal('0.00'),
                 opening_balance=opening_balance,
-                closing_balance=closing_balance
+                closing_balance=closing_balance,
+                service_charge=charge_info['charge'],
+                principal_amount=amount,
+                **passbook_initiator_db_fields(user),
             )
             
             return bill_payment

@@ -31,7 +31,7 @@ class Bill(BaseModel):
     """
     biller = models.ForeignKey(Biller, on_delete=models.CASCADE, related_name='bills')
     customer_details = models.JSONField(default=dict)
-    amount = models.DecimalField(max_digits=12, decimal_places=2)
+    amount = models.DecimalField(max_digits=18, decimal_places=4)
     due_date = models.DateField(null=True, blank=True)
     status = models.CharField(max_length=20, default='pending')
     
@@ -63,9 +63,9 @@ class BillPayment(BaseModel):
     biller = models.CharField(max_length=200)
     biller_id = models.CharField(max_length=100, blank=True, null=True)
     bill_type = models.CharField(max_length=50)
-    amount = models.DecimalField(max_digits=12, decimal_places=2)
-    charge = models.DecimalField(max_digits=12, decimal_places=2, default=Decimal(str(settings.BBPS_SERVICE_CHARGE)))
-    total_deducted = models.DecimalField(max_digits=12, decimal_places=2)
+    amount = models.DecimalField(max_digits=18, decimal_places=4)
+    charge = models.DecimalField(max_digits=18, decimal_places=4, default=Decimal(str(settings.BBPS_SERVICE_CHARGE)))
+    total_deducted = models.DecimalField(max_digits=18, decimal_places=4)
     status = models.CharField(max_length=20, choices=STATUS_CHOICES, default='PENDING')
     service_id = models.CharField(max_length=100, unique=True, db_index=True)
     request_id = models.CharField(max_length=100, blank=True, null=True, db_index=True)

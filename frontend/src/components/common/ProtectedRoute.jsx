@@ -1,8 +1,9 @@
 import React from 'react';
 import { Navigate, useLocation } from 'react-router-dom';
 import { useAuth } from '../../context/AuthContext';
+import { isFinancialTxBlockedRole } from '../../utils/rolePermissions';
 
-const ProtectedRoute = ({ children, requireMPIN = true }) => {
+const ProtectedRoute = ({ children, requireMPIN = true, blockFinancialTransactions = false }) => {
   const { isAuthenticated, mpinVerified, loading, user } = useAuth();
   const location = useLocation();
   const path = location.pathname;
@@ -39,6 +40,14 @@ const ProtectedRoute = ({ children, requireMPIN = true }) => {
 
   if (ob?.account_ready && requireMPIN && !mpinVerified && path !== '/mpin-verification') {
     return <Navigate to="/mpin-verification" replace />;
+  }
+
+  if (
+    blockFinancialTransactions &&
+    user?.role &&
+    isFinancialTxBlockedRole(user.role)
+  ) {
+    return <Navigate to="/dashboard" replace />;
   }
 
   return children;
