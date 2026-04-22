@@ -1,7 +1,7 @@
 import React from 'react';
 import { Navigate, useLocation } from 'react-router-dom';
 import { useAuth } from '../../context/AuthContext';
-import { isFinancialTxBlockedRole } from '../../utils/rolePermissions';
+import { isOperationalFundBlockedRole } from '../../utils/rolePermissions';
 
 const ProtectedRoute = ({ children, requireMPIN = true, blockFinancialTransactions = false }) => {
   const { isAuthenticated, mpinVerified, loading, user } = useAuth();
@@ -45,7 +45,7 @@ const ProtectedRoute = ({ children, requireMPIN = true, blockFinancialTransactio
   if (
     blockFinancialTransactions &&
     user?.role &&
-    isFinancialTxBlockedRole(user.role)
+    isOperationalFundBlockedRole(user.role)
   ) {
     return <Navigate to="/dashboard" replace />;
   }

@@ -1,6 +1,10 @@
 /**
  * API Service Layer for mPayhub Platform
  * Handles all API communication with the backend
+ *
+ * Security note: JWTs stored in browser storage (e.g. localStorage / sessionStorage) are readable by any
+ * script on the page. Mitigate XSS risk with a strict Content-Security-Policy, dependency review, and
+ * keeping third-party bundles patched; for stronger token isolation consider httpOnly cookies (separate workstream).
  */
 
 import axios from 'axios';

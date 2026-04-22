@@ -6,7 +6,7 @@ from decimal import Decimal
 from rest_framework import serializers
 from django.utils.text import slugify
 from apps.admin_panel.models import Announcement, PaymentGateway, PayoutGateway, PayoutSlabConfig
-from apps.fund_management.models import PayInPackage
+from apps.fund_management.models import PayInPackage, PayoutSlabTier
 
 MAX_IMAGE_BYTES = 5 * 1024 * 1024  # 5 MB
 
@@ -158,6 +158,76 @@ class PayoutGatewaySerializer(serializers.ModelSerializer):
         read_only_fields = ['id', 'created_at', 'updated_at']
 
 
+class PayoutSlabTierSerializer(serializers.ModelSerializer):
+    """Per-package payout slab row (flat charge for amount band)."""
+
+    class Meta:
+        model = PayoutSlabTier
+        fields = ['id', 'sort_order', 'min_amount', 'max_amount', 'flat_charge']
+        read_only_fields = ['id']
+
+
+def _validate_payout_slabs_list(slabs):
+    """Ensure tiers cover from 0, are ordered, contiguous, and only the last may be open-ended."""
+    if slabs is None:
+        return
+    if len(slabs) == 0:
+        return
+    step = Decimal('0.0001')
+    rows = []
+    for i, raw in enumerate(slabs):
+        lo = Decimal(str(raw['min_amount']))
+        hi_raw = raw.get('max_amount', None)
+        if hi_raw in (None, ''):
+            hi = None
+        else:
+            hi = Decimal(str(hi_raw))
+        fc = Decimal(str(raw['flat_charge']))
+        so = int(raw.get('sort_order', i))
+        if fc < 0:
+            raise serializers.ValidationError({'payout_slabs': ['flat_charge cannot be negative.']})
+        if hi is not None and hi < lo:
+            raise serializers.ValidationError({'payout_slabs': ['max_amount must be >= min_amount per tier.']})
+        rows.append({'sort_order': so, 'min_amount': lo, 'max_amount': hi, 'flat_charge': fc})
+
+    rows.sort(key=lambda r: (r['sort_order'], r['min_amount']))
+    if rows[0]['min_amount'] != Decimal('0'):
+        raise serializers.ValidationError(
+            {'payout_slabs': ['First tier must have min_amount 0.']}
+        )
+    for i in range(len(rows) - 1):
+        if rows[i]['max_amount'] is None:
+            raise serializers.ValidationError(
+                {'payout_slabs': ['Only the last tier may omit max_amount (open-ended).']}
+            )
+    for i in range(len(rows) - 1):
+        prev_hi = rows[i]['max_amount']
+        next_lo = rows[i + 1]['min_amount']
+        if next_lo != prev_hi + step:
+            raise serializers.ValidationError(
+                {
+                    'payout_slabs': [
+                        f'Tiers must be contiguous (step {step}): after max {prev_hi} expect min {prev_hi + step}, got {next_lo}.'
+                    ]
+                }
+            )
+
+
+def _sync_payout_slabs(package, slabs):
+    """Replace all payout tiers for a package (hard delete children)."""
+    PayoutSlabTier.objects.filter(package=package).delete()
+    if not slabs:
+        return
+    for i, row in enumerate(slabs):
+        PayoutSlabTier.objects.create(
+            package=package,
+            sort_order=int(row.get('sort_order', i)),
+            min_amount=Decimal(str(row['min_amount'])),
+            max_amount=Decimal(str(row['max_amount'])) if row.get('max_amount') not in (None, '') else None,
+            flat_charge=Decimal(str(row['flat_charge'])),
+        )
+
+
 class PayInPackageAdminSerializer(serializers.ModelSerializer):
     """Admin serializer for dynamic pay-in commission profiles."""
 
@@ -165,6 +235,7 @@ class PayInPackageAdminSerializer(serializers.ModelSerializer):
         write_only=True, required=False, allow_null=True
     )
     total_deduction_pct = serializers.SerializerMethodField(read_only=True)
+    payout_slabs = serializers.SerializerMethodField(read_only=True)
 
     class Meta:
         model = PayInPackage
@@ -185,11 +256,17 @@ class PayInPackageAdminSerializer(serializers.ModelSerializer):
             'retailer_commission_pct',
             'total_deduction_pct',
             'is_active',
+            'is_default',
             'sort_order',
+            'payout_slabs',
             'created_at',
             'updated_at',
         ]
         read_only_fields = ['id', 'created_at', 'updated_at', 'total_deduction_pct']
+
+    def get_payout_slabs(self, obj):
+        qs = obj.payout_slabs.filter(is_deleted=False).order_by('sort_order', 'min_amount')
+        return PayoutSlabTierSerializer(qs, many=True).data
 
     def get_total_deduction_pct(self, obj):
         return (
@@ -262,19 +339,32 @@ class PayInPackageAdminSerializer(serializers.ModelSerializer):
             raise serializers.ValidationError(
                 {'non_field_errors': ['Total deduction percentage cannot exceed 100%.']}
             )
+
+        initial = getattr(self, 'initial_data', None) or {}
+        if isinstance(initial, dict) and 'payout_slabs' in initial:
+            _validate_payout_slabs_list(initial.get('payout_slabs'))
+
         return attrs
 
     def create(self, validated_data):
         payment_gateway_id = validated_data.pop('payment_gateway_id', None)
         if payment_gateway_id:
             validated_data['payment_gateway'] = PaymentGateway.objects.filter(id=payment_gateway_id).first()
-        return super().create(validated_data)
+        instance = super().create(validated_data)
+        initial = getattr(self, 'initial_data', None) or {}
+        if isinstance(initial, dict) and 'payout_slabs' in initial:
+            _sync_payout_slabs(instance, initial.get('payout_slabs') or [])
+        return instance
 
     def update(self, instance, validated_data):
         if 'payment_gateway_id' in validated_data:
             pg_id = validated_data.pop('payment_gateway_id')
             instance.payment_gateway = PaymentGateway.objects.filter(id=pg_id).first() if pg_id else None
-        return super().update(instance, validated_data)
+        instance = super().update(instance, validated_data)
+        initial = getattr(self, 'initial_data', None) or {}
+        if isinstance(initial, dict) and 'payout_slabs' in initial:
+            _sync_payout_slabs(instance, initial.get('payout_slabs') or [])
+        return instance
 
 
 class PayoutSlabConfigSerializer(serializers.ModelSerializer):

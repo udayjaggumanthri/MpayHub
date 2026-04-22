@@ -1,6 +1,7 @@
 """
 Wallet transfer operations (atomic balance + passbook).
 """
+import logging
 from decimal import Decimal
 
 from django.db import transaction as db_transaction
@@ -8,6 +9,8 @@ from django.db import transaction as db_transaction
 from apps.transactions.models import PassbookEntry
 from apps.wallets.models import Wallet
 from apps.core.utils import generate_service_id
+
+logger = logging.getLogger(__name__)
 
 
 def _money_q(value) -> Decimal:
@@ -66,4 +69,15 @@ def transfer_main_to_bbps(user, amount: Decimal) -> dict:
         principal_amount=amt,
     )
 
+    logger.info(
+        'main to bbps transfer',
+        extra={
+            'event': 'wallet_transfer_main_to_bbps',
+            'user_id': user.pk,
+            'transaction_id': service_id,
+            'service_id': service_id,
+            'amount': str(amt),
+            'status': 'SUCCESS',
+        },
+    )
     return {'service_id': service_id, 'amount': str(amt)}

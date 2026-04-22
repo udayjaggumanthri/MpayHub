@@ -124,7 +124,12 @@ const WalletHistoryPage = () => {
                       {formatCurrency(parseFloat(r.amount || 0))}
                     </td>
                     <td className="px-4 py-3 text-sm text-gray-700">{r.reference || '—'}</td>
-                    <td className="px-4 py-3 text-sm text-gray-700">{r.description || '—'}</td>
+                    <td className="px-4 py-3 text-sm text-gray-700">
+                      <span className="block">{r.description || '—'}</span>
+                      {r.service ? (
+                        <span className="mt-0.5 block text-xs text-gray-500">Service: {r.service}</span>
+                      ) : null}
+                    </td>
                     <td className="px-4 py-3 text-sm text-gray-700">
                       {r.source_user_code
                         ? `${r.source_name || r.source_user_code} (${r.source_role || '—'})`

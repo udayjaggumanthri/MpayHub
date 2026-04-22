@@ -3,9 +3,11 @@ Rules for which roles may move money (pay-in, payout, BBPS spend, wallet transfe
 """
 from rest_framework.exceptions import PermissionDenied
 
-# Roles that may onboard and earn commission but must not initiate wallet movements.
+# Roles that may onboard and earn commission but must not initiate wallet movements (load, payout, BBPS spend).
+# Admin is management-only: packages, gateways, announcements — not operational wallet flows.
 FINANCIAL_TX_BLOCKED_ROLES = frozenset(
     {
+        'Admin',
         'Super Distributor',
     }
 )

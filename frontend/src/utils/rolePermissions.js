@@ -8,16 +8,6 @@ export const roleMenus = {
       icon: 'dashboard',
     },
     {
-      name: 'Bill Payments',
-      path: '/bill-payments',
-      icon: 'bills',
-      submenu: [
-        { name: 'Pay Bills', path: '/bill-payments/pay' },
-        { name: 'Fund BBPS wallet', path: '/bill-payments/fund-wallet' },
-        { name: 'My Bills', path: '/bill-payments/my-bills' },
-      ],
-    },
-    {
       name: 'User Management',
       path: '/user-management',
       icon: 'users',
@@ -242,8 +232,21 @@ export const canViewCommissionWallet = (role) => {
   ].includes(role);
 };
 
-/** Roles that cannot load money, payout, pay BBPS bills, or transfer to BBPS (management-only). */
+/**
+ * Super Distributor: no personal load/payout/BBPS ops (downline management only).
+ * Used for dashboard alternate quick actions.
+ */
 export const isFinancialTxBlockedRole = (role) => role === 'Super Distributor';
+
+/**
+ * Admin and Super Distributor cannot use operational fund/BBPS routes (load money, payout, bill pay, BBPS wallet).
+ * Aligns ProtectedRoute `blockFinancialTransactions` with dashboard isolation for Admin.
+ */
+export const isOperationalFundBlockedRole = (role) =>
+  role === 'Admin' || role === 'Super Distributor';
+
+/** Admin UI: hide retailer/distributor-style money movement; show admin tools instead. */
+export const isAdminOperationalIsolationRole = (role) => role === 'Admin';
 
 /** Roles that may request downline-scoped reports (scope=team). */
 export const canUseTeamReportScope = (role) =>

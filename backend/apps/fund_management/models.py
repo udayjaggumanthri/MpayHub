@@ -66,6 +66,42 @@ class PayInPackage(BaseModel):
         super().save(*args, **kwargs)
 
 
+class PayoutSlabTier(BaseModel):
+    """
+    Per-package payout slab: flat charge for withdrawal amount in [min_amount, max_amount].
+    max_amount null means unbounded upper range. Tiers are configured per PayInPackage
+    so assignment grants both pay-in and payout rules.
+    """
+
+    package = models.ForeignKey(
+        PayInPackage,
+        on_delete=models.CASCADE,
+        related_name='payout_slabs',
+        db_index=True,
+    )
+    sort_order = models.PositiveIntegerField(default=0, db_index=True)
+    min_amount = models.DecimalField(max_digits=18, decimal_places=4)
+    max_amount = models.DecimalField(
+        max_digits=18,
+        decimal_places=4,
+        null=True,
+        blank=True,
+        help_text='Inclusive upper bound; null = no upper limit.',
+    )
+    flat_charge = models.DecimalField(max_digits=18, decimal_places=4)
+
+    class Meta:
+        db_table = 'payout_slab_tiers'
+        ordering = ['package_id', 'sort_order', 'min_amount']
+        indexes = [
+            models.Index(fields=['package', 'sort_order']),
+        ]
+
+    def __str__(self):
+        upper = self.max_amount if self.max_amount is not None else '∞'
+        return f"{self.package.code} [{self.min_amount}–{upper}]: ₹{self.flat_charge}"
+
+
 class LoadMoney(BaseModel):
     """
     Load Money transaction model.

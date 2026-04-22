@@ -141,8 +141,11 @@ class PayInPackageViewSet(viewsets.ModelViewSet):
     ViewSet for admin pay-in package + commission configuration.
     """
 
-    queryset = PayInPackage.objects.filter(is_deleted=False).select_related('payment_gateway').order_by(
-        'sort_order', 'display_name'
+    queryset = (
+        PayInPackage.objects.filter(is_deleted=False)
+        .select_related('payment_gateway')
+        .prefetch_related('payout_slabs')
+        .order_by('sort_order', 'display_name')
     )
     serializer_class = PayInPackageAdminSerializer
     permission_classes = [IsAuthenticated, IsAdmin]
@@ -204,7 +207,19 @@ def payout_slab_config_view(request):
             config = PayoutSlabConfig.objects.create()
         ser = PayoutSlabConfigSerializer(config)
         return Response(
-            {'success': True, 'data': {'config': ser.data}, 'message': 'Payout slab config retrieved', 'errors': []},
+            {
+                'success': True,
+                'data': {
+                    'config': ser.data,
+                    'role': 'system_fallback',
+                    'description': (
+                        'Fallback two-tier slab when a pay-in package has no payout tiers. '
+                        'Prefer configuring payout_slabs on each package.'
+                    ),
+                },
+                'message': 'Payout slab config retrieved',
+                'errors': [],
+            },
             status=status.HTTP_200_OK,
         )
 
@@ -219,6 +234,18 @@ def payout_slab_config_view(request):
     cfg = ser.save()
     out = PayoutSlabConfigSerializer(cfg).data
     return Response(
-        {'success': True, 'data': {'config': out}, 'message': 'Payout slab config updated', 'errors': []},
+        {
+            'success': True,
+            'data': {
+                'config': out,
+                'role': 'system_fallback',
+                'description': (
+                    'Fallback two-tier slab when a pay-in package has no payout tiers. '
+                    'Prefer configuring payout_slabs on each package.'
+                ),
+            },
+            'message': 'Payout slab config updated',
+            'errors': [],
+        },
         status=status.HTTP_200_OK,
     )

@@ -5,13 +5,21 @@ Base settings for mPayhub project.
 from pathlib import Path
 from decimal import Decimal
 from decouple import config
+import logging
 import os
 
 # Build paths inside the project like this: BASE_DIR / 'subdir'.
 BASE_DIR = Path(__file__).resolve().parent.parent.parent
 
 # SECURITY WARNING: keep the secret key used in production secret!
-SECRET_KEY = config('SECRET_KEY', default='django-insecure-change-this-in-production')
+_SETTINGS_LOG = logging.getLogger(__name__)
+_SECRET_KEY_INSECURE_DEFAULT = 'django-insecure-change-this-in-production'
+SECRET_KEY = config('SECRET_KEY', default=_SECRET_KEY_INSECURE_DEFAULT)
+if SECRET_KEY == _SECRET_KEY_INSECURE_DEFAULT:
+    _SETTINGS_LOG.warning(
+        'SECRET_KEY is using the insecure default. Set a strong unique value before production; '
+        'production settings refuse to start with this default.'
+    )
 
 
 def get_csv_setting(name, default=''):
@@ -200,10 +208,9 @@ CORS_ALLOWED_ORIGINS = get_csv_setting(
 )
 CORS_ALLOW_CREDENTIALS = config('CORS_ALLOW_CREDENTIALS', default=True, cast=bool)
 
-# Cache Configuration
-# Cache Configuration (for rate limiting)
-# Using locmem cache for development - acceptable for development
-# For production, use Redis or Memcached (required for rate limiting)
+# Cache (django-ratelimit / RATELIMIT_USE_CACHE). LocMem is fine for single-process dev.
+# In production with multiple Gunicorn/uwsgi workers, rate limits are only accurate if all workers
+# share one cache backend — configure REDIS_URL in production settings (see production.py).
 CACHES = {
     'default': {
         'BACKEND': 'django.core.cache.backends.locmem.LocMemCache',
@@ -215,8 +222,10 @@ CACHES = {
 RATELIMIT_ENABLE = True
 RATELIMIT_USE_CACHE = 'default'
 
-# Encryption Key for MPIN (should be in environment variables)
-ENCRYPTION_KEY = config('ENCRYPTION_KEY', default=SECRET_KEY[:32])
+# MPIN: use MPIN_ENCRYPTION_KEY for a dedicated Fernet secret; if unset, MPIN crypto uses SHA256(SECRET_KEY) (legacy).
+# ENCRYPTION_KEY is kept for other features / docs; it is not used to encrypt new MPINs (avoids breaking existing DB rows).
+ENCRYPTION_KEY = config('ENCRYPTION_KEY', default='')
+MPIN_ENCRYPTION_KEY = config('MPIN_ENCRYPTION_KEY', default='')
 INTEGRATION_SECRET_KEY = config('INTEGRATION_SECRET_KEY', default=SECRET_KEY)
 
 # OTP Settings

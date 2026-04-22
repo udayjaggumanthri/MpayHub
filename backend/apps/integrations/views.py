@@ -17,7 +17,7 @@ from rest_framework.views import APIView
 from apps.core.permissions import IsAdmin
 from apps.fund_management.models import LoadMoney
 from apps.core.exceptions import TransactionFailed
-from apps.fund_management.services import finalize_payin_success
+from apps.fund_management.payin_settlement import finalize_payin_success
 from apps.integrations.models import ApiMaster
 from apps.core.utils import decrypt_secret_payload
 from apps.integrations.razorpay_orders import (
@@ -30,8 +30,12 @@ from apps.integrations.razorpay_orders import (
     verify_webhook_signature,
 )
 from apps.integrations.serializers import ApiMasterSerializer
+from apps.integrations.payu_webhook import log_payu_webhook_post
 
 logger = logging.getLogger(__name__)
+
+# SECURITY — public / unauthenticated endpoints on this module:
+# - RazorpayWebhookView, PayUWebhookView: AllowAny; Razorpay verifies HMAC; PayU returns 501 until checkout exists.
 
 
 @method_decorator(csrf_exempt, name='dispatch')
@@ -103,8 +107,11 @@ class PayUWebhookView(APIView):
     authentication_classes = []
 
     def post(self, request, *args, **kwargs):
-        logger.info('PayU webhook stub — extend with hash verification')
-        return Response({'success': True, 'message': 'not_implemented'})
+        log_payu_webhook_post(request, outcome='not_enabled', verified=False)
+        return Response(
+            {'success': False, 'message': 'payu_webhook_not_enabled'},
+            status=status.HTTP_501_NOT_IMPLEMENTED,
+        )
 
 
 class ApiMasterViewSet(viewsets.ModelViewSet):

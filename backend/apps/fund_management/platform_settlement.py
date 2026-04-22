@@ -1,8 +1,9 @@
 """
 Who receives pay-in **platform** amounts (gateway fee + admin / absorbed pool) on the profit wallet.
 
-Decoupled from fee math so ops can extend resolution (env, role rules, onboarding parent) without
-touching distribution formulas.
+The absorbed pool includes shares from ``_compute_payin_distribution`` when SD/MD/D roles are missing in
+the payer's upline (rolled into ``ad_total``). Decoupled from fee math so ops can extend resolution
+(env, role rules, onboarding parent) without touching distribution formulas.
 """
 import logging
 from typing import List, Optional

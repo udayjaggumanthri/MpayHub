@@ -29,6 +29,10 @@ from apps.users.services import (
 )
 from apps.core.exceptions import InvalidCredentials, InvalidMPIN, InvalidOTP
 
+# SECURITY — unauthenticated / AllowAny JSON endpoints (mitigations):
+# - login_view, send_otp_view, verify_otp_view, reset_password_view: AllowAny + django-ratelimit on POST
+# - refresh_token_view: empty auth classes (refresh body only); IP rate limit on POST
+
 
 @api_view(['POST'])
 @permission_classes([AllowAny])
@@ -205,6 +209,7 @@ def reset_password_view(request):
 @api_view(['POST'])
 @authentication_classes([])
 @permission_classes([])
+@ratelimit(key='ip', rate='30/m', method='POST')
 def refresh_token_view(request):
     """
     Refresh JWT token endpoint.

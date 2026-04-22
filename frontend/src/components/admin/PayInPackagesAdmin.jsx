@@ -42,6 +42,8 @@ const PayInPackagesAdmin = () => {
     low_charge: '7',
     high_charge: '15',
   });
+  /** Per-package payout tiers in the add/edit modal: max_amount '' = open-ended (last row only). */
+  const [packagePayoutSlabs, setPackagePayoutSlabs] = useState([]);
   const [packageForm, setPackageForm] = useState({
     code: '',
     display_name: '',
@@ -80,6 +82,28 @@ const PayInPackagesAdmin = () => {
     }
   };
 
+  const buildDefaultPayoutSlabsFromGlobal = () => {
+    const lowMax = payoutSlabForm.low_max_amount || '24999';
+    const lowC = payoutSlabForm.low_charge || '7';
+    const highC = payoutSlabForm.high_charge || '15';
+    const nextMin = (parseFloat(lowMax, 10) + 0.0001).toFixed(4);
+    return [
+      { sort_order: 0, min_amount: '0', max_amount: String(lowMax), flat_charge: String(lowC) },
+      { sort_order: 1, min_amount: nextMin, max_amount: '', flat_charge: String(highC) },
+    ];
+  };
+
+  const slabsFromPackage = (pkg) => {
+    const tiers = pkg?.payout_slabs;
+    if (!tiers || tiers.length === 0) return null;
+    return tiers.map((t, i) => ({
+      sort_order: t.sort_order ?? i,
+      min_amount: t.min_amount != null ? String(t.min_amount) : '0',
+      max_amount: t.max_amount == null || t.max_amount === '' ? '' : String(t.max_amount),
+      flat_charge: t.flat_charge != null ? String(t.flat_charge) : '0',
+    }));
+  };
+
   const savePayoutSlab = async (e) => {
     e.preventDefault();
     setSlabLoading(true);
@@ -116,6 +140,7 @@ const PayInPackagesAdmin = () => {
       is_active: true,
       sort_order: '0',
     });
+    setPackagePayoutSlabs(buildDefaultPayoutSlabsFromGlobal());
     setShowPackageModal(true);
   };
 
@@ -136,7 +161,38 @@ const PayInPackagesAdmin = () => {
       is_active: Boolean(pkg.is_active),
       sort_order: pkg.sort_order?.toString?.() || '0',
     });
+    setPackagePayoutSlabs(slabsFromPackage(pkg) || buildDefaultPayoutSlabsFromGlobal());
     setShowPackageModal(true);
+  };
+
+  const addPayoutSlabRow = () => {
+    setPackagePayoutSlabs((rows) => {
+      const next = [...rows];
+      const lastMax = next.length ? next[next.length - 1].max_amount : '0';
+      const minStart =
+        lastMax === '' || lastMax == null
+          ? '0'
+          : (parseFloat(lastMax, 10) + 0.0001).toFixed(4);
+      next.push({
+        sort_order: next.length,
+        min_amount: minStart,
+        max_amount: '',
+        flat_charge: '7',
+      });
+      return next;
+    });
+  };
+
+  const removePayoutSlabRow = (index) => {
+    setPackagePayoutSlabs((rows) => rows.filter((_, i) => i !== index));
+  };
+
+  const updatePayoutSlabRow = (index, field, value) => {
+    setPackagePayoutSlabs((rows) => {
+      const next = [...rows];
+      next[index] = { ...next[index], [field]: value };
+      return next;
+    });
   };
 
   const handleSavePackage = async (e) => {
@@ -150,6 +206,13 @@ const PayInPackagesAdmin = () => {
       return;
     }
     setLoading(true);
+    const payout_slabs = packagePayoutSlabs.map((row, i) => ({
+      sort_order: i,
+      min_amount: row.min_amount,
+      max_amount: row.max_amount === '' || row.max_amount == null ? null : row.max_amount,
+      flat_charge: row.flat_charge,
+    }));
+
     const payload = {
       code: packageForm.code.trim(),
       display_name: packageForm.display_name.trim(),
@@ -164,6 +227,8 @@ const PayInPackagesAdmin = () => {
       distributor_pct: packageForm.distributor_pct,
       is_active: packageForm.is_active,
       sort_order: Number(packageForm.sort_order || 0),
+      is_default: editingPackage ? !!editingPackage.is_default : false,
+      payout_slabs,
     };
     let result;
     if (editingPackage) {
@@ -270,9 +335,10 @@ const PayInPackagesAdmin = () => {
 
         <section className="rounded-2xl border border-slate-200/90 bg-white shadow-sm overflow-hidden">
           <div className="border-b border-slate-100 bg-slate-50/80 px-5 py-4 sm:px-6">
-            <h3 className="text-lg font-semibold text-slate-900">Payout slab configuration (add-on mode)</h3>
+            <h3 className="text-lg font-semibold text-slate-900">System fallback: payout slab (two-tier)</h3>
             <p className="text-sm text-slate-600 mt-1">
-              Wallet debit = transfer amount + slab charge. Configure thresholds and flat charges below.
+              Used when a package has no payout tiers or as a template for new packages. Prefer defining multiple
+              payout slabs on each package below. Wallet debit = transfer amount + flat charge for the amount band.
             </p>
           </div>
           <form onSubmit={savePayoutSlab} className="px-5 py-4 sm:px-6 grid grid-cols-1 md:grid-cols-4 gap-3 items-end">
@@ -304,9 +370,9 @@ const PayInPackagesAdmin = () => {
                 <FaChartPie size={20} />
               </span>
               <div>
-                <h2 className="text-lg font-bold text-slate-900">Packages</h2>
+                <h2 className="text-lg font-bold text-slate-900">Commercial packages</h2>
                 <p className="text-sm text-slate-600 mt-0.5">
-                  Each package drives quotes and settlement for load money.
+                  Each package defines pay-in commission splits and payout withdrawal slabs for assigned users.
                 </p>
               </div>
             </div>
@@ -410,6 +476,9 @@ const PayInPackagesAdmin = () => {
                           <p className="text-lg font-bold tabular-nums text-slate-900">
                             {packageTotalDeductionDisplay(pkg)}%
                           </p>
+                          <p className="text-xs text-slate-500 mt-1">
+                            Payout tiers: {pkg.payout_slabs?.length ?? 0}
+                          </p>
                         </div>
                       </div>
 
@@ -475,7 +544,7 @@ const PayInPackagesAdmin = () => {
           <Card className="max-w-4xl w-full border-2 border-blue-200 my-auto" padding="lg" shadow="xl">
             <div className="flex items-center justify-between mb-4">
               <h2 className="text-xl sm:text-2xl font-bold text-gray-900">
-                {editingPackage ? 'Edit Pay-in Package' : 'Add Pay-in Package'}
+                {editingPackage ? 'Edit commercial package' : 'Add commercial package'}
               </h2>
               <button
                 type="button"
@@ -617,6 +686,72 @@ const PayInPackagesAdmin = () => {
                     Total deduction includes gateway fee, admin share, and upline commissions (SD, MD, D).
                     The remainder is credited to the user's main wallet.
                   </p>
+                </div>
+              </div>
+
+              <div className="border border-indigo-200 rounded-xl p-4 bg-indigo-50/40">
+                <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2 mb-3">
+                  <div>
+                    <h3 className="font-semibold text-slate-900">Payout slabs (this package)</h3>
+                    <p className="text-xs text-slate-600 mt-0.5">
+                      Bands must start at 0, be contiguous (step ₹0.0001), and only the last row may leave max empty
+                      (unlimited).
+                    </p>
+                  </div>
+                  <Button type="button" variant="outline" size="sm" icon={FaPlus} iconPosition="left" onClick={addPayoutSlabRow}>
+                    Add tier
+                  </Button>
+                </div>
+                <div className="space-y-2">
+                  {packagePayoutSlabs.map((row, idx) => (
+                    <div
+                      key={`slab-${idx}-${row.sort_order}`}
+                      className="grid grid-cols-1 sm:grid-cols-12 gap-2 items-end bg-white rounded-lg border border-indigo-100 p-3"
+                    >
+                      <div className="sm:col-span-3">
+                        <label className="block text-xs font-medium text-slate-600 mb-1">Min amount</label>
+                        <input
+                          type="text"
+                          inputMode="decimal"
+                          className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm"
+                          value={row.min_amount}
+                          onChange={(e) => updatePayoutSlabRow(idx, 'min_amount', e.target.value)}
+                        />
+                      </div>
+                      <div className="sm:col-span-3">
+                        <label className="block text-xs font-medium text-slate-600 mb-1">Max amount (blank = ∞)</label>
+                        <input
+                          type="text"
+                          inputMode="decimal"
+                          className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm"
+                          value={row.max_amount}
+                          onChange={(e) => updatePayoutSlabRow(idx, 'max_amount', e.target.value)}
+                          placeholder="optional"
+                        />
+                      </div>
+                      <div className="sm:col-span-3">
+                        <label className="block text-xs font-medium text-slate-600 mb-1">Flat charge (₹)</label>
+                        <input
+                          type="text"
+                          inputMode="decimal"
+                          className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm"
+                          value={row.flat_charge}
+                          onChange={(e) => updatePayoutSlabRow(idx, 'flat_charge', e.target.value)}
+                        />
+                      </div>
+                      <div className="sm:col-span-3 flex justify-end pb-1">
+                        {packagePayoutSlabs.length > 1 && (
+                          <button
+                            type="button"
+                            onClick={() => removePayoutSlabRow(idx)}
+                            className="text-sm font-semibold text-red-600 hover:text-red-800"
+                          >
+                            Remove
+                          </button>
+                        )}
+                      </div>
+                    </div>
+                  ))}
                 </div>
               </div>
 

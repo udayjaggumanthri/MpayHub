@@ -216,6 +216,8 @@ def analytics_summary_view(request):
     """
     Gateway-wise sales/profit analytics grouped by daily or monthly buckets.
     GET /api/reports/analytics/summary/?interval=daily|monthly&date_from=YYYY-MM-DD&date_to=YYYY-MM-DD&gateway=...
+
+    Optional ``date_from`` / ``date_to`` bound ``created_at`` (inclusive); when omitted, all matching pay-ins apply.
     """
     try:
         uq = transaction_user_q(request)

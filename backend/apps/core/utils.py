@@ -1,10 +1,14 @@
 """
 Utility functions for the mPayhub platform.
 """
+from __future__ import annotations
+
 import random
 import string
 from datetime import datetime
 import json
+from typing import Optional
+
 from django.conf import settings
 
 
@@ -140,22 +144,74 @@ def validate_mpin(mpin):
     return mpin.isdigit() and len(mpin) == 6
 
 
-def _get_encryption_key():
-    """
-    Get consistent encryption key from SECRET_KEY.
-    This ensures the same key is used for encryption and decryption.
-    """
-    from cryptography.fernet import Fernet
-    from django.conf import settings
+def _fernet_key_bytes_from_secret_string(secret: str) -> bytes:
+    """Derive a urlsafe-b64 Fernet key (32 bytes) from an arbitrary secret string."""
     import base64
     import hashlib
-    
-    # Generate a consistent key from SECRET_KEY
-    # Use SHA256 hash of SECRET_KEY and encode to base64
-    secret_key = settings.SECRET_KEY.encode()
-    key_material = hashlib.sha256(secret_key).digest()
-    key = base64.urlsafe_b64encode(key_material)
-    return key
+
+    key_material = hashlib.sha256(str(secret).encode()).digest()
+    return base64.urlsafe_b64encode(key_material)
+
+
+def _legacy_mpin_fernet_key_from_secret_key() -> bytes:
+    """Historical MPIN key: SHA256(Django SECRET_KEY) → Fernet-compatible bytes."""
+    import base64
+    import hashlib
+
+    from django.conf import settings
+
+    key_material = hashlib.sha256(settings.SECRET_KEY.encode()).digest()
+    return base64.urlsafe_b64encode(key_material)
+
+
+def _mpin_fernet_key_from_mpin_env() -> Optional[bytes]:
+    from django.conf import settings
+
+    raw = (getattr(settings, 'MPIN_ENCRYPTION_KEY', None) or '').strip()
+    if not raw:
+        return None
+    return _fernet_key_bytes_from_secret_string(raw)
+
+
+def _mpin_fernet_key_from_encryption_key_env() -> Optional[bytes]:
+    """
+    Optional separate env string (not used for *new* MPIN encryption).
+
+    Included only as a decrypt fallback for environments that briefly encrypted MPINs using this setting.
+    """
+    from django.conf import settings
+
+    raw = (getattr(settings, 'ENCRYPTION_KEY', None) or '').strip()
+    if not raw:
+        return None
+    return _fernet_key_bytes_from_secret_string(raw)
+
+
+def _mpin_decrypt_fernet_key_candidates() -> list[bytes]:
+    """Keys to try when decrypting stored MPINs (order matters)."""
+    keys: list[bytes] = []
+    k_mpin = _mpin_fernet_key_from_mpin_env()
+    if k_mpin is not None:
+        keys.append(k_mpin)
+    keys.append(_legacy_mpin_fernet_key_from_secret_key())
+    k_enc = _mpin_fernet_key_from_encryption_key_env()
+    if k_enc is not None and k_enc not in keys:
+        keys.append(k_enc)
+    return keys
+
+
+def _get_encryption_key():
+    """
+    Fernet key for **encrypting** new MPIN values.
+
+    Uses ``MPIN_ENCRYPTION_KEY`` when set; otherwise the legacy SHA256(``SECRET_KEY``) derivation.
+    ``ENCRYPTION_KEY`` is intentionally not used for encryption so template ``.env`` values do not
+    break existing MPIN hashes that were always created with the SECRET_KEY-based key.
+    """
+    k = _mpin_fernet_key_from_mpin_env()
+    if k is not None:
+        return k
+    return _legacy_mpin_fernet_key_from_secret_key()
 
 
 def encrypt_mpin(mpin):
@@ -172,14 +228,20 @@ def encrypt_mpin(mpin):
 
 def decrypt_mpin(encrypted_mpin):
     """
-    Decrypt MPIN using the same key used for encryption.
+    Decrypt MPIN. Tries, in order: ``MPIN_ENCRYPTION_KEY`` (if set), legacy ``SECRET_KEY`` hash,
+    then ``ENCRYPTION_KEY`` hash (decrypt-only fallback for misconfigured environments).
     """
     from cryptography.fernet import Fernet
-    
-    key = _get_encryption_key()
-    f = Fernet(key)
-    decrypted = f.decrypt(encrypted_mpin.encode())
-    return decrypted.decode()
+
+    last_err: Optional[Exception] = None
+    for key in _mpin_decrypt_fernet_key_candidates():
+        try:
+            return Fernet(key).decrypt(encrypted_mpin.encode()).decode()
+        except Exception as exc:
+            last_err = exc
+    if last_err:
+        raise last_err
+    raise ValueError('No MPIN decryption key candidates configured')
 
 
 def _get_integration_encryption_key():

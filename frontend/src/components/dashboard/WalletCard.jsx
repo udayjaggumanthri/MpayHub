@@ -7,47 +7,55 @@ const WalletCard = ({ type, amount, onClick }) => {
   const config = {
     main: {
       title: 'Main Wallet',
+      subtitle: 'Available balance',
       icon: FaWallet,
-      iconBg: 'bg-gradient-to-br from-blue-500 via-blue-600 to-indigo-600',
-      gradient: 'from-blue-50 via-blue-50 to-indigo-50',
-      borderColor: 'border-blue-300',
-      textColor: 'text-blue-700',
-      amountColor: 'text-blue-900',
-      hoverBg: 'hover:from-blue-100 hover:via-blue-100 hover:to-indigo-100',
-      shadow: 'shadow-blue-200',
+      iconBg: 'bg-gradient-to-br from-blue-600 to-indigo-700',
+      gradient: 'from-slate-50 via-white to-blue-50/90',
+      borderColor: 'border-slate-200/90',
+      ring: 'ring-1 ring-blue-100/80',
+      textColor: 'text-slate-600',
+      amountColor: 'text-slate-900',
+      accent: 'bg-blue-600',
+      hoverBg: 'hover:shadow-lg hover:ring-blue-200/60',
     },
     commission: {
-      title: 'Commission Wallet',
+      title: 'Commission',
+      subtitle: 'Earnings from your network',
       icon: FaChartLine,
-      iconBg: 'bg-gradient-to-br from-blue-500 via-blue-600 to-indigo-600',
-      gradient: 'from-blue-50 via-blue-50 to-indigo-50',
-      borderColor: 'border-blue-300',
-      textColor: 'text-blue-700',
-      amountColor: 'text-blue-900',
-      hoverBg: 'hover:from-blue-100 hover:via-blue-100 hover:to-indigo-100',
-      shadow: 'shadow-blue-200',
+      iconBg: 'bg-gradient-to-br from-emerald-600 to-teal-700',
+      gradient: 'from-emerald-50/90 via-white to-teal-50/70',
+      borderColor: 'border-emerald-200/80',
+      ring: 'ring-1 ring-emerald-100/80',
+      textColor: 'text-emerald-800/90',
+      amountColor: 'text-emerald-950',
+      accent: 'bg-emerald-500',
+      hoverBg: 'hover:shadow-lg hover:ring-emerald-200/60',
     },
     bbps: {
       title: 'BBPS Wallet',
+      subtitle: 'Bill payment balance',
       icon: FaReceipt,
-      iconBg: 'bg-gradient-to-br from-blue-500 via-blue-600 to-indigo-600',
-      gradient: 'from-blue-50 via-blue-50 to-indigo-50',
-      borderColor: 'border-blue-300',
-      textColor: 'text-blue-700',
-      amountColor: 'text-blue-900',
-      hoverBg: 'hover:from-blue-100 hover:via-blue-100 hover:to-indigo-100',
-      shadow: 'shadow-blue-200',
+      iconBg: 'bg-gradient-to-br from-violet-600 to-purple-700',
+      gradient: 'from-violet-50/80 via-white to-purple-50/70',
+      borderColor: 'border-violet-200/80',
+      ring: 'ring-1 ring-violet-100/80',
+      textColor: 'text-violet-900/85',
+      amountColor: 'text-violet-950',
+      accent: 'bg-violet-500',
+      hoverBg: 'hover:shadow-lg hover:ring-violet-200/60',
     },
     profit: {
       title: 'Profit Wallet',
+      subtitle: 'Platform & gateway share',
       icon: FaBuildingColumns,
-      iconBg: 'bg-gradient-to-br from-blue-500 via-blue-600 to-indigo-600',
-      gradient: 'from-blue-50 via-blue-50 to-indigo-50',
-      borderColor: 'border-blue-300',
-      textColor: 'text-blue-700',
-      amountColor: 'text-blue-900',
-      hoverBg: 'hover:from-blue-100 hover:via-blue-100 hover:to-indigo-100',
-      shadow: 'shadow-blue-200',
+      iconBg: 'bg-gradient-to-br from-amber-600 to-orange-700',
+      gradient: 'from-amber-50/90 via-white to-orange-50/60',
+      borderColor: 'border-amber-200/90',
+      ring: 'ring-1 ring-amber-100/80',
+      textColor: 'text-amber-950/90',
+      amountColor: 'text-amber-950',
+      accent: 'bg-amber-500',
+      hoverBg: 'hover:shadow-lg hover:ring-amber-200/60',
     },
   };
 
@@ -57,45 +65,55 @@ const WalletCard = ({ type, amount, onClick }) => {
   return (
     <div
       onClick={onClick}
+      role={onClick ? 'button' : undefined}
+      tabIndex={onClick ? 0 : undefined}
+      onKeyDown={
+        onClick
+          ? (e) => {
+              if (e.key === 'Enter' || e.key === ' ') {
+                e.preventDefault();
+                onClick();
+              }
+            }
+          : undefined
+      }
       className={`
         relative overflow-hidden
         bg-gradient-to-br ${cardConfig.gradient}
-        ${cardConfig.borderColor} border-2
+        ${cardConfig.borderColor} border ${cardConfig.ring}
         rounded-2xl p-6
         transition-all duration-300
-        ${onClick ? 'cursor-pointer hover:shadow-xl hover:scale-[1.02] ' + cardConfig.hoverBg : ''}
+        ${onClick ? `cursor-pointer ${cardConfig.hoverBg} hover:-translate-y-0.5` : ''}
       `}
     >
-      {/* Decorative Background Pattern */}
-      <div className="absolute top-0 right-0 -mt-4 -mr-4 w-24 h-24 opacity-10">
-        <div className={`w-full h-full ${cardConfig.iconBg} rounded-full blur-2xl`}></div>
-      </div>
+      <div className="pointer-events-none absolute -right-8 -top-8 h-32 w-32 rounded-full bg-gradient-to-br from-white/40 to-transparent blur-2xl" />
 
       <div className="relative z-10">
-        {/* Header */}
-        <div className="flex items-center justify-between mb-6">
-          <div className={`${cardConfig.iconBg} p-4 rounded-2xl shadow-lg transform hover:scale-110 transition-transform`}>
-            <Icon className="text-white" size={28} />
+        <div className="mb-5 flex items-start justify-between gap-3">
+          <div className={`${cardConfig.iconBg} rounded-xl p-3.5 shadow-md`}>
+            <Icon className="text-white" size={24} />
           </div>
           {onClick && (
-            <div className={`${cardConfig.textColor} opacity-60 hover:opacity-100 transition-opacity`}>
-              <FiArrowRight size={22} />
-            </div>
+            <span
+              className={`inline-flex items-center gap-1 rounded-full bg-white/80 px-2 py-1 text-xs font-medium text-slate-600 shadow-sm ${cardConfig.textColor}`}
+            >
+              Ledger
+              <FiArrowRight size={14} />
+            </span>
           )}
         </div>
 
-        {/* Content */}
         <div>
-          <p className={`text-sm font-semibold ${cardConfig.textColor} mb-2 uppercase tracking-wide`}>
+          <p className={`text-xs font-semibold uppercase tracking-wider ${cardConfig.textColor}`}>
             {cardConfig.title}
           </p>
-          <p className={`text-3xl font-bold ${cardConfig.amountColor}`}>
+          <p className="mt-0.5 text-[11px] text-slate-500">{cardConfig.subtitle}</p>
+          <p className={`mt-3 text-3xl font-bold tabular-nums tracking-tight ${cardConfig.amountColor}`}>
             {formatCurrency(amount)}
           </p>
         </div>
 
-        {/* Bottom Accent */}
-        <div className={`mt-4 h-1 ${cardConfig.iconBg} rounded-full opacity-50`}></div>
+        <div className={`mt-5 h-1 rounded-full ${cardConfig.accent} opacity-80`} />
       </div>
     </div>
   );

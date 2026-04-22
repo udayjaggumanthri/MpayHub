@@ -32,12 +32,13 @@ from apps.fund_management.services import (
     get_user_accessible_packages,
     get_user_assigned_packages,
     list_active_pay_in_packages,
-    max_payout_eligible,
-    payout_slab_charge,
+    max_payout_eligible_for_user,
+    payout_slab_charge_for_user,
     process_load_money,
     process_payout,
     quote_payin,
     remove_package_assignment,
+    resolve_payout_package,
     verify_and_finalize_razorpay_payin,
 )
 
@@ -260,19 +261,22 @@ def payout_quote_view(request):
 
     main = Wallet.get_wallet(request.user, 'main')
     balance = main.balance
-    max_el = max_payout_eligible(balance)
+    max_el = max_payout_eligible_for_user(request.user, balance)
+    pkg = resolve_payout_package(request.user)
     out = {
         'main_balance': str(balance),
         'max_eligible_amount': str(max_el),
         'slab_low_max': str(settings.PAYOUT_SLAB_LOW_MAX),
         'charge_low': str(settings.PAYOUT_CHARGE_LOW),
         'charge_high': str(settings.PAYOUT_CHARGE_HIGH),
+        'payout_package_id': pkg.pk if pkg else None,
+        'payout_package_code': pkg.code if pkg else None,
     }
     amt_param = request.query_params.get('amount')
     if amt_param:
         try:
             amt = money_q_local(Decimal(str(amt_param)))
-            ch = payout_slab_charge(amt)
+            ch = payout_slab_charge_for_user(request.user, amt)
             out['preview'] = {
                 'amount': str(amt),
                 'charge': str(ch),

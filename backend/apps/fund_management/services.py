@@ -8,6 +8,7 @@ from decimal import Decimal
 from typing import Optional
 
 from django.conf import settings
+from django.db import IntegrityError
 from django.db import transaction as db_transaction
 
 from apps.admin_panel.models import PaymentGateway, PayoutGateway
@@ -17,82 +18,23 @@ from apps.authentication.models import User
 from apps.core.exceptions import InsufficientBalance, TransactionFailed
 from apps.core.utils import decrypt_secret_payload
 from apps.core.utils import generate_service_id
-from apps.fund_management.models import LoadMoney, PayInPackage, Payout
-from apps.fund_management.payin_hierarchy import upline_chain
-from apps.fund_management.platform_settlement import (
-    log_missing_platform_recipients,
-    resolve_platform_payin_recipients,
+from apps.fund_management.models import LoadMoney, PayInPackage, Payout, PayoutSlabTier
+from apps.fund_management.money_utils import money_q
+from apps.fund_management.payin_distribution import _compute_payin_distribution
+from apps.fund_management.payin_settlement import (
+    _passbook_credit,
+    _payment_capture_from_razorpay_payment,
+    finalize_payin_success,
 )
 from apps.transactions.agent_snapshot import (
     card_last4_from_payment_meta,
     passbook_initiator_db_fields,
     transaction_agent_db_fields,
 )
-from apps.transactions.models import CommissionLedger, PassbookEntry, Transaction
+from apps.transactions.models import PassbookEntry, Transaction
 from apps.wallets.models import Wallet
 
 logger = logging.getLogger(__name__)
-
-
-def money_q(v) -> Decimal:
-    """
-    Quantize money to 4 dp safely (enterprise ledger / reporting).
-    Accepts Decimal/float/int/str to avoid runtime errors from mixed numeric sources.
-    """
-    return Decimal(str(v)).quantize(Decimal('0.0001'))
-
-
-def _payin_source_agent_meta(payer: Optional[User]) -> dict:
-    """Identifies the retailer (or loading user) that generated a pay-in commission."""
-    if not payer:
-        return {}
-    name = ''
-    try:
-        prof = getattr(payer, 'profile', None)
-        if prof is not None:
-            name = (getattr(prof, 'full_name', None) or '').strip()
-    except Exception:
-        name = ''
-    if not name:
-        name = (getattr(payer, 'email', None) or '') or ''
-    code = getattr(payer, 'user_id', None) or ''
-    return {
-        'source_user_id': payer.pk,
-        'source_user_code': str(code),
-        'source_role': getattr(payer, 'role', None) or '',
-        'source_name': (name.strip() or str(code) or str(payer.pk)),
-    }
-
-
-def _commission_source_index_fields(meta: dict) -> dict:
-    """Denormalized columns on CommissionLedger (fast reporting)."""
-    return {
-        'source_user_code': str(meta.get('source_user_code') or ''),
-        'source_role': str(meta.get('source_role') or ''),
-        'source_name_snapshot': str(meta.get('source_name') or meta.get('source_user_code') or ''),
-    }
-
-
-def _split_total_evenly(total: Decimal, parts: int) -> list[Decimal]:
-    """
-    Split ``total`` (money_q precision) into ``parts`` amounts that sum exactly to ``money_q(total)``.
-    Remainder micro-units go to the first recipients so totals stay balanced.
-    """
-    total = money_q(total)
-    if parts <= 0:
-        return []
-    if parts == 1:
-        return [total]
-    if total <= 0:
-        return [money_q(Decimal('0'))] * parts
-    micro = int((total * Decimal('10000')).to_integral_value())
-    base = micro // parts
-    rem = micro % parts
-    out: list[Decimal] = []
-    for i in range(parts):
-        c = base + (1 if i < rem else 0)
-        out.append(money_q(Decimal(c) / Decimal('10000')))
-    return out
 
 
 def calculate_service_charge(amount, gateway_id=None, transaction_type='payin'):
@@ -128,7 +70,8 @@ def calculate_service_charge(amount, gateway_id=None, transaction_type='payin'):
     }
 
 
-def payout_slab_charge(amount: Decimal) -> Decimal:
+def _payout_slab_charge_global(amount: Decimal) -> Decimal:
+    """Legacy two-tier charge from PayoutSlabConfig or Django settings (no user context)."""
     amount = money_q(amount)
     low_max = getattr(settings, 'PAYOUT_SLAB_LOW_MAX', Decimal('24999'))
     low_c = getattr(settings, 'PAYOUT_CHARGE_LOW', Decimal('7'))
@@ -147,14 +90,19 @@ def payout_slab_charge(amount: Decimal) -> Decimal:
             low_c = money_q(cfg.low_charge)
             high_c = money_q(cfg.high_charge)
     except Exception:
-        # Fallback to settings constants when admin config table is unavailable.
         pass
     if amount <= low_max:
         return low_c
     return high_c
 
 
-def max_payout_eligible(balance: Decimal) -> Decimal:
+def payout_slab_charge(amount: Decimal) -> Decimal:
+    """Backward-compatible global slab charge (tests and fallback)."""
+    return _payout_slab_charge_global(amount)
+
+
+def _max_payout_eligible_global(balance: Decimal) -> Decimal:
+    """Max payout send amount for legacy two-tier global config."""
     balance = money_q(Decimal(str(balance)))
     if balance <= 0:
         return Decimal('0')
@@ -190,186 +138,9 @@ def max_payout_eligible(balance: Decimal) -> Decimal:
     return max(cand_low, cand_high)
 
 
-CHAIN_COMMISSION_ROLES = ('Super Distributor', 'Master Distributor', 'Distributor')
-
-
-def _chain_role_assignments(chain_parents: list) -> dict:
-    """
-    Map each chain role to the nearest upline user (closest to the payer first).
-    chain_parents: [immediate_parent, ..., top] from upline_chain order.
-    """
-    out = {r: None for r in CHAIN_COMMISSION_ROLES}
-    for u in chain_parents:
-        role = (getattr(u, 'role', None) or '').strip()
-        if role in out and out[role] is None:
-            out[role] = u
-    return out
-
-
-def _pct_amount(gross: Decimal, pct_val) -> Decimal:
-    return money_q(gross * Decimal(str(pct_val)) / Decimal('100'))
-
-
-def _compute_payin_distribution(package: PayInPackage, gross: Decimal, payer_user: Optional[User] = None) -> dict:
-    """
-    Fee slices on gross: gateway + admin (incl. absorbed missing chain + package retailer %) + SD/MD/D payouts.
-
-    Missing Distributor / Master / Super in the payer's upline: that slice **rolls up** to the nearest present
-    upline (DT → MD → SD). Anything that cannot be placed (no SD/MD/D above the retailer) is added to the
-    platform Admin share.
-
-    The package ``retailer_commission_pct`` is merged into the platform Admin share, not the retailer's
-    commission wallet.
-    """
-    gross = money_q(Decimal(str(gross)))
-    if gross < package.min_amount or gross > package.max_amount_per_txn:
-        raise ValueError(
-            f'Amount must be between ₹{package.min_amount} and ₹{package.max_amount_per_txn} for this package.'
-        )
-
-    pct_base = Decimal('100')
-    gw = _pct_amount(gross, package.gateway_fee_pct)
-    ad_base = _pct_amount(gross, package.admin_pct)
-    sd_full = _pct_amount(gross, package.super_distributor_pct)
-    md_full = _pct_amount(gross, package.master_distributor_pct)
-    dt_full = _pct_amount(gross, package.distributor_pct)
-    retailer_absorbed = _pct_amount(gross, package.retailer_commission_pct)
-
-    payer_role = None
-    if payer_user is None:
-        sd_p, md_p, dt_p = sd_full, md_full, dt_full
-        absorbed_to_admin = money_q(Decimal('0'))
-        ad_total = money_q(ad_base + retailer_absorbed)
-        assign = {r: None for r in CHAIN_COMMISSION_ROLES}
-        hierarchy_adjusted = False
-    else:
-        assign = _chain_role_assignments(upline_chain(payer_user))
-        payer_role = (getattr(payer_user, 'role', None) or '').strip()
-        # Always seed the performer's own role slice to self before roll-up logic.
-        if payer_role in CHAIN_COMMISSION_ROLES:
-            assign[payer_role] = payer_user
-        rem = money_q(Decimal('0'))
-        if assign['Distributor']:
-            dt_p = dt_full
-        else:
-            dt_p = money_q(Decimal('0'))
-            rem = money_q(rem + dt_full)
-        if assign['Master Distributor']:
-            md_p = money_q(md_full + rem)
-            rem = money_q(Decimal('0'))
-        else:
-            md_p = money_q(Decimal('0'))
-            rem = money_q(rem + md_full)
-        if assign['Super Distributor']:
-            sd_p = money_q(sd_full + rem)
-            rem = money_q(Decimal('0'))
-        else:
-            sd_p = money_q(Decimal('0'))
-            rem = money_q(rem + sd_full)
-        absorbed_to_admin = money_q(rem)
-        ad_total = money_q(ad_base + retailer_absorbed + absorbed_to_admin)
-        hierarchy_adjusted = any(assign[r] is None for r in CHAIN_COMMISSION_ROLES) or absorbed_to_admin > 0
-
-    total_deduction = money_q(gw + ad_total + sd_p + md_p + dt_p)
-    net_credit = money_q(gross - total_deduction)
-
-    lines = [
-        {
-            'key': 'gateway_fee',
-            'label': 'Gateway fee',
-            'pct': str(package.gateway_fee_pct),
-            'amount': str(gw),
-        },
-    ]
-    eff_admin_pct = (ad_total / gross * pct_base) if gross else Decimal('0')
-    admin_line = {
-        'key': 'admin',
-        'label': 'Admin share',
-        'pct': str(eff_admin_pct),
-        'amount': str(ad_total),
-    }
-    admin_notes = []
-    if hierarchy_adjusted and payer_user is not None:
-        admin_notes.append(
-            'Missing upline roles: their package % rolls up to the nearest present Super / Master / Distributor; '
-            'any remainder is included in the platform Admin row.'
-        )
-    if retailer_absorbed > 0:
-        admin_notes.append(
-            'The package retailer commission percentage is included in this platform row — it is not credited '
-            'to the retailer’s commission wallet.'
-        )
-    if hierarchy_adjusted and payer_user is not None and retailer_absorbed > 0:
-        admin_line['label'] = 'Admin share (incl. absorbed upline + retailer % to platform)'
-    elif hierarchy_adjusted and payer_user is not None:
-        admin_line['label'] = 'Admin share (incl. absorbed upline shares)'
-    elif retailer_absorbed > 0:
-        admin_line['label'] = 'Admin share (incl. package retailer % to platform)'
-    if admin_notes:
-        admin_line['note'] = ' '.join(admin_notes)
-    lines.append(admin_line)
-
-    if payer_user is None or sd_p > 0:
-        sd_line = {
-            'key': 'super_distributor',
-            'label': 'Super Distributor',
-            'pct': str(package.super_distributor_pct),
-            'amount': str(sd_p if payer_user is not None else sd_full),
-        }
-        if payer_user is not None and payer_role == 'Super Distributor':
-            sd_line['note'] = 'Performer receives this own-role slice.'
-        lines.append(sd_line)
-    if payer_user is None or md_p > 0:
-        md_line = {
-            'key': 'master_distributor',
-            'label': 'Master Distributor',
-            'pct': str(package.master_distributor_pct),
-            'amount': str(md_p if payer_user is not None else md_full),
-        }
-        if payer_user is not None and payer_role == 'Master Distributor':
-            md_line['note'] = 'Performer receives this own-role slice.'
-        lines.append(md_line)
-    if payer_user is None or dt_p > 0:
-        dt_line = {
-            'key': 'distributor',
-            'label': 'Distributor',
-            'pct': str(package.distributor_pct),
-            'amount': str(dt_p if payer_user is not None else dt_full),
-        }
-        if payer_user is not None and payer_role == 'Distributor':
-            dt_line['note'] = 'Performer receives this own-role slice.'
-        lines.append(dt_line)
-
-    snapshot = {
-        'gross': str(gross),
-        'lines': lines,
-        'total_deduction': str(total_deduction),
-        'net_credit': str(net_credit),
-        'retailer_commission': '0.00',
-        'retailer_commission_pct': str(package.retailer_commission_pct),
-        'retailer_share_absorbed_to_admin': str(retailer_absorbed),
-        'hierarchy_adjusted': hierarchy_adjusted,
-        'absorbed_to_admin_amount': str(absorbed_to_admin) if payer_user is not None else '0.00',
-    }
-    return {
-        'snapshot': snapshot,
-        'net_credit': net_credit,
-        'total_deduction': total_deduction,
-        'retailer_commission': money_q(Decimal('0')),
-        'retailer_absorbed_to_admin': retailer_absorbed,
-        'lines': lines,
-        'gw': gw,
-        'ad_total': ad_total,
-        'ad_base': ad_base,
-        'absorbed': absorbed_to_admin,
-        'sd_payout': sd_p,
-        'md_payout': md_p,
-        'dt_payout': dt_p,
-        'sd_user': assign.get('Super Distributor') if payer_user else None,
-        'md_user': assign.get('Master Distributor') if payer_user else None,
-        'dt_user': assign.get('Distributor') if payer_user else None,
-        'assign': assign if payer_user else {r: None for r in CHAIN_COMMISSION_ROLES},
-    }
+def max_payout_eligible(balance: Decimal) -> Decimal:
+    """Backward-compatible global max eligible (no user context)."""
+    return _max_payout_eligible_global(balance)
 
 
 def quote_payin(package: PayInPackage, gross: Decimal, payer_user: Optional[User] = None) -> dict:
@@ -383,399 +154,6 @@ def quote_payin(package: PayInPackage, gross: Decimal, payer_user: Optional[User
         'retailer_share_absorbed_to_admin': dist['retailer_absorbed_to_admin'],
         'lines': dist['lines'],
     }
-
-
-def _passbook_credit(
-    user,
-    wallet_type: str,
-    service: str,
-    service_id: str,
-    description: str,
-    amount: Decimal,
-    reference: str,
-    *,
-    service_charge: Optional[Decimal] = None,
-    principal_amount: Optional[Decimal] = None,
-    initiator_user: Optional[User] = None,
-):
-    amount = money_q(amount)
-    sc = money_q(service_charge) if service_charge is not None else Decimal('0')
-    pa = money_q(principal_amount) if principal_amount is not None else amount
-    w = Wallet.get_wallet(user, wallet_type)
-    ob = money_q(w.balance)
-    w.credit(amount, reference=reference, description=description)
-    w.refresh_from_db()
-    cb = money_q(w.balance)
-    init = initiator_user if initiator_user is not None else user
-    PassbookEntry.objects.create(
-        user=user,
-        wallet_type=wallet_type,
-        service=service,
-        service_id=service_id,
-        description=description,
-        debit_amount=Decimal('0'),
-        credit_amount=amount,
-        opening_balance=ob,
-        closing_balance=cb,
-        service_charge=sc,
-        principal_amount=pa,
-        **passbook_initiator_db_fields(init),
-    )
-
-
-def _passbook_debit(
-    user,
-    wallet_type: str,
-    service: str,
-    service_id: str,
-    description: str,
-    amount: Decimal,
-    reference: str,
-    *,
-    service_charge: Optional[Decimal] = None,
-    principal_amount: Optional[Decimal] = None,
-    initiator_user: Optional[User] = None,
-):
-    amount = money_q(amount)
-    sc = money_q(service_charge) if service_charge is not None else Decimal('0')
-    pa = money_q(principal_amount) if principal_amount is not None else amount
-    w = Wallet.get_wallet(user, wallet_type)
-    ob = money_q(w.balance)
-    w.debit(amount, reference=reference, description=description)
-    w.refresh_from_db()
-    cb = money_q(w.balance)
-    init = initiator_user if initiator_user is not None else user
-    PassbookEntry.objects.create(
-        user=user,
-        wallet_type=wallet_type,
-        service=service,
-        service_id=service_id,
-        description=description,
-        debit_amount=amount,
-        credit_amount=Decimal('0'),
-        opening_balance=ob,
-        closing_balance=cb,
-        service_charge=sc,
-        principal_amount=pa,
-        **passbook_initiator_db_fields(init),
-    )
-
-
-def _pay_chain_commission_slice(
-    load_money: LoadMoney,
-    tx_ref: str,
-    *,
-    user_obj: Optional[User],
-    amount: Decimal,
-    role_label: str,
-    slice_key: str,
-):
-    if not user_obj or amount <= 0:
-        return
-    amt = money_q(amount)
-    payer = load_money.user
-    src = _payin_source_agent_meta(payer)
-    suffix = (
-        f" (from {src.get('source_user_code', '')}, {src.get('source_role', '')})"
-        if src.get('source_user_code')
-        else ''
-    )
-    _passbook_credit(
-        user_obj,
-        'commission',
-        'COMMISSION',
-        load_money.transaction_id,
-        f'Pay-in commission ({role_label}) on {load_money.transaction_id}{suffix}',
-        amt,
-        tx_ref,
-        initiator_user=payer,
-    )
-    CommissionLedger.objects.create(
-        user=user_obj,
-        role_at_time=user_obj.role,
-        amount=amt,
-        source='payin',
-        reference_service_id=load_money.transaction_id,
-        wallet_type='commission',
-        meta={'slice': slice_key, **src},
-        **_commission_source_index_fields(src),
-    )
-
-
-def _credit_platform_payin_slices(
-    load_money: LoadMoney,
-    *,
-    gw: Decimal,
-    ad_total: Decimal,
-    dist: dict,
-    tx_ref: str,
-) -> None:
-    """Credit gateway + admin platform shares into Admin profit wallet(s)."""
-    recipients = resolve_platform_payin_recipients(load_money.user)
-    src_meta = _payin_source_agent_meta(load_money.user)
-    suffix = (
-        f" (from {src_meta.get('source_user_code', '')}, {src_meta.get('source_role', '')})"
-        if src_meta.get('source_user_code')
-        else ''
-    )
-    n = len(recipients)
-    if n == 0 and (gw > 0 or ad_total > 0):
-        log_missing_platform_recipients(
-            transaction_id=load_money.transaction_id,
-            payer_id=load_money.user_id,
-            gateway_amount=gw,
-            admin_amount=ad_total,
-        )
-
-    src_idx = _commission_source_index_fields(src_meta)
-
-    if gw > 0:
-        if n == 0:
-            CommissionLedger.objects.create(
-                user=None,
-                role_at_time='PLATFORM_GATEWAY',
-                amount=gw,
-                source='profit',
-                reference_service_id=load_money.transaction_id,
-                wallet_type='profit',
-                meta={'slice': 'gateway_absorbed', **src_meta},
-                **src_idx,
-            )
-        else:
-            parts = _split_total_evenly(gw, n)
-            for user, part in zip(recipients, parts):
-                if part <= 0:
-                    continue
-                _passbook_credit(
-                    user,
-                    'profit',
-                    'PROFIT',
-                    load_money.transaction_id,
-                    f'Pay-in platform (gateway share) on {load_money.transaction_id}{suffix}',
-                    part,
-                    tx_ref,
-                    initiator_user=load_money.user,
-                )
-                CommissionLedger.objects.create(
-                    user=user,
-                    role_at_time='PLATFORM_GATEWAY',
-                    amount=part,
-                    source='profit',
-                    reference_service_id=load_money.transaction_id,
-                    wallet_type='profit',
-                    meta={'slice': 'gateway_absorbed', 'split_recipients': n, **src_meta},
-                    **src_idx,
-                )
-
-    if ad_total > 0:
-        if n == 0:
-            CommissionLedger.objects.create(
-                user=None,
-                role_at_time='PLATFORM_ADMIN',
-                amount=ad_total,
-                source='profit',
-                reference_service_id=load_money.transaction_id,
-                wallet_type='profit',
-                meta={
-                    'slice': 'admin_absorbed',
-                    'admin_base_amount': str(dist['ad_base']),
-                    'absorbed_chain_amount': str(dist['absorbed']),
-                    'retailer_absorbed_to_admin': str(dist.get('retailer_absorbed_to_admin', '0')),
-                    **src_meta,
-                },
-                **src_idx,
-            )
-        else:
-            parts = _split_total_evenly(ad_total, n)
-            for user, part in zip(recipients, parts):
-                if part <= 0:
-                    continue
-                _passbook_credit(
-                    user,
-                    'profit',
-                    'PROFIT',
-                    load_money.transaction_id,
-                    f'Pay-in platform (admin share) on {load_money.transaction_id}{suffix}',
-                    part,
-                    tx_ref,
-                    initiator_user=load_money.user,
-                )
-                CommissionLedger.objects.create(
-                    user=user,
-                    role_at_time='PLATFORM_ADMIN',
-                    amount=part,
-                    source='profit',
-                    reference_service_id=load_money.transaction_id,
-                    wallet_type='profit',
-                    meta={
-                        'slice': 'admin_absorbed',
-                        'admin_base_amount': str(dist['ad_base']),
-                        'absorbed_chain_amount': str(dist['absorbed']),
-                        'retailer_absorbed_to_admin': str(dist.get('retailer_absorbed_to_admin', '0')),
-                        'split_recipients': n,
-                        **src_meta,
-                    },
-                    **src_idx,
-                )
-
-    if gw > 0 or ad_total > 0:
-        logger.info(
-            'Pay-in platform commission: txn=%s recipients=%s gw=%s ad_total=%s',
-            load_money.transaction_id,
-            [u.pk for u in recipients] if recipients else [],
-            gw,
-            ad_total,
-        )
-
-
-@db_transaction.atomic
-def _distribute_payin_commissions(load_money: LoadMoney, package: PayInPackage, gross: Decimal, tx_ref: str):
-    """
-    Credit commission wallets using the same upline-aware split as quote/create-order.
-    Missing chain roles roll up to the nearest present upline; remainder goes to platform (Admin) settlement.
-    """
-    gross = money_q(gross)
-    dist = _compute_payin_distribution(package, gross, load_money.user)
-
-    _pay_chain_commission_slice(
-        load_money,
-        tx_ref,
-        user_obj=dist['sd_user'],
-        amount=dist['sd_payout'],
-        role_label='Super Distributor',
-        slice_key='Super Distributor',
-    )
-    _pay_chain_commission_slice(
-        load_money,
-        tx_ref,
-        user_obj=dist['md_user'],
-        amount=dist['md_payout'],
-        role_label='Master Distributor',
-        slice_key='Master Distributor',
-    )
-    _pay_chain_commission_slice(
-        load_money,
-        tx_ref,
-        user_obj=dist['dt_user'],
-        amount=dist['dt_payout'],
-        role_label='Distributor',
-        slice_key='Distributor',
-    )
-
-    gw = dist['gw']
-    ad_total = dist['ad_total']
-    _credit_platform_payin_slices(load_money, gw=gw, ad_total=ad_total, dist=dist, tx_ref=tx_ref)
-
-
-def _payment_capture_from_razorpay_payment(pay: Optional[dict]) -> tuple[str, dict]:
-    """Normalize Razorpay GET payment / webhook entity into (method, meta) for LoadMoney."""
-    from apps.integrations.razorpay_orders import meta_from_razorpay_payment_entity
-
-    if not pay or not isinstance(pay, dict):
-        return '', {}
-    method = str(pay.get('method') or '').strip().lower()[:32]
-    meta = meta_from_razorpay_payment_entity(pay)
-    return method, meta
-
-
-@db_transaction.atomic
-def finalize_payin_success(
-    load_money: LoadMoney,
-    *,
-    provider_payment_id: Optional[str] = None,
-    gateway_reference: Optional[str] = None,
-    payment_method: Optional[str] = None,
-    payment_meta: Optional[dict] = None,
-):
-    """
-    Idempotent: credit main + commissions after payment confirmed (webhook or mock).
-    """
-    lm = LoadMoney.objects.select_for_update().get(pk=load_money.pk)
-    if lm.status == 'SUCCESS':
-        return lm
-
-    if provider_payment_id:
-        if LoadMoney.objects.filter(provider_payment_id=provider_payment_id).exclude(pk=lm.pk).exists():
-            raise TransactionFailed('Duplicate provider payment id')
-        lm.provider_payment_id = provider_payment_id
-
-    ref = gateway_reference or lm.provider_order_id or lm.transaction_id
-    lm.gateway_transaction_id = ref or lm.gateway_transaction_id
-    lm.status = 'SUCCESS'
-    if payment_method is not None and str(payment_method).strip():
-        lm.payment_method = str(payment_method).strip().lower()[:32]
-    if payment_meta:
-        base = dict(lm.payment_meta) if isinstance(lm.payment_meta, dict) else {}
-        for k, v in payment_meta.items():
-            if v is not None and v != '':
-                base[str(k)[:40]] = v
-        lm.payment_meta = base
-    lm.save(
-        update_fields=[
-            'provider_payment_id',
-            'gateway_transaction_id',
-            'status',
-            'payment_method',
-            'payment_meta',
-            'updated_at',
-        ]
-    )
-
-    package = lm.package
-    gross = money_q(lm.amount)
-    if package:
-        dist_settle = _compute_payin_distribution(package, gross, lm.user)
-        net_credit = dist_settle['net_credit']
-        total_charge = dist_settle['total_deduction']
-        lm.net_credit = net_credit
-        lm.charge = total_charge
-        lm.fee_breakdown_snapshot = dist_settle['snapshot']
-        lm.save(update_fields=['net_credit', 'charge', 'fee_breakdown_snapshot', 'updated_at'])
-    else:
-        net_credit = money_q(lm.net_credit)
-        total_charge = money_q(lm.charge)
-
-    logger.info(
-        'Pay-in SUCCESS: transaction_id=%s user_id=%s net_credit=%s gross=%s provider_payment_id=%s ref=%s',
-        lm.transaction_id,
-        lm.user_id,
-        net_credit,
-        lm.amount,
-        provider_payment_id or '',
-        ref or '',
-    )
-
-    _passbook_credit(
-        lm.user,
-        'main',
-        'LOAD MONEY',
-        lm.transaction_id,
-        f"LOAD MONEY net credit, gross ₹{gross}, ref {ref}",
-        net_credit,
-        ref,
-        service_charge=total_charge,
-        principal_amount=gross,
-    )
-
-    meta_for_card = lm.payment_meta if isinstance(lm.payment_meta, dict) else {}
-    Transaction.objects.create(
-        user=lm.user,
-        transaction_type='payin',
-        amount=gross,
-        charge=total_charge,
-        net_amount=net_credit,
-        status='SUCCESS',
-        service_id=lm.transaction_id,
-        reference=ref,
-        service_family='payin',
-        bank_txn_id=(ref or '')[:191] or None,
-        card_last4=card_last4_from_payment_meta(meta_for_card) or None,
-        **transaction_agent_db_fields(lm.user),
-    )
-
-    if package:
-        _distribute_payin_commissions(lm, package, gross, ref)
-    return lm
 
 
 def _api_master_for_payin_razorpay(package: PayInPackage):
@@ -850,23 +228,35 @@ def create_payin_order(user, *, package_id: int, gross: Decimal, contact_id: int
         raise ValueError('Contact not found')
 
     q = quote_payin(package, gross, user)
-    tid = generate_service_id('load_money')
 
-    with db_transaction.atomic():
-        lm = LoadMoney.objects.create(
-            user=user,
-            package=package,
-            amount=money_q(gross),
-            gateway=str(package.code),
-            charge=q['total_deduction'],
-            net_credit=q['net_credit'],
-            fee_breakdown_snapshot=q['snapshot'],
-            customer_name=contact.name,
-            customer_email=contact.email,
-            customer_phone=contact.phone,
-            status='PENDING',
-            transaction_id=tid,
-        )
+    lm = None
+    last_integrity: IntegrityError | None = None
+    for attempt in range(2):
+        tid = generate_service_id('load_money')
+        try:
+            with db_transaction.atomic():
+                lm = LoadMoney.objects.create(
+                    user=user,
+                    package=package,
+                    amount=money_q(gross),
+                    gateway=str(package.code),
+                    charge=q['total_deduction'],
+                    net_credit=q['net_credit'],
+                    fee_breakdown_snapshot=q['snapshot'],
+                    customer_name=contact.name,
+                    customer_email=contact.email,
+                    customer_phone=contact.phone,
+                    status='PENDING',
+                    transaction_id=tid,
+                )
+            break
+        except IntegrityError as exc:
+            last_integrity = exc
+            logger.warning('LoadMoney create collision on transaction_id (attempt %s)', attempt)
+    if lm is None:
+        raise TransactionFailed(
+            'Could not allocate a unique pay-in reference; please retry.'
+        ) from last_integrity
 
     response = {
         'load_money_id': lm.id,
@@ -1042,21 +432,35 @@ def process_load_money(user, amount, gateway_id):
     amount = money_q(Decimal(str(amount)))
     charge_info = calculate_service_charge(amount, gateway_id, 'payin')
 
-    load_money = LoadMoney.objects.create(
-        user=user,
-        amount=amount,
-        gateway=str(gateway_id or 'default'),
-        charge=charge_info['charge'],
-        net_credit=charge_info['net_amount'],
-        fee_breakdown_snapshot={
-            'legacy': True,
-            'gross': str(amount),
-            'charge': str(charge_info['charge']),
-            'net_credit': str(charge_info['net_amount']),
-        },
-        status='PENDING',
-        transaction_id=generate_service_id('load_money'),
-    )
+    load_money = None
+    last_integrity: IntegrityError | None = None
+    for attempt in range(2):
+        tid = generate_service_id('load_money')
+        try:
+            with db_transaction.atomic():
+                load_money = LoadMoney.objects.create(
+                    user=user,
+                    amount=amount,
+                    gateway=str(gateway_id or 'default'),
+                    charge=charge_info['charge'],
+                    net_credit=charge_info['net_amount'],
+                    fee_breakdown_snapshot={
+                        'legacy': True,
+                        'gross': str(amount),
+                        'charge': str(charge_info['charge']),
+                        'net_credit': str(charge_info['net_amount']),
+                    },
+                    status='PENDING',
+                    transaction_id=tid,
+                )
+            break
+        except IntegrityError as exc:
+            last_integrity = exc
+            logger.warning('process_load_money LoadMoney id collision (attempt %s)', attempt)
+    if load_money is None:
+        raise TransactionFailed(
+            'Could not allocate a unique load reference; please retry.'
+        ) from last_integrity
 
     try:
         gateway_transaction_id = f"GTX{load_money.transaction_id}"
@@ -1108,7 +512,7 @@ def process_payout(user, bank_account_id, amount, gateway_id=None, transfer_mode
         raise ValueError('Bank account not found') from None
 
     amount = money_q(Decimal(str(amount)))
-    charge_amt = payout_slab_charge(amount)
+    charge_amt = payout_slab_charge_for_user(user, amount)
     platform_fee = Decimal('0')
     total_deducted = money_q(amount + charge_amt)
 
@@ -1118,17 +522,31 @@ def process_payout(user, bank_account_id, amount, gateway_id=None, transfer_mode
             f'Insufficient balance. Available: ₹{main_wallet.balance}, Required: ₹{total_deducted}'
         )
 
-    payout = Payout.objects.create(
-        user=user,
-        bank_account=bank_account,
-        amount=amount,
-        charge=charge_amt,
-        platform_fee=platform_fee,
-        total_deducted=total_deducted,
-        transfer_mode=transfer_mode,
-        status='PENDING',
-        transaction_id=generate_service_id('payout'),
-    )
+    payout = None
+    last_integrity: IntegrityError | None = None
+    for attempt in range(2):
+        tid = generate_service_id('payout')
+        try:
+            with db_transaction.atomic():
+                payout = Payout.objects.create(
+                    user=user,
+                    bank_account=bank_account,
+                    amount=amount,
+                    charge=charge_amt,
+                    platform_fee=platform_fee,
+                    total_deducted=total_deducted,
+                    transfer_mode=transfer_mode,
+                    status='PENDING',
+                    transaction_id=tid,
+                )
+            break
+        except IntegrityError as exc:
+            last_integrity = exc
+            logger.warning('Payout create id collision (attempt %s)', attempt)
+    if payout is None:
+        raise TransactionFailed(
+            'Could not allocate a unique payout reference; please retry.'
+        ) from last_integrity
 
     try:
         gateway_transaction_id = f'PTX{payout.transaction_id}'
@@ -1173,8 +591,30 @@ def process_payout(user, bank_account_id, amount, gateway_id=None, transfer_mode
             **passbook_initiator_db_fields(user),
         )
 
+        logger.info(
+            'payout completed',
+            extra={
+                'event': 'payout_success',
+                'user_id': user.pk,
+                'transaction_id': payout.transaction_id,
+                'service_id': payout.transaction_id,
+                'amount': str(amount),
+                'status': payout.status,
+            },
+        )
         return payout
     except Exception as e:
+        logger.info(
+            'payout failed',
+            extra={
+                'event': 'payout_failure',
+                'user_id': user.pk,
+                'transaction_id': getattr(payout, 'transaction_id', ''),
+                'service_id': getattr(payout, 'transaction_id', ''),
+                'amount': str(amount),
+                'status': 'FAILED',
+            },
+        )
         payout.status = 'FAILED'
         payout.failure_reason = str(e)
         payout.save(update_fields=['status', 'failure_reason'])
@@ -1232,6 +672,77 @@ def get_user_accessible_packages(user: User):
         is_active=True,
         is_deleted=False,
     ).order_by('sort_order', 'display_name')
+
+
+def resolve_payout_package(user: User) -> Optional[PayInPackage]:
+    """
+    Single PayInPackage used for payout slab lookup: first row from the same ordered set
+    as pay-in access (sort_order, display_name).
+    """
+    qs = get_user_accessible_packages(user)
+    return qs.first()
+
+
+def payout_flat_charge_for_package(package: Optional[PayInPackage], amount: Decimal) -> Decimal:
+    """
+    Flat payout charge for amount using tiers on ``package``.
+    If ``package`` is None or has no tiers, uses global PayoutSlabConfig / settings.
+    """
+    amount = money_q(Decimal(str(amount)))
+    if package is None:
+        return _payout_slab_charge_global(amount)
+    tiers = (
+        PayoutSlabTier.objects.filter(package=package, is_deleted=False)
+        .only('min_amount', 'max_amount', 'flat_charge', 'sort_order')
+        .order_by('sort_order', 'min_amount')
+    )
+    if not tiers.exists():
+        return _payout_slab_charge_global(amount)
+    for t in tiers:
+        lo = money_q(t.min_amount)
+        hi = money_q(t.max_amount) if t.max_amount is not None else None
+        if amount < lo:
+            continue
+        if hi is not None and amount > hi:
+            continue
+        return money_q(t.flat_charge)
+    return _payout_slab_charge_global(amount)
+
+
+def payout_slab_charge_for_user(user: User, amount: Decimal) -> Decimal:
+    """Payout flat charge for user's resolved commercial package (per-package tiers)."""
+    pkg = resolve_payout_package(user)
+    return payout_flat_charge_for_package(pkg, amount)
+
+
+def max_payout_eligible_for_user(user: User, balance: Decimal) -> Decimal:
+    """
+    Maximum payout principal such that principal + charge(principal) <= balance,
+    using tiers on the user's resolved package (or global two-tier fallback).
+    """
+    balance = money_q(Decimal(str(balance)))
+    if balance <= 0:
+        return Decimal('0')
+    pkg = resolve_payout_package(user)
+    if pkg is None:
+        return _max_payout_eligible_global(balance)
+    tiers = list(
+        PayoutSlabTier.objects.filter(package=pkg, is_deleted=False).order_by('sort_order', 'min_amount')
+    )
+    if not tiers:
+        return _max_payout_eligible_global(balance)
+    best = Decimal('0')
+    for t in tiers:
+        c = money_q(t.flat_charge)
+        lo = money_q(t.min_amount)
+        hi = money_q(t.max_amount) if t.max_amount is not None else None
+        cap = money_q(balance - c)
+        if cap < lo:
+            continue
+        upper = min(cap, hi) if hi is not None else cap
+        if upper >= lo and upper > best:
+            best = upper
+    return money_q(best)
 
 
 def get_user_assigned_packages(user: User):
