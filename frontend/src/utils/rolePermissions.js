@@ -52,6 +52,17 @@ export const roleMenus = {
       path: '/admin/api-master',
       icon: 'profile',
     },
+    {
+      name: 'BBPS Configuration',
+      path: '/admin/billavenue-settings',
+      icon: 'profile',
+      submenu: [
+        { name: 'BillAvenue Settings', path: '/admin/billavenue-settings' },
+        { name: 'Biller Sync Dashboard', path: '/admin/bbps-sync' },
+        { name: 'Provider Governance', path: '/admin/bbps-governance' },
+        { name: 'BBPS Ops Console', path: '/admin/bbps-ops' },
+      ],
+    },
   ],
   'Super Distributor': [
     {
@@ -99,6 +110,8 @@ export const roleMenus = {
       icon: 'bills',
       submenu: [
         { name: 'Pay Bills', path: '/bill-payments/pay' },
+        { name: 'Transaction Query', path: '/bill-payments/transaction-query' },
+        { name: 'Complaints', path: '/bill-payments/complaints' },
         { name: 'Fund BBPS wallet', path: '/bill-payments/fund-wallet' },
         { name: 'My Bills', path: '/bill-payments/my-bills' },
       ],
@@ -136,6 +149,8 @@ export const roleMenus = {
       icon: 'bills',
       submenu: [
         { name: 'Pay Bills', path: '/bill-payments/pay' },
+        { name: 'Transaction Query', path: '/bill-payments/transaction-query' },
+        { name: 'Complaints', path: '/bill-payments/complaints' },
         { name: 'Fund BBPS wallet', path: '/bill-payments/fund-wallet' },
         { name: 'My Bills', path: '/bill-payments/my-bills' },
       ],
@@ -173,6 +188,8 @@ export const roleMenus = {
       icon: 'bills',
       submenu: [
         { name: 'Pay Bills', path: '/bill-payments/pay' },
+        { name: 'Transaction Query', path: '/bill-payments/transaction-query' },
+        { name: 'Complaints', path: '/bill-payments/complaints' },
         { name: 'Fund BBPS wallet', path: '/bill-payments/fund-wallet' },
         { name: 'My Bills', path: '/bill-payments/my-bills' },
       ],

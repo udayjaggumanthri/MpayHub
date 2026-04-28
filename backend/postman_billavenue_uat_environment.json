@@ -1,0 +1,32 @@
+{
+  "id": "billavenue-bbps-uat-env",
+  "name": "BillAvenue BBPS UAT (Prajnadhara)",
+  "values": [
+    { "key": "ba_base_url", "value": "https://stgapi.billavenue.com", "type": "default", "enabled": true },
+    { "key": "ba_access_code", "value": "AVXQ74II24QZ46CCXK", "type": "default", "enabled": true },
+    { "key": "ba_institute_id", "value": "PI39", "type": "default", "enabled": true },
+    { "key": "ba_working_key", "value": "EFA0E59225E69D0A3F32C8847E3ED5D6", "type": "secret", "enabled": true },
+    { "key": "ba_iv", "value": "IV", "type": "secret", "enabled": true },
+    { "key": "ba_agent_id_agt", "value": "CC01CC01513515340681", "type": "default", "enabled": true },
+    { "key": "ba_ver_default", "value": "1.0", "type": "default", "enabled": true },
+    { "key": "ba_ver_complaint", "value": "2.0", "type": "default", "enabled": true },
+    { "key": "ba_ver_active", "value": "1.0", "type": "default", "enabled": true },
+    { "key": "ba_request_id", "value": "", "type": "default", "enabled": true },
+    { "key": "ba_enc_request", "value": "", "type": "default", "enabled": true },
+    { "key": "ba_plain_payload", "value": "{}", "type": "default", "enabled": true },
+    { "key": "ba_biller_id", "value": "BILLERID1", "type": "default", "enabled": true },
+    { "key": "ba_customer_mobile", "value": "9876543210", "type": "default", "enabled": true },
+    { "key": "ba_param_name_1", "value": "Customer Number", "type": "default", "enabled": true },
+    { "key": "ba_param_value_1", "value": "1234567890", "type": "default", "enabled": true },
+    { "key": "ba_amount_paise", "value": "10000", "type": "default", "enabled": true },
+    { "key": "ba_payment_ref", "value": "PMBBPSTEST001", "type": "default", "enabled": true },
+    { "key": "ba_track_request_id", "value": "", "type": "default", "enabled": true },
+    { "key": "ba_txn_ref_id", "value": "", "type": "default", "enabled": true },
+    { "key": "ba_complaint_id", "value": "", "type": "default", "enabled": true },
+    { "key": "ba_from_date", "value": "2026-04-01", "type": "default", "enabled": true },
+    { "key": "ba_to_date", "value": "2026-04-30", "type": "default", "enabled": true },
+    { "key": "ba_last_status", "value": "", "type": "default", "enabled": true },
+    { "key": "ba_last_response_text", "value": "", "type": "default", "enabled": true }
+  ],
+  "_postman_variable_scope": "environment"
+}

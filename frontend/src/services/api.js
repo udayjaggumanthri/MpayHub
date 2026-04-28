@@ -975,6 +975,30 @@ export const bbpsAPI = {
       return handleError(error);
     }
   },
+  getProviders: async (category) => {
+    try {
+      const response = await apiClient.get(`/bbps/providers/${category}/`);
+      return extractData(response);
+    } catch (error) {
+      return handleError(error);
+    }
+  },
+  getBillerSchema: async (billerId) => {
+    try {
+      const response = await apiClient.get(`/bbps/billers/${billerId}/schema/`);
+      return extractData(response);
+    } catch (error) {
+      return handleError(error);
+    }
+  },
+  getQuote: async (payload) => {
+    try {
+      const response = await apiClient.post('/bbps/quote/', payload);
+      return extractData(response);
+    } catch (error) {
+      return handleError(error);
+    }
+  },
 
   /**
    * Fetch Bill
@@ -996,12 +1020,14 @@ export const bbpsAPI = {
    * Pay Bill
    * POST /api/bbps/pay/
    */
-  payBill: async (billId, amount, mpin) => {
+  payBill: async (billOrPayload, amount, mpin) => {
     try {
+      const payload =
+        typeof billOrPayload === 'object' && billOrPayload !== null
+          ? billOrPayload
+          : { bill_id: billOrPayload, amount, mpin };
       const response = await apiClient.post('/bbps/pay/', {
-        bill_id: billId,
-        amount,
-        mpin,
+        ...payload,
       });
       return extractData(response);
     } catch (error) {
@@ -1029,6 +1055,247 @@ export const bbpsAPI = {
   getBillPaymentDetail: async (paymentId) => {
     try {
       const response = await apiClient.get(`/bbps/payments/${paymentId}/`);
+      return extractData(response);
+    } catch (error) {
+      return handleError(error);
+    }
+  },
+
+  syncBillers: async (billerIds = []) => {
+    try {
+      const response = await apiClient.post('/bbps/admin/sync-billers/', { biller_ids: billerIds });
+      return extractData(response);
+    } catch (error) {
+      return handleError(error);
+    }
+  },
+
+  pollStatus: async (payload) => {
+    try {
+      const response = await apiClient.post('/bbps/admin/poll-status/', payload);
+      return extractData(response);
+    } catch (error) {
+      return handleError(error);
+    }
+  },
+
+  registerComplaint: async (payload) => {
+    try {
+      const response = await apiClient.post('/bbps/complaints/register/', payload);
+      return extractData(response);
+    } catch (error) {
+      return handleError(error);
+    }
+  },
+
+  trackComplaint: async (payload) => {
+    try {
+      const response = await apiClient.post('/bbps/complaints/track/', payload);
+      return extractData(response);
+    } catch (error) {
+      return handleError(error);
+    }
+  },
+  transactionQuery: async (payload) => {
+    try {
+      const response = await apiClient.post('/bbps/transactions/query/', payload);
+      return extractData(response);
+    } catch (error) {
+      return handleError(error);
+    }
+  },
+
+  pullPlans: async (billerIds = []) => {
+    try {
+      const response = await apiClient.post('/bbps/admin/plans/pull/', { biller_ids: billerIds });
+      return extractData(response);
+    } catch (error) {
+      return handleError(error);
+    }
+  },
+
+  depositEnquiry: async (payload) => {
+    try {
+      const response = await apiClient.post('/bbps/admin/deposit-enquiry/', payload);
+      return extractData(response);
+    } catch (error) {
+      return handleError(error);
+    }
+  },
+};
+
+export const billAvenueAdminAPI = {
+  getConfig: async () => {
+    try {
+      const response = await apiClient.get('/bbps/admin/config/');
+      return extractData(response);
+    } catch (error) {
+      return handleError(error);
+    }
+  },
+  saveConfig: async (payload) => {
+    try {
+      const response = await apiClient.post('/bbps/admin/config/', payload);
+      return extractData(response);
+    } catch (error) {
+      return handleError(error);
+    }
+  },
+  updateSecrets: async (payload) => {
+    try {
+      const response = await apiClient.post('/bbps/admin/config/secrets/', payload);
+      return extractData(response);
+    } catch (error) {
+      return handleError(error);
+    }
+  },
+  listAgentProfiles: async () => {
+    try {
+      const response = await apiClient.get('/bbps/admin/agent-profiles/');
+      return extractData(response);
+    } catch (error) {
+      return handleError(error);
+    }
+  },
+  createAgentProfile: async (payload) => {
+    try {
+      const response = await apiClient.post('/bbps/admin/agent-profiles/', payload);
+      return extractData(response);
+    } catch (error) {
+      return handleError(error);
+    }
+  },
+  listPolicies: async () => {
+    try {
+      const response = await apiClient.get('/bbps/admin/mode-channel-policies/');
+      return extractData(response);
+    } catch (error) {
+      return handleError(error);
+    }
+  },
+  createPolicy: async (payload) => {
+    try {
+      const response = await apiClient.post('/bbps/admin/mode-channel-policies/', payload);
+      return extractData(response);
+    } catch (error) {
+      return handleError(error);
+    }
+  },
+  listServiceCategories: async () => {
+    try {
+      const response = await apiClient.get('/bbps/admin/service-categories/');
+      return extractData(response);
+    } catch (error) {
+      return handleError(error);
+    }
+  },
+  saveServiceCategory: async (payload) => {
+    try {
+      const response = await apiClient.post('/bbps/admin/service-categories/', payload);
+      return extractData(response);
+    } catch (error) {
+      return handleError(error);
+    }
+  },
+  getSetupReadiness: async () => {
+    try {
+      const response = await apiClient.get('/bbps/admin/setup-readiness/');
+      return extractData(response);
+    } catch (error) {
+      return handleError(error);
+    }
+  },
+  getIntegrationHealth: async () => {
+    try {
+      const response = await apiClient.get('/bbps/admin/integration-health/');
+      return extractData(response);
+    } catch (error) {
+      return handleError(error);
+    }
+  },
+  refreshProviderCache: async (payload = {}) => {
+    try {
+      const response = await apiClient.post('/bbps/admin/cache/refresh-providers/', payload);
+      return extractData(response);
+    } catch (error) {
+      return handleError(error);
+    }
+  },
+  getGovernanceOpsSummary: async () => {
+    try {
+      const response = await apiClient.get('/bbps/admin/governance/ops-summary/');
+      return extractData(response);
+    } catch (error) {
+      return handleError(error);
+    }
+  },
+  getUatReadiness: async () => {
+    try {
+      const response = await apiClient.get('/bbps/admin/uat-readiness/');
+      return extractData(response);
+    } catch (error) {
+      return handleError(error);
+    }
+  },
+  listServiceProviders: async () => {
+    try {
+      const response = await apiClient.get('/bbps/admin/service-providers/');
+      return extractData(response);
+    } catch (error) {
+      return handleError(error);
+    }
+  },
+  listBillerMaster: async (params = {}) => {
+    try {
+      const response = await apiClient.get('/bbps/admin/biller-master/', { params });
+      return extractData(response);
+    } catch (error) {
+      return handleError(error);
+    }
+  },
+  saveServiceProvider: async (payload) => {
+    try {
+      const response = await apiClient.post('/bbps/admin/service-providers/', payload);
+      return extractData(response);
+    } catch (error) {
+      return handleError(error);
+    }
+  },
+  listProviderBillerMaps: async () => {
+    try {
+      const response = await apiClient.get('/bbps/admin/provider-biller-maps/');
+      return extractData(response);
+    } catch (error) {
+      return handleError(error);
+    }
+  },
+  saveProviderBillerMap: async (payload) => {
+    try {
+      const response = await apiClient.post('/bbps/admin/provider-biller-maps/', payload);
+      return extractData(response);
+    } catch (error) {
+      return handleError(error);
+    }
+  },
+  listCommissionRules: async () => {
+    try {
+      const response = await apiClient.get('/bbps/admin/commission-rules/');
+      return extractData(response);
+    } catch (error) {
+      return handleError(error);
+    }
+  },
+  saveCommissionRule: async (payload) => {
+    try {
+      const response = await apiClient.post('/bbps/admin/commission-rules/', payload);
+      return extractData(response);
+    } catch (error) {
+      return handleError(error);
+    }
+  },
+  listCommissionAudit: async (params = {}) => {
+    try {
+      const response = await apiClient.get('/bbps/admin/commission-audit/', { params });
       return extractData(response);
     } catch (error) {
       return handleError(error);

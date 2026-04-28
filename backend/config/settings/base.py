@@ -252,6 +252,8 @@ PLATFORM_PAYIN_SETTLEMENT_USER_ID = _optional_positive_int('PLATFORM_PAYIN_SETTL
 
 # Service Charge Settings
 BBPS_SERVICE_CHARGE = config('BBPS_SERVICE_CHARGE', default=5.00, cast=float)
+BBPS_PROVIDER_GOVERNANCE_ENABLED = config('BBPS_PROVIDER_GOVERNANCE_ENABLED', default=True, cast=bool)
+BBPS_COMMISSION_FINANCIAL_IMPACT_ENABLED = config('BBPS_COMMISSION_FINANCIAL_IMPACT_ENABLED', default=False, cast=bool)
 BANK_VERIFICATION_CHARGE = config('BANK_VERIFICATION_CHARGE', default=3.00, cast=float)
 
 # Payout slab (addition model): amount ≤ PAYOUT_SLAB_LOW_MAX → low charge; else high charge

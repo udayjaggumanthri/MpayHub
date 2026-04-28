@@ -19,6 +19,8 @@ import Payout from '../components/fundManagement/Payout';
 import BillPayment from '../components/bbps/BillPayment';
 import MyBills from '../components/bbps/MyBills';
 import BbpsWalletFund from '../components/bbps/BbpsWalletFund';
+import BbpsTransactionQuery from '../components/bbps/BbpsTransactionQuery';
+import BbpsComplaintManager from '../components/bbps/BbpsComplaintManager';
 
 // Reports
 import Reports from '../components/reports/Reports';
@@ -39,6 +41,10 @@ import AnnouncementManagement from '../components/admin/AnnouncementManagement';
 import PaymentGatewaysAdmin from '../components/admin/PaymentGatewaysAdmin';
 import PayInPackagesAdmin from '../components/admin/PayInPackagesAdmin';
 import APIMasterManagement from '../components/admin/APIMasterManagement';
+import BillAvenueSettings from '../components/admin/BillAvenueSettings';
+import BillerSyncDashboard from '../components/admin/BillerSyncDashboard';
+import BbpsOpsConsole from '../components/admin/BbpsOpsConsole';
+import BbpsProviderGovernance from '../components/admin/BbpsProviderGovernance';
 import WalletHistoryPage from '../components/wallets/WalletHistoryPage';
 
 const AppRoutes = () => {
@@ -156,6 +162,26 @@ const AppRoutes = () => {
           <ProtectedRoute blockFinancialTransactions>
             <Layout>
               <MyBills />
+            </Layout>
+          </ProtectedRoute>
+        }
+      />
+      <Route
+        path="/bill-payments/transaction-query"
+        element={
+          <ProtectedRoute blockFinancialTransactions>
+            <Layout>
+              <BbpsTransactionQuery />
+            </Layout>
+          </ProtectedRoute>
+        }
+      />
+      <Route
+        path="/bill-payments/complaints"
+        element={
+          <ProtectedRoute blockFinancialTransactions>
+            <Layout>
+              <BbpsComplaintManager />
             </Layout>
           </ProtectedRoute>
         }
@@ -371,6 +397,50 @@ const AppRoutes = () => {
           <ProtectedRoute>
             <Layout>
               <APIMasterManagement />
+            </Layout>
+          </ProtectedRoute>
+        }
+      />
+
+      <Route
+        path="/admin/billavenue-settings"
+        element={
+          <ProtectedRoute>
+            <Layout>
+              <BillAvenueSettings />
+            </Layout>
+          </ProtectedRoute>
+        }
+      />
+
+      <Route
+        path="/admin/bbps-sync"
+        element={
+          <ProtectedRoute>
+            <Layout>
+              <BillerSyncDashboard />
+            </Layout>
+          </ProtectedRoute>
+        }
+      />
+
+      <Route
+        path="/admin/bbps-ops"
+        element={
+          <ProtectedRoute>
+            <Layout>
+              <BbpsOpsConsole />
+            </Layout>
+          </ProtectedRoute>
+        }
+      />
+
+      <Route
+        path="/admin/bbps-governance"
+        element={
+          <ProtectedRoute>
+            <Layout>
+              <BbpsProviderGovernance />
             </Layout>
           </ProtectedRoute>
         }

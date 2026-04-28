@@ -1,0 +1,25 @@
+<?php
+error_reporting(-1);
+ini_set("display_errors", 1);
+
+// Provide your working key
+$working_key = 'BE8B7422B94DEC42CF4DE4DABB450A7F';
+
+// Encrypted data
+$encrypted_data = 'f4586dfb9f0c39e48bba31b0b639083a248f486cb44a9dda932b9568bf985faf243a0fcd8da8f63bb691e8ed28ee3f5d2fdd908b1ac7fc83d122a75e893d3153bfc8292a046dc2bfa16c4d7c74f203382b8153c9c0c5d2e83c07de93bfc775889e336eeea2e031864b9f39a1beaf2ec177a8a54087c3168626210a5e8d658f894a3e774ad7ebdbf6db6b4c01784ce70650a2a1a01fcde1d18993d890d46f71289c3cc36ca0110da8b166122780947073ddcb19f7b8dff5bf3e82a3011bfc2cbdb9fdeeaf4a522a19c1a9d762b016e2c9192f010f0897d29947217576b05f770c1cf34e56150869432a3448f89b651398';
+
+// Decrypt the data
+$decrypted_data = decrypt($encrypted_data, $working_key);
+echo "Decrypted data: " . $decrypted_data;
+
+function decrypt($encryptedText, $key) {
+    $key = hextobin(md5($key));
+    $initVector = pack("C*", 0x00, 0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08, 0x09, 0x0a, 0x0b, 0x0c, 0x0d, 0x0e, 0x0f);
+    $encryptedText = hextobin($encryptedText);
+    $decryptedText = openssl_decrypt($encryptedText, 'AES-128-CBC', $key, OPENSSL_RAW_DATA, $initVector);
+    return $decryptedText;
+}
+
+function hextobin($hexString) {
+    return pack("H*", $hexString);
+}

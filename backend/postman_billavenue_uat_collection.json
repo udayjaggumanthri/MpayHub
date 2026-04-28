@@ -1,0 +1,492 @@
+{
+  "info": {
+    "_postman_id": "billavenue-bbps-uat-fixed",
+    "name": "BillAvenue BBPS UAT (Prajnadhara)",
+    "description": "Import and run collection for direct BillAvenue UAT API checks. Generates requestId and encRequest automatically in pre-request scripts.",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "event": [
+    {
+      "listen": "prerequest",
+      "script": {
+        "type": "text/javascript",
+        "exec": [
+          "function randomAlnum(len){",
+          "  const chars='ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789';",
+          "  let out='';",
+          "  for(let i=0;i<len;i++){ out += chars.charAt(Math.floor(Math.random()*chars.length)); }",
+          "  return out;",
+          "}",
+          "function generateRequestId(){",
+          "  const now = new Date();",
+          "  const y = String(now.getFullYear()).slice(-1);",
+          "  const start = new Date(now.getFullYear(), 0, 0);",
+          "  const diff = now - start;",
+          "  const oneDay = 1000*60*60*24;",
+          "  const ddd = String(Math.floor(diff/oneDay)).padStart(3,'0');",
+          "  const hh = String(now.getHours()).padStart(2,'0');",
+          "  const mm = String(now.getMinutes()).padStart(2,'0');",
+          "  return randomAlnum(27) + y + ddd + hh + mm;",
+          "}",
+          "function decodeMaybeHex(v){",
+          "  const s = String(v || '').trim();",
+          "  if(!s) return CryptoJS.enc.Utf8.parse('');",
+          "  if(/^[0-9a-fA-F]+$/.test(s) && s.length % 2 === 0){",
+          "    return CryptoJS.enc.Hex.parse(s);",
+          "  }",
+          "  return CryptoJS.enc.Utf8.parse(s);",
+          "}",
+          "function normalizeWordArray(wa, targetBytes){",
+          "  let hex = CryptoJS.enc.Hex.stringify(wa || CryptoJS.lib.WordArray.create());",
+          "  if(hex.length > targetBytes * 2) hex = hex.slice(0, targetBytes * 2);",
+          "  while(hex.length < targetBytes * 2) hex += '30';",
+          "  return CryptoJS.enc.Hex.parse(hex);",
+          "}",
+          "",
+          "const reqId = generateRequestId();",
+          "pm.collectionVariables.set('ba_request_id', reqId);",
+          "",
+          "const plainPayload = pm.collectionVariables.get('ba_plain_payload') || '{}';",
+          "const keyInput = pm.collectionVariables.get('ba_working_key') || '';",
+          "const ivInput = pm.collectionVariables.get('ba_iv') || '';",
+          "",
+          "const key = normalizeWordArray(decodeMaybeHex(keyInput), 16);",
+          "const iv = normalizeWordArray(decodeMaybeHex(ivInput), 16);",
+          "const encrypted = CryptoJS.AES.encrypt(",
+          "  CryptoJS.enc.Utf8.parse(plainPayload),",
+          "  key,",
+          "  { iv: iv, mode: CryptoJS.mode.CBC, padding: CryptoJS.pad.Pkcs7 }",
+          ").ciphertext.toString(CryptoJS.enc.Base64);",
+          "",
+          "pm.collectionVariables.set('ba_enc_request', encrypted);"
+        ]
+      }
+    },
+    {
+      "listen": "test",
+      "script": {
+        "type": "text/javascript",
+        "exec": [
+          "pm.collectionVariables.set('ba_last_status', String(pm.response.code || ''));",
+          "pm.collectionVariables.set('ba_last_response_text', pm.response.text());",
+          "pm.test('HTTP response received', function(){ pm.expect(pm.response.code).to.be.oneOf([200, 400, 401, 403, 404, 500]); });"
+        ]
+      }
+    }
+  ],
+  "item": [
+    {
+      "name": "1) MDM / Biller Info (Form Mode)",
+      "event": [
+        {
+          "listen": "prerequest",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.collectionVariables.set('ba_plain_payload', JSON.stringify({",
+              "  agentId: pm.collectionVariables.get('ba_agent_id_agt')",
+              "}));",
+              "pm.collectionVariables.set('ba_ver_active', pm.collectionVariables.get('ba_ver_default'));"
+            ]
+          }
+        }
+      ],
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/x-www-form-urlencoded"
+          }
+        ],
+        "body": {
+          "mode": "urlencoded",
+          "urlencoded": [
+            {
+              "key": "accessCode",
+              "value": "{{ba_access_code}}",
+              "type": "text"
+            },
+            {
+              "key": "requestId",
+              "value": "{{ba_request_id}}",
+              "type": "text"
+            },
+            {
+              "key": "encRequest",
+              "value": "{{ba_enc_request}}",
+              "type": "text"
+            },
+            {
+              "key": "ver",
+              "value": "{{ba_ver_active}}",
+              "type": "text"
+            },
+            {
+              "key": "instituteId",
+              "value": "{{ba_institute_id}}",
+              "type": "text"
+            }
+          ]
+        },
+        "url": {
+          "raw": "{{ba_base_url}}/billpay/extMdmCntrl/mdmRequestNew/json",
+          "host": [
+            "{{ba_base_url}}"
+          ],
+          "path": [
+            "billpay",
+            "extMdmCntrl",
+            "mdmRequestNew",
+            "json"
+          ]
+        },
+        "description": "Primary MDM check. If this returns access denied, ask BillAvenue to enable endpoint entitlement."
+      }
+    },
+    {
+      "name": "2) Bill Fetch",
+      "event": [
+        {
+          "listen": "prerequest",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.collectionVariables.set('ba_plain_payload', JSON.stringify({",
+              "  agentId: pm.collectionVariables.get('ba_agent_id_agt'),",
+              "  billerId: pm.collectionVariables.get('ba_biller_id'),",
+              "  billerAdhoc: false,",
+              "  customerInfo: { customerMobile: pm.collectionVariables.get('ba_customer_mobile') },",
+              "  inputParams: { input: [",
+              "    { paramName: pm.collectionVariables.get('ba_param_name_1'), paramValue: pm.collectionVariables.get('ba_param_value_1') }",
+              "  ] },",
+              "  agentDeviceInfo: {}",
+              "}));",
+              "pm.collectionVariables.set('ba_ver_active', pm.collectionVariables.get('ba_ver_default'));"
+            ]
+          }
+        }
+      ],
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/x-www-form-urlencoded"
+          }
+        ],
+        "body": {
+          "mode": "urlencoded",
+          "urlencoded": [
+            { "key": "accessCode", "value": "{{ba_access_code}}", "type": "text" },
+            { "key": "requestId", "value": "{{ba_request_id}}", "type": "text" },
+            { "key": "encRequest", "value": "{{ba_enc_request}}", "type": "text" },
+            { "key": "ver", "value": "{{ba_ver_active}}", "type": "text" },
+            { "key": "instituteId", "value": "{{ba_institute_id}}", "type": "text" }
+          ]
+        },
+        "url": {
+          "raw": "{{ba_base_url}}/billpay/extBillCntrl/billFetchRequest/json",
+          "host": ["{{ba_base_url}}"],
+          "path": ["billpay", "extBillCntrl", "billFetchRequest", "json"]
+        }
+      }
+    },
+    {
+      "name": "3) Bill Pay",
+      "event": [
+        {
+          "listen": "prerequest",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.collectionVariables.set('ba_plain_payload', JSON.stringify({",
+              "  agentId: pm.collectionVariables.get('ba_agent_id_agt'),",
+              "  billerId: pm.collectionVariables.get('ba_biller_id'),",
+              "  customerInfo: { customerMobile: pm.collectionVariables.get('ba_customer_mobile') },",
+              "  inputParams: { input: [",
+              "    { paramName: pm.collectionVariables.get('ba_param_name_1'), paramValue: pm.collectionVariables.get('ba_param_value_1') }",
+              "  ] },",
+              "  billerAdhoc: false,",
+              "  initChannel: 'AGT',",
+              "  paymentMethod: 'Cash',",
+              "  amount: pm.collectionVariables.get('ba_amount_paise'),",
+              "  paymentInfo: {",
+              "    paymentRefId: pm.collectionVariables.get('ba_payment_ref'),",
+              "    remarks: 'Postman UAT test',",
+              "    requestId: pm.collectionVariables.get('ba_request_id')",
+              "  },",
+              "  agentDeviceInfo: {}",
+              "}));",
+              "pm.collectionVariables.set('ba_ver_active', pm.collectionVariables.get('ba_ver_default'));"
+            ]
+          }
+        }
+      ],
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/x-www-form-urlencoded"
+          }
+        ],
+        "body": {
+          "mode": "urlencoded",
+          "urlencoded": [
+            { "key": "accessCode", "value": "{{ba_access_code}}", "type": "text" },
+            { "key": "requestId", "value": "{{ba_request_id}}", "type": "text" },
+            { "key": "encRequest", "value": "{{ba_enc_request}}", "type": "text" },
+            { "key": "ver", "value": "{{ba_ver_active}}", "type": "text" },
+            { "key": "instituteId", "value": "{{ba_institute_id}}", "type": "text" }
+          ]
+        },
+        "url": {
+          "raw": "{{ba_base_url}}/billpay/extBillPayCntrl/billPayRequest/json",
+          "host": ["{{ba_base_url}}"],
+          "path": ["billpay", "extBillPayCntrl", "billPayRequest", "json"]
+        }
+      }
+    },
+    {
+      "name": "4) Transaction Status",
+      "event": [
+        {
+          "listen": "prerequest",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.collectionVariables.set('ba_plain_payload', JSON.stringify({",
+              "  trackingType: 'REQUESTID',",
+              "  trackingValue: pm.collectionVariables.get('ba_track_request_id')",
+              "}));",
+              "pm.collectionVariables.set('ba_ver_active', pm.collectionVariables.get('ba_ver_default'));"
+            ]
+          }
+        }
+      ],
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/x-www-form-urlencoded"
+          }
+        ],
+        "body": {
+          "mode": "urlencoded",
+          "urlencoded": [
+            { "key": "accessCode", "value": "{{ba_access_code}}", "type": "text" },
+            { "key": "requestId", "value": "{{ba_request_id}}", "type": "text" },
+            { "key": "encRequest", "value": "{{ba_enc_request}}", "type": "text" },
+            { "key": "ver", "value": "{{ba_ver_active}}", "type": "text" },
+            { "key": "instituteId", "value": "{{ba_institute_id}}", "type": "text" }
+          ]
+        },
+        "url": {
+          "raw": "{{ba_base_url}}/billpay/transactionstatus/fetchinfo/json",
+          "host": ["{{ba_base_url}}"],
+          "path": ["billpay", "transactionstatus", "fetchinfo", "json"]
+        }
+      }
+    },
+    {
+      "name": "5) Complaint Register (ver 2.0)",
+      "event": [
+        {
+          "listen": "prerequest",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.collectionVariables.set('ba_plain_payload', JSON.stringify({",
+              "  txnRefId: pm.collectionVariables.get('ba_txn_ref_id'),",
+              "  complaintDesc: 'Test complaint from Postman',",
+              "  complaintDisposition: 'Need support'",
+              "}));",
+              "pm.collectionVariables.set('ba_ver_active', pm.collectionVariables.get('ba_ver_complaint'));"
+            ]
+          }
+        }
+      ],
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/x-www-form-urlencoded"
+          }
+        ],
+        "body": {
+          "mode": "urlencoded",
+          "urlencoded": [
+            { "key": "accessCode", "value": "{{ba_access_code}}", "type": "text" },
+            { "key": "requestId", "value": "{{ba_request_id}}", "type": "text" },
+            { "key": "encRequest", "value": "{{ba_enc_request}}", "type": "text" },
+            { "key": "ver", "value": "{{ba_ver_active}}", "type": "text" },
+            { "key": "instituteId", "value": "{{ba_institute_id}}", "type": "text" }
+          ]
+        },
+        "url": {
+          "raw": "{{ba_base_url}}/billpay/extComplaints/register/json",
+          "host": ["{{ba_base_url}}"],
+          "path": ["billpay", "extComplaints", "register", "json"]
+        }
+      }
+    },
+    {
+      "name": "6) Complaint Track (ver 2.0)",
+      "event": [
+        {
+          "listen": "prerequest",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.collectionVariables.set('ba_plain_payload', JSON.stringify({",
+              "  complaintId: pm.collectionVariables.get('ba_complaint_id')",
+              "}));",
+              "pm.collectionVariables.set('ba_ver_active', pm.collectionVariables.get('ba_ver_complaint'));"
+            ]
+          }
+        }
+      ],
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/x-www-form-urlencoded"
+          }
+        ],
+        "body": {
+          "mode": "urlencoded",
+          "urlencoded": [
+            { "key": "accessCode", "value": "{{ba_access_code}}", "type": "text" },
+            { "key": "requestId", "value": "{{ba_request_id}}", "type": "text" },
+            { "key": "encRequest", "value": "{{ba_enc_request}}", "type": "text" },
+            { "key": "ver", "value": "{{ba_ver_active}}", "type": "text" },
+            { "key": "instituteId", "value": "{{ba_institute_id}}", "type": "text" }
+          ]
+        },
+        "url": {
+          "raw": "{{ba_base_url}}/billpay/extComplaints/track/json",
+          "host": ["{{ba_base_url}}"],
+          "path": ["billpay", "extComplaints", "track", "json"]
+        }
+      }
+    },
+    {
+      "name": "7) Plan Pull",
+      "event": [
+        {
+          "listen": "prerequest",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.collectionVariables.set('ba_plain_payload', JSON.stringify({",
+              "  billerId: [pm.collectionVariables.get('ba_biller_id')]",
+              "}));",
+              "pm.collectionVariables.set('ba_ver_active', pm.collectionVariables.get('ba_ver_default'));"
+            ]
+          }
+        }
+      ],
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/x-www-form-urlencoded"
+          }
+        ],
+        "body": {
+          "mode": "urlencoded",
+          "urlencoded": [
+            { "key": "accessCode", "value": "{{ba_access_code}}", "type": "text" },
+            { "key": "requestId", "value": "{{ba_request_id}}", "type": "text" },
+            { "key": "encRequest", "value": "{{ba_enc_request}}", "type": "text" },
+            { "key": "ver", "value": "{{ba_ver_active}}", "type": "text" },
+            { "key": "instituteId", "value": "{{ba_institute_id}}", "type": "text" }
+          ]
+        },
+        "url": {
+          "raw": "{{ba_base_url}}/billpay/extPlanMDM/planMdmRequest/json",
+          "host": ["{{ba_base_url}}"],
+          "path": ["billpay", "extPlanMDM", "planMdmRequest", "json"]
+        }
+      }
+    },
+    {
+      "name": "8) Deposit Enquiry (PROD only usually)",
+      "event": [
+        {
+          "listen": "prerequest",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.collectionVariables.set('ba_plain_payload', JSON.stringify({",
+              "  fromDate: pm.collectionVariables.get('ba_from_date'),",
+              "  toDate: pm.collectionVariables.get('ba_to_date'),",
+              "  transType: '',",
+              "  agents: [pm.collectionVariables.get('ba_agent_id_agt')],",
+              "  requestId: pm.collectionVariables.get('ba_request_id'),",
+              "  transactionId: ''",
+              "}));",
+              "pm.collectionVariables.set('ba_ver_active', pm.collectionVariables.get('ba_ver_default'));"
+            ]
+          }
+        }
+      ],
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/x-www-form-urlencoded"
+          }
+        ],
+        "body": {
+          "mode": "urlencoded",
+          "urlencoded": [
+            { "key": "accessCode", "value": "{{ba_access_code}}", "type": "text" },
+            { "key": "requestId", "value": "{{ba_request_id}}", "type": "text" },
+            { "key": "encRequest", "value": "{{ba_enc_request}}", "type": "text" },
+            { "key": "ver", "value": "{{ba_ver_active}}", "type": "text" },
+            { "key": "instituteId", "value": "{{ba_institute_id}}", "type": "text" }
+          ]
+        },
+        "url": {
+          "raw": "{{ba_base_url}}/billpay/enquireDeposit/fetchDetails/json",
+          "host": ["{{ba_base_url}}"],
+          "path": ["billpay", "enquireDeposit", "fetchDetails", "json"]
+        }
+      }
+    }
+  ],
+  "variable": [
+    { "key": "ba_base_url", "value": "https://stgapi.billavenue.com" },
+    { "key": "ba_access_code", "value": "AVXQ74II24QZ46CCXK" },
+    { "key": "ba_institute_id", "value": "PI39" },
+    { "key": "ba_working_key", "value": "EFA0E59225E69D0A3F32C8847E3ED5D6" },
+    { "key": "ba_iv", "value": "IV" },
+    { "key": "ba_agent_id_agt", "value": "CC01CC01513515340681" },
+    { "key": "ba_ver_default", "value": "1.0" },
+    { "key": "ba_ver_complaint", "value": "2.0" },
+    { "key": "ba_ver_active", "value": "1.0" },
+    { "key": "ba_request_id", "value": "" },
+    { "key": "ba_enc_request", "value": "" },
+    { "key": "ba_plain_payload", "value": "{}" },
+    { "key": "ba_biller_id", "value": "BILLERID1" },
+    { "key": "ba_customer_mobile", "value": "9876543210" },
+    { "key": "ba_param_name_1", "value": "Customer Number" },
+    { "key": "ba_param_value_1", "value": "1234567890" },
+    { "key": "ba_amount_paise", "value": "10000" },
+    { "key": "ba_payment_ref", "value": "PMBBPSTEST001" },
+    { "key": "ba_track_request_id", "value": "" },
+    { "key": "ba_txn_ref_id", "value": "" },
+    { "key": "ba_complaint_id", "value": "" },
+    { "key": "ba_from_date", "value": "2026-04-01" },
+    { "key": "ba_to_date", "value": "2026-04-30" },
+    { "key": "ba_last_status", "value": "" },
+    { "key": "ba_last_response_text", "value": "" }
+  ]
+}

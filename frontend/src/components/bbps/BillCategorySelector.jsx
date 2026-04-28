@@ -1,5 +1,6 @@
-import React from 'react';
+import React, { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
+import { bbpsAPI } from '../../services/api';
 import { 
   FaCreditCard, 
   FaBolt, 
@@ -18,7 +19,7 @@ import {
   FaCreditCard as FaLoan
 } from 'react-icons/fa6';
 
-const categories = [
+const DEFAULT_CATEGORIES = [
   { id: 'credit-card', name: 'Credit Card', icon: FaCreditCard },
   { id: 'electricity', name: 'Electricity', icon: FaBolt },
   { id: 'insurance', name: 'Insurance', icon: FaShield },
@@ -38,6 +39,28 @@ const categories = [
 
 const BillCategorySelector = ({ selectedCategory }) => {
   const navigate = useNavigate();
+  const [categories, setCategories] = useState(DEFAULT_CATEGORIES);
+
+  useEffect(() => {
+    const loadCategories = async () => {
+      const res = await bbpsAPI.getCategories();
+      const rows = Array.isArray(res.data?.categories) ? res.data.categories : [];
+      if (res.success && rows.length > 0) {
+        const mapped = rows.map((r) => {
+          const id = String(r.id || '').trim();
+          return {
+            id,
+            name: r.name || id,
+            icon: (DEFAULT_CATEGORIES.find((c) => c.id === id) || {}).icon || FaMoneyBillWave,
+          };
+        });
+        setCategories(mapped);
+      } else {
+        setCategories([]);
+      }
+    };
+    loadCategories();
+  }, []);
 
   const handleCategoryClick = (categoryId) => {
     navigate(`/bill-payments/pay/${categoryId}`);
@@ -45,6 +68,11 @@ const BillCategorySelector = ({ selectedCategory }) => {
 
   return (
     <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
+      {categories.length === 0 && (
+        <div className="col-span-full text-sm text-amber-800 bg-amber-50 border border-amber-200 rounded-lg p-3">
+          No active BBPS categories found. Complete admin governance setup and MDM sync first.
+        </div>
+      )}
       {categories.map((category) => {
         const Icon = category.icon;
         const isSelected = selectedCategory === category.id;

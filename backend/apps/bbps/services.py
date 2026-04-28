@@ -1,18 +1,22 @@
-"""
-BBPS business logic services.
-"""
-from django.db import transaction as db_transaction
+"""BBPS business logic services."""
+from django.db import models, transaction as db_transaction
 from decimal import Decimal
 from django.conf import settings
-from apps.bbps.models import Biller, Bill, BillPayment
-from apps.wallets.models import Wallet
-from apps.transactions.agent_snapshot import passbook_initiator_db_fields, transaction_agent_db_fields
-from apps.transactions.models import Transaction, PassbookEntry
-from apps.core.utils import generate_service_id
-from apps.core.exceptions import InsufficientBalance, TransactionFailed
+from django.core.cache import cache
+from apps.bbps.models import (
+    BbpsBillerInputParam,
+    BbpsBillerMaster,
+    BbpsCategoryCommissionRule,
+    BbpsProviderBillerMap,
+    BbpsServiceCategory,
+)
 from apps.integrations.bbps_client import BBPSClient
 import random
 import string
+
+
+def normalize_category_code(category: str) -> str:
+    return str(category or '').strip().lower().replace('_', '-')
 
 
 def calculate_bbps_charge(amount):
@@ -40,176 +44,169 @@ def generate_request_id():
     return ''.join(random.choices(chars, k=20))
 
 
-def fetch_bill(biller_name, category, **kwargs):
-    """
-    Fetch bill details from BBPS.
-    
-    Args:
-        biller_name: Name of the biller
-        category: Bill category
-        **kwargs: Category-specific parameters
-    
-    Returns:
-        Bill object or None
-    """
-    # Try to get biller
-    try:
-        biller = Biller.objects.get(name__icontains=biller_name, category=category, is_active=True)
-    except Biller.DoesNotExist:
-        # Create a mock biller if not found
-        biller = Biller.objects.create(
-            name=biller_name,
-            category=category,
-            biller_id=f"BILLER_{category.upper()}_{random.randint(1000, 9999)}"
-        )
-    
-    # Fetch bill via BBPS client (with mock fallback)
-    bbps_client = BBPSClient()
-    
-    try:
-        bill_data = bbps_client.fetch_bill(biller.biller_id, category, **kwargs)
-    except Exception:
-        # Mock bill data for development
-        bill_data = {
-            'amount': Decimal('1000.00'),
-            'due_date': None,
-            'customer_details': kwargs
-        }
-    
-    # Create bill record
-    bill = Bill.objects.create(
-        biller=biller,
-        customer_details=kwargs,
-        amount=bill_data.get('amount', Decimal('1000.00')),
-        due_date=bill_data.get('due_date'),
-        status='pending'
-    )
-    
-    return bill
+def fetch_bill(*args, **kwargs):
+    """Legacy path intentionally disabled after BillAvenue hard cutover."""
+    raise RuntimeError('Legacy BBPS fetch_bill() path disabled. Use service_flow.fetch_bill_with_cache().')
 
 
 @db_transaction.atomic
-def process_bill_payment(user, bill_data):
-    """
-    Process bill payment.
-    
-    Args:
-        user: User object
-        bill_data: Dictionary containing bill payment data
-    
-    Returns:
-        BillPayment object
-    """
-    amount = Decimal(str(bill_data['amount']))
-    charge_info = calculate_bbps_charge(amount)
-    
-    # Check BBPS wallet balance
-    bbps_wallet = Wallet.get_wallet(user, 'bbps')
-    if bbps_wallet.balance < charge_info['total_deducted']:
-        raise InsufficientBalance(
-            f"Insufficient BBPS wallet balance. Available: ₹{bbps_wallet.balance}, Required: ₹{charge_info['total_deducted']}"
-        )
-    
-    # Create bill payment record
-    bill_payment = BillPayment.objects.create(
-        user=user,
-        biller=bill_data.get('biller', ''),
-        biller_id=bill_data.get('biller_id', ''),
-        bill_type=bill_data.get('bill_type', ''),
-        amount=amount,
-        charge=charge_info['charge'],
-        total_deducted=charge_info['total_deducted'],
-        status='PENDING',
-        service_id=generate_service_id('bbps'),
-        request_id=generate_request_id()
-    )
-    
-    # Process payment via BBPS client
-    bbps_client = BBPSClient()
-    
-    try:
-        # In production, integrate with actual BBPS API
-        payment_result = bbps_client.process_payment(
-            bill_payment.service_id,
-            bill_payment.request_id,
-            amount,
-            bill_data
-        )
-        
-        if payment_result.get('status') == 'SUCCESS':
-            bill_payment.status = 'SUCCESS'
-            bill_payment.save(update_fields=['status'])
-            
-            # Debit BBPS wallet
-            opening_balance = bbps_wallet.balance
-            bbps_wallet.debit(charge_info['total_deducted'], reference=bill_payment.service_id)
-            closing_balance = bbps_wallet.balance
-            
-            # Create transaction record
-            Transaction.objects.create(
-                user=user,
-                transaction_type='bbps',
-                amount=amount,
-                charge=charge_info['charge'],
-                status='SUCCESS',
-                service_id=bill_payment.service_id,
-                request_id=bill_payment.request_id,
-                bill_type=bill_data.get('bill_type', ''),
-                biller=bill_data.get('biller', ''),
-                service_family='bbps',
-                **transaction_agent_db_fields(user),
-            )
-
-            # Create passbook entry
-            PassbookEntry.objects.create(
-                user=user,
-                wallet_type='bbps',
-                service='BBPS',
-                service_id=bill_payment.service_id,
-                description=f"PAID FOR {bill_data.get('bill_type', 'BILL PAYMENT')}, BILLER: {bill_data.get('biller', 'N/A')}, AMOUNT: {amount}, CHARGE: {charge_info['charge']}",
-                debit_amount=charge_info['total_deducted'],
-                credit_amount=Decimal('0.00'),
-                opening_balance=opening_balance,
-                closing_balance=closing_balance,
-                service_charge=charge_info['charge'],
-                principal_amount=amount,
-                **passbook_initiator_db_fields(user),
-            )
-            
-            return bill_payment
-        else:
-            bill_payment.status = 'FAILED'
-            bill_payment.failure_reason = payment_result.get('message', 'Payment failed')
-            bill_payment.save(update_fields=['status', 'failure_reason'])
-            raise TransactionFailed(payment_result.get('message', 'Payment failed'))
-    except Exception as e:
-        bill_payment.status = 'FAILED'
-        bill_payment.failure_reason = str(e)
-        bill_payment.save(update_fields=['status', 'failure_reason'])
-        raise TransactionFailed(f"Bill payment failed: {str(e)}")
+def process_bill_payment(*args, **kwargs):
+    """Legacy path intentionally disabled after BillAvenue hard cutover."""
+    raise RuntimeError('Legacy BBPS process_bill_payment() path disabled. Use service_flow.process_bill_payment_flow().')
 
 
 def get_bill_categories():
-    """Get list of bill categories."""
-    return [
-        {'id': 'credit-card', 'name': 'Credit Card'},
-        {'id': 'electricity', 'name': 'Electricity'},
-        {'id': 'insurance', 'name': 'Insurance'},
-        {'id': 'mobile-recharge', 'name': 'Mobile Recharge'},
-        {'id': 'dth', 'name': 'DTH'},
-        {'id': 'fasttag', 'name': 'FASTag'},
-        {'id': 'water', 'name': 'Water'},
-        {'id': 'gas', 'name': 'Piped Gas'},
-        {'id': 'municipal-tax', 'name': 'Municipal Tax'},
-        {'id': 'education', 'name': 'Education'},
-        {'id': 'loan-emi', 'name': 'Loan EMI'},
-        {'id': 'broadband', 'name': 'Broadband'},
-        {'id': 'landline', 'name': 'Landline Postpaid'},
-        {'id': 'housing', 'name': 'Housing'},
-        {'id': 'subscriptions', 'name': 'Subscriptions'},
-    ]
+    """Get list of categories from governance catalog only."""
+    rows = BbpsServiceCategory.objects.filter(is_deleted=False, is_active=True).order_by('display_order', 'name')
+    return [{'id': normalize_category_code(r.code), 'name': r.name} for r in rows]
 
 
 def get_billers_by_category(category):
-    """Get billers for a specific category."""
-    return Biller.objects.filter(category=category, is_active=True)
+    """Get billers for a specific category from provider-mapped biller master only."""
+    norm = normalize_category_code(category)
+    mapped = BbpsProviderBillerMap.objects.filter(
+        is_deleted=False,
+        is_active=True,
+        provider__is_deleted=False,
+        provider__is_active=True,
+        provider__category__is_deleted=False,
+        provider__category__is_active=True,
+        provider__category__code__iexact=norm,
+        biller_master__is_deleted=False,
+    ).select_related('biller_master')
+    biller_ids = [m.biller_master.biller_id for m in mapped]
+    if biller_ids:
+        masters = (
+            BbpsBillerMaster.objects.filter(is_deleted=False, biller_id__in=biller_ids)
+            .order_by('biller_name')
+        )
+        return [
+            {
+                'id': m.pk,
+                'biller_id': m.biller_id,
+                'name': m.biller_name,
+                'biller_name': m.biller_name,
+                'category': m.biller_category,
+                'status': m.biller_status,
+                'fetch_requirement': m.biller_fetch_requirement,
+                'last_synced_at': m.last_synced_at,
+            }
+            for m in masters
+        ]
+    return []
+
+
+def get_biller_input_schema(biller_id: str) -> list[dict]:
+    master = BbpsBillerMaster.objects.filter(is_deleted=False, biller_id=biller_id).first()
+    if not master:
+        return []
+    params = BbpsBillerInputParam.objects.filter(is_deleted=False, biller=master).order_by('display_order', 'id')
+    return [
+        {
+            'param_name': p.param_name,
+            'data_type': p.data_type,
+            'is_optional': p.is_optional,
+            'min_length': p.min_length,
+            'max_length': p.max_length,
+            'regex': p.regex,
+            'visibility': p.visibility,
+            'default_values': p.default_values,
+        }
+        for p in params
+    ]
+
+
+def get_providers_by_category(category):
+    """List service providers with mapped billers for the category."""
+    norm = normalize_category_code(category)
+    cache_key = f'bbps:providers:{norm}'
+    cached = cache.get(cache_key)
+    if cached is not None:
+        return cached
+    maps = BbpsProviderBillerMap.objects.filter(
+        is_deleted=False,
+        is_active=True,
+        provider__is_deleted=False,
+        provider__is_active=True,
+        provider__category__is_deleted=False,
+        provider__category__is_active=True,
+        provider__category__code__iexact=norm,
+        biller_master__is_deleted=False,
+    ).select_related('provider', 'provider__category', 'biller_master').order_by(
+        'provider__priority', 'priority', 'provider__name'
+    )
+    out = {}
+    for row in maps:
+        p = row.provider
+        key = p.pk
+        if key not in out:
+            out[key] = {
+                'provider_id': p.pk,
+                'provider_code': p.code,
+                'provider_name': p.name,
+                'provider_type': p.provider_type,
+                'category': p.category.code,
+                'biller_options': [],
+            }
+        out[key]['biller_options'].append(
+            {
+                'map_id': row.pk,
+                'biller_id': row.biller_master.biller_id,
+                'biller_name': row.biller_master.biller_name,
+                'biller_category': row.biller_master.biller_category,
+                'priority': row.priority,
+            }
+        )
+    payload = list(out.values())
+    cache.set(cache_key, payload, timeout=300)
+    return payload
+
+
+def get_setup_readiness() -> dict:
+    from apps.integrations.models import BillAvenueAgentProfile, BillAvenueConfig  # local import to avoid circulars
+
+    cfg = BillAvenueConfig.objects.filter(is_deleted=False, enabled=True, is_active=True).first()
+    profile_count = 0
+    if cfg:
+        profile_count = BillAvenueAgentProfile.objects.filter(config=cfg, is_deleted=False, enabled=True).count()
+
+    mdm_count = BbpsBillerMaster.objects.filter(is_deleted=False).count()
+    provider_count = BbpsProviderBillerMap.objects.filter(
+        is_deleted=False,
+        provider__is_deleted=False,
+        provider__is_active=True,
+    ).values('provider_id').distinct().count()
+    mapping_count = BbpsProviderBillerMap.objects.filter(is_deleted=False, is_active=True).count()
+    active_rule_count = BbpsCategoryCommissionRule.objects.filter(is_deleted=False, is_active=True).count()
+    active_rules_by_category = list(
+        BbpsCategoryCommissionRule.objects.filter(is_deleted=False, is_active=True)
+        .values('category__code')
+        .order_by('category__code')
+        .annotate(count=models.Count('id'))
+    )
+
+    checks = [
+        {'key': 'active_config', 'ok': bool(cfg), 'message': 'Active enabled BillAvenue config'},
+        {'key': 'agent_profile', 'ok': profile_count > 0, 'message': 'At least one enabled agent profile'},
+        {'key': 'mdm_billers', 'ok': mdm_count > 0, 'message': 'MDM biller cache available'},
+        {'key': 'providers', 'ok': provider_count > 0, 'message': 'Provider master has entries'},
+        {'key': 'mappings', 'ok': mapping_count > 0, 'message': 'Provider-biller mappings exist'},
+        {'key': 'commission_rules', 'ok': active_rule_count > 0, 'message': 'At least one active commission rule'},
+    ]
+    ok_count = len([c for c in checks if c['ok']])
+    blockers = [c['key'] for c in checks if not c['ok']]
+    return {
+        'score_percent': int((ok_count / len(checks)) * 100),
+        'checks': checks,
+        'go_live_blocked': bool(blockers),
+        'go_live_blockers': blockers,
+        'stats': {
+            'enabled_active_config_id': cfg.pk if cfg else None,
+            'agent_profile_count': profile_count,
+            'mdm_biller_count': mdm_count,
+            'provider_count': provider_count,
+            'mapping_count': mapping_count,
+            'active_commission_rule_count': active_rule_count,
+            'active_rules_by_category': active_rules_by_category,
+        },
+    }
