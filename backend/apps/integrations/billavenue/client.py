@@ -101,6 +101,40 @@ class BillAvenueClient:
         mapping = _ENDPOINTS_BY_KEY.get(endpoint_key) or {}
         return str(mapping.get(v) or mapping.get('json') or '').strip()
 
+    @staticmethod
+    def _looks_like_hex_cipher(text: str) -> bool:
+        s = str(text or '').strip()
+        if not s or len(s) < 32 or (len(s) % 2) != 0:
+            return False
+        return all(ch in '0123456789abcdefABCDEF' for ch in s)
+
+    def _decrypt_and_parse_best_effort(self, cipher_text: str) -> dict | None:
+        raw = str(cipher_text or '').strip()
+        if not raw:
+            return None
+        derivations = []
+        configured = str(getattr(self.config, 'crypto_key_derivation', 'rawhex') or 'rawhex').strip().lower()
+        derivations.append(configured)
+        for alt in ('md5', 'rawhex'):
+            if alt not in derivations:
+                derivations.append(alt)
+        for kd in derivations:
+            try:
+                plain = decrypt_payload_auto(
+                    raw,
+                    working_key=self.config.get_working_key(),
+                    iv=self.config.get_iv(),
+                    key_derivation=kd,
+                )
+                parsed = parse_payload_text(plain)
+                if isinstance(parsed, dict) and parsed and not (
+                    len(parsed) == 1 and 'raw' in parsed and str(parsed.get('raw') or '').strip() == raw
+                ):
+                    return parsed
+            except Exception:
+                continue
+        return None
+
     def _post(
         self,
         *,
@@ -213,6 +247,16 @@ class BillAvenueClient:
                     normalized = data if isinstance(data, dict) else {'raw': data}
             else:
                 normalized = data if isinstance(data, dict) else {'raw': data}
+
+        # Last-pass rescue: some MDM deployments return ciphertext as raw body and may require
+        # alternate key-derivation interpretation despite configured mode.
+        raw_text = ''
+        if isinstance(normalized, dict):
+            raw_text = str(normalized.get('raw') or '')
+        if self._looks_like_hex_cipher(raw_text):
+            rescued = self._decrypt_and_parse_best_effort(raw_text)
+            if rescued:
+                normalized = rescued
 
         raw_text = ''
         if isinstance(normalized, dict):
