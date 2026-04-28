@@ -54,7 +54,6 @@ const BillAvenueSettings = () => {
     const res = await billAvenueAdminAPI.getConfig();
     if (res.success && res.data?.config) {
       const c = { ...res.data.config };
-      if (String(c.mode || '').toLowerCase() === 'mock') c.mode = 'uat';
       setConfigId(c.id);
       setForm((prev) => ({
         ...prev,

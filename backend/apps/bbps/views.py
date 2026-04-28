@@ -46,6 +46,8 @@ from apps.bbps.serializers import (
     TransactionQuerySerializer,
 )
 from apps.bbps.services import (
+    governance_block_reasons_for_map,
+    governance_readiness_for_biller,
     get_bill_categories,
     get_biller_input_schema,
     get_billers_by_category,
@@ -167,6 +169,9 @@ def quote_view(request):
         return Response({'success': False, 'data': None, 'message': 'amount is required', 'errors': []}, status=400)
     if not biller_id:
         return Response({'success': False, 'data': None, 'message': 'biller_id is required', 'errors': []}, status=400)
+    readiness = governance_readiness_for_biller(biller_id)
+    if not readiness.get('allowed'):
+        return Response({'success': False, 'data': None, 'message': 'Service unavailable until admin approval', 'errors': readiness.get('blocked_by', [])}, status=400)
     try:
         amount_dec = Decimal(str(amount))
         if amount_dec <= 0:
@@ -234,6 +239,14 @@ def fetch_bill_view(request):
                     'data': None,
                     'message': 'biller_id is required for live BillAvenue bill fetch',
                     'errors': []
+                }, status=status.HTTP_400_BAD_REQUEST)
+            readiness = governance_readiness_for_biller(biller_id)
+            if not readiness.get('allowed'):
+                return Response({
+                    'success': False,
+                    'data': None,
+                    'message': 'Service unavailable until admin approval',
+                    'errors': readiness.get('blocked_by', []),
                 }, status=status.HTTP_400_BAD_REQUEST)
 
             input_map = {}
@@ -303,6 +316,14 @@ def pay_bill_view(request):
         try:
             payload = dict(serializer.validated_data)
             if payload.get('biller_id'):
+                readiness = governance_readiness_for_biller(payload.get('biller_id'))
+                if not readiness.get('allowed'):
+                    return Response({
+                        'success': False,
+                        'data': None,
+                        'message': 'Service unavailable until admin approval',
+                        'errors': readiness.get('blocked_by', []),
+                    }, status=status.HTTP_400_BAD_REQUEST)
                 if payload.get('service_id') in (None, ''):
                     payload['service_id'] = f"PMBBPS{timezone.now().strftime('%Y%m%d%H%M%S')}"
                 if not payload.get('agent_id'):
@@ -669,6 +690,11 @@ def governance_ops_summary_view(request):
         provider_maps__is_active=True,
     ).count()
     inactive_categories = BbpsServiceCategory.objects.filter(is_deleted=False, is_active=False).count()
+    missing_rule_categories = list(
+        BbpsServiceCategory.objects.filter(is_deleted=False, is_active=True)
+        .exclude(commission_rules__is_deleted=False, commission_rules__is_active=True)
+        .values_list('code', flat=True)
+    )
     conflicting_rules = 0
     # lightweight conflict check per category
     for cat in BbpsServiceCategory.objects.filter(is_deleted=False, is_active=True):
@@ -693,6 +719,7 @@ def governance_ops_summary_view(request):
                 'stale_billers': stale_billers,
                 'unmapped_billers': unmapped_billers,
                 'inactive_categories': inactive_categories,
+                'categories_missing_active_rule': missing_rule_categories,
                 'conflicting_rule_windows': conflicting_rules,
             },
             'message': 'Governance ops summary retrieved successfully',
@@ -702,6 +729,24 @@ def governance_ops_summary_view(request):
     )
 
 
+def _approval_status(entity) -> str:
+    if not hasattr(entity, 'metadata'):
+        return 'approved' if getattr(entity, 'is_active', False) else 'pending'
+    md = dict(getattr(entity, 'metadata', {}) or {})
+    status = str(md.get('approval_status') or '').strip().lower()
+    if status in ('pending', 'approved', 'rejected'):
+        return status
+    return 'approved' if getattr(entity, 'is_active', False) else 'pending'
+
+
+def _set_approval_status(entity, status_value: str):
+    if not hasattr(entity, 'metadata'):
+        return
+    md = dict(getattr(entity, 'metadata', {}) or {})
+    md['approval_status'] = status_value
+    entity.metadata = md
+
+
 @api_view(['GET', 'POST'])
 @permission_classes([IsAuthenticated, IsAdmin])
 def service_categories_view(request):
@@ -709,6 +754,9 @@ def service_categories_view(request):
         return Response({'success': False, 'data': None, 'message': 'Provider governance is disabled', 'errors': []}, status=503)
     if request.method == 'GET':
         rows = BbpsServiceCategory.objects.filter(is_deleted=False).order_by('display_order', 'name')
+        status_filter = str(request.query_params.get('approval') or '').strip().lower()
+        if status_filter in ('pending', 'approved', 'rejected'):
+            rows = [r for r in rows if _approval_status(r) == status_filter]
         return Response(
             {
                 'success': True,
@@ -725,6 +773,7 @@ def service_categories_view(request):
     if not ser.is_valid():
         return Response({'success': False, 'data': None, 'message': 'Invalid service category', 'errors': ser.errors}, status=400)
     row = ser.save()
+    _set_approval_status(row, 'approved' if row.is_active else 'pending')
     _invalidate_provider_cache(row.code)
     return Response({'success': True, 'data': {'category': BbpsServiceCategorySerializer(row).data}, 'message': 'Service category saved', 'errors': []}, status=200 if obj else 201)
 
@@ -736,6 +785,9 @@ def service_providers_view(request):
         return Response({'success': False, 'data': None, 'message': 'Provider governance is disabled', 'errors': []}, status=503)
     if request.method == 'GET':
         rows = BbpsServiceProvider.objects.filter(is_deleted=False).select_related('category').order_by('category__display_order', 'priority', 'name')
+        status_filter = str(request.query_params.get('approval') or '').strip().lower()
+        if status_filter in ('pending', 'approved', 'rejected'):
+            rows = [r for r in rows if _approval_status(r) == status_filter]
         return Response(
             {
                 'success': True,
@@ -751,7 +803,23 @@ def service_providers_view(request):
     ser = BbpsServiceProviderSerializer(obj, data=request.data, partial=bool(obj)) if obj else BbpsServiceProviderSerializer(data=request.data)
     if not ser.is_valid():
         return Response({'success': False, 'data': None, 'message': 'Invalid service provider', 'errors': ser.errors}, status=400)
-    row = ser.save()
+    action = str(request.data.get('action') or '').strip().lower()
+    if obj and action in ('approve', 'reject', 'toggle'):
+        if action == 'approve':
+            obj.is_active = True
+            _set_approval_status(obj, 'approved')
+        elif action == 'reject':
+            obj.is_active = False
+            _set_approval_status(obj, 'rejected')
+        else:
+            obj.is_active = not bool(obj.is_active)
+            _set_approval_status(obj, 'approved' if obj.is_active else 'pending')
+        obj.save(update_fields=['is_active', 'metadata', 'updated_at'])
+        row = obj
+    else:
+        row = ser.save()
+        _set_approval_status(row, 'approved' if row.is_active else 'pending')
+        row.save(update_fields=['metadata', 'updated_at'])
     _invalidate_provider_cache(row.category.code if row.category else '')
     return Response({'success': True, 'data': {'provider': BbpsServiceProviderSerializer(row).data}, 'message': 'Service provider saved', 'errors': []}, status=200 if obj else 201)
 
@@ -763,22 +831,80 @@ def provider_biller_maps_view(request):
         return Response({'success': False, 'data': None, 'message': 'Provider governance is disabled', 'errors': []}, status=503)
     if request.method == 'GET':
         rows = BbpsProviderBillerMap.objects.filter(is_deleted=False).select_related('provider__category', 'biller_master').order_by('provider__category__display_order', 'provider__priority', 'priority')
+        status_filter = str(request.query_params.get('approval') or '').strip().lower()
+        if status_filter in ('pending', 'approved', 'rejected'):
+            rows = [r for r in rows if _approval_status(r) == status_filter]
+        payload = []
+        for row in rows:
+            entry = BbpsProviderBillerMapSerializer(row).data
+            entry['blocked_by'] = governance_block_reasons_for_map(row)
+            entry['approval_status'] = _approval_status(row)
+            payload.append(entry)
         return Response(
             {
                 'success': True,
-                'data': {'maps': BbpsProviderBillerMapSerializer(rows, many=True).data},
+                'data': {'maps': payload},
                 'message': 'Provider-biller maps retrieved successfully',
                 'errors': [],
             },
             status=200,
         )
+    action = str(request.data.get('action') or '').strip().lower()
+    if action == 'bulk_approve':
+        ids = request.data.get('ids') or []
+        qs = BbpsProviderBillerMap.objects.filter(is_deleted=False, id__in=ids).select_related('provider__category', 'biller_master')
+        changed = 0
+        blocked = []
+        for row in qs:
+            reasons = governance_block_reasons_for_map(row)
+            reasons = [r for r in reasons if r not in ('map_inactive', 'provider_inactive', 'category_inactive')]
+            if reasons:
+                blocked.append({'id': row.id, 'blocked_by': reasons})
+                continue
+            row.is_active = True
+            if not row.provider.is_active:
+                row.provider.is_active = True
+                _set_approval_status(row.provider, 'approved')
+                row.provider.save(update_fields=['is_active', 'metadata', 'updated_at'])
+            if not row.provider.category.is_active:
+                row.provider.category.is_active = True
+                _set_approval_status(row.provider.category, 'approved')
+                row.provider.category.save(update_fields=['is_active', 'metadata', 'updated_at'])
+            _set_approval_status(row, 'approved')
+            row.save(update_fields=['is_active', 'metadata', 'updated_at'])
+            changed += 1
+            _invalidate_provider_cache(row.provider.category.code)
+        return Response({'success': True, 'data': {'approved_count': changed, 'blocked': blocked}, 'message': 'Bulk approve completed', 'errors': []}, status=200)
     obj = None
     if request.data.get('id'):
         obj = BbpsProviderBillerMap.objects.filter(pk=request.data.get('id'), is_deleted=False).first()
     ser = BbpsProviderBillerMapSerializer(obj, data=request.data, partial=bool(obj)) if obj else BbpsProviderBillerMapSerializer(data=request.data)
     if not ser.is_valid():
         return Response({'success': False, 'data': None, 'message': 'Invalid provider-biller map', 'errors': ser.errors}, status=400)
-    row = ser.save()
+    if obj and action in ('approve', 'reject', 'toggle'):
+        if action == 'approve':
+            obj.is_active = True
+            if not obj.provider.is_active:
+                obj.provider.is_active = True
+                _set_approval_status(obj.provider, 'approved')
+                obj.provider.save(update_fields=['is_active', 'metadata', 'updated_at'])
+            if not obj.provider.category.is_active:
+                obj.provider.category.is_active = True
+                _set_approval_status(obj.provider.category, 'approved')
+                obj.provider.category.save(update_fields=['is_active', 'metadata', 'updated_at'])
+            _set_approval_status(obj, 'approved')
+        elif action == 'reject':
+            obj.is_active = False
+            _set_approval_status(obj, 'rejected')
+        else:
+            obj.is_active = not bool(obj.is_active)
+            _set_approval_status(obj, 'approved' if obj.is_active else 'pending')
+        obj.save(update_fields=['is_active', 'metadata', 'updated_at'])
+        row = obj
+    else:
+        row = ser.save()
+        _set_approval_status(row, 'approved' if row.is_active else 'pending')
+        row.save(update_fields=['metadata', 'updated_at'])
     _invalidate_provider_cache(row.provider.category.code if row.provider and row.provider.category else '')
     return Response({'success': True, 'data': {'map': BbpsProviderBillerMapSerializer(row).data}, 'message': 'Provider-biller map saved', 'errors': []}, status=200 if obj else 201)
 
@@ -810,7 +936,10 @@ def commission_rules_view(request):
     if not getattr(settings, 'BBPS_PROVIDER_GOVERNANCE_ENABLED', True):
         return Response({'success': False, 'data': None, 'message': 'Provider governance is disabled', 'errors': []}, status=503)
     if request.method == 'GET':
+        include_seeded = str(request.query_params.get('include_seeded') or '').strip().lower() in ('1', 'true', 'yes')
         rows = BbpsCategoryCommissionRule.objects.filter(is_deleted=False).select_related('category').order_by('-is_active', '-effective_from', '-created_at')
+        if not include_seeded:
+            rows = rows.exclude(is_active=False, notes='Seeded default rule')
         return Response(
             {
                 'success': True,

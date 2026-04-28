@@ -12,7 +12,11 @@ from apps.bbps.models import (
     BbpsBillerMaster,
     BbpsBillerPaymentChannelLimit,
     BbpsBillerPaymentModeLimit,
+    BbpsProviderBillerMap,
+    BbpsServiceCategory,
+    BbpsServiceProvider,
 )
+from apps.bbps.services import normalize_category_code
 from apps.integrations.bbps_client import BBPSClient
 from apps.integrations.billavenue.parsers import _get_ci
 from apps.integrations.models import BillAvenueAgentProfile, BillAvenueConfig
@@ -24,7 +28,9 @@ def _as_bool(v) -> bool:
 
 def _field_str(raw: dict, name: str) -> str:
     v = _get_ci(raw, name)
-    return str(v) if v is not None else ''
+    if v is None:
+        return ''
+    return str(v).replace('\x00', '').strip()
 
 
 def _biller_row_has_id(row: dict) -> bool:
@@ -86,6 +92,61 @@ def _iter_billers(payload, _depth: int = 0) -> list[dict]:
     return []
 
 
+def _slug_code(value: str, fallback: str = '') -> str:
+    safe = ''.join(ch.lower() if ch.isalnum() else '-' for ch in str(value or '').strip())
+    safe = '-'.join([token for token in safe.split('-') if token])[:80]
+    return safe or fallback
+
+
+def _upsert_governance_rows(mdm_row: dict, biller_master: BbpsBillerMaster) -> dict[str, bool]:
+    category_label = _field_str(mdm_row, 'billerCategory')
+    category_code = normalize_category_code(category_label)
+    if not category_code:
+        return {'category_created': False, 'provider_created': False, 'map_created': False}
+    category, c_created = BbpsServiceCategory.objects.get_or_create(
+        code=category_code,
+        defaults={
+            'name': category_label or category_code.replace('-', ' ').title(),
+            'description': '',
+            'is_active': False,
+            'display_order': 1000,
+        },
+    )
+    provider_code = _slug_code(f"{category_code}-{biller_master.biller_id}", fallback=_slug_code(biller_master.biller_id, 'provider'))
+    provider, p_created = BbpsServiceProvider.objects.get_or_create(
+        category=category,
+        code=provider_code,
+        defaults={
+            'name': (_field_str(mdm_row, 'billerName') or biller_master.biller_id)[:150],
+            'provider_type': 'bank' if 'credit' in category_code or 'card' in category_code else 'operator',
+            'is_active': False,
+            'priority': 0,
+            'metadata': {'auto_synced': True, 'approval_status': 'pending', 'biller_id': biller_master.biller_id},
+        },
+    )
+    if not p_created:
+        provider.name = (_field_str(mdm_row, 'billerName') or provider.name)[:150]
+        md = dict(provider.metadata or {})
+        md.update({'auto_synced': True, 'biller_id': biller_master.biller_id})
+        provider.metadata = md
+        provider.save(update_fields=['name', 'metadata', 'updated_at'])
+    pb_map, m_created = BbpsProviderBillerMap.objects.get_or_create(
+        provider=provider,
+        biller_master=biller_master,
+        defaults={
+            'is_active': False,
+            'priority': 0,
+            'metadata': {'auto_synced': True, 'approval_status': 'pending'},
+        },
+    )
+    if not m_created:
+        md = dict(pb_map.metadata or {})
+        md.update({'auto_synced': True})
+        pb_map.metadata = md
+        pb_map.save(update_fields=['metadata', 'updated_at'])
+    return {'category_created': c_created, 'provider_created': p_created, 'map_created': m_created}
+
+
 def _config_for_sync_client() -> BillAvenueConfig | None:
     return BillAvenueConfig.objects.filter(
         is_active=True, enabled=True, is_deleted=False, mode__in=['uat', 'prod']
@@ -120,6 +181,7 @@ def sync_biller_info(biller_ids: Iterable[str] | None = None) -> dict:
 
     seen = set()
     updated = 0
+    governance_created = {'categories': 0, 'providers': 0, 'maps': 0}
     for raw in billers:
         if not isinstance(raw, dict):
             continue
@@ -142,7 +204,7 @@ def sync_biller_info(biller_ids: Iterable[str] | None = None) -> dict:
                 'support_pending_status': _field_str(raw, 'supportPendingStatus'),
                 'support_deemed': _field_str(raw, 'supportDeemed'),
                 'biller_timeout': _field_str(raw, 'billerTimeout'),
-                'biller_amount_options': _field_str(raw, 'billerAmountOptions'),
+                'biller_amount_options': _field_str(raw, 'billerAmountOptions')[:100],
                 'recharge_amount_in_validation_request': _field_str(raw, 'rechargeAmountInValidationRequest'),
                 'plan_mdm_requirement': _field_str(raw, 'planMdmRequirement'),
                 'last_synced_at': timezone.now(),
@@ -152,6 +214,10 @@ def sync_biller_info(biller_ids: Iterable[str] | None = None) -> dict:
             },
         )
         updated += 1
+        created_flags = _upsert_governance_rows(raw, m)
+        governance_created['categories'] += int(created_flags['category_created'])
+        governance_created['providers'] += int(created_flags['provider_created'])
+        governance_created['maps'] += int(created_flags['map_created'])
 
         BbpsBillerInputParam.objects.filter(biller=m).delete()
         params_block = _get_ci(raw, 'billerInputParams') or []
@@ -282,6 +348,7 @@ def sync_biller_info(biller_ids: Iterable[str] | None = None) -> dict:
         'agent_id_used': agent_id or None,
         'sample_categories': sample_categories,
         'mapping_ready': bool(len(billers) > 0),
+        'governance_created': governance_created,
     }
     if not billers and isinstance(normalized, dict):
         out['mdm_root_keys'] = sorted([str(k) for k in normalized.keys()])[:40]

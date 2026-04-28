@@ -1237,9 +1237,9 @@ export const billAvenueAdminAPI = {
       return handleError(error);
     }
   },
-  listServiceProviders: async () => {
+  listServiceProviders: async (params = {}) => {
     try {
-      const response = await apiClient.get('/bbps/admin/service-providers/');
+      const response = await apiClient.get('/bbps/admin/service-providers/', { params });
       return extractData(response);
     } catch (error) {
       return handleError(error);
@@ -1261,9 +1261,9 @@ export const billAvenueAdminAPI = {
       return handleError(error);
     }
   },
-  listProviderBillerMaps: async () => {
+  listProviderBillerMaps: async (params = {}) => {
     try {
-      const response = await apiClient.get('/bbps/admin/provider-biller-maps/');
+      const response = await apiClient.get('/bbps/admin/provider-biller-maps/', { params });
       return extractData(response);
     } catch (error) {
       return handleError(error);
@@ -1277,9 +1277,17 @@ export const billAvenueAdminAPI = {
       return handleError(error);
     }
   },
-  listCommissionRules: async () => {
+  approveProviderBillerMapsBulk: async (ids = []) => {
     try {
-      const response = await apiClient.get('/bbps/admin/commission-rules/');
+      const response = await apiClient.post('/bbps/admin/provider-biller-maps/', { action: 'bulk_approve', ids });
+      return extractData(response);
+    } catch (error) {
+      return handleError(error);
+    }
+  },
+  listCommissionRules: async (params = {}) => {
+    try {
+      const response = await apiClient.get('/bbps/admin/commission-rules/', { params });
       return extractData(response);
     } catch (error) {
       return handleError(error);

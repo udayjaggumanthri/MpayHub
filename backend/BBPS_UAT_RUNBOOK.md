@@ -1,3 +1,40 @@
+## Approval-First Governance Rollout
+
+### Publish Sequence (Mandatory)
+1. Run sync: `POST /api/bbps/admin/sync-billers/` (or management command flow).
+2. Review pending catalog in admin governance console (`Provider-Biller Approval Queue`).
+3. Approve required maps/providers (single approve or bulk approve).
+4. Verify at least one active commission rule exists per target category.
+5. Refresh provider cache: `POST /api/bbps/admin/cache/refresh-providers/`.
+6. Validate retailer APIs:
+   - `GET /api/bbps/categories/`
+   - `GET /api/bbps/providers/<category>/`
+   - `GET /api/bbps/billers/<category>/`
+
+### Governance Block Reasons
+- `no_rule`: No active commission rule for the category.
+- `category_inactive`: Category not approved/active.
+- `provider_inactive`: Provider not approved/active.
+- `map_inactive`: Mapping not approved/active.
+- `biller_status`: Biller status is not ACTIVE/ENABLED/FLUCTUATING.
+- `stale`: Biller is stale and stale-blocker is enabled.
+
+### Backfill Existing Data
+- Migration `0005_backfill_approval_metadata` auto-labels legacy provider/map rows:
+  - active -> `approval_status=approved`
+  - inactive -> `approval_status=pending`
+- One-time manual command (safe to re-run):
+  - `python manage.py backfill_bbps_governance_approval`
+
+### Troubleshooting Approval-First Visibility
+- Sync success but no category/provider visible to users:
+  - Check governance queue for pending maps.
+  - Check `categories_missing_active_rule` in `GET /api/bbps/admin/governance/ops-summary/`.
+  - Verify biller status from master is one of ACTIVE/ENABLED/FLUCTUATING.
+- Fetch/Pay returns "Service unavailable until admin approval":
+  - Inspect response `errors` array for exact blockers.
+- Bulk approve returns blocked rows:
+  - Resolve `no_rule`, `biller_status`, or `stale` first, then retry.
 # BBPS UAT Runbook (BillAvenue)
 
 ## 1) Prerequisites

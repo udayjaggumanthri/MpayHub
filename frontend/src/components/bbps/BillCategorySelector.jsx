@@ -19,27 +19,27 @@ import {
   FaCreditCard as FaLoan
 } from 'react-icons/fa6';
 
-const DEFAULT_CATEGORIES = [
-  { id: 'credit-card', name: 'Credit Card', icon: FaCreditCard },
-  { id: 'electricity', name: 'Electricity', icon: FaBolt },
-  { id: 'insurance', name: 'Insurance', icon: FaShield },
-  { id: 'mobile-recharge', name: 'Mobile Recharge', icon: FaMobileScreenButton },
-  { id: 'dth', name: 'DTH', icon: FaTv },
-  { id: 'fasttag', name: 'FASTag', icon: FaTag },
-  { id: 'water', name: 'Water', icon: FaDroplet },
-  { id: 'gas', name: 'Piped Gas', icon: FaFireFlameSimple },
-  { id: 'municipal-tax', name: 'Municipal Tax', icon: FaBuilding },
-  { id: 'education', name: 'Education', icon: FaGraduationCap },
-  { id: 'loan-emi', name: 'Loan EMI', icon: FaLoan },
-  { id: 'broadband', name: 'Broadband', icon: FaWifi },
-  { id: 'landline', name: 'Landline Postpaid', icon: FaPhone },
-  { id: 'housing', name: 'Housing', icon: FaHouse },
-  { id: 'subscriptions', name: 'Subscriptions', icon: FaMoneyBillWave },
-];
+const CATEGORY_ICONS = {
+  'credit-card': FaCreditCard,
+  electricity: FaBolt,
+  insurance: FaShield,
+  'mobile-recharge': FaMobileScreenButton,
+  dth: FaTv,
+  fasttag: FaTag,
+  water: FaDroplet,
+  gas: FaFireFlameSimple,
+  'municipal-tax': FaBuilding,
+  education: FaGraduationCap,
+  'loan-emi': FaLoan,
+  broadband: FaWifi,
+  landline: FaPhone,
+  housing: FaHouse,
+  subscriptions: FaMoneyBillWave,
+};
 
 const BillCategorySelector = ({ selectedCategory }) => {
   const navigate = useNavigate();
-  const [categories, setCategories] = useState(DEFAULT_CATEGORIES);
+  const [categories, setCategories] = useState([]);
 
   useEffect(() => {
     const loadCategories = async () => {
@@ -51,7 +51,7 @@ const BillCategorySelector = ({ selectedCategory }) => {
           return {
             id,
             name: r.name || id,
-            icon: (DEFAULT_CATEGORIES.find((c) => c.id === id) || {}).icon || FaMoneyBillWave,
+            icon: CATEGORY_ICONS[id] || FaMoneyBillWave,
           };
         });
         setCategories(mapped);

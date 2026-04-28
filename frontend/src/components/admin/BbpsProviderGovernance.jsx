@@ -15,6 +15,7 @@ const BbpsProviderGovernance = () => {
   const [rules, setRules] = useState([]);
   const [audits, setAudits] = useState([]);
   const [billerMaster, setBillerMaster] = useState([]);
+  const [selectedMapIds, setSelectedMapIds] = useState([]);
 
   const [categoryForm, setCategoryForm] = useState({ code: '', name: '', description: '' });
   const [providerForm, setProviderForm] = useState({
@@ -36,6 +37,8 @@ const BbpsProviderGovernance = () => {
   });
 
   const mapCount = useMemo(() => maps.length, [maps]);
+  const pendingMapCount = useMemo(() => maps.filter((m) => (m.approval_status || 'pending') !== 'approved').length, [maps]);
+  const approvedMapCount = useMemo(() => maps.filter((m) => (m.approval_status || 'pending') === 'approved').length, [maps]);
   const unmappedBillers = useMemo(() => {
     const mappedIds = new Set(maps.map((m) => m.biller_master));
     return billerMaster.filter((b) => !mappedIds.has(b.id));
@@ -179,6 +182,31 @@ const BbpsProviderGovernance = () => {
     loadAll();
   };
 
+  const updateMapAction = async (mapId, action) => {
+    setError('');
+    const out = await billAvenueAdminAPI.saveProviderBillerMap({ id: mapId, action });
+    if (!out.success) {
+      setError(out.message || `Failed to ${action} map`);
+      return;
+    }
+    setInfo(`Map ${action}d successfully.`);
+    loadAll();
+  };
+
+  const bulkApproveMaps = async () => {
+    if (selectedMapIds.length === 0) return;
+    setError('');
+    const out = await billAvenueAdminAPI.approveProviderBillerMapsBulk(selectedMapIds);
+    if (!out.success) {
+      setError(out.message || 'Bulk approve failed');
+      return;
+    }
+    const blocked = out.data?.blocked || [];
+    setInfo(`Bulk approve completed. Approved: ${out.data?.approved_count || 0}, Blocked: ${blocked.length}`);
+    setSelectedMapIds([]);
+    loadAll();
+  };
+
   return (
     <div className="max-w-7xl mx-auto space-y-6">
       <div className="bg-white rounded-xl border border-gray-200 p-6 shadow-sm">
@@ -214,6 +242,11 @@ const BbpsProviderGovernance = () => {
 
       <div className="bg-white rounded-xl border border-gray-200 p-6 space-y-3">
         <h2 className="font-semibold">Step B: Sync Billers</h2>
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-2 text-sm">
+          <div className="border rounded p-2">Total Maps: <strong>{mapCount}</strong></div>
+          <div className="border rounded p-2">Pending Maps: <strong>{pendingMapCount}</strong></div>
+          <div className="border rounded p-2">Approved Maps: <strong>{approvedMapCount}</strong></div>
+        </div>
         <div className="flex gap-2">
           <button
             type="button"
@@ -299,6 +332,59 @@ const BbpsProviderGovernance = () => {
       </div>
 
       <div className="bg-white rounded-xl border border-gray-200 p-6">
+        <div className="flex items-center justify-between mb-3">
+          <h2 className="font-semibold">Provider-Biller Approval Queue</h2>
+          <button
+            type="button"
+            onClick={bulkApproveMaps}
+            disabled={selectedMapIds.length === 0}
+            className="px-3 py-1.5 text-xs rounded border border-green-300 bg-green-50 text-green-700 disabled:opacity-50"
+          >
+            Bulk Approve ({selectedMapIds.length})
+          </button>
+        </div>
+        <div className="overflow-auto max-h-80 border rounded mb-4">
+          <table className="w-full text-sm">
+            <thead className="bg-gray-50">
+              <tr>
+                <th className="text-left p-2">#</th>
+                <th className="text-left p-2">Provider</th>
+                <th className="text-left p-2">Biller</th>
+                <th className="text-left p-2">Approval</th>
+                <th className="text-left p-2">Blocked By</th>
+                <th className="text-left p-2">Actions</th>
+              </tr>
+            </thead>
+            <tbody>
+              {maps.slice(0, 200).map((m) => (
+                <tr key={m.id} className="border-t">
+                  <td className="p-2">
+                    <input
+                      type="checkbox"
+                      checked={selectedMapIds.includes(m.id)}
+                      onChange={(e) => setSelectedMapIds((prev) => e.target.checked ? [...prev, m.id] : prev.filter((id) => id !== m.id))}
+                    />
+                  </td>
+                  <td className="p-2">{m.provider_name || m.provider_code}</td>
+                  <td className="p-2">{m.biller_name || m.biller_id}</td>
+                  <td className="p-2">
+                    <span className={`px-2 py-0.5 rounded text-xs ${(m.approval_status || 'pending') === 'approved' ? 'bg-green-100 text-green-700' : 'bg-amber-100 text-amber-700'}`}>
+                      {m.approval_status || 'pending'}
+                    </span>
+                  </td>
+                  <td className="p-2 text-xs">
+                    {(m.blocked_by || []).length > 0 ? (m.blocked_by || []).join(', ') : 'ready'}
+                  </td>
+                  <td className="p-2 space-x-1">
+                    <button type="button" onClick={() => updateMapAction(m.id, 'approve')} className="px-2 py-1 text-xs rounded bg-green-50 text-green-700 border border-green-200">Approve</button>
+                    <button type="button" onClick={() => updateMapAction(m.id, 'reject')} className="px-2 py-1 text-xs rounded bg-red-50 text-red-700 border border-red-200">Reject</button>
+                    <button type="button" onClick={() => updateMapAction(m.id, 'toggle')} className="px-2 py-1 text-xs rounded bg-slate-50 text-slate-700 border border-slate-200">Toggle</button>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
         <h2 className="font-semibold mb-3">Current Commission Rules</h2>
         <div className="overflow-auto max-h-72 border rounded">
           <table className="w-full text-sm">

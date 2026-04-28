@@ -31,6 +31,7 @@ const CreditCardBill = ({ category = 'credit-card', onPaymentSuccess }) => {
   const [inputSchema, setInputSchema] = useState([]);
   const [inputValues, setInputValues] = useState({});
   const [quote, setQuote] = useState(null);
+  const [governanceHint, setGovernanceHint] = useState('');
   const title = (category || 'bill-payment').replace(/-/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase());
 
   const loadWallets = useCallback(async () => {
@@ -46,6 +47,7 @@ const CreditCardBill = ({ category = 'credit-card', onPaymentSuccess }) => {
 
   useEffect(() => {
     const loadProvidersAndBillers = async () => {
+      setGovernanceHint('');
       const pRes = await bbpsAPI.getProviders(category);
       if (pRes.success && Array.isArray(pRes.data?.providers) && pRes.data.providers.length > 0) {
         setProviderOptions(pRes.data.providers);
@@ -56,6 +58,11 @@ const CreditCardBill = ({ category = 'credit-card', onPaymentSuccess }) => {
         const bRes = await bbpsAPI.getBillers(category);
         if (bRes.success && Array.isArray(bRes.data?.billers)) {
           setBillerOptions(bRes.data.billers);
+          if ((bRes.data.billers || []).length === 0) {
+            setGovernanceHint('Service unavailable until admin approval. Ask admin to approve provider mapping and activate commission rule.');
+          }
+        } else {
+          setGovernanceHint('Service unavailable until admin approval. Ask admin to approve provider mapping and activate commission rule.');
         }
       }
     };
@@ -317,7 +324,7 @@ const CreditCardBill = ({ category = 'credit-card', onPaymentSuccess }) => {
                 </div>
               ) : (
                 <div className="mb-4 text-xs rounded p-2 border bg-amber-50 border-amber-200 text-amber-800">
-                  No mapped providers found for {category}. Ask admin to complete Provider-Biller mapping.
+                  {governanceHint || `No mapped providers found for ${category}. Ask admin to complete Provider-Biller mapping.`}
                 </div>
               )}
               <label className="block text-sm font-medium text-gray-700 mb-2">

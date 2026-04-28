@@ -15,8 +15,73 @@ import random
 import string
 
 
+BBPS_CATEGORY_ALIASES = {
+    'mobile': 'mobile-recharge',
+    'creditcard': 'credit-card',
+    'credit-card-bill': 'credit-card',
+    'cc': 'credit-card',
+    'broad-band': 'broadband',
+    'landline-postpaid': 'landline',
+}
+
+ALLOWED_BILLER_STATUSES = {'ACTIVE', 'ENABLED', 'FLUCTUATING'}
+
+
 def normalize_category_code(category: str) -> str:
-    return str(category or '').strip().lower().replace('_', '-')
+    out = str(category or '').strip().lower().replace('_', '-')
+    return BBPS_CATEGORY_ALIASES.get(out, out)
+
+
+def _active_commission_category_codes() -> set[str]:
+    return set(
+        BbpsCategoryCommissionRule.objects.filter(is_deleted=False, is_active=True)
+        .values_list('category__code', flat=True)
+    )
+
+
+def _stale_block_enabled() -> bool:
+    return bool(getattr(settings, 'BBPS_BLOCK_STALE_BILLERS', False))
+
+
+def governance_block_reasons_for_map(map_row) -> list[str]:
+    reasons = []
+    biller_status = str(getattr(map_row.biller_master, 'biller_status', '') or '').upper()
+    if not map_row.provider.category.is_active:
+        reasons.append('category_inactive')
+    if not map_row.provider.is_active:
+        reasons.append('provider_inactive')
+    if not map_row.is_active:
+        reasons.append('map_inactive')
+    if biller_status not in ALLOWED_BILLER_STATUSES:
+        reasons.append('biller_status')
+    if _stale_block_enabled() and getattr(map_row.biller_master, 'is_stale', False):
+        reasons.append('stale')
+    has_rule = BbpsCategoryCommissionRule.objects.filter(
+        is_deleted=False,
+        is_active=True,
+        category=map_row.provider.category,
+    ).exists()
+    if not has_rule:
+        reasons.append('no_rule')
+    return reasons
+
+
+def governance_readiness_for_biller(biller_id: str) -> dict:
+    row = (
+        BbpsProviderBillerMap.objects.filter(
+            is_deleted=False,
+            provider__is_deleted=False,
+            provider__category__is_deleted=False,
+            biller_master__is_deleted=False,
+            biller_master__biller_id=biller_id,
+        )
+        .select_related('provider__category', 'biller_master')
+        .first()
+    )
+    if not row:
+        return {'allowed': False, 'blocked_by': ['map_missing']}
+    blocked = governance_block_reasons_for_map(row)
+    return {'allowed': not blocked, 'blocked_by': blocked}
 
 
 def calculate_bbps_charge(amount):
@@ -58,6 +123,8 @@ def process_bill_payment(*args, **kwargs):
 def get_bill_categories():
     """Get list of categories from governance catalog only."""
     rows = BbpsServiceCategory.objects.filter(is_deleted=False, is_active=True).order_by('display_order', 'name')
+    active_rule_codes = _active_commission_category_codes()
+    rows = [row for row in rows if row.code in active_rule_codes]
     return [{'id': normalize_category_code(r.code), 'name': r.name} for r in rows]
 
 
@@ -74,12 +141,20 @@ def get_billers_by_category(category):
         provider__category__code__iexact=norm,
         biller_master__is_deleted=False,
     ).select_related('biller_master')
+    if norm not in _active_commission_category_codes():
+        return []
     biller_ids = [m.biller_master.biller_id for m in mapped]
     if biller_ids:
         masters = (
-            BbpsBillerMaster.objects.filter(is_deleted=False, biller_id__in=biller_ids)
+            BbpsBillerMaster.objects.filter(
+                is_deleted=False,
+                biller_id__in=biller_ids,
+                biller_status__in=ALLOWED_BILLER_STATUSES,
+            )
             .order_by('biller_name')
         )
+        if _stale_block_enabled():
+            masters = masters.filter(is_stale=False)
         return [
             {
                 'id': m.pk,
@@ -132,9 +207,15 @@ def get_providers_by_category(category):
         provider__category__is_active=True,
         provider__category__code__iexact=norm,
         biller_master__is_deleted=False,
+        biller_master__biller_status__in=ALLOWED_BILLER_STATUSES,
     ).select_related('provider', 'provider__category', 'biller_master').order_by(
         'provider__priority', 'priority', 'provider__name'
     )
+    if _stale_block_enabled():
+        maps = maps.filter(biller_master__is_stale=False)
+    if norm not in _active_commission_category_codes():
+        cache.set(cache_key, [], timeout=300)
+        return []
     out = {}
     for row in maps:
         p = row.provider

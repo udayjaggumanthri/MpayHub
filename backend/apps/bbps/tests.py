@@ -15,7 +15,7 @@ from apps.bbps.models import (
     BbpsServiceCategory,
     BbpsServiceProvider,
 )
-from apps.bbps.services import get_providers_by_category
+from apps.bbps.services import get_providers_by_category, governance_readiness_for_biller
 from apps.bbps.service_flow.compliance import (
     compute_ccf1_if_required,
     enforce_biller_mode_channel_constraints,
@@ -212,3 +212,71 @@ class BbpsGovernanceFlowTests(TestCase):
             amount_in_rupees=Decimal('10'),
         )
         enforce_plan_mdm_requirement(biller=biller, plan_id='PLAN-A')
+
+
+class ApprovalFirstGovernanceTests(TestCase):
+    def setUp(self):
+        self.category = BbpsServiceCategory.objects.create(code='credit-card', name='Credit Card', is_active=True)
+        self.provider = BbpsServiceProvider.objects.create(
+            category=self.category,
+            code='hdfc-cc',
+            name='HDFC Credit Card',
+            provider_type='bank',
+            is_active=True,
+        )
+        self.biller = BbpsBillerMaster.objects.create(
+            biller_id='OTME00005XXZ43',
+            biller_name='HDFC Cards',
+            biller_category='credit-card',
+            biller_status='ACTIVE',
+        )
+        self.map = BbpsProviderBillerMap.objects.create(provider=self.provider, biller_master=self.biller, is_active=True)
+
+    def test_provider_listing_requires_active_commission_rule(self):
+        providers = get_providers_by_category('credit-card')
+        self.assertEqual(providers, [])
+        BbpsCategoryCommissionRule.objects.create(
+            category=self.category,
+            rule_code='DEFAULT-CREDIT-CARD',
+            commission_type='flat',
+            value=Decimal('5'),
+            is_active=True,
+        )
+        providers = get_providers_by_category('credit-card')
+        self.assertEqual(len(providers), 1)
+
+    def test_biller_status_fluctuating_is_allowed(self):
+        BbpsCategoryCommissionRule.objects.create(
+            category=self.category,
+            rule_code='RULE-1',
+            commission_type='flat',
+            value=Decimal('1'),
+            is_active=True,
+        )
+        self.biller.biller_status = 'FLUCTUATING'
+        self.biller.save(update_fields=['biller_status', 'updated_at'])
+        providers = get_providers_by_category('credit-card')
+        self.assertEqual(len(providers), 1)
+
+    def test_governance_readiness_reports_no_rule_blocker(self):
+        readiness = governance_readiness_for_biller(self.biller.biller_id)
+        self.assertFalse(readiness['allowed'])
+        self.assertIn('no_rule', readiness['blocked_by'])
+
+    def test_sync_upsert_creates_pending_inactive_mapping(self):
+        from apps.bbps.service_flow.biller_sync import _upsert_governance_rows
+
+        row = {
+            'billerCategory': 'credit-card',
+            'billerName': 'HDFC Credit Card',
+        }
+        self.provider.delete()
+        self.map.delete()
+        result = _upsert_governance_rows(row, self.biller)
+        self.assertTrue(result['provider_created'])
+        created_provider = BbpsServiceProvider.objects.get(category=self.category)
+        created_map = BbpsProviderBillerMap.objects.get(provider=created_provider, biller_master=self.biller)
+        self.assertFalse(created_provider.is_active)
+        self.assertFalse(created_map.is_active)
+        self.assertEqual(created_provider.metadata.get('approval_status'), 'pending')
+        self.assertEqual(created_map.metadata.get('approval_status'), 'pending')
