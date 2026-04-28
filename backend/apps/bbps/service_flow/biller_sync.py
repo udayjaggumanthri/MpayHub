@@ -18,6 +18,7 @@ from apps.bbps.models import (
 )
 from apps.bbps.services import normalize_category_code
 from apps.integrations.bbps_client import BBPSClient
+from apps.integrations.billavenue.errors import BillAvenueClientError
 from apps.integrations.billavenue.parsers import _get_ci
 from apps.integrations.models import BillAvenueAgentProfile, BillAvenueConfig
 
@@ -147,6 +148,56 @@ def _upsert_governance_rows(mdm_row: dict, biller_master: BbpsBillerMaster) -> d
     return {'category_created': c_created, 'provider_created': p_created, 'map_created': m_created}
 
 
+def _coerce_obj_list(v) -> list[dict]:
+    if v is None:
+        return []
+    if isinstance(v, dict):
+        return [v]
+    if isinstance(v, list):
+        return [x for x in v if isinstance(x, dict)]
+    return []
+
+
+def _extract_param_rows(block) -> list[dict]:
+    out: list[dict] = []
+    for outer in _coerce_obj_list(block):
+        params = (
+            _get_ci(outer, 'paramsList')
+            or _get_ci(outer, 'paramInfo')
+            or _get_ci(outer, 'input')
+            or outer
+        )
+        for row in _coerce_obj_list(params):
+            out.append(row)
+    return out
+
+
+def _extract_mode_rows(block) -> list[dict]:
+    out: list[dict] = []
+    for outer in _coerce_obj_list(block):
+        modes = (
+            _get_ci(outer, 'paymentModeList')
+            or _get_ci(outer, 'paymentModeInfo')
+            or outer
+        )
+        for row in _coerce_obj_list(modes):
+            out.append(row)
+    return out
+
+
+def _extract_channel_rows(block) -> list[dict]:
+    out: list[dict] = []
+    for outer in _coerce_obj_list(block):
+        channels = (
+            _get_ci(outer, 'paymentChannelList')
+            or _get_ci(outer, 'paymentChannelInfo')
+            or outer
+        )
+        for row in _coerce_obj_list(channels):
+            out.append(row)
+    return out
+
+
 def _config_for_sync_client() -> BillAvenueConfig | None:
     return BillAvenueConfig.objects.filter(
         is_active=True, enabled=True, is_deleted=False, mode__in=['uat', 'prod']
@@ -172,11 +223,30 @@ def sync_biller_info(biller_ids: Iterable[str] | None = None) -> dict:
     cfg = getattr(client, 'config', None) or _config_for_sync_client()
     agent_id = _default_agent_id_for_config(cfg)
     payload: dict = {}
+    retry_without_agent_used = False
+    upstream_status_code = ''
+    sync_warning = ''
     if agent_id:
         payload['agentId'] = agent_id
     if biller_ids:
-        payload['billerId'] = biller_ids
-    normalized = client.biller_info(payload)
+        # BillAvenue MDM is inconsistent: single biller sometimes works only as scalar.
+        payload['billerId'] = biller_ids[0] if len(biller_ids) == 1 else biller_ids
+    try:
+        normalized = client.biller_info(payload)
+    except BillAvenueClientError as exc:
+        # Safe fallback for some institutes: retry MDM without agentId when provider returns code=205.
+        msg = str(exc or '')
+        if 'code=205' in msg and payload.get('agentId'):
+            payload_retry = dict(payload)
+            payload_retry.pop('agentId', None)
+            retry_without_agent_used = True
+            normalized = client.biller_info(payload_retry)
+        else:
+            raise
+    if isinstance(normalized, dict):
+        upstream_status_code = str(_get_ci(normalized, 'responseCode') or '')
+        if upstream_status_code == '205':
+            sync_warning = 'BillAvenue returned code 205 (entitlement/profile mismatch).'
     billers = _iter_billers(normalized)
 
     seen = set()
@@ -221,44 +291,25 @@ def sync_biller_info(biller_ids: Iterable[str] | None = None) -> dict:
 
         BbpsBillerInputParam.objects.filter(biller=m).delete()
         params_block = _get_ci(raw, 'billerInputParams') or []
-        if isinstance(params_block, dict):
-            params_block = [params_block]
         order = 0
-        for outer in params_block:
-            if not isinstance(outer, dict):
-                continue
-            p_list = _get_ci(outer, 'paramsList')
-            if p_list is None and isinstance(outer, list):
-                p_list = outer
-            if p_list is None and isinstance(outer, dict):
-                p_list = [outer]
-            for p in p_list or []:
-                if not isinstance(p, dict):
-                    continue
-                order += 1
-                vis = _get_ci(p, 'visibility')
-                BbpsBillerInputParam.objects.create(
-                    biller=m,
-                    param_name=_field_str(p, 'paramName'),
-                    data_type=_field_str(p, 'dataType'),
-                    is_optional=_as_bool(_get_ci(p, 'isOptional')),
-                    min_length=int(str(_get_ci(p, 'minLength') or '0') or 0),
-                    max_length=int(str(_get_ci(p, 'maxLength') or '0') or 0),
-                    regex=_field_str(p, 'regEx'),
-                    visibility=_as_bool(vis if vis is not None else True),
-                    display_order=order,
-                )
+        for p in _extract_param_rows(params_block):
+            order += 1
+            vis = _get_ci(p, 'visibility')
+            BbpsBillerInputParam.objects.create(
+                biller=m,
+                param_name=_field_str(p, 'paramName'),
+                data_type=_field_str(p, 'dataType'),
+                is_optional=_as_bool(_get_ci(p, 'isOptional')),
+                min_length=int(str(_get_ci(p, 'minLength') or '0') or 0),
+                max_length=int(str(_get_ci(p, 'maxLength') or '0') or 0),
+                regex=_field_str(p, 'regEx'),
+                visibility=_as_bool(vis if vis is not None else True),
+                display_order=order,
+            )
 
         BbpsBillerPaymentModeLimit.objects.filter(biller=m).delete()
         bpm = _get_ci(raw, 'billerPaymentModes') or {}
-        if not isinstance(bpm, dict):
-            bpm = {}
-        mode_list = _get_ci(bpm, 'paymentModeList') or []
-        if not isinstance(mode_list, list):
-            mode_list = []
-        for it in mode_list:
-            if not isinstance(it, dict):
-                continue
+        for it in _extract_mode_rows(bpm):
             BbpsBillerPaymentModeLimit.objects.create(
                 biller=m,
                 payment_mode=_field_str(it, 'paymentModeName') or _field_str(it, 'paymentMode'),
@@ -269,26 +320,14 @@ def sync_biller_info(biller_ids: Iterable[str] | None = None) -> dict:
 
         BbpsBillerPaymentChannelLimit.objects.filter(biller=m).delete()
         ch_outer = _get_ci(raw, 'billerPaymentChannels') or []
-        if isinstance(ch_outer, dict):
-            ch_outer = [ch_outer]
-        if not isinstance(ch_outer, list):
-            ch_outer = []
-        for outer in ch_outer:
-            if not isinstance(outer, dict):
-                continue
-            pch_list = _get_ci(outer, 'paymentChannelList') or []
-            if not isinstance(pch_list, list):
-                pch_list = []
-            for it in pch_list:
-                if not isinstance(it, dict):
-                    continue
-                BbpsBillerPaymentChannelLimit.objects.create(
-                    biller=m,
-                    payment_channel=_field_str(it, 'paymentChannelName'),
-                    min_amount=_field_str(it, 'minAmount') or '0',
-                    max_amount=_field_str(it, 'maxAmount') or '0',
-                    is_active=True,
-                )
+        for it in _extract_channel_rows(ch_outer):
+            BbpsBillerPaymentChannelLimit.objects.create(
+                biller=m,
+                payment_channel=_field_str(it, 'paymentChannelName'),
+                min_amount=_field_str(it, 'minAmount') or '0',
+                max_amount=_field_str(it, 'maxAmount') or '0',
+                is_active=True,
+            )
 
         BbpsBillerAdditionalInfoSchema.objects.filter(biller=m).delete()
         for grp in ('billerAdditionalInfo', 'billerAdditionalInfoPayment', 'planAdditionalInfo'):
@@ -346,10 +385,14 @@ def sync_biller_info(biller_ids: Iterable[str] | None = None) -> dict:
         'updated_count': updated,
         'biller_count': len(billers),
         'agent_id_used': agent_id or None,
+        'retry_without_agent_used': retry_without_agent_used,
+        'upstream_status_code': upstream_status_code,
         'sample_categories': sample_categories,
         'mapping_ready': bool(len(billers) > 0),
         'governance_created': governance_created,
     }
+    if sync_warning:
+        out['warning'] = sync_warning
     if not billers and isinstance(normalized, dict):
         out['mdm_root_keys'] = sorted([str(k) for k in normalized.keys()])[:40]
         out['normalized_preview'] = {k: type(v).__name__ for k, v in list(normalized.items())[:10]}

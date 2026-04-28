@@ -18,10 +18,15 @@ class BillAvenueDuplicateRequestError(BillAvenueClientError):
     """Duplicate request identifier rejection."""
 
 
+class BillAvenueEntitlementError(BillAvenueClientError):
+    """Provider entitlement/profile mismatch for the requested endpoint."""
+
+
 ERROR_CODE_MAP = {
     'PP001': BillAvenueAuthError,
     'PP002': BillAvenueValidationError,
     'PP003': BillAvenueDuplicateRequestError,
+    '205': BillAvenueEntitlementError,
 }
 
 

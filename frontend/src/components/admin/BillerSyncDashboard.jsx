@@ -154,6 +154,18 @@ const BillerSyncDashboard = () => {
                     format (see <code className="text-xs">mdm_root_keys</code> in the JSON if present).
                   </p>
                 )}
+                {String(result.data.upstream_status_code || '') === '205' && (
+                  <p className="text-red-800 bg-red-50 border border-red-200 rounded-lg p-2">
+                    BillAvenue returned <strong>response code 205</strong> for MDM. This usually indicates institute/agent
+                    entitlement mismatch for biller info. Confirm with BillAvenue support using the latest request ID from audit logs.
+                  </p>
+                )}
+                {result.data.retry_without_agent_used && (
+                  <p className="text-blue-800 bg-blue-50 border border-blue-200 rounded-lg p-2">
+                    Sync retried without <code className="text-xs">agentId</code> after upstream rejection; verify whether your
+                    institute requires agent ID for MDM on this environment.
+                  </p>
+                )}
               </div>
             )}
             {result.success === false && (
