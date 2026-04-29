@@ -1,6 +1,8 @@
 """
 BBPS views for the mPayhub platform.
 """
+import logging
+
 from rest_framework import status
 from rest_framework.decorators import api_view, permission_classes
 from rest_framework.permissions import IsAuthenticated
@@ -72,6 +74,8 @@ from apps.core.financial_access import assert_can_perform_financial_txn
 from apps.core.permissions import IsAdmin
 from apps.integrations.billavenue.crypto import decrypt_payload
 from apps.integrations.billavenue.errors import BillAvenueClientError, BillAvenueEntitlementError
+
+logger = logging.getLogger(__name__)
 from apps.integrations.bbps_client import BBPSClient
 from apps.integrations.models import (
     BillAvenueAgentProfile,
@@ -1007,6 +1011,7 @@ def sync_billers_view(request):
         out = sync_biller_info(ser.validated_data.get('biller_ids') or [])
         return Response({'success': True, 'data': out, 'message': 'Biller sync completed', 'errors': []}, status=200)
     except BillAvenueEntitlementError as e:
+        logger.warning('sync-billers BillAvenue entitlement (205): %s', e)
         return Response(
             {
                 'success': False,
