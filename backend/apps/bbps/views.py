@@ -71,7 +71,7 @@ from apps.core.exceptions import InsufficientBalance, TransactionFailed
 from apps.core.financial_access import assert_can_perform_financial_txn
 from apps.core.permissions import IsAdmin
 from apps.integrations.billavenue.crypto import decrypt_payload
-from apps.integrations.billavenue.errors import BillAvenueClientError
+from apps.integrations.billavenue.errors import BillAvenueClientError, BillAvenueEntitlementError
 from apps.integrations.bbps_client import BBPSClient
 from apps.integrations.models import (
     BillAvenueAgentProfile,
@@ -1006,6 +1006,22 @@ def sync_billers_view(request):
     try:
         out = sync_biller_info(ser.validated_data.get('biller_ids') or [])
         return Response({'success': True, 'data': out, 'message': 'Biller sync completed', 'errors': []}, status=200)
+    except BillAvenueEntitlementError as e:
+        return Response(
+            {
+                'success': False,
+                'data': {
+                    'billavenue_code': '205',
+                    'hint': (
+                        'BillAvenue MDM entitlement/profile mismatch for this institute or agent. '
+                        'Ask BillAvenue to confirm MDM access for your accessCode/instituteId/agentId and server egress IP.'
+                    ),
+                },
+                'message': str(e),
+                'errors': ['205'],
+            },
+            status=status.HTTP_502_BAD_GATEWAY,
+        )
     except BillAvenueClientError as e:
         return Response({'success': False, 'data': None, 'message': str(e), 'errors': []}, status=400)
 

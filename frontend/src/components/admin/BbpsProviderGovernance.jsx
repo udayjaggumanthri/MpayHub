@@ -158,7 +158,8 @@ const BbpsProviderGovernance = () => {
     try {
       const res = await bbpsAPI.syncBillers([]);
       if (!res.success) {
-        setError(res.message || 'Sync failed');
+        const hint = res.data?.hint || '';
+        setError([res.message || 'Sync failed', hint].filter(Boolean).join(' '));
         return;
       }
       setSyncDiagnostics(res.data || null);

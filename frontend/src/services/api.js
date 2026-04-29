@@ -183,6 +183,7 @@ const handleError = (error) => {
       message: apiError.message || detailMessage || 'An error occurred',
       errors: normalizedErrors,
       status: error.response.status,
+      data: apiError.data != null ? apiError.data : null,
     };
   } else if (error.request) {
     // Request made but no response
