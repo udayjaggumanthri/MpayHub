@@ -13,6 +13,10 @@ Thumbs.db
 *.log
 logs/
 
+# Secrets / local backups (never commit)
+*.bak
+**/.env.bak
+
 # Python / backend
 backend/.env
 backend/.venv/
