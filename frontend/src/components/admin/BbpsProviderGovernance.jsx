@@ -1,22 +1,34 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { bbpsAPI, billAvenueAdminAPI } from '../../services/api';
 
+const TABS = [
+  { id: 'readiness', label: 'Setup & Sync' },
+  { id: 'directory', label: 'Biller Directory' },
+];
+
+const emptyMapForm = { provider: '', biller_master: '', priority: 0 };
+
+const toLower = (value) => String(value || '').toLowerCase();
+const toTitle = (value) => String(value || '').replace(/[_-]+/g, ' ').replace(/\b\w/g, (m) => m.toUpperCase());
+
 const BbpsProviderGovernance = () => {
+  const [activeTab, setActiveTab] = useState('readiness');
   const [loading, setLoading] = useState(false);
   const [syncing, setSyncing] = useState(false);
   const [error, setError] = useState('');
   const [info, setInfo] = useState('');
-  const [readiness, setReadiness] = useState(null);
   const [syncDiagnostics, setSyncDiagnostics] = useState(null);
+  const [syncUsage, setSyncUsage] = useState(null);
+  const [syncUsageHistory, setSyncUsageHistory] = useState([]);
+  const [syncInputIds, setSyncInputIds] = useState('');
   const [opsSummary, setOpsSummary] = useState(null);
+  const [observability, setObservability] = useState(null);
   const [categories, setCategories] = useState([]);
   const [providers, setProviders] = useState([]);
   const [maps, setMaps] = useState([]);
-  const [rules, setRules] = useState([]);
   const [audits, setAudits] = useState([]);
   const [billerMaster, setBillerMaster] = useState([]);
-  const [selectedMapIds, setSelectedMapIds] = useState([]);
-
   const [categoryForm, setCategoryForm] = useState({ code: '', name: '', description: '' });
   const [providerForm, setProviderForm] = useState({
     code: '',
@@ -25,26 +37,71 @@ const BbpsProviderGovernance = () => {
     category: '',
     priority: 0,
   });
-  const [mapForm, setMapForm] = useState({ provider: '', biller_master: '', priority: 0 });
-  const [ruleForm, setRuleForm] = useState({
-    category: '',
-    rule_code: '',
-    commission_type: 'flat',
-    value: '0',
-    min_commission: '0',
-    max_commission: '0',
-    notes: '',
-  });
+  const [mapForm, setMapForm] = useState(emptyMapForm);
+  const [mapSearch, setMapSearch] = useState('');
+  const [directorySearch, setDirectorySearch] = useState('');
+  const [directoryCategory, setDirectoryCategory] = useState('all');
+  const [directoryPage, setDirectoryPage] = useState(1);
+  const [directoryPageSize, setDirectoryPageSize] = useState(25);
+  const [directoryPagination, setDirectoryPagination] = useState({ page: 1, page_size: 25, total: 0, total_pages: 1 });
+  const navigate = useNavigate();
 
-  const mapCount = useMemo(() => maps.length, [maps]);
-  const pendingMapCount = useMemo(() => maps.filter((m) => (m.approval_status || 'pending') !== 'approved').length, [maps]);
-  const approvedMapCount = useMemo(() => maps.filter((m) => (m.approval_status || 'pending') === 'approved').length, [maps]);
-  const unmappedBillers = useMemo(() => {
-    const mappedIds = new Set(maps.map((m) => m.biller_master));
-    return billerMaster.filter((b) => !mappedIds.has(b.id));
-  }, [maps, billerMaster]);
+  const visibleServicesCount = useMemo(
+    () => billerMaster.filter((b) => b.is_active_local && !b.soft_deleted_at).length,
+    [billerMaster],
+  );
 
-  const loadAll = async () => {
+  const selectedProvider = useMemo(
+    () => providers.find((p) => String(p.id) === String(mapForm.provider)),
+    [providers, mapForm.provider],
+  );
+
+  const providerScopedBillers = useMemo(() => {
+    if (!selectedProvider) return billerMaster;
+    const categoryCode = toLower(selectedProvider.category_code);
+    return billerMaster.filter((b) => toLower(b.biller_category) === categoryCode);
+  }, [billerMaster, selectedProvider]);
+
+  
+
+  const filteredOpsMaps = useMemo(() => {
+    const q = toLower(mapSearch.trim());
+    if (!q) return maps;
+    return maps.filter((m) => (
+      toLower(m.provider_name).includes(q)
+      || toLower(m.category_name || m.category_code).includes(q)
+      || toLower(m.biller_name).includes(q)
+      || toLower(m.biller_id).includes(q)
+    ));
+  }, [maps, mapSearch]);
+
+  const directoryCategories = useMemo(() => {
+    const uniq = new Set();
+    billerMaster.forEach((b) => {
+      const c = String(b.biller_category || '').trim();
+      if (c) uniq.add(c);
+    });
+    return Array.from(uniq).sort((a, b) => a.localeCompare(b));
+  }, [billerMaster]);
+
+  const filteredDirectoryBillers = billerMaster;
+
+  const uatSteps = useMemo(() => [
+    {
+      id: 'sync',
+      label: 'Run biller sync',
+      done: Number(syncDiagnostics?.synced || billerMaster.length || 0) > 0,
+      tab: 'readiness',
+    },
+    {
+      id: 'directory',
+      label: 'Review billers and service inputs',
+      done: billerMaster.length > 0,
+      tab: 'directory',
+    },
+  ], [billerMaster.length, syncDiagnostics]);
+
+  const loadAll = useCallback(async () => {
     setLoading(true);
     setError('');
     try {
@@ -52,121 +109,80 @@ const BbpsProviderGovernance = () => {
         catRes,
         provRes,
         mapRes,
-        ruleRes,
         auditRes,
         billerRes,
-        readinessRes,
         opsRes,
+        obsRes,
+        syncUsageRes,
+        syncHistoryRes,
       ] = await Promise.all([
         billAvenueAdminAPI.listServiceCategories(),
         billAvenueAdminAPI.listServiceProviders(),
         billAvenueAdminAPI.listProviderBillerMaps(),
-        billAvenueAdminAPI.listCommissionRules(),
         billAvenueAdminAPI.listCommissionAudit(),
-        billAvenueAdminAPI.listBillerMaster(),
-        billAvenueAdminAPI.getSetupReadiness(),
+        billAvenueAdminAPI.listBillerMaster({
+          q: directorySearch || undefined,
+          category: directoryCategory !== 'all' ? directoryCategory : undefined,
+          page: directoryPage,
+          page_size: directoryPageSize,
+        }),
         billAvenueAdminAPI.getGovernanceOpsSummary(),
+        billAvenueAdminAPI.getGovernanceObservability(),
+        bbpsAPI.getSyncUsageToday(),
+        bbpsAPI.getSyncUsageHistory(),
       ]);
-
       setCategories(catRes.data?.categories || []);
       setProviders(provRes.data?.providers || []);
       setMaps(mapRes.data?.maps || []);
-      setRules(ruleRes.data?.rules || []);
       setAudits(auditRes.data?.audits || []);
       setBillerMaster(billerRes.data?.billers || []);
-      setReadiness(readinessRes.data || null);
+      setDirectoryPagination(billerRes.data?.pagination || { page: 1, page_size: 25, total: 0, total_pages: 1 });
       setOpsSummary(opsRes.data || null);
+      setObservability(obsRes.data || null);
+      setSyncUsage(syncUsageRes.data || null);
+      setSyncUsageHistory(syncHistoryRes.data?.history || []);
     } catch (e) {
       setError('Failed to load governance data.');
     } finally {
       setLoading(false);
     }
-  };
+  }, [directoryCategory, directoryPage, directoryPageSize, directorySearch]);
 
   useEffect(() => {
     loadAll();
-  }, []);
-
-  const saveCategory = async (e) => {
-    e.preventDefault();
-    setError('');
-    setInfo('');
-    const out = await billAvenueAdminAPI.saveServiceCategory(categoryForm);
-    if (!out.success) {
-      setError(out.message || 'Failed to save category');
-      return;
-    }
-    setCategoryForm({ code: '', name: '', description: '' });
-    setInfo('Category saved.');
-    loadAll();
-  };
-
-  const saveProvider = async (e) => {
-    e.preventDefault();
-    setError('');
-    setInfo('');
-    const out = await billAvenueAdminAPI.saveServiceProvider(providerForm);
-    if (!out.success) {
-      setError(out.message || 'Failed to save provider');
-      return;
-    }
-    setProviderForm({ code: '', name: '', provider_type: 'operator', category: '', priority: 0 });
-    setInfo('Provider saved.');
-    loadAll();
-  };
-
-  const saveMap = async (e) => {
-    e.preventDefault();
-    setError('');
-    setInfo('');
-    const out = await billAvenueAdminAPI.saveProviderBillerMap(mapForm);
-    if (!out.success) {
-      setError(out.message || 'Failed to save map');
-      return;
-    }
-    setMapForm({ provider: '', biller_master: '', priority: 0 });
-    setInfo('Provider-biller mapping saved.');
-    loadAll();
-  };
-
-  const saveRule = async (e) => {
-    e.preventDefault();
-    setError('');
-    setInfo('');
-    const out = await billAvenueAdminAPI.saveCommissionRule(ruleForm);
-    if (!out.success) {
-      setError(out.message || 'Failed to save rule');
-      return;
-    }
-    setRuleForm({
-      category: '',
-      rule_code: '',
-      commission_type: 'flat',
-      value: '0',
-      min_commission: '0',
-      max_commission: '0',
-      notes: '',
-    });
-    setInfo('Commission rule saved.');
-    loadAll();
-  };
+  }, [loadAll]);
 
   const runSync = async () => {
     setSyncing(true);
     setError('');
     setInfo('');
     try {
-      const res = await bbpsAPI.syncBillers([]);
+      const ids = syncInputIds.split(/[\s,\n]+/).map((x) => x.trim()).filter(Boolean);
+      const res = await bbpsAPI.syncBillers(ids);
       if (!res.success) {
-        const hint = res.data?.hint || '';
-        setError([res.message || 'Sync failed', hint].filter(Boolean).join(' '));
+        const code = String(res.data?.billavenue_code || '').trim();
+        if (code === '001' || code === '205') {
+          const cached = Number(res.data?.mdm_cached_count || 0);
+          setInfo(
+            [
+              `Live BillAvenue sync is temporarily unavailable (code=${code}).`,
+              cached > 0 ? `Continuing with ${cached} cached biller(s).` : '',
+              'You can continue UAT setup.',
+            ].filter(Boolean).join(' '),
+          );
+          setSyncDiagnostics(res.data || null);
+          await loadAll();
+          return;
+        }
+        setError(res.message || res.data?.actionable_hint || 'Sync failed');
         return;
       }
       setSyncDiagnostics(res.data || null);
-      setInfo('Biller sync completed.');
+      setSyncInputIds('');
+      setInfo('Biller sync completed successfully.');
       await loadAll();
     } catch (e) {
-      setError('Failed to sync billers.');
+      setError('Failed to run biller sync.');
     } finally {
       setSyncing(false);
     }
@@ -183,258 +199,524 @@ const BbpsProviderGovernance = () => {
     loadAll();
   };
 
-  const updateMapAction = async (mapId, action) => {
+  
+
+  const saveCategory = async (e) => {
+    e.preventDefault();
     setError('');
-    const out = await billAvenueAdminAPI.saveProviderBillerMap({ id: mapId, action });
-    if (!out.success) {
-      setError(out.message || `Failed to ${action} map`);
-      return;
-    }
-    setInfo(`Map ${action}d successfully.`);
+    const out = await billAvenueAdminAPI.saveServiceCategory(categoryForm);
+    if (!out.success) return setError(out.message || 'Failed to save category');
+    setInfo('Category saved.');
+    setCategoryForm({ code: '', name: '', description: '' });
     loadAll();
   };
 
-  const bulkApproveMaps = async () => {
-    if (selectedMapIds.length === 0) return;
+  const saveProvider = async (e) => {
+    e.preventDefault();
     setError('');
-    const out = await billAvenueAdminAPI.approveProviderBillerMapsBulk(selectedMapIds);
-    if (!out.success) {
-      setError(out.message || 'Bulk approve failed');
-      return;
-    }
-    const blocked = out.data?.blocked || [];
-    setInfo(`Bulk approve completed. Approved: ${out.data?.approved_count || 0}, Blocked: ${blocked.length}`);
-    setSelectedMapIds([]);
+    const out = await billAvenueAdminAPI.saveServiceProvider(providerForm);
+    if (!out.success) return setError(out.message || 'Failed to save provider');
+    setInfo('Provider saved.');
+    setProviderForm({ code: '', name: '', provider_type: 'operator', category: '', priority: 0 });
     loadAll();
   };
+
+  const saveMap = async (e) => {
+    e.preventDefault();
+    setError('');
+    const out = await billAvenueAdminAPI.saveProviderBillerMap(mapForm);
+    if (!out.success) return setError(out.message || 'Failed to save map');
+    setInfo(mapForm.id ? 'Map updated.' : 'Map saved.');
+    setMapForm(emptyMapForm);
+    loadAll();
+  };
+
+  const editMap = (m) => {
+    setMapForm({
+      id: m.id,
+      provider: m.provider,
+      biller_master: m.biller_master,
+      priority: m.priority || 0,
+    });
+    setActiveTab('operations');
+  };
+
+  const openDirectoryBiller = (biller) => navigate(`/admin/bbps-governance/biller/${biller.id}`);
+
+  const toggleLocalBillerState = async (biller) => {
+    const call = biller.is_active_local
+      ? billAvenueAdminAPI.disableBillerMaster(biller.id)
+      : billAvenueAdminAPI.enableBillerMaster(biller.id);
+    const out = await call;
+    if (!out.success) {
+      setError(out.message || 'Failed to update biller state');
+      return;
+    }
+    setInfo(`Biller ${biller.is_active_local ? 'disabled' : 'enabled'}.`);
+    loadAll();
+  };
+
+  const softDeleteBiller = async (biller) => {
+    const out = await billAvenueAdminAPI.deleteBillerMaster(biller.id);
+    if (!out.success) {
+      setError(out.message || 'Failed to delete biller');
+      return;
+    }
+    setInfo('Biller soft-deleted.');
+    loadAll();
+  };
+
+  const clearAllBillers = async () => {
+    const ok = window.confirm('This will remove all billers from the current database view. Continue?');
+    if (!ok) return;
+    setError('');
+    const out = await billAvenueAdminAPI.clearAllBillerMaster();
+    if (!out.success) {
+      setError(out.message || 'Failed to clear billers');
+      return;
+    }
+    setInfo(`Removed ${out.data?.cleared_count || 0} billers.`);
+    setDirectoryPage(1);
+    loadAll();
+  };
+
+  const mapCount = visibleServicesCount;
+  const hiddenServicesCount = Math.max(0, billerMaster.length - visibleServicesCount);
+  const syncUsagePercent = syncUsage?.max_calls_per_day
+    ? Math.min(100, Math.round(((syncUsage?.used_calls_today || 0) / syncUsage.max_calls_per_day) * 100))
+    : 0;
 
   return (
-    <div className="max-w-7xl mx-auto space-y-6">
-      <div className="bg-white rounded-xl border border-gray-200 p-6 shadow-sm">
-        <h1 className="text-xl font-semibold text-gray-900">BBPS Provider Governance</h1>
-        <p className="text-sm text-gray-600 mt-1">
-          Manage service categories, provider master, biller mapping, and category commission rules.
-        </p>
+    <div className="max-w-7xl mx-auto space-y-4">
+      <div className="bg-white rounded-xl border border-gray-200 p-5">
+        <h1 className="text-xl font-semibold text-gray-900">BBPS Enterprise Governance Console</h1>
+        <p className="text-sm text-gray-600 mt-1">Simple workflow: sync billers, manage visibility, and run BBPS fetch/pay.</p>
+        <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mt-4">
+          <div className="rounded-lg border border-blue-100 bg-blue-50 p-3">
+            <p className="text-xs text-blue-700">Total Billers</p>
+            <p className="text-lg font-semibold text-blue-900">{billerMaster.length}</p>
+          </div>
+          <div className="rounded-lg border border-indigo-100 bg-indigo-50 p-3">
+            <p className="text-xs text-indigo-700">Available Services</p>
+            <p className="text-lg font-semibold text-indigo-900">{mapCount}</p>
+          </div>
+          <div className="rounded-lg border border-green-100 bg-green-50 p-3">
+            <p className="text-xs text-green-700">Visible to Users</p>
+            <p className="text-lg font-semibold text-green-900">{visibleServicesCount}</p>
+          </div>
+          <div className="rounded-lg border border-amber-100 bg-amber-50 p-3">
+            <p className="text-xs text-amber-700">Hidden Services</p>
+            <p className="text-lg font-semibold text-amber-900">{hiddenServicesCount}</p>
+          </div>
+        </div>
       </div>
 
-      {error && (
-        <div className="bg-red-50 border border-red-200 text-red-700 rounded-lg p-3 text-sm">{error}</div>
-      )}
-      {info && (
-        <div className="bg-green-50 border border-green-200 text-green-700 rounded-lg p-3 text-sm">{info}</div>
+      <div className="bg-white rounded-xl border border-gray-200 p-4 space-y-3">
+        <div className="flex items-center justify-between gap-3">
+          <h2 className="font-semibold">UAT Control Center</h2>
+          <span className="text-xs text-gray-500">
+            {uatSteps.filter((s) => s.done).length}/{uatSteps.length} steps done
+          </span>
+        </div>
+        <div className="grid grid-cols-1 md:grid-cols-5 gap-2">
+          {uatSteps.map((step) => (
+            <button
+              key={step.id}
+              type="button"
+              className={`text-left border rounded p-2 text-xs ${step.done ? 'bg-green-50 border-green-200' : 'bg-amber-50 border-amber-200'}`}
+              onClick={() => setActiveTab(step.tab)}
+            >
+              <div className="font-medium">{step.done ? 'Done' : 'Pending'}</div>
+              <div>{step.label}</div>
+            </button>
+          ))}
+        </div>
+      </div>
+
+      <div className="bg-white rounded-xl border border-gray-200 p-2 flex flex-wrap gap-2">
+        {TABS.map((tab) => (
+          <button
+            type="button"
+            key={tab.id}
+            onClick={() => setActiveTab(tab.id)}
+            className={`px-3 py-1.5 text-sm rounded border ${
+              activeTab === tab.id ? 'bg-blue-600 text-white border-blue-600' : 'bg-white text-gray-700 border-gray-300'
+            }`}
+          >
+            {tab.label}
+          </button>
+        ))}
+      </div>
+
+      {error && <div className="bg-red-50 border border-red-200 text-red-700 rounded-lg p-3 text-sm">{error}</div>}
+      {info && <div className="bg-green-50 border border-green-200 text-green-700 rounded-lg p-3 text-sm">{info}</div>}
+
+      {activeTab === 'readiness' && (
+        <div className="bg-white rounded-xl border border-gray-200 p-5 space-y-4">
+          <div className="flex flex-wrap items-start justify-between gap-3">
+            <div>
+              <h2 className="font-semibold text-gray-900">Run Biller Sync</h2>
+              <p className="text-xs text-gray-500 mt-1">
+                Sync billers from BillAvenue into your database. Leave the input blank to sync all available billers or provide specific biller IDs.
+              </p>
+            </div>
+            {syncUsage ? (
+              <div className="text-right text-xs text-gray-600">
+                <div><strong>{syncUsage.used_calls_today}/{syncUsage.max_calls_per_day}</strong> calls used today</div>
+                <div>{syncUsage.remaining_calls_today} calls remaining</div>
+              </div>
+            ) : null}
+          </div>
+
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-3 text-sm">
+            <div className="border rounded p-3 bg-slate-50">Total synced billers: <strong>{billerMaster.length}</strong></div>
+            <div className="border rounded p-3 bg-slate-50">Visible to users: <strong>{visibleServicesCount}</strong></div>
+            <div className="border rounded p-3 bg-slate-50">Hidden from users: <strong>{hiddenServicesCount}</strong></div>
+            <div className="border rounded p-3 bg-slate-50">Last sync updated: <strong>{syncDiagnostics?.updated_count || 0}</strong></div>
+          </div>
+
+          <div className="grid grid-cols-1 lg:grid-cols-[1fr_auto_auto_auto] gap-2 items-center">
+            <input
+              value={syncInputIds}
+              onChange={(e) => setSyncInputIds(e.target.value)}
+              className="px-3 py-2 border rounded text-sm"
+              placeholder="Optional biller IDs (comma/newline, max 2000)"
+            />
+            <button
+              type="button"
+              onClick={runSync}
+              disabled={syncing}
+              className="px-4 py-2 bg-blue-600 text-white text-sm rounded disabled:opacity-50"
+            >
+              {syncing ? 'Running sync...' : 'Run Biller Sync'}
+            </button>
+            <button
+              type="button"
+              onClick={refreshCache}
+              className="px-4 py-2 bg-slate-100 text-slate-800 text-sm rounded border border-slate-300"
+            >
+              Refresh Cache
+            </button>
+            <button
+              type="button"
+              onClick={clearAllBillers}
+              className="px-4 py-2 bg-red-50 text-red-700 text-sm rounded border border-red-200"
+            >
+              Clear All Billers
+            </button>
+          </div>
+
+          {syncUsage && (
+            <div className="text-xs border rounded p-3 bg-slate-50 space-y-2">
+              <div className="flex items-center justify-between">
+                <span>Calls used today</span>
+                <strong>{syncUsage.used_calls_today}/{syncUsage.max_calls_per_day}</strong>
+              </div>
+              <div className="w-full bg-slate-200 rounded-full h-2">
+                <div className="h-2 rounded-full bg-blue-600" style={{ width: `${syncUsagePercent}%` }} />
+              </div>
+              <div>Remaining calls today: <strong>{syncUsage.remaining_calls_today}</strong></div>
+            </div>
+          )}
+
+          {syncDiagnostics && (
+            <div className="rounded-lg border border-slate-200 bg-slate-50 p-3 text-xs grid grid-cols-2 md:grid-cols-4 gap-2">
+              <div><strong>Updated:</strong> {syncDiagnostics.updated_count || 0}</div>
+              <div><strong>Source Rows:</strong> {syncDiagnostics.biller_count || 0}</div>
+              <div><strong>Status Code:</strong> {syncDiagnostics.upstream_status_code || 'n/a'}</div>
+              <div><strong>Retry Used:</strong> {syncDiagnostics.retry_without_agent_used ? 'Yes' : 'No'}</div>
+              {syncDiagnostics.warning ? <div className="col-span-2 md:col-span-4 text-amber-700"><strong>Warning:</strong> {syncDiagnostics.warning}</div> : null}
+            </div>
+          )}
+        </div>
       )}
 
-      <div className="bg-white rounded-xl border border-gray-200 p-6 space-y-3">
-        <h2 className="font-semibold">Step A: Integration Readiness</h2>
-        {!readiness && <p className="text-sm text-gray-500">Loading readiness...</p>}
-        {readiness && (
-          <div className="space-y-2">
-            <p className="text-sm">Readiness score: <strong>{readiness.score_percent}%</strong></p>
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
-              {(readiness.checks || []).map((c) => (
-                <div key={c.key} className={`text-xs rounded p-2 border ${c.ok ? 'bg-green-50 border-green-200 text-green-800' : 'bg-amber-50 border-amber-200 text-amber-800'}`}>
-                  <strong>{c.key}</strong> - {c.message}
-                </div>
+      {activeTab === 'directory' && (
+        <div className="bg-white rounded-xl border border-gray-200 p-5 space-y-4">
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <div>
+              <h2 className="font-semibold">BillAvenue Biller Directory</h2>
+              <p className="text-xs text-gray-500">Enterprise directory view with searchable pagination and detailed drill-down.</p>
+            </div>
+            <span className="text-xs text-gray-500">Total billers: {directoryPagination.total}</span>
+          </div>
+
+          <div className="grid grid-cols-1 lg:grid-cols-[1fr_auto_auto_auto] gap-2">
+            <input
+              value={directorySearch}
+              onChange={(e) => setDirectorySearch(e.target.value)}
+              placeholder="Search by biller name, biller ID, category"
+              className="px-3 py-2 border rounded text-sm"
+            />
+            <button
+              type="button"
+              onClick={() => { setDirectoryPage(1); loadAll(); }}
+              className="px-3 py-2 border rounded text-sm bg-slate-50"
+            >
+              Search
+            </button>
+            <select
+              value={directoryCategory}
+              onChange={(e) => { setDirectoryCategory(e.target.value); setDirectoryPage(1); }}
+              className="px-3 py-2 border rounded text-sm"
+            >
+              <option value="all">All categories</option>
+              {directoryCategories.map((c) => (
+                <option key={c} value={c}>{c}</option>
               ))}
+            </select>
+            <select
+              value={directoryPageSize}
+              onChange={(e) => { setDirectoryPageSize(Number(e.target.value)); setDirectoryPage(1); }}
+              className="px-3 py-2 border rounded text-sm"
+            >
+              <option value={10}>10 / page</option>
+              <option value={25}>25 / page</option>
+              <option value={50}>50 / page</option>
+              <option value={100}>100 / page</option>
+            </select>
+          </div>
+
+          <div className="overflow-auto border rounded-lg">
+            <table className="w-full text-sm">
+              <thead className="bg-gray-50">
+                <tr>
+                  <th className="text-left p-2">Biller</th>
+                  <th className="text-left p-2">Biller ID</th>
+                  <th className="text-left p-2">Category</th>
+                  <th className="text-left p-2">Status</th>
+                  <th className="text-left p-2">Local State</th>
+                  <th className="text-left p-2">Last Sync</th>
+                  <th className="text-left p-2">Actions</th>
+                </tr>
+              </thead>
+              <tbody>
+                {filteredDirectoryBillers.map((b) => (
+                  <tr key={b.id} className="border-t">
+                    <td className="p-2 font-medium">{b.biller_name || '—'}</td>
+                    <td className="p-2 font-mono text-xs">{b.biller_id}</td>
+                    <td className="p-2">{b.biller_category || '—'}</td>
+                    <td className="p-2">{b.biller_status || '—'}</td>
+                    <td className="p-2 text-xs">{b.is_active_local ? 'Visible to everyone' : 'Hidden from users'}</td>
+                    <td className="p-2 text-xs">{b.last_synced_at ? new Date(b.last_synced_at).toLocaleString() : '-'}</td>
+                    <td className="p-2">
+                      <button
+                        type="button"
+                        className="px-2 py-1 text-xs border rounded"
+                        onClick={() => openDirectoryBiller(b)}
+                      >
+                        View details
+                      </button>
+                      <button
+                        type="button"
+                        className="px-2 py-1 text-xs border rounded ml-1"
+                        onClick={() => toggleLocalBillerState(b)}
+                      >
+                        {b.is_active_local ? 'Disable Visibility' : 'Enable Visibility'}
+                      </button>
+                      <button
+                        type="button"
+                        className="px-2 py-1 text-xs border rounded ml-1 text-red-700"
+                        onClick={() => softDeleteBiller(b)}
+                      >
+                        Delete
+                      </button>
+                    </td>
+                  </tr>
+                ))}
+                {filteredDirectoryBillers.length === 0 ? (
+                  <tr>
+                    <td colSpan={7} className="p-4 text-center text-sm text-gray-500">No billers found for this filter.</td>
+                  </tr>
+                ) : null}
+              </tbody>
+            </table>
+          </div>
+
+          <div className="flex items-center justify-between text-xs text-gray-600">
+            <span>
+              Page {directoryPagination.page} / {directoryPagination.total_pages} · Showing {filteredDirectoryBillers.length} · Total {directoryPagination.total}
+            </span>
+            <div className="space-x-2">
+              <button
+                type="button"
+                disabled={directoryPagination.page <= 1}
+                onClick={() => setDirectoryPage((p) => Math.max(1, p - 1))}
+                className="px-2 py-1 border rounded disabled:opacity-50"
+              >
+                Prev
+              </button>
+              <button
+                type="button"
+                disabled={directoryPagination.page >= directoryPagination.total_pages}
+                onClick={() => setDirectoryPage((p) => p + 1)}
+                className="px-2 py-1 border rounded disabled:opacity-50"
+              >
+                Next
+              </button>
             </div>
           </div>
-        )}
-      </div>
-
-      <div className="bg-white rounded-xl border border-gray-200 p-6 space-y-3">
-        <h2 className="font-semibold">Step B: Sync Billers</h2>
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-2 text-sm">
-          <div className="border rounded p-2">Total Maps: <strong>{mapCount}</strong></div>
-          <div className="border rounded p-2">Pending Maps: <strong>{pendingMapCount}</strong></div>
-          <div className="border rounded p-2">Approved Maps: <strong>{approvedMapCount}</strong></div>
         </div>
-        <div className="flex gap-2">
-          <button
-            type="button"
-            onClick={runSync}
-            disabled={syncing}
-            className="px-4 py-2 bg-blue-600 text-white text-sm rounded disabled:opacity-50"
-          >
-            {syncing ? 'Running sync...' : 'Run Biller Sync'}
-          </button>
-          <button
-            type="button"
-            onClick={refreshCache}
-            className="px-4 py-2 bg-slate-100 text-slate-800 text-sm rounded border border-slate-300"
-          >
-            Refresh Provider Cache
-          </button>
-        </div>
-        {syncDiagnostics && (
-          <pre className="text-xs bg-slate-50 border border-slate-200 rounded-lg p-3 overflow-auto max-h-56">
-            {JSON.stringify(syncDiagnostics, null, 2)}
-          </pre>
-        )}
-      </div>
+      )}
 
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-        <form onSubmit={saveCategory} className="bg-white rounded-xl border border-gray-200 p-6 space-y-3">
-          <h2 className="font-semibold">Service Category</h2>
-          <input className="w-full border rounded px-3 py-2 text-sm" placeholder="code (e.g. credit-card)" value={categoryForm.code} onChange={(e) => setCategoryForm((s) => ({ ...s, code: e.target.value }))} required />
-          <input className="w-full border rounded px-3 py-2 text-sm" placeholder="name" value={categoryForm.name} onChange={(e) => setCategoryForm((s) => ({ ...s, name: e.target.value }))} required />
-          <input className="w-full border rounded px-3 py-2 text-sm" placeholder="description" value={categoryForm.description} onChange={(e) => setCategoryForm((s) => ({ ...s, description: e.target.value }))} />
-          <button type="submit" className="px-4 py-2 bg-blue-600 text-white text-sm rounded">Save category</button>
-        </form>
+      {activeTab === 'operations' && (
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+          <div className="bg-white rounded-xl border border-gray-200 p-5 space-y-4">
+            <h2 className="font-semibold">Master Setup</h2>
+            <form onSubmit={saveCategory} className="space-y-2">
+              <p className="text-sm font-medium">Create Category</p>
+              <input className="w-full border rounded px-3 py-2 text-sm" placeholder="code" value={categoryForm.code} onChange={(e) => setCategoryForm((s) => ({ ...s, code: e.target.value }))} required />
+              <input className="w-full border rounded px-3 py-2 text-sm" placeholder="name" value={categoryForm.name} onChange={(e) => setCategoryForm((s) => ({ ...s, name: e.target.value }))} required />
+              <button type="submit" className="px-3 py-1.5 bg-blue-600 text-white text-sm rounded">Save category</button>
+            </form>
 
-        <form onSubmit={saveProvider} className="bg-white rounded-xl border border-gray-200 p-6 space-y-3">
-          <h2 className="font-semibold">Service Provider</h2>
-          <select className="w-full border rounded px-3 py-2 text-sm" value={providerForm.category} onChange={(e) => setProviderForm((s) => ({ ...s, category: e.target.value }))} required>
-            <option value="">Select category</option>
-            {categories.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
-          </select>
-          <input className="w-full border rounded px-3 py-2 text-sm" placeholder="provider code" value={providerForm.code} onChange={(e) => setProviderForm((s) => ({ ...s, code: e.target.value }))} required />
-          <input className="w-full border rounded px-3 py-2 text-sm" placeholder="provider name" value={providerForm.name} onChange={(e) => setProviderForm((s) => ({ ...s, name: e.target.value }))} required />
-          <select className="w-full border rounded px-3 py-2 text-sm" value={providerForm.provider_type} onChange={(e) => setProviderForm((s) => ({ ...s, provider_type: e.target.value }))}>
-            <option value="operator">Operator</option>
-            <option value="bank">Bank</option>
-            <option value="utility">Utility</option>
-            <option value="other">Other</option>
-          </select>
-          <button type="submit" className="px-4 py-2 bg-blue-600 text-white text-sm rounded">Save provider</button>
-        </form>
-      </div>
+            <form onSubmit={saveProvider} className="space-y-2">
+              <p className="text-sm font-medium">Create Provider</p>
+              <select className="w-full border rounded px-3 py-2 text-sm" value={providerForm.category} onChange={(e) => setProviderForm((s) => ({ ...s, category: e.target.value }))} required>
+                <option value="">Select category</option>
+                {categories.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
+              </select>
+              <input className="w-full border rounded px-3 py-2 text-sm" placeholder="provider code" value={providerForm.code} onChange={(e) => setProviderForm((s) => ({ ...s, code: e.target.value }))} required />
+              <input className="w-full border rounded px-3 py-2 text-sm" placeholder="provider name" value={providerForm.name} onChange={(e) => setProviderForm((s) => ({ ...s, name: e.target.value }))} required />
+              <button type="submit" className="px-3 py-1.5 bg-blue-600 text-white text-sm rounded">Save provider</button>
+            </form>
 
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-        <form onSubmit={saveMap} className="bg-white rounded-xl border border-gray-200 p-6 space-y-3">
-          <h2 className="font-semibold">Step D: Provider-Biller Mapping</h2>
-          <select className="w-full border rounded px-3 py-2 text-sm" value={mapForm.provider} onChange={(e) => setMapForm((s) => ({ ...s, provider: e.target.value }))} required>
-            <option value="">Select provider</option>
-            {providers.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
-          </select>
-          <select className="w-full border rounded px-3 py-2 text-sm" value={mapForm.biller_master} onChange={(e) => setMapForm((s) => ({ ...s, biller_master: e.target.value }))} required>
-            <option value="">Select biller</option>
-            {billerMaster.map((b) => <option key={b.id} value={b.id}>{b.biller_name} ({b.biller_id})</option>)}
-          </select>
-          <button type="submit" className="px-4 py-2 bg-blue-600 text-white text-sm rounded">Save mapping</button>
-          <p className="text-xs text-gray-500">Unmapped billers currently: {unmappedBillers.length}</p>
-        </form>
+            <form onSubmit={saveMap} className="space-y-2">
+              <p className="text-sm font-medium">{mapForm.id ? 'Update Provider-Biller Map' : 'Create Provider-Biller Map'}</p>
+              <select className="w-full border rounded px-3 py-2 text-sm" value={mapForm.provider} onChange={(e) => setMapForm((s) => ({ ...s, provider: e.target.value }))} required>
+                <option value="">Select provider</option>
+                {providers.map((p) => <option key={p.id} value={p.id}>{p.name} ({p.category_code})</option>)}
+              </select>
+              <select className="w-full border rounded px-3 py-2 text-sm" value={mapForm.biller_master} onChange={(e) => setMapForm((s) => ({ ...s, biller_master: e.target.value }))} required>
+                <option value="">Select biller</option>
+                {providerScopedBillers.map((b) => <option key={b.id} value={b.id}>{b.biller_name} ({b.biller_id}) - {b.biller_category}</option>)}
+              </select>
+              <button type="submit" className="px-3 py-1.5 bg-blue-600 text-white text-sm rounded">
+                {mapForm.id ? 'Update map' : 'Save map'}
+              </button>
+              {mapForm.id ? (
+                <button type="button" className="px-3 py-1.5 border text-sm rounded ml-2" onClick={() => setMapForm(emptyMapForm)}>
+                  Cancel edit
+                </button>
+              ) : null}
+            </form>
+          </div>
 
-        <form onSubmit={saveRule} className="bg-white rounded-xl border border-gray-200 p-6 space-y-3">
-          <h2 className="font-semibold">Step E: Category Commission Rules</h2>
-          <select className="w-full border rounded px-3 py-2 text-sm" value={ruleForm.category} onChange={(e) => setRuleForm((s) => ({ ...s, category: e.target.value }))} required>
-            <option value="">Select category</option>
-            {categories.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
-          </select>
-          <input className="w-full border rounded px-3 py-2 text-sm" placeholder="rule code" value={ruleForm.rule_code} onChange={(e) => setRuleForm((s) => ({ ...s, rule_code: e.target.value }))} required />
-          <select className="w-full border rounded px-3 py-2 text-sm" value={ruleForm.commission_type} onChange={(e) => setRuleForm((s) => ({ ...s, commission_type: e.target.value }))}>
-            <option value="flat">Flat</option>
-            <option value="percentage">Percentage</option>
-          </select>
-          <input className="w-full border rounded px-3 py-2 text-sm" placeholder="value" value={ruleForm.value} onChange={(e) => setRuleForm((s) => ({ ...s, value: e.target.value }))} required />
-          <input className="w-full border rounded px-3 py-2 text-sm" placeholder="min commission" value={ruleForm.min_commission} onChange={(e) => setRuleForm((s) => ({ ...s, min_commission: e.target.value }))} />
-          <input className="w-full border rounded px-3 py-2 text-sm" placeholder="max commission" value={ruleForm.max_commission} onChange={(e) => setRuleForm((s) => ({ ...s, max_commission: e.target.value }))} />
-          <button type="submit" className="px-4 py-2 bg-blue-600 text-white text-sm rounded">Save rule</button>
-        </form>
-      </div>
-
-      <div className="bg-white rounded-xl border border-gray-200 p-6">
-        <div className="flex items-center justify-between mb-3">
-          <h2 className="font-semibold">Provider-Biller Approval Queue</h2>
-          <button
-            type="button"
-            onClick={bulkApproveMaps}
-            disabled={selectedMapIds.length === 0}
-            className="px-3 py-1.5 text-xs rounded border border-green-300 bg-green-50 text-green-700 disabled:opacity-50"
-          >
-            Bulk Approve ({selectedMapIds.length})
-          </button>
-        </div>
-        <div className="overflow-auto max-h-80 border rounded mb-4">
-          <table className="w-full text-sm">
-            <thead className="bg-gray-50">
-              <tr>
-                <th className="text-left p-2">#</th>
-                <th className="text-left p-2">Provider</th>
-                <th className="text-left p-2">Biller</th>
-                <th className="text-left p-2">Approval</th>
-                <th className="text-left p-2">Blocked By</th>
-                <th className="text-left p-2">Actions</th>
-              </tr>
-            </thead>
-            <tbody>
-              {maps.slice(0, 200).map((m) => (
-                <tr key={m.id} className="border-t">
-                  <td className="p-2">
-                    <input
-                      type="checkbox"
-                      checked={selectedMapIds.includes(m.id)}
-                      onChange={(e) => setSelectedMapIds((prev) => e.target.checked ? [...prev, m.id] : prev.filter((id) => id !== m.id))}
-                    />
-                  </td>
-                  <td className="p-2">{m.provider_name || m.provider_code}</td>
-                  <td className="p-2">{m.biller_name || m.biller_id}</td>
-                  <td className="p-2">
-                    <span className={`px-2 py-0.5 rounded text-xs ${(m.approval_status || 'pending') === 'approved' ? 'bg-green-100 text-green-700' : 'bg-amber-100 text-amber-700'}`}>
-                      {m.approval_status || 'pending'}
-                    </span>
-                  </td>
-                  <td className="p-2 text-xs">
-                    {(m.blocked_by || []).length > 0 ? (m.blocked_by || []).join(', ') : 'ready'}
-                  </td>
-                  <td className="p-2 space-x-1">
-                    <button type="button" onClick={() => updateMapAction(m.id, 'approve')} className="px-2 py-1 text-xs rounded bg-green-50 text-green-700 border border-green-200">Approve</button>
-                    <button type="button" onClick={() => updateMapAction(m.id, 'reject')} className="px-2 py-1 text-xs rounded bg-red-50 text-red-700 border border-red-200">Reject</button>
-                    <button type="button" onClick={() => updateMapAction(m.id, 'toggle')} className="px-2 py-1 text-xs rounded bg-slate-50 text-slate-700 border border-slate-200">Toggle</button>
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-        <h2 className="font-semibold mb-3">Current Commission Rules</h2>
-        <div className="overflow-auto max-h-72 border rounded">
-          <table className="w-full text-sm">
-            <thead className="bg-gray-50">
-              <tr>
-                <th className="text-left p-2">Rule</th>
-                <th className="text-left p-2">Category</th>
-                <th className="text-left p-2">Type</th>
-                <th className="text-left p-2">Value</th>
-                <th className="text-left p-2">Active</th>
-              </tr>
-            </thead>
-            <tbody>
-              {rules.map((r) => (
-                <tr key={r.id} className="border-t">
-                  <td className="p-2">{r.rule_code}</td>
-                  <td className="p-2">{r.category_name || r.category_code}</td>
-                  <td className="p-2">{r.commission_type}</td>
-                  <td className="p-2">{r.value}</td>
-                  <td className="p-2">{r.is_active ? 'Yes' : 'No'}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-      </div>
-
-      <div className="bg-white rounded-xl border border-gray-200 p-6">
-        <h2 className="font-semibold mb-3">Commission Audit (latest)</h2>
-        <pre className="text-xs bg-slate-50 border border-slate-200 rounded-lg p-3 overflow-auto max-h-72">
-          {JSON.stringify(audits.slice(0, 25), null, 2)}
-        </pre>
-      </div>
-
-      {opsSummary && (
-        <div className="bg-white rounded-xl border border-gray-200 p-6">
-          <h2 className="font-semibold mb-3">Step F: Go-live Risk Summary</h2>
-          <div className="grid grid-cols-1 md:grid-cols-4 gap-3 text-sm">
-            <div className="border rounded p-3">Stale Billers: <strong>{opsSummary.stale_billers}</strong></div>
-            <div className="border rounded p-3">Unmapped Billers: <strong>{opsSummary.unmapped_billers}</strong></div>
-            <div className="border rounded p-3">Inactive Categories: <strong>{opsSummary.inactive_categories}</strong></div>
-            <div className="border rounded p-3">Conflicting Rules: <strong>{opsSummary.conflicting_rule_windows}</strong></div>
+          <div className="bg-white rounded-xl border border-gray-200 p-5 space-y-3">
+            <h2 className="font-semibold">Ops Summary & Existing Mappings</h2>
+            {opsSummary && (
+              <div className="grid grid-cols-2 gap-2 text-sm">
+                <div className="border rounded p-2">Stale Billers: <strong>{opsSummary.stale_billers}</strong></div>
+                <div className="border rounded p-2">Unmapped: <strong>{opsSummary.unmapped_billers}</strong></div>
+                <div className="border rounded p-2">Inactive Categories: <strong>{opsSummary.inactive_categories}</strong></div>
+                <div className="border rounded p-2">Conflicting Rules: <strong>{opsSummary.conflicting_rule_windows}</strong></div>
+              </div>
+            )}
+            <div className="flex items-center justify-between">
+              <h3 className="text-sm font-semibold">Existing Provider-Biller Mappings</h3>
+              <input
+                value={mapSearch}
+                onChange={(e) => setMapSearch(e.target.value)}
+                className="px-2 py-1 border rounded text-xs"
+                placeholder="Search provider/biller/category"
+              />
+            </div>
+            <div className="max-h-72 overflow-auto border rounded">
+              <table className="w-full text-xs">
+                <thead className="bg-gray-50">
+                  <tr>
+                    <th className="text-left p-2">Category</th>
+                    <th className="text-left p-2">Provider</th>
+                    <th className="text-left p-2">Biller</th>
+                    <th className="text-left p-2">Biller ID</th>
+                    <th className="text-left p-2">Action</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {filteredOpsMaps.slice(0, 100).map((m) => (
+                    <tr key={m.id} className="border-t">
+                      <td className="p-2">{m.category_name || m.category_code || '—'}</td>
+                      <td className="p-2">{m.provider_name || m.provider_code}</td>
+                      <td className="p-2">{m.biller_name || '—'}</td>
+                      <td className="p-2">{m.biller_id || '—'}</td>
+                      <td className="p-2">
+                        <button type="button" className="px-2 py-1 border rounded" onClick={() => editMap(m)}>Edit</button>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+            <p className="text-[11px] text-gray-500">Showing {Math.min(filteredOpsMaps.length, 100)} of {filteredOpsMaps.length} mappings.</p>
           </div>
         </div>
       )}
 
       <div className="text-xs text-gray-400">
-        {loading ? 'Loading governance data...' : `Categories: ${categories.length}, Providers: ${providers.length}, Maps: ${mapCount}, Billers: ${billerMaster.length}, Unmapped: ${unmappedBillers.length}`}
+        {loading
+          ? 'Loading governance data...'
+          : `Billers: ${billerMaster.length}, Visible: ${visibleServicesCount}, Hidden: ${hiddenServicesCount}, Categories: ${categories.length}`}
       </div>
+
+      {audits.length > 0 || observability ? (
+        <div className="bg-white rounded-xl border border-gray-200 p-5 space-y-3">
+          <h2 className="font-semibold">Audit & Observability</h2>
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-3">
+            <div className="rounded-lg border border-slate-200">
+              <div className="px-3 py-2 bg-slate-100 text-xs font-medium text-slate-700">Recent changes</div>
+              <div className="max-h-56 overflow-auto text-xs">
+                {audits.slice(0, 10).map((a) => (
+                  <div key={a.id} className="px-3 py-2 border-t first:border-t-0">
+                    <p><strong>{a.action || 'update'}</strong> · Rule: {a.rule_code || 'n/a'}</p>
+                    <p className="text-slate-500">{a.reason || 'No reason provided'}</p>
+                  </div>
+                ))}
+              </div>
+            </div>
+            <div className="rounded-lg border border-slate-200">
+              <div className="px-3 py-2 bg-slate-100 text-xs font-medium text-slate-700">API health</div>
+              <div className="max-h-56 overflow-auto text-xs">
+                {Object.entries(observability?.endpoint_counts || {}).map(([k, v]) => (
+                  <div key={k} className="px-3 py-2 border-t first:border-t-0 flex items-center justify-between">
+                    <span>{toTitle(k)}</span>
+                    <span className="text-slate-600">Total {v.total || 0} · Failed {v.failed || 0}</span>
+                  </div>
+                ))}
+                {Object.keys(observability?.endpoint_counts || {}).length === 0 ? (
+                  <div className="px-3 py-3 text-slate-500">No endpoint telemetry available.</div>
+                ) : null}
+              </div>
+            </div>
+          </div>
+          {syncUsageHistory.length > 0 ? (
+            <div className="rounded-lg border border-slate-200">
+              <div className="px-3 py-2 bg-slate-100 text-xs font-medium text-slate-700">Sync usage history</div>
+              <div className="max-h-56 overflow-auto">
+                <table className="w-full text-xs">
+                  <thead className="bg-white">
+                    <tr>
+                      <th className="text-left p-2">Date</th>
+                      <th className="text-left p-2">Calls</th>
+                      <th className="text-left p-2">IDs</th>
+                      <th className="text-left p-2">Status</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {syncUsageHistory.slice(0, 15).map((row) => (
+                      <tr key={row.id} className="border-t">
+                        <td className="p-2">{row.usage_date || '-'}</td>
+                        <td className="p-2">{row.call_count || 0}</td>
+                        <td className="p-2">{row.requested_ids_count || 0}</td>
+                        <td className="p-2">{toTitle(row.last_status || 'n/a')}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          ) : null}
+        </div>
+      ) : null}
     </div>
   );
 };

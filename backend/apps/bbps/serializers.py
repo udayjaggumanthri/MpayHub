@@ -3,13 +3,16 @@ Serializers for BBPS app.
 """
 from rest_framework import serializers
 from urllib.parse import urlparse
+import re
 from apps.bbps.models import (
+    BbpsBillerInputParam,
     BillPayment,
     BbpsBillerMaster,
     BbpsCategoryCommissionRule,
     BbpsProviderBillerMap,
     BbpsServiceCategory,
     BbpsServiceProvider,
+    BbpsSyncUsageLog,
 )
 from apps.integrations.models import (
     BillAvenueAgentProfile,
@@ -59,8 +62,12 @@ class BillPaymentCreateSerializer(serializers.Serializer):
     provider_id = serializers.IntegerField(required=False)
     bill_type = serializers.CharField(max_length=50, required=False, allow_blank=True)
     amount = serializers.DecimalField(max_digits=12, decimal_places=2)
+    mpin = serializers.CharField(max_length=6, required=False, allow_blank=True, write_only=True)
     # Additional bill details
     customer_details = serializers.JSONField(required=False, default=dict)
+    customer_name = serializers.CharField(max_length=200, required=False, allow_blank=True)
+    remitter_name = serializers.CharField(max_length=200, required=False, allow_blank=True)
+    biller_response = serializers.JSONField(required=False, default=dict)
     payment_mode = serializers.CharField(max_length=50, required=False, allow_blank=True)
     init_channel = serializers.CharField(max_length=20, required=False, allow_blank=True)
     agent_id = serializers.CharField(max_length=40, required=False, allow_blank=True)
@@ -170,6 +177,22 @@ class BillerSyncRequestSerializer(serializers.Serializer):
         child=serializers.CharField(max_length=20), required=False, default=list
     )
 
+    def validate_biller_ids(self, value):
+        out = []
+        seen = set()
+        for raw in value or []:
+            v = str(raw or '').strip()
+            if not v:
+                continue
+            if not re.match(r'^[A-Za-z0-9\-_]+$', v):
+                raise serializers.ValidationError(f'Invalid biller id: {v}')
+            if v not in seen:
+                seen.add(v)
+                out.append(v)
+        if len(out) > 2000:
+            raise serializers.ValidationError('Maximum 2000 biller IDs are allowed per sync call.')
+        return out
+
 
 class StatusPollSerializer(serializers.Serializer):
     attempt_id = serializers.IntegerField(required=False)
@@ -226,7 +249,37 @@ class BbpsServiceCategorySerializer(serializers.ModelSerializer):
 class BbpsBillerMasterLiteSerializer(serializers.ModelSerializer):
     class Meta:
         model = BbpsBillerMaster
-        fields = ['id', 'biller_id', 'biller_name', 'biller_category', 'biller_status', 'last_synced_at']
+        fields = [
+            'id', 'biller_id', 'biller_name', 'biller_category', 'biller_status',
+            'last_synced_at', 'is_active_local', 'source_type', 'last_sync_status',
+            'last_sync_error', 'soft_deleted_at', 'version',
+        ]
+
+
+class BbpsBillerInputParamSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = BbpsBillerInputParam
+        fields = [
+            'param_name', 'data_type', 'is_optional', 'min_length', 'max_length',
+            'regex', 'visibility', 'default_values', 'display_order',
+        ]
+
+
+class BbpsBillerMasterAdminSerializer(serializers.ModelSerializer):
+    input_params = BbpsBillerInputParamSerializer(many=True, required=False)
+
+    class Meta:
+        model = BbpsBillerMaster
+        fields = '__all__'
+        read_only_fields = ['id', 'created_at', 'updated_at', 'last_synced_at', 'version']
+
+
+class BbpsSyncUsageLogSerializer(serializers.ModelSerializer):
+    requested_by_name = serializers.CharField(source='requested_by.username', read_only=True)
+
+    class Meta:
+        model = BbpsSyncUsageLog
+        fields = '__all__'
 
 
 class BbpsServiceProviderSerializer(serializers.ModelSerializer):
@@ -280,6 +333,13 @@ class BbpsProviderBillerMapSerializer(serializers.ModelSerializer):
         if eff_from and eff_to and eff_from > eff_to:
             raise serializers.ValidationError({'effective_to': 'effective_to must be greater than effective_from.'})
         return attrs
+
+
+class MdmCatalogPublishSerializer(serializers.Serializer):
+    """Publish or unpublish a provider–biller map for end-user BBPS discovery."""
+
+    map_id = serializers.IntegerField(min_value=1)
+    published = serializers.BooleanField()
 
 
 class BbpsCategoryCommissionRuleSerializer(serializers.ModelSerializer):

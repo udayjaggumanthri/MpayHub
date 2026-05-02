@@ -68,6 +68,78 @@ def _normalize_mode_for_compare(mode: str) -> str:
     return _normalize_key(mode).replace('  ', ' ')
 
 
+# NPCI BBPS-style: which payment *instruments* are valid per *channel* (AGT/MOB/INT/POS).
+# BillAvenue MDM often lists modes and channels separately; invalid pairs fail at runtime (e.g. E077 UPI + AGT).
+_BBPS_MODE_KEY_DISPLAY_ORDER: list[tuple[str, str]] = [
+    ('cash', 'Cash'),
+    ('upi', 'UPI'),
+    ('bharat qr', 'Bharat QR'),
+    ('debit card', 'Debit Card'),
+    ('credit card', 'Credit Card'),
+    ('wallet', 'Wallet'),
+    ('internet banking', 'Internet Banking'),
+    ('prepaid card', 'Prepaid Card'),
+    ('neft', 'NEFT'),
+    ('imps', 'IMPS'),
+]
+
+BBPS_CHANNEL_ALLOWED_MODE_KEYS: dict[str, frozenset[str]] = {
+    # Agent-assisted retail in BillAvenue BBPS typically supports cash collection only.
+    # Provider rejects card/UPI style instruments on AGT for multiple billers (E077).
+    'AGT': frozenset({'cash'}),
+    'POS': frozenset({'cash', 'debit card', 'credit card', 'wallet', 'prepaid card', 'upi', 'bharat qr'}),
+    'MOB': frozenset({'cash', 'debit card', 'credit card', 'wallet', 'prepaid card', 'upi', 'bharat qr'}),
+    'MOBB': frozenset({'cash', 'debit card', 'credit card', 'wallet', 'prepaid card', 'upi', 'bharat qr'}),
+    'INT': frozenset({'internet banking', 'debit card', 'credit card', 'wallet', 'prepaid card', 'upi', 'bharat qr'}),
+    'INTB': frozenset({'internet banking', 'debit card', 'credit card', 'wallet', 'prepaid card', 'upi', 'bharat qr'}),
+}
+
+
+def bbps_channel_accepts_payment_mode(payment_channel: str, payment_mode: str) -> bool:
+    ch = _normalize_text(payment_channel).upper()
+    mode_key = _normalize_mode_for_compare(payment_mode)
+    allowed = BBPS_CHANNEL_ALLOWED_MODE_KEYS.get(ch)
+    if allowed is None:
+        return True
+    return mode_key in allowed
+
+
+def display_payment_modes_for_channel(payment_channel: str, mdm_mode_labels: list[str] | None) -> list[str]:
+    """
+    Return UI labels for payment modes valid for ``payment_channel``,
+    intersected with optional MDM mode names from ``billerPaymentModes``.
+    """
+    from apps.integrations.bbps_client import _normalize_bbps_payment_mode
+
+    ch = _normalize_text(payment_channel).upper()
+    keys_whitelist = BBPS_CHANNEL_ALLOWED_MODE_KEYS.get(ch)
+
+    if mdm_mode_labels:
+        picked: list[str] = []
+        seen: set[str] = set()
+        for raw in mdm_mode_labels:
+            if not str(raw or '').strip():
+                continue
+            canon = _normalize_bbps_payment_mode(str(raw).strip())
+            mk = _normalize_mode_for_compare(canon)
+            if keys_whitelist is not None and mk not in keys_whitelist:
+                continue
+            if mk in seen:
+                continue
+            seen.add(mk)
+            picked.append(canon)
+        return picked
+
+    if keys_whitelist is None:
+        return [disp for _k, disp in _BBPS_MODE_KEY_DISPLAY_ORDER]
+
+    ordered: list[str] = []
+    for mk, disp in _BBPS_MODE_KEY_DISPLAY_ORDER:
+        if mk in keys_whitelist:
+            ordered.append(disp)
+    return ordered
+
+
 def enforce_biller_mode_channel_constraints(
     *,
     biller: BbpsBillerMaster,
@@ -130,6 +202,15 @@ def enforce_biller_mode_channel_constraints(
             f'Payment mode "{payment_mode}" is disabled for category "{biller.biller_category}".'
         )
 
+    if not bbps_channel_accepts_payment_mode(channel, payment_mode):
+        hint = (
+            'Agent (AGT) flows support Cash and card-type instruments; use channel MOB or INT for UPI / Bharat QR / '
+            'Internet Banking. Aligns with NPCI BBPS channel vs instrument rules (see BBPS specification).'
+        )
+        raise TransactionFailed(
+            f'Payment mode "{payment_mode}" is not valid for channel {channel} for biller {biller.biller_id}. {hint}'
+        )
+
 
 def enforce_fetch_pay_linkage(
     *,
@@ -153,7 +234,10 @@ def enforce_fetch_pay_linkage(
         .first()
     )
     if not session:
-        raise TransactionFailed('Fetch is mandatory for this biller. Please fetch bill before payment.')
+        raise TransactionFailed(
+            'Fetch is mandatory for this biller. Please fetch the bill before payment. '
+            'If a previous payment attempt failed or was declined, fetch the bill again before retrying.'
+        )
     existing_inputs = ((session.input_params or {}).get('input') or [])
     if params and existing_inputs and params != existing_inputs:
         raise TransactionFailed('Payment input parameters do not match latest fetched bill snapshot.')
@@ -253,3 +337,19 @@ def enforce_plan_mdm_requirement(*, biller: BbpsBillerMaster, plan_id: str = '')
             raise TransactionFailed(
                 f'plan_id "{plan_id}" is not ACTIVE for biller {biller.biller_id}.'
             )
+
+
+def enforce_cash_pan_rule(*, amount_paise: int, payment_mode: str, customer_info: dict) -> None:
+    """For cash >= 50,000 INR, PAN and customer name are mandatory."""
+    mode = _normalize_mode_for_compare(payment_mode)
+    if mode != 'cash':
+        return
+    if amount_paise < 5000000:
+        return
+    info = customer_info if isinstance(customer_info, dict) else {}
+    pan = _normalize_text(info.get('customerPan') or info.get('customer_pan'))
+    name = _normalize_text(info.get('customerName') or info.get('customer_name'))
+    if not pan or not name:
+        raise TransactionFailed(
+            'PAN and customer name are mandatory for cash transactions >= 50000.'
+        )

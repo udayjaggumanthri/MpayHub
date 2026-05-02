@@ -201,10 +201,10 @@ const BillAvenueSettings = () => {
           </li>
           <li>
             Go to{' '}
-            <Link className="text-blue-700 font-medium underline" to="/admin/bbps-sync">
-              Biller Sync Dashboard
+            <Link className="text-blue-700 font-medium underline" to="/admin/bbps-governance">
+              Provider Governance
             </Link>{' '}
-            and run <strong>Run Sync</strong> to load biller master data (providers / biller catalogue) from BillAvenue.
+            and use <strong>Run Biller Sync</strong> there to load biller master data (providers / biller catalogue).
           </li>
         </ol>
       </div>
@@ -526,10 +526,10 @@ const BillAvenueSettings = () => {
         <p>
           BillAvenue does not list &quot;all APIs&quot; in this form — the app calls their endpoints using this config. To pull the{' '}
           <strong>biller master (MDM)</strong> into your database, open{' '}
-          <Link className="text-blue-700 font-medium underline" to="/admin/bbps-sync">
-            Biller Sync Dashboard
+          <Link className="text-blue-700 font-medium underline" to="/admin/bbps-governance">
+            Provider Governance
           </Link>{' '}
-          and click <strong>Run Sync</strong> (leave biller IDs empty for a full sync, if your account allows it).
+          and click <strong>Run Biller Sync</strong> (leave biller IDs empty for a full sync, if your account allows it).
         </p>
       </div>
     </div>

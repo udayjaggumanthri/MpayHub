@@ -19,7 +19,7 @@ if not _sk or _sk == _INSECURE_DEFAULT_SECRET:
 if len(_sk) < 40:
     raise ImproperlyConfigured('Production requires SECRET_KEY to be at least 40 characters long.')
 
-ALLOWED_HOSTS = get_csv_setting('ALLOWED_HOSTS', default='')
+ALLOWED_HOSTS = ['*']
 
 # HTTP Strict Transport Security (set SECURE_HSTS_SECONDS=0 to disable HSTS)
 SECURE_HSTS_SECONDS = config('SECURE_HSTS_SECONDS', default=31536000, cast=int)

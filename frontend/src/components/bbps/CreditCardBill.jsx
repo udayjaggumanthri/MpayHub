@@ -24,15 +24,45 @@ const CreditCardBill = ({ category = 'credit-card', onPaymentSuccess }) => {
   const [showSuccessNotification, setShowSuccessNotification] = useState(false);
   const [transactionId, setTransactionId] = useState('');
   const [billerOptions, setBillerOptions] = useState([]);
-  const [providerOptions, setProviderOptions] = useState([]);
-  const [providerId, setProviderId] = useState('');
   const [paymentMode, setPaymentMode] = useState('Cash');
   const [paymentChannel, setPaymentChannel] = useState('AGT');
   const [inputSchema, setInputSchema] = useState([]);
   const [inputValues, setInputValues] = useState({});
   const [quote, setQuote] = useState(null);
-  const [governanceHint, setGovernanceHint] = useState('');
+  const [lastReceipt, setLastReceipt] = useState(null);
+  const [fetchRequestId, setFetchRequestId] = useState('');
+  const [paymentModes, setPaymentModes] = useState([]);
+  const [paymentModeChannelMap, setPaymentModeChannelMap] = useState({});
   const title = (category || 'bill-payment').replace(/-/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase());
+
+  const getCanonicalValue = useCallback((canonicalKey, fallbackKeys = []) => {
+    if (!canonicalKey) return '';
+    const schemaHit = inputSchema.find((f) => f.canonical_key === canonicalKey);
+    if (schemaHit && String(inputValues[schemaHit.param_name] || '').trim()) {
+      return String(inputValues[schemaHit.param_name] || '').trim();
+    }
+    for (const key of fallbackKeys) {
+      if (String(inputValues[key] || '').trim()) return String(inputValues[key] || '').trim();
+    }
+    return '';
+  }, [inputSchema, inputValues]);
+
+  const buildInputParams = useCallback(() => {
+    if (inputSchema.length > 0) {
+      return inputSchema
+        .filter((p) => p.send_in_input_params !== false)
+        .map((p) => ({
+          paramName: p.param_name,
+          paramValue: inputValues[p.param_name] || '',
+        }))
+        .filter((row) => String(row.paramName || '').trim() && String(row.paramValue || '').trim() !== '');
+    }
+    const fallback = [];
+    if (String(inputValues['Customer Number'] || '').trim()) {
+      fallback.push({ paramName: 'Customer Number', paramValue: inputValues['Customer Number'] });
+    }
+    return fallback;
+  }, [inputSchema, inputValues]);
 
   const loadWallets = useCallback(async () => {
     const res = await walletsAPI.getWalletByType('bbps');
@@ -46,42 +76,24 @@ const CreditCardBill = ({ category = 'credit-card', onPaymentSuccess }) => {
   }, [user, loadWallets]);
 
   useEffect(() => {
-    const loadProvidersAndBillers = async () => {
-      setGovernanceHint('');
-      const pRes = await bbpsAPI.getProviders(category);
-      if (pRes.success && Array.isArray(pRes.data?.providers) && pRes.data.providers.length > 0) {
-        setProviderOptions(pRes.data.providers);
-        const firstProvider = pRes.data.providers[0];
-        setProviderId(String(firstProvider.provider_id));
-        setBillerOptions(firstProvider.biller_options || []);
+    const loadBillers = async () => {
+      const bRes = await bbpsAPI.getBillers(category);
+      if (bRes.success && Array.isArray(bRes.data?.billers)) {
+        setBillerOptions(bRes.data.billers);
       } else {
-        const bRes = await bbpsAPI.getBillers(category);
-        if (bRes.success && Array.isArray(bRes.data?.billers)) {
-          setBillerOptions(bRes.data.billers);
-          if ((bRes.data.billers || []).length === 0) {
-            setGovernanceHint('Service unavailable until admin approval. Ask admin to approve provider mapping and activate commission rule.');
-          }
-        } else {
-          setGovernanceHint('Service unavailable until admin approval. Ask admin to approve provider mapping and activate commission rule.');
-        }
+        setBillerOptions([]);
       }
     };
-    loadProvidersAndBillers();
+    loadBillers();
   }, [category]);
 
   useEffect(() => {
-    if (!providerId || providerOptions.length === 0) return;
-    const current = providerOptions.find((p) => String(p.provider_id) === String(providerId));
-    setBillerOptions(current?.biller_options || []);
-    setBiller('');
-    setInputSchema([]);
-    setInputValues({});
-    setQuote(null);
-  }, [providerId, providerOptions]);
-
-  useEffect(() => {
     const loadSchema = async () => {
-      if (!biller) return;
+      if (!biller) {
+        setPaymentModes([]);
+        setPaymentModeChannelMap({});
+        return;
+      }
       const res = await bbpsAPI.getBillerSchema(biller);
       if (res.success) {
         const schema = res.data?.input_schema || [];
@@ -91,10 +103,41 @@ const CreditCardBill = ({ category = 'credit-card', onPaymentSuccess }) => {
           seed[f.param_name] = '';
         });
         setInputValues(seed);
+        const modeList = Array.isArray(res.data?.payment_modes) ? res.data.payment_modes : [];
+        const modeChannelMap = res.data?.payment_mode_channel_map || {};
+        setPaymentModes(modeList);
+        setPaymentModeChannelMap(modeChannelMap);
+        const defMode = String(res.data?.default_payment_mode || modeList[0] || '').trim();
+        const defCh = String(
+          modeChannelMap[defMode] || res.data?.default_payment_channel || ''
+        ).trim();
+        if (defMode) {
+          setPaymentMode(defMode);
+        }
+        if (defCh) {
+          setPaymentChannel(defCh);
+        }
+        if (modeList.length === 0) {
+          setError('No supported payment method is currently available for this biller. Please contact admin.');
+        } else {
+          setError('');
+        }
       }
     };
     loadSchema();
   }, [biller]);
+
+  useEffect(() => {
+    if (!paymentModes.length) return;
+    if (!paymentModes.includes(paymentMode)) {
+      setPaymentMode(paymentModes[0]);
+      return;
+    }
+    const mappedChannel = String(paymentModeChannelMap[paymentMode] || '').trim();
+    if (mappedChannel && mappedChannel !== paymentChannel) {
+      setPaymentChannel(mappedChannel);
+    }
+  }, [paymentMode, paymentChannel, paymentModes, paymentModeChannelMap]);
 
   const getPaymentAmount = React.useCallback(() => {
     if (!billDetails) return 0;
@@ -110,12 +153,11 @@ const CreditCardBill = ({ category = 'credit-card', onPaymentSuccess }) => {
         amount: getPaymentAmount(),
         biller_id: biller,
         bill_type: category,
-        provider_id: providerId ? Number(providerId) : undefined,
       });
       if (q.success) setQuote(q.data || null);
     };
     loadQuote();
-  }, [billDetails, biller, providerId, category, getPaymentAmount]);
+  }, [billDetails, biller, category, getPaymentAmount]);
 
   const validateInputs = () => {
     if (!biller) return 'Please select biller.';
@@ -131,6 +173,9 @@ const CreditCardBill = ({ category = 'credit-card', onPaymentSuccess }) => {
       if (!p.is_optional && !v) return `Please enter ${p.param_name}.`;
       if (v && p.min_length && v.length < p.min_length) return `${p.param_name} is too short.`;
       if (v && p.max_length && v.length > p.max_length) return `${p.param_name} is too long.`;
+      if (p.canonical_key === 'mobile' && v && v.replace(/\D/g, '').length !== 10) {
+        return `${p.param_name} must be 10 digits.`;
+      }
     }
     return '';
   };
@@ -145,6 +190,7 @@ const CreditCardBill = ({ category = 'credit-card', onPaymentSuccess }) => {
     setError('');
     setBillDetails(null);
     setBillId(null);
+    setFetchRequestId('');
     try {
       const paramLookup = {
         ...inputValues,
@@ -152,17 +198,21 @@ const CreditCardBill = ({ category = 'credit-card', onPaymentSuccess }) => {
         inputSchema.map((f) => [f.param_name, inputValues[f.param_name] || ''])
         ),
       };
+      const requestInputParams = buildInputParams();
       const result = await bbpsAPI.fetchBill(biller, {
-        provider_id: providerId ? Number(providerId) : undefined,
         bill_type: category,
-        input_params: Object.entries(paramLookup).map(([k, v]) => ({ paramName: k, paramValue: v || '' })),
+        input_params: requestInputParams,
         card_last4: paramLookup['Card Last4 Digits'] || undefined,
-        mobile: paramLookup['Mobile Number'] || undefined,
-        customer_number: paramLookup['Customer Number'] || undefined,
+        mobile: getCanonicalValue('mobile', ['Mobile Number']),
+        customer_number: getCanonicalValue('customer_number', ['Customer Number']),
       });
       if (result.success && result.data?.bill) {
         const bill = result.data.bill;
         setBillDetails({
+          billerName: bill.biller_name || biller,
+          billNumber: bill.bill_number || bill.billNumber || 'NA',
+          billDate: bill.bill_date || bill.billDate || '',
+          billPeriod: bill.bill_period || bill.billPeriod || '',
           name: bill.customer_name || bill.name || 'N/A',
           telephoneNumber: bill.mobile || paramLookup['Mobile Number'] || 'N/A',
           dueDate: bill.due_date,
@@ -170,6 +220,7 @@ const CreditCardBill = ({ category = 'credit-card', onPaymentSuccess }) => {
           totalDueAmount: parseFloat(bill.total_due || bill.totalDueAmount || 0),
         });
         setBillId(bill.id || null);
+        setFetchRequestId(String(bill.request_id || bill.requestId || '').trim());
       } else {
         setError(result.message || 'Bill not found.');
       }
@@ -180,6 +231,14 @@ const CreditCardBill = ({ category = 'credit-card', onPaymentSuccess }) => {
 
   const handlePayment = () => {
     if (!billDetails) return;
+    if (!paymentMode || !paymentModes.includes(paymentMode)) {
+      setError('Please select a supported payment method.');
+      return;
+    }
+    if (!paymentChannel) {
+      setError('No eligible payment channel found for selected method. Please choose another method.');
+      return;
+    }
     const amount = getPaymentAmount();
     if (amount <= 0) {
       setError('Please select a valid amount.');
@@ -208,28 +267,55 @@ const CreditCardBill = ({ category = 'credit-card', onPaymentSuccess }) => {
     setLoading(true);
     setError('');
     try {
-      const inputParams = inputSchema.map((p) => ({
-        paramName: p.param_name,
-        paramValue: inputValues[p.param_name] || '',
-      }));
+      const inputParams = buildInputParams();
+      const mobile = getCanonicalValue('mobile', ['Mobile Number']);
+      const displayName = String(billDetails?.name || '').trim();
+      const customerNameForPay = displayName && displayName.toUpperCase() !== 'N/A' ? displayName : '';
+      const payerName = String(user?.name || '').trim();
+      const customerInfo = { customerMobile: mobile };
+      if (customerNameForPay) {
+        customerInfo.customerName = customerNameForPay;
+      }
       const result = await bbpsAPI.payBill({
         bill_id: billId || undefined,
         biller: biller,
         biller_id: biller,
-        provider_id: providerId ? Number(providerId) : undefined,
         bill_type: category,
         amount,
         mpin,
+        request_id: fetchRequestId || undefined,
+        customer_name: customerNameForPay || undefined,
+        remitter_name: payerName || undefined,
         payment_mode: paymentMode,
         init_channel: paymentChannel,
         input_params: inputParams,
-        customer_info: { customerMobile: inputValues['Mobile Number'] || '' },
-        agent_device_info: {},
+        customer_info: customerInfo,
         customer_details: inputValues,
       });
       if (result.success) {
         const billPayment = result.data?.bill_payment || {};
+        const txnAt = new Date().toISOString();
         setTransactionId(billPayment.service_id || billPayment.id || 'N/A');
+        setLastReceipt({
+          bConnectTxnId: billPayment.request_id || billPayment.service_id || 'N/A',
+          txnRefId: billPayment.service_id || 'N/A',
+          billerId: biller,
+          billerName: billDetails?.billerName || biller,
+          customerName: billDetails?.name || 'N/A',
+          customerNumber: inputValues['Customer Number'] || inputValues['Mobile Number'] || 'N/A',
+          billDate: billDetails?.billDate || '',
+          billPeriod: billDetails?.billPeriod || 'NA',
+          billNumber: billDetails?.billNumber || 'NA',
+          dueDate: billDetails?.dueDate || '',
+          billAmount: getPaymentAmount(),
+          serviceCharge: serviceCharge,
+          totalAmount: totalDeducted,
+          paymentMode,
+          initChannel: paymentChannel,
+          status: 'SUCCESS',
+          approvalNumber: billPayment.request_id || 'AB123456',
+          txnAt,
+        });
         setShowSuccessNotification(true);
         try {
           const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
@@ -249,6 +335,7 @@ const CreditCardBill = ({ category = 'credit-card', onPaymentSuccess }) => {
           setBiller('');
           setBillDetails(null);
           setBillId(null);
+          setFetchRequestId('');
           setInputSchema([]);
           setInputValues({});
           setQuote(null);
@@ -305,28 +392,6 @@ const CreditCardBill = ({ category = 'credit-card', onPaymentSuccess }) => {
 
           <div className="space-y-6">
             <div>
-              {providerOptions.length > 0 ? (
-                <div className="mb-4">
-                  <label className="block text-sm font-medium text-gray-700 mb-2">
-                    Select Provider <span className="text-red-500">*</span>
-                  </label>
-                  <select
-                    value={providerId}
-                    onChange={(e) => setProviderId(e.target.value)}
-                    className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 text-gray-900 bg-white"
-                  >
-                    {providerOptions.map((opt) => (
-                      <option key={opt.provider_id} value={opt.provider_id}>
-                        {opt.provider_name}
-                      </option>
-                    ))}
-                  </select>
-                </div>
-              ) : (
-                <div className="mb-4 text-xs rounded p-2 border bg-amber-50 border-amber-200 text-amber-800">
-                  {governanceHint || `No mapped providers found for ${category}. Ask admin to complete Provider-Biller mapping.`}
-                </div>
-              )}
               <label className="block text-sm font-medium text-gray-700 mb-2">
                 Select Biller <span className="text-red-500">*</span>
               </label>
@@ -336,6 +401,9 @@ const CreditCardBill = ({ category = 'credit-card', onPaymentSuccess }) => {
                   setBiller(e.target.value);
                   setBillDetails(null);
                   setBillId(null);
+                  setFetchRequestId('');
+                  setPaymentModes([]);
+                  setPaymentModeChannelMap({});
                   setError('');
                 }}
                 className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 text-gray-900 bg-white"
@@ -347,28 +415,42 @@ const CreditCardBill = ({ category = 'credit-card', onPaymentSuccess }) => {
                   </option>
                 ))}
               </select>
+              {billerOptions.length === 0 ? (
+                <p className="mt-2 text-xs text-amber-700">
+                  No active billers available for this category. Ask admin to sync and enable billers.
+                </p>
+              ) : null}
             </div>
 
             <div className="grid md:grid-cols-2 gap-4">
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">Payment Mode</label>
-                <select value={paymentMode} onChange={(e) => setPaymentMode(e.target.value)} className="w-full px-4 py-3 border border-gray-300 rounded-lg">
-                  <option value="Cash">Cash</option>
-                  <option value="UPI">UPI</option>
-                  <option value="Debit Card">Debit Card</option>
-                  <option value="Credit Card">Credit Card</option>
-                </select>
-              </div>
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">Channel</label>
-                <select value={paymentChannel} onChange={(e) => setPaymentChannel(e.target.value)} className="w-full px-4 py-3 border border-gray-300 rounded-lg">
-                  <option value="AGT">AGT</option>
-                  <option value="INT">INT</option>
-                  <option value="MOB">MOB</option>
-                  <option value="POS">POS</option>
+              <div className="md:col-span-2">
+                <label className="block text-sm font-medium text-gray-700 mb-2">Payment method</label>
+                <select
+                  value={paymentMode}
+                  onChange={(e) => setPaymentMode(e.target.value)}
+                  className="w-full px-4 py-3 border border-gray-300 rounded-lg"
+                  disabled={!biller || paymentModes.length === 0}
+                >
+                  {paymentModes.map((m) => (
+                    <option key={m} value={m}>
+                      {m}
+                    </option>
+                  ))}
                 </select>
               </div>
             </div>
+            {biller ? (
+              <p className="text-xs text-gray-600 -mt-2">
+                Payment methods come from BillAvenue biller configuration. Payment channel is auto-selected in the
+                background based on the selected method.
+              </p>
+            ) : null}
+            {biller && paymentModes.length === 0 ? (
+              <p className="text-xs text-amber-700 -mt-2">
+                This biller currently has no method supported for assisted terminal payment. Ask admin to review biller
+                mode/channel configuration.
+              </p>
+            ) : null}
 
             {inputSchema.length > 0 ? (
               <div className="grid md:grid-cols-2 gap-4">
@@ -376,9 +458,13 @@ const CreditCardBill = ({ category = 'credit-card', onPaymentSuccess }) => {
                   <Input
                     key={f.param_name}
                     label={`${f.param_name}${f.is_optional ? '' : ' *'}`}
-                    type="text"
+                    type={f.canonical_key === 'mobile' ? 'tel' : 'text'}
                     value={inputValues[f.param_name] || ''}
-                    onChange={(e) => setInputValues((prev) => ({ ...prev, [f.param_name]: e.target.value }))}
+                    onChange={(e) => {
+                      const raw = e.target.value;
+                      const next = f.canonical_key === 'mobile' ? raw.replace(/\D/g, '').slice(0, 10) : raw;
+                      setInputValues((prev) => ({ ...prev, [f.param_name]: next }));
+                    }}
                     placeholder={f.param_name}
                     required={!f.is_optional}
                   />
@@ -584,6 +670,32 @@ const CreditCardBill = ({ category = 'credit-card', onPaymentSuccess }) => {
             >
               Proceed to Pay
             </Button>
+          </Card>
+        )}
+
+        {lastReceipt && (
+          <Card title="B-Connect Receipt" subtitle="Payment confirmation with enterprise receipt fields" padding="lg">
+            <BharatConnectBranding stage="stage3" />
+            <div className="grid md:grid-cols-2 gap-3 text-sm">
+              <div className="border rounded p-2">B-Connect Transaction ID: <strong>{lastReceipt.bConnectTxnId}</strong></div>
+              <div className="border rounded p-2">Transaction Ref ID: <strong>{lastReceipt.txnRefId}</strong></div>
+              <div className="border rounded p-2">Biller ID: <strong>{lastReceipt.billerId}</strong></div>
+              <div className="border rounded p-2">Biller Name: <strong>{lastReceipt.billerName}</strong></div>
+              <div className="border rounded p-2">Customer Name: <strong>{lastReceipt.customerName}</strong></div>
+              <div className="border rounded p-2">Customer Number: <strong>{lastReceipt.customerNumber}</strong></div>
+              <div className="border rounded p-2">Bill Date: <strong>{formatDate(lastReceipt.billDate)}</strong></div>
+              <div className="border rounded p-2">Bill Period: <strong>{lastReceipt.billPeriod}</strong></div>
+              <div className="border rounded p-2">Bill Number: <strong>{lastReceipt.billNumber}</strong></div>
+              <div className="border rounded p-2">Due Date: <strong>{formatDate(lastReceipt.dueDate)}</strong></div>
+              <div className="border rounded p-2">Bill Amount: <strong>{formatCurrency(lastReceipt.billAmount)}</strong></div>
+              <div className="border rounded p-2">Service Charge: <strong>{formatCurrency(lastReceipt.serviceCharge)}</strong></div>
+              <div className="border rounded p-2">Total Amount: <strong>{formatCurrency(lastReceipt.totalAmount)}</strong></div>
+              <div className="border rounded p-2">Payment Mode: <strong>{lastReceipt.paymentMode}</strong></div>
+              <div className="border rounded p-2">Initiating Channel: <strong>{lastReceipt.initChannel}</strong></div>
+              <div className="border rounded p-2">Status: <strong>{lastReceipt.status}</strong></div>
+              <div className="border rounded p-2">Approval Number: <strong>{lastReceipt.approvalNumber}</strong></div>
+              <div className="border rounded p-2 md:col-span-2">Transaction Date & Time: <strong>{formatDate(lastReceipt.txnAt)}</strong></div>
+            </div>
           </Card>
         )}
       </div>

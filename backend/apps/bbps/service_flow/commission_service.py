@@ -56,43 +56,12 @@ def resolve_category_from_payload(bill_data: dict) -> BbpsServiceCategory | None
 
 def resolve_commission_for_payment(*, amount: Decimal, bill_data: dict) -> dict:
     category = resolve_category_from_payload(bill_data)
-    rule = _pick_rule_for_category(category)
-    if not rule:
-        charge = Decimal(str(getattr(settings, 'BBPS_SERVICE_CHARGE', '0')))
-        return {
-            'category_code': category.code if category else '',
-            'charge': charge,
-            'computed_charge': charge,
-            'total_deducted': amount + charge,
-            'commission_rule_code': '',
-            'commission_rule_snapshot': {},
-        }
-
-    if rule.commission_type == 'percentage':
-        charge = (Decimal(str(amount)) * Decimal(str(rule.value)) / Decimal('100')).quantize(Decimal('0.0001'))
-    else:
-        charge = Decimal(str(rule.value))
-    if rule.min_commission and charge < rule.min_commission:
-        charge = Decimal(str(rule.min_commission))
-    if rule.max_commission and Decimal(str(rule.max_commission)) > 0 and charge > rule.max_commission:
-        charge = Decimal(str(rule.max_commission))
-
-    snapshot = {
-        'rule_id': rule.pk,
-        'rule_code': rule.rule_code,
-        'category_code': rule.category.code,
-        'commission_type': rule.commission_type,
-        'value': str(rule.value),
-        'min_commission': str(rule.min_commission),
-        'max_commission': str(rule.max_commission),
-        'effective_from': rule.effective_from.isoformat() if rule.effective_from else None,
-        'effective_to': rule.effective_to.isoformat() if rule.effective_to else None,
-    }
+    charge = Decimal('0')
     return {
-        'category_code': rule.category.code,
+        'category_code': category.code if category else '',
         'charge': charge,
         'computed_charge': charge,
         'total_deducted': amount + charge,
-        'commission_rule_code': rule.rule_code,
-        'commission_rule_snapshot': snapshot,
+        'commission_rule_code': '',
+        'commission_rule_snapshot': {},
     }

@@ -172,10 +172,12 @@ const BillerSyncDashboard = () => {
               <div className="text-sm text-red-700 mt-2 space-y-1">
                 <p>Check server logs and BillAvenue credentials, then try again.</p>
                 {result.data?.hint && <p className="text-red-900 bg-red-50 border border-red-200 rounded p-2">{result.data.hint}</p>}
-                {result.status === 502 && !result.data?.hint && (
+                {(result.status === 422 || result.status === 502) && !result.data?.hint && (
                   <p className="text-red-900 bg-red-50 border border-red-200 rounded p-2">
-                    Upstream BillAvenue returned an error (HTTP 502 from API). This is usually an MDM entitlement or
-                    institute/agent mismatch — contact BillAvenue with your institute ID, agent ID, and server IP.
+                    Upstream BillAvenue returned an error (HTTP {result.status} from API). For MDM entitlement issues the
+                    API now uses 422 with a JSON body; if you still see this generic message, check the Network tab for
+                    the real response. Otherwise this is usually an institute/agent mismatch — contact BillAvenue with
+                    your institute ID, agent ID, and server egress IP.
                   </p>
                 )}
               </div>

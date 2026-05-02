@@ -8,7 +8,8 @@ from apps.integrations.bbps_client import BBPSClient
 
 def pull_biller_plans(*, biller_ids: list[str]) -> dict:
     client = BBPSClient()
-    payload = {'billerId': biller_ids or []}
+    cleaned_ids = [str(x or '').strip() for x in (biller_ids or []) if str(x or '').strip()]
+    payload = {'billerId': cleaned_ids} if cleaned_ids else {}
     resp = client.pull_plans(payload)
 
     details = resp.get('planDetails') or resp.get('planDetailsResponse', {}).get('planDetails') or []

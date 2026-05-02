@@ -1,14 +1,24 @@
 from __future__ import annotations
 
+from datetime import date, datetime
 from decimal import Decimal
+from uuid import UUID
 
 from django.conf import settings
 from django.db import transaction as db_transaction
 from django.utils import timezone
 
-from apps.bbps.models import BillPayment, BbpsApiAuditLog, BbpsBillerMaster, BbpsPaymentAttempt, BbpsStatusPollLog
+from apps.bbps.models import (
+    BillPayment,
+    BbpsApiAuditLog,
+    BbpsBillerMaster,
+    BbpsFetchSession,
+    BbpsPaymentAttempt,
+    BbpsStatusPollLog,
+)
 from apps.bbps.service_flow.compliance import (
     compute_ccf1_if_required,
+    enforce_cash_pan_rule,
     enforce_biller_mode_channel_constraints,
     enforce_fetch_pay_linkage,
     enforce_plan_mdm_requirement,
@@ -16,7 +26,7 @@ from apps.bbps.service_flow.compliance import (
 )
 from apps.bbps.service_flow.commission_service import resolve_commission_for_payment
 from apps.core.exceptions import InsufficientBalance, TransactionFailed
-from apps.integrations.bbps_client import BBPSClient
+from apps.integrations.bbps_client import BBPSClient, extract_biller_response_dict
 from apps.transactions.agent_snapshot import passbook_initiator_db_fields, transaction_agent_db_fields
 from apps.transactions.models import PassbookEntry, Transaction
 from apps.wallets.models import Wallet
@@ -24,6 +34,21 @@ from apps.wallets.models import Wallet
 
 def _to_paise(amount) -> int:
     return int((Decimal(str(amount)) * Decimal('100')).to_integral_value())
+
+
+def _json_safe(value):
+    """Recursively convert values so PostgreSQL JSONField / psycopg2 can persist them."""
+    if isinstance(value, Decimal):
+        return str(value)
+    if isinstance(value, UUID):
+        return str(value)
+    if isinstance(value, (datetime, date)):
+        return value.isoformat()
+    if isinstance(value, dict):
+        return {str(k): _json_safe(v) for k, v in value.items()}
+    if isinstance(value, (list, tuple)):
+        return [_json_safe(v) for v in value]
+    return value
 
 
 @db_transaction.atomic
@@ -37,6 +62,8 @@ def process_bill_payment_flow(*, user, bill_data: dict) -> dict:
         raise TransactionFailed(f'Biller {biller_id} not found in MDM cache. Run sync first.')
     if str(biller.biller_status or '').upper() not in ('ACTIVE', 'ENABLED', 'FLUCTUATING'):
         raise TransactionFailed(f'Biller {biller_id} is not active for payment.')
+    if 'biller_adhoc' not in bill_data:
+        bill_data['biller_adhoc'] = bool(getattr(biller, 'biller_adhoc', False))
     agent_device_info = bill_data.get('agent_device_info') or {}
     payment_channel = str(bill_data.get('init_channel') or '').strip().upper()
     validate_channel_device_fields(init_channel=payment_channel, agent_device_info=agent_device_info)
@@ -56,7 +83,36 @@ def process_bill_payment_flow(*, user, bill_data: dict) -> dict:
         input_params=(bill_data.get('input_params') or []),
         request_id=str(bill_data.get('request_id') or ''),
     )
+    # Bill Pay (inner + outer transport) must use the same requestId as the successful bill fetch (Postman UAT).
+    if fetch_session and str(getattr(fetch_session, 'request_id', '') or '').strip():
+        fetch_rid = str(fetch_session.request_id).strip()
+        bill_data['request_id'] = fetch_rid
+    # Keep bill-pay request aligned with bill-fetch snapshot.
+    if fetch_session and isinstance(getattr(fetch_session, 'input_params', None), dict):
+        inp = fetch_session.input_params or {}
+        if not isinstance(bill_data.get('agent_device_info'), dict) or not bill_data.get('agent_device_info'):
+            bill_data['agent_device_info'] = inp.get('agentDeviceInfo') or {}
+        if not isinstance(bill_data.get('customer_info'), dict) or not bill_data.get('customer_info'):
+            bill_data['customer_info'] = inp.get('customerInfo') or {}
+    if fetch_session and isinstance(getattr(fetch_session, 'biller_response', None), dict):
+        raw_fetch = fetch_session.biller_response or {}
+        br = extract_biller_response_dict(raw_fetch)
+        if br:
+            bill_data['biller_response'] = br
+    payer_display = (getattr(user, 'get_full_name', lambda: '')() or '').strip() or str(
+        getattr(user, 'phone', '') or ''
+    ).strip()
+    if payer_display:
+        bill_data['remitter_name'] = str(bill_data.get('remitter_name') or '').strip() or payer_display
+    payer_email = str(getattr(user, 'email', '') or '').strip()
+    if payer_email:
+        bill_data.setdefault('payer_email', payer_email)
     charge_info = resolve_commission_for_payment(amount=amount, bill_data=bill_data)
+    enforce_cash_pan_rule(
+        amount_paise=_to_paise(amount),
+        payment_mode=str(bill_data.get('payment_mode') or ''),
+        customer_info=(bill_data.get('customer_info') or {}),
+    )
     computed_charge = Decimal(str(charge_info.get('computed_charge') or charge_info.get('charge') or 0))
     if getattr(settings, 'BBPS_COMMISSION_FINANCIAL_IMPACT_ENABLED', False):
         applied_charge = Decimal(str(charge_info.get('charge') or 0))
@@ -106,7 +162,7 @@ def process_bill_payment_flow(*, user, bill_data: dict) -> dict:
             'payment_mode': bill_data.get('payment_mode', ''),
             'payment_channel': bill_data.get('init_channel', ''),
             'commission_rule_code': charge_info.get('commission_rule_code') or '',
-            'commission_rule_snapshot': charge_info.get('commission_rule_snapshot') or {},
+            'commission_rule_snapshot': _json_safe(charge_info.get('commission_rule_snapshot') or {}),
             'commission_amount': charge_info['charge'],
             'status': 'PAY_INITIATED',
             'fetch_session': fetch_session,
@@ -124,7 +180,7 @@ def process_bill_payment_flow(*, user, bill_data: dict) -> dict:
         charge=charge_info['charge'],
         total_deducted=total,
         commission_rule_code=charge_info.get('commission_rule_code') or '',
-        commission_rule_snapshot=charge_info.get('commission_rule_snapshot') or {},
+        commission_rule_snapshot=_json_safe(charge_info.get('commission_rule_snapshot') or {}),
         commission_amount=charge_info['charge'],
         status='PENDING',
         service_id=service_id,
@@ -133,11 +189,12 @@ def process_bill_payment_flow(*, user, bill_data: dict) -> dict:
 
     attempt.bill_payment = bill_payment
     attempt.request_id = bill_payment.request_id or ''
-    attempt.request_payload = bill_data
+    safe_bill = {k: v for k, v in bill_data.items() if str(k).lower() != 'mpin'}
+    attempt.request_payload = _json_safe(dict(safe_bill))
     attempt.status = 'PAY_INITIATED'
     attempt.fetch_session = fetch_session
     attempt.commission_rule_code = charge_info.get('commission_rule_code') or ''
-    attempt.commission_rule_snapshot = charge_info.get('commission_rule_snapshot') or {}
+    attempt.commission_rule_snapshot = _json_safe(charge_info.get('commission_rule_snapshot') or {})
     attempt.commission_amount = charge_info['charge']
     attempt.save(
         update_fields=[
@@ -165,7 +222,11 @@ def process_bill_payment_flow(*, user, bill_data: dict) -> dict:
             amount_info['CCF1'] = str(ccf1.ccf1_paise)
         payload['amountInfo'] = amount_info
         bill_data['bill_payment_payload'] = payload
-    payment_result = client.process_payment(bill_payment.service_id, bill_payment.request_id, amount, bill_data)
+    try:
+        payment_result = client.process_payment(bill_payment.service_id, bill_payment.request_id, amount, bill_data)
+    finally:
+        if fetch_session:
+            BbpsFetchSession.objects.filter(pk=fetch_session.pk, status='FETCHED').update(status='CONSUMED')
     status = payment_result.get('status')
 
     if status == 'SUCCESS':
@@ -211,7 +272,7 @@ def process_bill_payment_flow(*, user, bill_data: dict) -> dict:
         attempt.status = 'SUCCESS'
         attempt.txn_ref_id = payment_result.get('txn_ref_id') or ''
         attempt.approval_ref_number = payment_result.get('approval_ref_number') or ''
-        attempt.response_payload = payment_result.get('response_payload') or {}
+        attempt.response_payload = _json_safe(payment_result.get('response_payload') or {})
         attempt.settled_at = timezone.now()
         attempt.save(update_fields=['status', 'txn_ref_id', 'approval_ref_number', 'response_payload', 'settled_at', 'updated_at'])
         return {'attempt': attempt, 'bill_payment': bill_payment, 'idempotent': False}
@@ -220,7 +281,7 @@ def process_bill_payment_flow(*, user, bill_data: dict) -> dict:
         attempt.status = 'AWAITED'
         attempt.txn_ref_id = payment_result.get('txn_ref_id') or ''
         attempt.approval_ref_number = payment_result.get('approval_ref_number') or ''
-        attempt.response_payload = payment_result.get('response_payload') or {}
+        attempt.response_payload = _json_safe(payment_result.get('response_payload') or {})
         attempt.save(update_fields=['status', 'txn_ref_id', 'approval_ref_number', 'response_payload', 'updated_at'])
         bill_payment.status = 'PENDING'
         bill_payment.save(update_fields=['status'])
@@ -230,15 +291,18 @@ def process_bill_payment_flow(*, user, bill_data: dict) -> dict:
             track_value=bill_payment.request_id or bill_payment.service_id,
             response_code='AWAITED',
             txn_status='AWAITED',
-            response_payload=payment_result.get('response_payload') or {},
+            response_payload=_json_safe(payment_result.get('response_payload') or {}),
         )
         return {'attempt': attempt, 'bill_payment': bill_payment, 'idempotent': False}
 
     attempt.status = 'FAILED'
     attempt.last_error_message = payment_result.get('message') or 'Payment failed'
-    attempt.response_payload = payment_result.get('response_payload') or {}
+    attempt.response_payload = _json_safe(payment_result.get('response_payload') or {})
     attempt.save(update_fields=['status', 'last_error_message', 'response_payload', 'updated_at'])
     bill_payment.status = 'FAILED'
     bill_payment.failure_reason = payment_result.get('message') or 'Payment failed'
     bill_payment.save(update_fields=['status', 'failure_reason'])
-    raise TransactionFailed(bill_payment.failure_reason)
+    msg = bill_payment.failure_reason or 'Payment failed'
+    if fetch_session:
+        msg = f'{msg} Fetch the bill again before retrying payment.'
+    raise TransactionFailed(msg)

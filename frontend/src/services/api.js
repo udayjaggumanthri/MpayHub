@@ -169,8 +169,32 @@ const normalizeErrorsList = (errors) => {
  */
 const handleError = (error) => {
   if (error.response) {
-    // Server responded with error
-    const apiError = error.response.data || {};
+    const raw = error.response.data;
+    let apiError = {};
+    let nonJsonMessage = 'An error occurred';
+
+    if (raw != null && typeof raw === 'object' && !Array.isArray(raw)) {
+      apiError = raw;
+    } else if (typeof raw === 'string') {
+      const trimmed = raw.trim();
+      if (trimmed.startsWith('{') || trimmed.startsWith('[')) {
+        try {
+          const parsed = JSON.parse(trimmed);
+          if (parsed && typeof parsed === 'object') {
+            apiError = parsed;
+          }
+        } catch {
+          /* leave apiError {} */
+        }
+      }
+      if (Object.keys(apiError).length === 0) {
+        const isHtml = /<\s*html\b/i.test(raw) || /<!doctype\s+html/i.test(raw);
+        nonJsonMessage = isHtml
+          ? 'Gateway returned an HTML page instead of API JSON (often a CDN/proxy in front of the origin). Check the Network tab or try again after the origin is healthy.'
+          : 'Server returned a non-JSON error body.';
+      }
+    }
+
     const normalizedErrors = normalizeErrorsList(apiError.errors);
     const detail = apiError.detail;
     const detailMessage = Array.isArray(detail)
@@ -180,7 +204,7 @@ const handleError = (error) => {
         : '';
     return {
       success: false,
-      message: apiError.message || detailMessage || 'An error occurred',
+      message: apiError.message || detailMessage || nonJsonMessage,
       errors: normalizedErrors,
       status: error.response.status,
       data: apiError.data != null ? apiError.data : null,
@@ -1070,6 +1094,22 @@ export const bbpsAPI = {
       return handleError(error);
     }
   },
+  getSyncUsageToday: async () => {
+    try {
+      const response = await apiClient.get('/bbps/admin/sync-usage/today/');
+      return extractData(response);
+    } catch (error) {
+      return handleError(error);
+    }
+  },
+  getSyncUsageHistory: async () => {
+    try {
+      const response = await apiClient.get('/bbps/admin/sync-usage/history/');
+      return extractData(response);
+    } catch (error) {
+      return handleError(error);
+    }
+  },
 
   pollStatus: async (payload) => {
     try {
@@ -1230,6 +1270,14 @@ export const billAvenueAdminAPI = {
       return handleError(error);
     }
   },
+  getGovernanceObservability: async () => {
+    try {
+      const response = await apiClient.get('/bbps/admin/governance/observability/');
+      return extractData(response);
+    } catch (error) {
+      return handleError(error);
+    }
+  },
   getUatReadiness: async () => {
     try {
       const response = await apiClient.get('/bbps/admin/uat-readiness/');
@@ -1249,6 +1297,62 @@ export const billAvenueAdminAPI = {
   listBillerMaster: async (params = {}) => {
     try {
       const response = await apiClient.get('/bbps/admin/biller-master/', { params });
+      return extractData(response);
+    } catch (error) {
+      return handleError(error);
+    }
+  },
+  clearAllBillerMaster: async () => {
+    try {
+      const response = await apiClient.post('/bbps/admin/biller-master/clear-all/');
+      return extractData(response);
+    } catch (error) {
+      return handleError(error);
+    }
+  },
+  getBillerMasterDetails: async (id) => {
+    try {
+      const response = await apiClient.get(`/bbps/admin/biller-master/${id}/full-details/`);
+      return extractData(response);
+    } catch (error) {
+      return handleError(error);
+    }
+  },
+  createBillerMaster: async (payload) => {
+    try {
+      const response = await apiClient.post('/bbps/admin/biller-master/', payload);
+      return extractData(response);
+    } catch (error) {
+      return handleError(error);
+    }
+  },
+  updateBillerMaster: async (id, payload) => {
+    try {
+      const response = await apiClient.patch(`/bbps/admin/biller-master/${id}/`, payload);
+      return extractData(response);
+    } catch (error) {
+      return handleError(error);
+    }
+  },
+  deleteBillerMaster: async (id) => {
+    try {
+      const response = await apiClient.delete(`/bbps/admin/biller-master/${id}/`);
+      return extractData(response);
+    } catch (error) {
+      return handleError(error);
+    }
+  },
+  disableBillerMaster: async (id) => {
+    try {
+      const response = await apiClient.post(`/bbps/admin/biller-master/${id}/disable/`);
+      return extractData(response);
+    } catch (error) {
+      return handleError(error);
+    }
+  },
+  enableBillerMaster: async (id) => {
+    try {
+      const response = await apiClient.post(`/bbps/admin/biller-master/${id}/enable/`);
       return extractData(response);
     } catch (error) {
       return handleError(error);
@@ -1281,6 +1385,37 @@ export const billAvenueAdminAPI = {
   approveProviderBillerMapsBulk: async (ids = []) => {
     try {
       const response = await apiClient.post('/bbps/admin/provider-biller-maps/', { action: 'bulk_approve', ids });
+      return extractData(response);
+    } catch (error) {
+      return handleError(error);
+    }
+  },
+  /** Publish MDM-synced map to end users (category + provider + map + default commission if needed). */
+  mdmCatalogPublish: async ({ map_id: mapId, published }) => {
+    try {
+      const response = await apiClient.post('/bbps/admin/mdm-catalog/publish/', {
+        map_id: mapId,
+        published: Boolean(published),
+      });
+      return extractData(response);
+    } catch (error) {
+      return handleError(error);
+    }
+  },
+  mdmCatalogSummary: async () => {
+    try {
+      const response = await apiClient.get('/bbps/admin/mdm-catalog/summary/');
+      return extractData(response);
+    } catch (error) {
+      return handleError(error);
+    }
+  },
+  mdmCatalogBulkPublish: async ({ mapIds = [], published }) => {
+    try {
+      const response = await apiClient.post('/bbps/admin/mdm-catalog/bulk-publish/', {
+        map_ids: mapIds,
+        published: Boolean(published),
+      });
       return extractData(response);
     } catch (error) {
       return handleError(error);

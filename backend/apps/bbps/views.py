@@ -2,6 +2,8 @@
 BBPS views for the mPayhub platform.
 """
 import logging
+import re
+import uuid
 
 from rest_framework import status
 from rest_framework.decorators import api_view, permission_classes
@@ -11,11 +13,18 @@ from django.conf import settings
 from django.utils import timezone
 from django.core.cache import cache
 from decimal import Decimal
-from django.db import IntegrityError
+from django.db import IntegrityError, transaction
+from django.db.models import F, Q
 
 from apps.bbps.models import (
     BbpsApiAuditLog,
+    BbpsBillerAdditionalInfoSchema,
+    BbpsBillerCcf1Config,
+    BbpsBillerInputParam,
     BbpsBillerMaster,
+    BbpsBillerPaymentChannelLimit,
+    BbpsBillerPaymentModeLimit,
+    BbpsBillerPlanMeta,
     BillPayment,
     BbpsCategoryCommissionRule,
     BbpsComplaint,
@@ -25,6 +34,7 @@ from apps.bbps.models import (
     BbpsPushWebhookEvent,
     BbpsServiceCategory,
     BbpsServiceProvider,
+    BbpsSyncUsageLog,
 )
 from apps.bbps.serializers import (
     BillPaymentSerializer,
@@ -36,10 +46,13 @@ from apps.bbps.serializers import (
     BillAvenueSecretUpdateSerializer,
     BbpsCategoryCommissionRuleSerializer,
     BbpsBillerMasterLiteSerializer,
+    BbpsBillerMasterAdminSerializer,
     BbpsProviderBillerMapSerializer,
+    BbpsSyncUsageLogSerializer,
     BbpsServiceCategorySerializer,
     BbpsServiceProviderSerializer,
     BillerSyncRequestSerializer,
+    MdmCatalogPublishSerializer,
     ComplaintRegisterSerializer,
     ComplaintTrackSerializer,
     DepositEnquirySerializer,
@@ -49,9 +62,9 @@ from apps.bbps.serializers import (
 )
 from apps.bbps.services import (
     governance_block_reasons_for_map,
-    governance_readiness_for_biller,
     get_bill_categories,
     get_biller_input_schema,
+    get_biller_payment_ui_options,
     get_billers_by_category,
     get_providers_by_category,
     get_setup_readiness,
@@ -68,7 +81,10 @@ from apps.bbps.service_flow import (
     track_complaint,
     validate_biller_inputs,
 )
-from apps.bbps.service_flow.commission_service import resolve_commission_for_payment
+from apps.bbps.service_flow.compliance import (
+    bbps_channel_accepts_payment_mode,
+    display_payment_modes_for_channel,
+)
 from apps.core.exceptions import InsufficientBalance, TransactionFailed
 from apps.core.financial_access import assert_can_perform_financial_txn
 from apps.core.permissions import IsAdmin
@@ -94,6 +110,76 @@ def _default_agent_id() -> str:
         .first()
     )
     return str(row.agent_id).strip() if row else ''
+
+
+def _friendly_pay_error_message(raw_message: str) -> str:
+    msg = str(raw_message or '').strip()
+    low = msg.lower()
+    if not msg:
+        return 'Payment failed. Please try again.'
+
+    if 'agent_device_info missing required field' in low:
+        return (
+            'Selected payment method is not available for this biller in the current terminal flow. '
+            'Please choose another payment method.'
+        )
+    if 'errorcode": "e077' in low or 'invalid for payment channel' in low:
+        return 'Selected payment method is not supported for this biller right now. Please choose another method.'
+    if 'errorcode": "e204' in low or 'request id is already been used' in low:
+        return 'This fetch reference is already consumed. Fetch the bill again before retrying payment.'
+    if 'errorcode": "e210' in low or 'no fetch data found for given ref id' in low:
+        return 'Fetch reference is not valid anymore. Please fetch the bill again and retry payment.'
+    if 'errorcode": "e092' in low or 'remitter name required' in low:
+        return 'Remitter details are missing. Update profile name and fetch bill again before payment.'
+
+    provider_msg = re.search(r'"errorMessage"\s*:\s*"([^"]+)"', msg)
+    if provider_msg:
+        clean = provider_msg.group(1).strip()
+        if clean:
+            return clean
+    return msg
+
+
+def _friendly_fetch_error_message(raw_message: str) -> str:
+    msg = str(raw_message or '').strip()
+    low = msg.lower()
+    if not msg:
+        return 'Failed to fetch bill. Please try again.'
+    if 'timeout' in low or 'timed out' in low:
+        return 'Provider response timed out. Please retry in a few seconds.'
+    if 'connection error' in low or 'max retries exceeded' in low or 'name or service not known' in low:
+        return 'Provider network is temporarily unavailable. Please retry shortly.'
+    if 'errorcode": "bfr004' in low or 'no bill due' in low:
+        return 'No bill is currently due for this account.'
+    if 'errorcode": "bfr001' in low or 'invalid customer account' in low:
+        return 'Customer account details are invalid. Please verify the entered account fields.'
+    if 'errorcode": "bfr' in low:
+        provider_msg = re.search(r'"errorMessage"\s*:\s*"([^"]+)"', msg)
+        if provider_msg:
+            return provider_msg.group(1).strip() or 'Bill fetch failed.'
+        return 'Unable to fetch bill for this account right now.'
+    return msg
+
+
+def _friendly_plan_pull_error_message(raw_message: str) -> str:
+    msg = str(raw_message or '').strip()
+    low = msg.lower()
+    if not msg:
+        return 'Plan pull failed. Please try again.'
+    if 'timeout' in low or 'timed out' in low:
+        return 'Plan service response timed out. Please retry. If this continues, verify BillAvenue timeout settings.'
+    if 'connection error' in low or 'max retries exceeded' in low or 'name or service not known' in low:
+        return 'Unable to reach plan service right now. Please retry and verify provider connectivity.'
+    if 'code=205' in low or 'entitlement' in low:
+        return 'Plan pull is not enabled for this BillAvenue profile. Check agent/profile entitlement in admin.'
+    if 'agentid is required' in low:
+        return 'Plan pull requires an active BillAvenue agent profile. Configure agentId in admin settings.'
+    provider_msg = re.search(r'"errorMessage"\s*:\s*"([^"]+)"', msg)
+    if provider_msg:
+        clean = provider_msg.group(1).strip()
+        if clean:
+            return clean
+    return msg
 
 
 @api_view(['GET'])
@@ -150,10 +236,21 @@ def get_providers_view(request, category):
 @permission_classes([IsAuthenticated])
 def biller_schema_view(request, biller_id):
     schema = get_biller_input_schema(biller_id)
+    payment_ui = get_biller_payment_ui_options(biller_id)
     return Response(
         {
             'success': True,
-            'data': {'biller_id': biller_id, 'input_schema': schema},
+            'data': {
+                'biller_id': biller_id,
+                'input_schema': schema,
+                'payment_channels': payment_ui.get('payment_channels') or [],
+                'payment_modes_by_channel': payment_ui.get('payment_modes_by_channel') or {},
+                'payment_modes': payment_ui.get('payment_modes') or [],
+                'payment_mode_channel_map': payment_ui.get('payment_mode_channel_map') or {},
+                'default_payment_channel': payment_ui.get('default_channel') or '',
+                'default_payment_mode': payment_ui.get('default_payment_mode') or 'Cash',
+                'payment_options_source': payment_ui.get('source') or '',
+            },
             'message': 'Biller schema retrieved successfully',
             'errors': [],
         },
@@ -173,21 +270,12 @@ def quote_view(request):
         return Response({'success': False, 'data': None, 'message': 'amount is required', 'errors': []}, status=400)
     if not biller_id:
         return Response({'success': False, 'data': None, 'message': 'biller_id is required', 'errors': []}, status=400)
-    readiness = governance_readiness_for_biller(biller_id)
-    if not readiness.get('allowed'):
-        return Response({'success': False, 'data': None, 'message': 'Service unavailable until admin approval', 'errors': readiness.get('blocked_by', [])}, status=400)
     try:
         amount_dec = Decimal(str(amount))
         if amount_dec <= 0:
             raise ValueError('invalid amount')
-        c = resolve_commission_for_payment(
-            amount=amount_dec,
-            bill_data={'biller_id': biller_id, 'bill_type': bill_type, 'provider_id': provider_id},
-        )
-        applied_charge = c.get('charge')
-        computed_charge = c.get('computed_charge')
-        if not getattr(settings, 'BBPS_COMMISSION_FINANCIAL_IMPACT_ENABLED', False):
-            applied_charge = Decimal(str(getattr(settings, 'BBPS_SERVICE_CHARGE', 0)))
+        applied_charge = Decimal('0')
+        computed_charge = Decimal('0')
         total = amount_dec + Decimal(str(applied_charge))
         return Response(
             {
@@ -197,9 +285,9 @@ def quote_view(request):
                     'computed_charge': float(computed_charge),
                     'applied_charge': float(applied_charge),
                     'total_deducted': float(total),
-                    'shadow_mode': not bool(getattr(settings, 'BBPS_COMMISSION_FINANCIAL_IMPACT_ENABLED', False)),
-                    'commission_rule_code': c.get('commission_rule_code') or '',
-                    'commission_rule_snapshot': c.get('commission_rule_snapshot') or {},
+                    'shadow_mode': False,
+                    'commission_rule_code': '',
+                    'commission_rule_snapshot': {},
                 },
                 'message': 'Quote generated successfully',
                 'errors': [],
@@ -244,15 +332,6 @@ def fetch_bill_view(request):
                     'message': 'biller_id is required for live BillAvenue bill fetch',
                     'errors': []
                 }, status=status.HTTP_400_BAD_REQUEST)
-            readiness = governance_readiness_for_biller(biller_id)
-            if not readiness.get('allowed'):
-                return Response({
-                    'success': False,
-                    'data': None,
-                    'message': 'Service unavailable until admin approval',
-                    'errors': readiness.get('blocked_by', []),
-                }, status=status.HTTP_400_BAD_REQUEST)
-
             input_map = {}
             raw_input_params = serializer.validated_data.get('input_params') or []
             if isinstance(raw_input_params, list):
@@ -271,11 +350,13 @@ def fetch_bill_view(request):
             if not input_map and serializer.validated_data.get('card_last4'):
                 input_map['Card Last4 Digits'] = serializer.validated_data.get('card_last4')
 
+            derived_mobile = str(serializer.validated_data.get('mobile') or _extract_mobile_from_input_map(input_map) or '').strip()
+            derived_customer = str(serializer.validated_data.get('customer_number') or _extract_customer_number_from_input_map(input_map) or '').strip()
             validate_biller_inputs(biller_id=biller_id, input_map=input_map)
             flow = fetch_bill_with_cache(
                 user=request.user,
                 biller_id=biller_id,
-                customer_info={'customerMobile': serializer.validated_data.get('mobile') or ''},
+                customer_info={'customerMobile': derived_mobile},
                 input_params=[{'paramName': k, 'paramValue': v} for k, v in input_map.items()],
                 agent_device_info={
                     'initChannel': 'AGT',
@@ -287,15 +368,29 @@ def fetch_bill_view(request):
             result = flow['bill_result']
             return Response({
                 'success': True,
-                'data': {'bill': result, 'fetch_session_id': flow['fetch_session'].pk},
+                'data': {
+                    'bill': result,
+                    'fetch_session_id': flow['fetch_session'].pk,
+                    'normalized_inputs': {
+                        'mobile': derived_mobile,
+                        'customer_number': derived_customer,
+                    },
+                },
                 'message': 'Bill fetched successfully',
                 'errors': []
             }, status=status.HTTP_200_OK)
+        except BillAvenueClientError as e:
+            return Response({
+                'success': False,
+                'data': None,
+                'message': _friendly_fetch_error_message(str(e)),
+                'errors': []
+            }, status=status.HTTP_400_BAD_REQUEST)
         except Exception as e:
             return Response({
                 'success': False,
                 'data': None,
-                'message': f'Failed to fetch bill: {str(e)}',
+                'message': _friendly_fetch_error_message(str(e)),
                 'errors': []
             }, status=status.HTTP_400_BAD_REQUEST)
     
@@ -319,19 +414,31 @@ def pay_bill_view(request):
     if serializer.is_valid():
         try:
             payload = dict(serializer.validated_data)
+            mpin = str(payload.pop('mpin', '') or '').strip()
+            if getattr(request.user, 'mpin_hash', None):
+                if not mpin or not request.user.check_mpin(mpin):
+                    return Response(
+                        {
+                            'success': False,
+                            'data': None,
+                            'message': 'Invalid or missing MPIN.',
+                            'errors': [],
+                        },
+                        status=status.HTTP_400_BAD_REQUEST,
+                    )
             if payload.get('biller_id'):
-                readiness = governance_readiness_for_biller(payload.get('biller_id'))
-                if not readiness.get('allowed'):
-                    return Response({
-                        'success': False,
-                        'data': None,
-                        'message': 'Service unavailable until admin approval',
-                        'errors': readiness.get('blocked_by', []),
-                    }, status=status.HTTP_400_BAD_REQUEST)
                 if payload.get('service_id') in (None, ''):
-                    payload['service_id'] = f"PMBBPS{timezone.now().strftime('%Y%m%d%H%M%S')}"
+                    payload['service_id'] = f"PMBBPS{timezone.now().strftime('%Y%m%d%H%M%S')}{uuid.uuid4().hex[:6].upper()}"
                 if not payload.get('agent_id'):
                     payload['agent_id'] = _default_agent_id()
+                ch = str(payload.get('init_channel') or 'AGT').strip() or 'AGT'
+                adi = payload.get('agent_device_info') if isinstance(payload.get('agent_device_info'), dict) else {}
+                if not adi or not str(adi.get('initChannel') or '').strip():
+                    payload['agent_device_info'] = {
+                        **(adi or {}),
+                        'initChannel': ch,
+                        'ip': str(request.META.get('REMOTE_ADDR') or adi.get('ip') or '').strip(),
+                    }
                 result = process_bill_payment_flow(user=request.user, bill_data=payload)
                 bill_payment = result.get('bill_payment')
             else:
@@ -352,9 +459,20 @@ def pay_bill_view(request):
             return Response({
                 'success': False,
                 'data': None,
-                'message': str(e),
+                'message': _friendly_pay_error_message(str(e)),
                 'errors': []
             }, status=status.HTTP_400_BAD_REQUEST)
+        except Exception as e:
+            logger.exception('pay-bill unexpected failure: %s', e)
+            return Response(
+                {
+                    'success': False,
+                    'data': None,
+                    'message': _friendly_pay_error_message(str(e)),
+                    'errors': [],
+                },
+                status=status.HTTP_400_BAD_REQUEST,
+            )
     
     return Response({
         'success': False,
@@ -576,6 +694,51 @@ def _invalidate_provider_cache(*category_codes: str):
             cache.delete(f"bbps:providers:{normalize_category_code(code)}")
 
 
+def _invalidate_bbps_user_catalog_cache():
+    category_codes = set()
+    category_codes.update(
+        str(code or '').strip()
+        for code in BbpsServiceCategory.objects.filter(is_deleted=False).values_list('code', flat=True)
+    )
+    category_codes.update(
+        str(code or '').strip()
+        for code in BbpsBillerMaster.objects.filter(is_deleted=False).values_list('biller_category', flat=True)
+    )
+    _invalidate_provider_cache(*[c for c in category_codes if c])
+
+
+def _extract_mobile_from_input_map(input_map: dict) -> str:
+    for key, value in (input_map or {}).items():
+        k = str(key or '').strip().lower().replace('_', ' ').replace('-', ' ')
+        if ('mobile' in k or 'phone' in k) and str(value or '').strip():
+            return str(value).strip()
+    return ''
+
+
+def _extract_customer_number_from_input_map(input_map: dict) -> str:
+    for key, value in (input_map or {}).items():
+        k = str(key or '').strip().lower().replace('_', ' ').replace('-', ' ')
+        if ('customer' in k and ('id' in k or 'number' in k or 'no' in k)) and str(value or '').strip():
+            return str(value).strip()
+    return ''
+
+
+def _error_payload(*, code: str, message: str, hint: str = '', errors=None) -> dict:
+    """Standardized API error payload for admin BBPS operations."""
+    trace_id = uuid.uuid4().hex
+    out = {
+        'success': False,
+        'data': {
+            'code': code,
+            'actionable_hint': hint,
+            'trace_id': trace_id,
+        },
+        'message': message,
+        'errors': errors or [],
+    }
+    return out
+
+
 @api_view(['GET'])
 @permission_classes([IsAuthenticated, IsAdmin])
 def integration_health_view(request):
@@ -621,9 +784,32 @@ def integration_health_view(request):
                 .order_by('name')
                 .first()
             )
-            payload = {'agentId': str(probe_agent.agent_id or '').strip()} if probe_agent else {}
-            probe_client.biller_info(payload)
-            probe_ok = True
+            payload: dict = {}
+            if probe_agent:
+                payload['agentId'] = str(probe_agent.agent_id or '').strip()
+            # Agent-only biller_info often returns code=001; reuse latest cached biller so the probe matches sync MDM.
+            cached_biller = (
+                BbpsBillerMaster.objects.filter(is_deleted=False)
+                .exclude(biller_id='')
+                .order_by('-updated_at', '-id')
+                .values_list('biller_id', flat=True)
+                .first()
+            )
+            if cached_biller:
+                payload['billerId'] = str(cached_biller).strip()
+
+            if not payload.get('agentId'):
+                probe_ok = None
+                probe_message = 'Skipped live MDM probe: no enabled agent profile with agent ID.'
+            elif not payload.get('billerId'):
+                probe_ok = None
+                probe_message = (
+                    'Skipped live MDM probe: no cached biller yet. Run Biller Sync once; agent-only biller_info '
+                    'often returns code 001 from BillAvenue.'
+                )
+            else:
+                probe_client.biller_info(payload)
+                probe_ok = True
         except BillAvenueClientError as exc:
             probe_ok = False
             probe_message = str(exc)
@@ -727,6 +913,55 @@ def governance_ops_summary_view(request):
                 'conflicting_rule_windows': conflicting_rules,
             },
             'message': 'Governance ops summary retrieved successfully',
+            'errors': [],
+        },
+        status=200,
+    )
+
+
+@api_view(['GET'])
+@permission_classes([IsAuthenticated, IsAdmin])
+def bbps_ops_observability_view(request):
+    """Enterprise ops telemetry for BBPS flows and admin publish actions."""
+    if not getattr(settings, 'BBPS_PROVIDER_GOVERNANCE_ENABLED', True):
+        return Response(
+            _error_payload(
+                code='BBPS_GOVERNANCE_DISABLED',
+                message='Provider governance is disabled',
+                hint='Enable BBPS_PROVIDER_GOVERNANCE_ENABLED to use BBPS ops observability.',
+            ),
+            status=503,
+        )
+    recent = list(BbpsApiAuditLog.objects.filter(is_deleted=False).order_by('-created_at')[:300])
+    endpoint_counts = {}
+    failures = []
+    for row in recent:
+        key = str(row.endpoint_name or 'unknown')
+        bucket = endpoint_counts.setdefault(key, {'total': 0, 'failed': 0})
+        bucket['total'] += 1
+        if not row.success:
+            bucket['failed'] += 1
+            failures.append(
+                {
+                    'endpoint_name': key,
+                    'status_code': str(row.status_code or ''),
+                    'error_message': str(row.error_message or ''),
+                    'request_id': str(row.request_id or ''),
+                    'created_at': row.created_at,
+                }
+            )
+    awaited_count = BbpsPaymentAttempt.objects.filter(is_deleted=False, status='AWAITED').count()
+    complaint_pending = BbpsComplaint.objects.filter(is_deleted=False).exclude(complaint_status__iexact='resolved').count()
+    return Response(
+        {
+            'success': True,
+            'data': {
+                'endpoint_counts': endpoint_counts,
+                'awaited_count': awaited_count,
+                'complaint_pending_count': complaint_pending,
+                'recent_failures': failures[:50],
+            },
+            'message': 'BBPS ops observability retrieved successfully',
             'errors': [],
         },
         status=200,
@@ -913,21 +1148,206 @@ def provider_biller_maps_view(request):
     return Response({'success': True, 'data': {'map': BbpsProviderBillerMapSerializer(row).data}, 'message': 'Provider-biller map saved', 'errors': []}, status=200 if obj else 201)
 
 
-@api_view(['GET'])
+@api_view(['GET', 'POST'])
 @permission_classes([IsAuthenticated, IsAdmin])
 def biller_master_admin_view(request):
     if not getattr(settings, 'BBPS_PROVIDER_GOVERNANCE_ENABLED', True):
         return Response({'success': False, 'data': None, 'message': 'Provider governance is disabled', 'errors': []}, status=503)
-    category = request.query_params.get('category')
-    qs = BbpsBillerMaster.objects.filter(is_deleted=False).order_by('biller_name')
-    if category:
-        qs = qs.filter(biller_category__icontains=category)
-    rows = qs[:500]
+    if request.method == 'GET':
+        category = request.query_params.get('category')
+        q = str(request.query_params.get('q') or '').strip()
+        active = str(request.query_params.get('active') or '').strip().lower()
+        try:
+            page = max(1, int(request.query_params.get('page') or 1))
+        except (TypeError, ValueError):
+            page = 1
+        try:
+            page_size = max(1, min(100, int(request.query_params.get('page_size') or 25)))
+        except (TypeError, ValueError):
+            page_size = 25
+        qs = BbpsBillerMaster.objects.filter(is_deleted=False).order_by('biller_name')
+        if category:
+            qs = qs.filter(biller_category__icontains=category)
+        if q:
+            qs = qs.filter(Q(biller_name__icontains=q) | Q(biller_id__icontains=q))
+        if active in ('true', 'false'):
+            qs = qs.filter(is_active_local=(active == 'true'))
+        total = qs.count()
+        start = (page - 1) * page_size
+        end = start + page_size
+        rows = qs[start:end]
+        return Response(
+            {
+                'success': True,
+                'data': {
+                    'billers': BbpsBillerMasterLiteSerializer(rows, many=True).data,
+                    'pagination': {
+                        'page': page,
+                        'page_size': page_size,
+                        'total': total,
+                        'total_pages': (total + page_size - 1) // page_size if page_size else 1,
+                    },
+                },
+                'message': 'Biller master retrieved successfully',
+                'errors': [],
+            },
+            status=200,
+        )
+    ser = BbpsBillerMasterAdminSerializer(data=request.data)
+    if not ser.is_valid():
+        return Response({'success': False, 'data': None, 'message': 'Invalid biller payload', 'errors': ser.errors}, status=400)
+    row = ser.save(source_type='manual', is_active_local=True, updated_by_admin_at=timezone.now(), version=1)
+    _invalidate_bbps_user_catalog_cache()
+    return Response({'success': True, 'data': {'biller': BbpsBillerMasterAdminSerializer(row).data}, 'message': 'Biller created', 'errors': []}, status=201)
+
+
+@api_view(['PATCH', 'DELETE'])
+@permission_classes([IsAuthenticated, IsAdmin])
+def biller_master_admin_detail_view(request, pk: int):
+    row = BbpsBillerMaster.objects.filter(pk=pk, is_deleted=False).first()
+    if not row:
+        return Response({'success': False, 'data': None, 'message': 'Biller not found', 'errors': []}, status=404)
+    if request.method == 'DELETE':
+        row.soft_deleted_at = timezone.now()
+        row.is_active_local = False
+        row.updated_by_admin_at = timezone.now()
+        row.save(update_fields=['soft_deleted_at', 'is_active_local', 'updated_by_admin_at', 'updated_at'])
+        _invalidate_bbps_user_catalog_cache()
+        return Response({'success': True, 'data': {'id': row.pk}, 'message': 'Biller deleted', 'errors': []}, status=200)
+    ser = BbpsBillerMasterAdminSerializer(row, data=request.data, partial=True)
+    if not ser.is_valid():
+        return Response({'success': False, 'data': None, 'message': 'Invalid biller update', 'errors': ser.errors}, status=400)
+    updated = ser.save(
+        updated_by_admin_at=timezone.now(),
+        version=(row.version or 1) + 1,
+    )
+    _invalidate_bbps_user_catalog_cache()
+    return Response({'success': True, 'data': {'biller': BbpsBillerMasterAdminSerializer(updated).data}, 'message': 'Biller updated', 'errors': []}, status=200)
+
+
+@api_view(['POST'])
+@permission_classes([IsAuthenticated, IsAdmin])
+def biller_master_disable_view(request, pk: int):
+    row = BbpsBillerMaster.objects.filter(pk=pk, is_deleted=False).first()
+    if not row:
+        return Response({'success': False, 'data': None, 'message': 'Biller not found', 'errors': []}, status=404)
+    row.is_active_local = False
+    row.updated_by_admin_at = timezone.now()
+    row.save(update_fields=['is_active_local', 'updated_by_admin_at', 'updated_at'])
+    _invalidate_bbps_user_catalog_cache()
+    return Response({'success': True, 'data': {'id': row.pk, 'is_active_local': row.is_active_local}, 'message': 'Biller disabled', 'errors': []}, status=200)
+
+
+@api_view(['POST'])
+@permission_classes([IsAuthenticated, IsAdmin])
+def biller_master_enable_view(request, pk: int):
+    row = BbpsBillerMaster.objects.filter(pk=pk, is_deleted=False).first()
+    if not row:
+        return Response({'success': False, 'data': None, 'message': 'Biller not found', 'errors': []}, status=404)
+    row.is_active_local = True
+    if row.soft_deleted_at is not None:
+        row.soft_deleted_at = None
+    row.updated_by_admin_at = timezone.now()
+    row.save(update_fields=['is_active_local', 'soft_deleted_at', 'updated_by_admin_at', 'updated_at'])
+    _invalidate_bbps_user_catalog_cache()
+    return Response({'success': True, 'data': {'id': row.pk, 'is_active_local': row.is_active_local}, 'message': 'Biller enabled', 'errors': []}, status=200)
+
+
+@api_view(['GET'])
+@permission_classes([IsAuthenticated, IsAdmin])
+def biller_master_admin_full_detail_view(request, pk: int):
+    row = BbpsBillerMaster.objects.filter(pk=pk, is_deleted=False).first()
+    if not row:
+        return Response({'success': False, 'data': None, 'message': 'Biller not found', 'errors': []}, status=404)
+    data = BbpsBillerMasterAdminSerializer(row).data
+    data['input_params'] = list(
+        BbpsBillerInputParam.objects.filter(is_deleted=False, biller=row).order_by('display_order', 'id').values(
+            'param_name', 'data_type', 'is_optional', 'min_length', 'max_length', 'regex', 'visibility', 'default_values', 'display_order'
+        )
+    )
+    data['payment_modes'] = list(
+        BbpsBillerPaymentModeLimit.objects.filter(is_deleted=False, biller=row).order_by('payment_mode').values(
+            'payment_mode', 'min_amount', 'max_amount', 'is_active'
+        )
+    )
+    data['payment_channels'] = list(
+        BbpsBillerPaymentChannelLimit.objects.filter(is_deleted=False, biller=row).order_by('payment_channel').values(
+            'payment_channel', 'min_amount', 'max_amount', 'is_active'
+        )
+    )
+    mode_names = [
+        str(x.get('payment_mode') or '').strip()
+        for x in data.get('payment_modes') or []
+        if str(x.get('payment_mode') or '').strip()
+    ]
+    channel_names = [
+        str(x.get('payment_channel') or '').strip().upper()
+        for x in data.get('payment_channels') or []
+        if str(x.get('payment_channel') or '').strip()
+    ]
+    channel_mode_matrix = []
+    for ch in channel_names:
+        accepted = display_payment_modes_for_channel(ch, mode_names if mode_names else None)
+        channel_mode_matrix.append(
+            {
+                'payment_channel': ch,
+                'accepted_payment_modes': accepted,
+                'accepted_payment_modes_count': len(accepted),
+            }
+        )
+    mode_channel_matrix = []
+    for mode in mode_names:
+        eligible_channels = [ch for ch in channel_names if bbps_channel_accepts_payment_mode(ch, mode)]
+        mode_channel_matrix.append(
+            {
+                'payment_mode': mode,
+                'eligible_payment_channels': eligible_channels,
+                'eligible_payment_channels_count': len(eligible_channels),
+            }
+        )
+    data['payment_acceptance_matrix'] = {
+        'payment_channels_supported': channel_names,
+        'payment_modes_supported': mode_names,
+        'channel_to_modes': channel_mode_matrix,
+        'mode_to_channels': mode_channel_matrix,
+    }
+    data['additional_info_schema'] = list(
+        BbpsBillerAdditionalInfoSchema.objects.filter(is_deleted=False, biller=row).order_by('info_group', 'info_name').values(
+            'info_group', 'info_name', 'data_type', 'is_optional'
+        )
+    )
+    data['plans'] = list(
+        BbpsBillerPlanMeta.objects.filter(is_deleted=False, biller=row).order_by('-updated_at').values(
+            'plan_id', 'category_type', 'category_sub_type', 'amount_in_rupees', 'plan_desc', 'effective_from', 'effective_to', 'status', 'plan_additional_info'
+        )[:200]
+    )
+    data['ccf1_configs'] = list(
+        BbpsBillerCcf1Config.objects.filter(is_deleted=False, biller=row).values(
+            'fee_code', 'fee_direction', 'flat_fee', 'percent_fee', 'fee_min_amount', 'fee_max_amount'
+        )
+    )
+    return Response({'success': True, 'data': {'biller': data}, 'message': 'Biller details retrieved', 'errors': []}, status=200)
+
+
+@api_view(['POST'])
+@permission_classes([IsAuthenticated, IsAdmin])
+def biller_master_admin_clear_all_view(request):
+    now = timezone.now()
+    count = BbpsBillerMaster.objects.filter(is_deleted=False).count()
+    BbpsBillerMaster.objects.filter(is_deleted=False).update(
+        is_deleted=True,
+        deleted_at=now,
+        soft_deleted_at=now,
+        is_active_local=False,
+        updated_by_admin_at=now,
+        updated_at=now,
+    )
+    _invalidate_bbps_user_catalog_cache()
     return Response(
         {
             'success': True,
-            'data': {'billers': BbpsBillerMasterLiteSerializer(rows, many=True).data},
-            'message': 'Biller master retrieved successfully',
+            'data': {'cleared_count': count},
+            'message': 'All billers removed from active database view',
             'errors': [],
         },
         status=200,
@@ -959,6 +1379,7 @@ def commission_rules_view(request):
         obj = BbpsCategoryCommissionRule.objects.filter(pk=request.data.get('id'), is_deleted=False).first()
         if obj:
             previous_snapshot = _as_audit_snapshot(obj)
+    action = str(request.data.get('action') or '').strip().lower()
     ser = BbpsCategoryCommissionRuleSerializer(obj, data=request.data, partial=bool(obj)) if obj else BbpsCategoryCommissionRuleSerializer(data=request.data)
     if not ser.is_valid():
         return Response({'success': False, 'data': None, 'message': 'Invalid commission rule', 'errors': ser.errors}, status=400)
@@ -1001,16 +1422,392 @@ def commission_audit_view(request):
     return Response({'success': True, 'data': {'audits': payload}, 'message': 'Commission audits retrieved successfully', 'errors': []}, status=200)
 
 
+def _mdm_catalog_serialize_map(row: BbpsProviderBillerMap) -> dict:
+    data = BbpsProviderBillerMapSerializer(row).data
+    data['blocked_by'] = governance_block_reasons_for_map(row)
+    data['approval_status'] = _approval_status(row)
+    return data
+
+
+@api_view(['GET'])
+@permission_classes([IsAuthenticated, IsAdmin])
+def mdm_catalog_summary_view(request):
+    if not getattr(settings, 'BBPS_PROVIDER_GOVERNANCE_ENABLED', True):
+        return Response(
+            _error_payload(
+                code='BBPS_GOVERNANCE_DISABLED',
+                message='Provider governance is disabled',
+                hint='Enable BBPS_PROVIDER_GOVERNANCE_ENABLED to use catalog controls.',
+            ),
+            status=503,
+        )
+    rows = list(
+        BbpsProviderBillerMap.objects.filter(is_deleted=False)
+        .select_related('provider__category', 'biller_master')
+        .order_by('-updated_at')[:2000]
+    )
+    total = len(rows)
+    auto_synced = [r for r in rows if bool((r.metadata or {}).get('auto_synced'))]
+    published = 0
+    blocked = 0
+    draft = 0
+    blocker_counts = {}
+    for row in auto_synced:
+        reasons = governance_block_reasons_for_map(row)
+        if reasons:
+            blocked += 1
+            for reason in reasons:
+                blocker_counts[reason] = blocker_counts.get(reason, 0) + 1
+        elif row.is_active:
+            published += 1
+        else:
+            draft += 1
+    return Response(
+        {
+            'success': True,
+            'data': {
+                'total_maps': total,
+                'auto_synced_maps': len(auto_synced),
+                'published_maps': published,
+                'blocked_maps': blocked,
+                'draft_maps': draft,
+                'blocker_counts': blocker_counts,
+            },
+            'message': 'MDM catalog summary retrieved successfully',
+            'errors': [],
+        },
+        status=200,
+    )
+
+
+@api_view(['POST'])
+@permission_classes([IsAuthenticated, IsAdmin])
+def mdm_catalog_bulk_publish_view(request):
+    if not getattr(settings, 'BBPS_PROVIDER_GOVERNANCE_ENABLED', True):
+        return Response(
+            _error_payload(
+                code='BBPS_GOVERNANCE_DISABLED',
+                message='Provider governance is disabled',
+                hint='Enable BBPS_PROVIDER_GOVERNANCE_ENABLED to use catalog controls.',
+            ),
+            status=503,
+        )
+    ids = request.data.get('map_ids') or []
+    published = bool(request.data.get('published'))
+    if not isinstance(ids, list) or not ids:
+        return Response(
+            _error_payload(
+                code='BBPS_INVALID_REQUEST',
+                message='map_ids is required',
+                hint='Pass map_ids as a non-empty list of map IDs.',
+            ),
+            status=400,
+        )
+    rows = list(
+        BbpsProviderBillerMap.objects.filter(is_deleted=False, id__in=ids)
+        .select_related('provider__category', 'biller_master')
+    )
+    found_ids = {r.id for r in rows}
+    missing = [i for i in ids if i not in found_ids]
+    changed = 0
+    unchanged = 0
+    blocked = []
+    with transaction.atomic():
+        for row in rows:
+            cat = row.provider.category
+            if published:
+                cat.is_active = True
+                cat.save(update_fields=['is_active', 'updated_at'])
+                if not BbpsCategoryCommissionRule.objects.filter(
+                    is_deleted=False,
+                    is_active=True,
+                    category=cat,
+                ).exists():
+                    rule = BbpsCategoryCommissionRule.objects.create(
+                        category=cat,
+                        rule_code='mdm-catalog-default',
+                        commission_type='flat',
+                        value=Decimal('0'),
+                        min_commission=Decimal('0'),
+                        max_commission=Decimal('0'),
+                        is_active=True,
+                        notes='Auto-created for MDM catalog publish (bulk).',
+                    )
+                    BbpsCommissionAudit.objects.create(
+                        rule=rule,
+                        changed_by_user_id=request.user.pk if request.user and request.user.is_authenticated else None,
+                        action='create',
+                        previous_snapshot={},
+                        new_snapshot=_as_audit_snapshot(rule),
+                        reason='mdm_catalog_bulk_publish',
+                    )
+                if not row.provider.is_active:
+                    row.provider.is_active = True
+                    _set_approval_status(row.provider, 'approved')
+                    row.provider.save(update_fields=['is_active', 'metadata', 'updated_at'])
+                if row.is_active:
+                    unchanged += 1
+                else:
+                    row.is_active = True
+                    _set_approval_status(row, 'approved')
+                    row.save(update_fields=['is_active', 'metadata', 'updated_at'])
+                    changed += 1
+                reasons = governance_block_reasons_for_map(row)
+                if reasons:
+                    blocked.append({'id': row.id, 'blocked_by': reasons})
+            else:
+                if row.is_active:
+                    row.is_active = False
+                    _set_approval_status(row, 'pending')
+                    row.save(update_fields=['is_active', 'metadata', 'updated_at'])
+                    changed += 1
+                else:
+                    unchanged += 1
+            _invalidate_provider_cache(cat.code)
+    BbpsApiAuditLog.objects.create(
+        endpoint_name='mdm_catalog_bulk_publish',
+        request_id='',
+        service_id='',
+        status_code='200',
+        latency_ms=0,
+        success=True,
+        request_meta={'map_ids': ids, 'published': published},
+        response_meta={
+            'changed': changed,
+            'unchanged': unchanged,
+            'blocked': len(blocked),
+            'missing': len(missing),
+        },
+        error_message='',
+    )
+    return Response(
+        {
+            'success': True,
+            'data': {
+                'changed_count': changed,
+                'unchanged_count': unchanged,
+                'blocked': blocked,
+                'missing_ids': missing,
+            },
+            'message': 'Bulk publish completed' if published else 'Bulk unpublish completed',
+            'errors': [],
+        },
+        status=200,
+    )
+
+
+@api_view(['POST'])
+@permission_classes([IsAuthenticated, IsAdmin])
+def mdm_catalog_publish_view(request):
+    """
+    One-step publish for MDM-synced maps: activate category, ensure commission rule,
+    activate provider and map. Unpublish only deactivates the map (other maps may share category).
+    """
+    if not getattr(settings, 'BBPS_PROVIDER_GOVERNANCE_ENABLED', True):
+        return Response(
+            _error_payload(
+                code='BBPS_GOVERNANCE_DISABLED',
+                message='Provider governance is disabled',
+                hint='Enable BBPS_PROVIDER_GOVERNANCE_ENABLED to use catalog controls.',
+            ),
+            status=503,
+        )
+    ser = MdmCatalogPublishSerializer(data=request.data or {})
+    if not ser.is_valid():
+        return Response(
+            _error_payload(
+                code='BBPS_INVALID_REQUEST',
+                message='Invalid request',
+                hint='Provide valid map_id and published boolean.',
+                errors=ser.errors,
+            ),
+            status=400,
+        )
+    map_id = ser.validated_data['map_id']
+    published = ser.validated_data['published']
+    row = (
+        BbpsProviderBillerMap.objects.filter(pk=map_id, is_deleted=False)
+        .select_related('provider__category', 'biller_master')
+        .first()
+    )
+    if not row:
+        return Response(
+            _error_payload(
+                code='BBPS_MAP_NOT_FOUND',
+                message='Map not found',
+                hint='Refresh the catalog and retry with an existing map.',
+            ),
+            status=404,
+        )
+
+    cat_code = ''
+    if row.provider and row.provider.category:
+        cat_code = row.provider.category.code or ''
+
+    if not published:
+        with transaction.atomic():
+            row.is_active = False
+            _set_approval_status(row, 'pending')
+            row.save(update_fields=['is_active', 'metadata', 'updated_at'])
+        _invalidate_provider_cache(cat_code)
+        row.refresh_from_db()
+        return Response(
+            {
+                'success': True,
+                'data': {
+                    'map': _mdm_catalog_serialize_map(row),
+                    'commission_rule_created': False,
+                    'warnings': governance_block_reasons_for_map(row),
+                },
+                'message': 'Service hidden from end users (map deactivated)',
+                'errors': [],
+            },
+            status=200,
+        )
+
+    commission_rule_created = False
+    with transaction.atomic():
+        cat = row.provider.category
+        cat.is_active = True
+        cat.save(update_fields=['is_active', 'updated_at'])
+
+        has_rule = BbpsCategoryCommissionRule.objects.filter(
+            is_deleted=False,
+            is_active=True,
+            category=cat,
+        ).exists()
+        if not has_rule:
+            rule = BbpsCategoryCommissionRule.objects.create(
+                category=cat,
+                rule_code='mdm-catalog-default',
+                commission_type='flat',
+                value=Decimal('0'),
+                min_commission=Decimal('0'),
+                max_commission=Decimal('0'),
+                is_active=True,
+                notes='Auto-created for MDM catalog publish (edit under Commission Rules).',
+            )
+            BbpsCommissionAudit.objects.create(
+                rule=rule,
+                changed_by_user_id=request.user.pk if request.user and request.user.is_authenticated else None,
+                action='create',
+                previous_snapshot={},
+                new_snapshot=_as_audit_snapshot(rule),
+                reason='mdm_catalog_publish',
+            )
+            commission_rule_created = True
+
+        prov = row.provider
+        prov.is_active = True
+        _set_approval_status(prov, 'approved')
+        prov.save(update_fields=['is_active', 'metadata', 'updated_at'])
+
+        row.is_active = True
+        _set_approval_status(row, 'approved')
+        row.save(update_fields=['is_active', 'metadata', 'updated_at'])
+
+    _invalidate_provider_cache(cat_code)
+    row.refresh_from_db()
+    row = (
+        BbpsProviderBillerMap.objects.filter(pk=row.pk, is_deleted=False)
+        .select_related('provider__category', 'biller_master')
+        .first()
+    )
+    warnings = governance_block_reasons_for_map(row)
+    BbpsApiAuditLog.objects.create(
+        endpoint_name='mdm_catalog_publish',
+        request_id='',
+        service_id='',
+        status_code='200',
+        latency_ms=0,
+        success=True,
+        request_meta={'map_id': map_id, 'published': published},
+        response_meta={'warnings': warnings, 'commission_rule_created': commission_rule_created},
+        error_message='',
+    )
+    return Response(
+        {
+            'success': True,
+            'data': {
+                'map': _mdm_catalog_serialize_map(row),
+                'commission_rule_created': commission_rule_created,
+                'warnings': warnings,
+            },
+            'message': 'Service published to end users' if not warnings else 'Published with remaining checks — see warnings',
+            'errors': [],
+        },
+        status=200,
+    )
+
+
+def _sync_quota_snapshot():
+    cfg = BillAvenueConfig.objects.filter(is_deleted=False, enabled=True, is_active=True).first()
+    max_calls = int(getattr(cfg, 'mdm_max_calls_per_day', 15) or 15)
+    today = timezone.localdate()
+    row = BbpsSyncUsageLog.objects.filter(is_deleted=False, usage_date=today).first()
+    used = int(getattr(row, 'call_count', 0) or 0)
+    return {
+        'usage_date': today,
+        'max_calls_per_day': max_calls,
+        'used_calls_today': used,
+        'remaining_calls_today': max(0, max_calls - used),
+        'last_sync_at': row.updated_at if row else None,
+        'last_sync_result': str(getattr(row, 'last_status', '') or ''),
+    }
+
+
 @api_view(['POST'])
 @permission_classes([IsAuthenticated, IsAdmin])
 def sync_billers_view(request):
     ser = BillerSyncRequestSerializer(data=request.data or {})
     if not ser.is_valid():
         return Response({'success': False, 'data': None, 'message': 'Invalid sync request', 'errors': ser.errors}, status=400)
+    biller_ids = ser.validated_data.get('biller_ids') or []
+    quota = _sync_quota_snapshot()
+    if quota['remaining_calls_today'] <= 0:
+        return Response(
+            {
+                'success': False,
+                'data': quota,
+                'message': 'Daily BBPS sync quota exhausted',
+                'errors': [],
+            },
+            status=status.HTTP_429_TOO_MANY_REQUESTS,
+        )
+    request_id = f"SYNC{timezone.now().strftime('%Y%m%d%H%M%S')}{uuid.uuid4().hex[:8].upper()}"
+    usage_date = quota['usage_date']
     try:
-        out = sync_biller_info(ser.validated_data.get('biller_ids') or [])
+        with transaction.atomic():
+            usage, _ = BbpsSyncUsageLog.objects.select_for_update().get_or_create(
+                usage_date=usage_date,
+                is_deleted=False,
+                defaults={
+                    'call_count': 0,
+                    'requested_ids_count': 0,
+                    'requested_by': request.user if request.user and request.user.is_authenticated else None,
+                    'request_id': request_id,
+                },
+            )
+            if usage.call_count >= quota['max_calls_per_day']:
+                q = _sync_quota_snapshot()
+                return Response({'success': False, 'data': q, 'message': 'Daily BBPS sync quota exhausted', 'errors': []}, status=429)
+            usage.call_count = F('call_count') + 1
+            usage.requested_ids_count = F('requested_ids_count') + len(biller_ids)
+            usage.requested_by = request.user if request.user and request.user.is_authenticated else None
+            usage.request_id = request_id
+            usage.last_status = 'started'
+            usage.last_error = ''
+            usage.meta = {'requested_ids': len(biller_ids)}
+            usage.save(update_fields=['call_count', 'requested_ids_count', 'requested_by', 'request_id', 'last_status', 'last_error', 'meta', 'updated_at'])
+
+        out = sync_biller_info(biller_ids, request_id=request_id)
+        BbpsSyncUsageLog.objects.filter(is_deleted=False, usage_date=usage_date).update(last_status='success', meta={'requested_ids': len(biller_ids), 'synced': out.get('updated_count', 0)})
+        _invalidate_bbps_user_catalog_cache()
+        quota_out = _sync_quota_snapshot()
+        out['quota'] = quota_out
         return Response({'success': True, 'data': out, 'message': 'Biller sync completed', 'errors': []}, status=200)
     except BillAvenueEntitlementError as e:
+        BbpsSyncUsageLog.objects.filter(is_deleted=False, usage_date=usage_date).update(last_status='failed', last_error=str(e))
         logger.warning('sync-billers BillAvenue entitlement (205): %s', e)
         return Response(
             {
@@ -1025,10 +1822,58 @@ def sync_billers_view(request):
                 'message': str(e),
                 'errors': ['205'],
             },
-            status=status.HTTP_502_BAD_GATEWAY,
+            status=status.HTTP_422_UNPROCESSABLE_ENTITY,
         )
     except BillAvenueClientError as e:
-        return Response({'success': False, 'data': None, 'message': str(e), 'errors': []}, status=400)
+        BbpsSyncUsageLog.objects.filter(is_deleted=False, usage_date=usage_date).update(last_status='failed', last_error=str(e))
+        msg = str(e or '')
+        code = ''
+        if 'code=001' in msg:
+            code = '001'
+        elif 'code=205' in msg:
+            code = '205'
+        if code:
+            cached_count = BbpsBillerMaster.objects.filter(is_deleted=False).count()
+            logger.info('sync-billers BillAvenue upstream code=%s (non-fatal when cache exists): %s', code, msg)
+            return Response(
+                {
+                    'success': False,
+                    'data': {
+                        'billavenue_code': code,
+                        'mdm_cached_count': cached_count,
+                        'quota': _sync_quota_snapshot(),
+                        'hint': (
+                            'BillAvenue blocked live MDM call for this config/agent at this moment. '
+                            'Existing synced catalog remains usable; complete prerequisites and retry sync later.'
+                        ),
+                    },
+                    'message': msg,
+                    'errors': [],
+                },
+                status=200,
+            )
+        return Response({'success': False, 'data': None, 'message': msg, 'errors': []}, status=400)
+
+
+@api_view(['GET'])
+@permission_classes([IsAuthenticated, IsAdmin])
+def sync_usage_today_view(request):
+    return Response({'success': True, 'data': _sync_quota_snapshot(), 'message': 'Sync usage retrieved', 'errors': []}, status=200)
+
+
+@api_view(['GET'])
+@permission_classes([IsAuthenticated, IsAdmin])
+def sync_usage_history_view(request):
+    rows = BbpsSyncUsageLog.objects.filter(is_deleted=False).order_by('-usage_date')[:30]
+    return Response(
+        {
+            'success': True,
+            'data': {'history': BbpsSyncUsageLogSerializer(rows, many=True).data},
+            'message': 'Sync usage history retrieved',
+            'errors': [],
+        },
+        status=200,
+    )
 
 
 @api_view(['POST'])
@@ -1125,7 +1970,7 @@ def plan_pull_view(request):
         out = pull_biller_plans(biller_ids=ser.validated_data.get('biller_ids') or [])
         return Response({'success': True, 'data': out, 'message': 'Plan pull completed', 'errors': []}, status=200)
     except BillAvenueClientError as e:
-        return Response({'success': False, 'data': None, 'message': str(e), 'errors': []}, status=400)
+        return Response({'success': False, 'data': None, 'message': _friendly_plan_pull_error_message(str(e)), 'errors': []}, status=400)
 
 
 @api_view(['POST'])
@@ -1144,31 +1989,69 @@ def deposit_enquiry_view(request):
 @api_view(['GET'])
 @permission_classes([IsAuthenticated, IsAdmin])
 def uat_readiness_checklist_view(request):
-    health = integration_health_view(request).data.get('data', {})
-    readiness = get_setup_readiness()
-    checklist = [
-        {'key': 'active_config', 'ok': 'active_config' not in health.get('blockers', [])},
-        {'key': 'agent_profile', 'ok': 'agent_profile' not in health.get('blockers', [])},
-        {'key': 'entitlement_probe', 'ok': bool(health.get('entitlement_probe_ok'))},
-        {'key': 'mdm_synced', 'ok': readiness.get('stats', {}).get('mdm_biller_count', 0) > 0},
-        {'key': 'provider_mapping', 'ok': readiness.get('stats', {}).get('mapping_count', 0) > 0},
-    ]
-    blockers = [c['key'] for c in checklist if not c['ok']]
-    return Response(
-        {
-            'success': True,
-            'data': {
-                'checklist': checklist,
-                'blockers': blockers,
-                'go_live_blocked': bool(blockers),
-                'latest_probe_message': health.get('entitlement_probe_message') or '',
-                'latest_mdm_error': (health.get('latest_mdm_audit') or {}).get('error_message') or '',
+    try:
+        # integration_health_view is also DRF-decorated; pass raw Django HttpRequest to avoid
+        # nested DRF Request wrapping assertion errors.
+        base_request = request._request if hasattr(request, '_request') else request
+        health_resp = integration_health_view(base_request)
+        health_payload = getattr(health_resp, 'data', {}) or {}
+        health = health_payload.get('data', {}) if isinstance(health_payload, dict) else {}
+        if not isinstance(health, dict):
+            health = {}
+
+        readiness = get_setup_readiness()
+        if not isinstance(readiness, dict):
+            readiness = {}
+
+        stats = readiness.get('stats', {}) if isinstance(readiness.get('stats', {}), dict) else {}
+        blockers_from_health = health.get('blockers', []) if isinstance(health.get('blockers', []), list) else []
+
+        checklist = [
+            {'key': 'active_config', 'ok': 'active_config' not in blockers_from_health},
+            {'key': 'agent_profile', 'ok': 'agent_profile' not in blockers_from_health},
+            {'key': 'entitlement_probe', 'ok': health.get('entitlement_probe_ok') is not False},
+            {'key': 'mdm_synced', 'ok': stats.get('mdm_biller_count', 0) > 0},
+            {'key': 'provider_mapping', 'ok': stats.get('mapping_count', 0) > 0},
+        ]
+        blockers = [c['key'] for c in checklist if not c['ok']]
+        return Response(
+            {
+                'success': True,
+                'data': {
+                    'checklist': checklist,
+                    'blockers': blockers,
+                    'go_live_blocked': bool(blockers),
+                    'latest_probe_message': health.get('entitlement_probe_message') or '',
+                    'latest_mdm_error': (health.get('latest_mdm_audit') or {}).get('error_message') or '',
+                },
+                'message': 'UAT readiness checklist retrieved',
+                'errors': [],
             },
-            'message': 'UAT readiness checklist retrieved',
-            'errors': [],
-        },
-        status=200,
-    )
+            status=200,
+        )
+    except Exception as exc:
+        logger.exception('uat-readiness failed: %s', exc)
+        return Response(
+            {
+                'success': False,
+                'data': {
+                    'checklist': [
+                        {'key': 'active_config', 'ok': False},
+                        {'key': 'agent_profile', 'ok': False},
+                        {'key': 'entitlement_probe', 'ok': False},
+                        {'key': 'mdm_synced', 'ok': False},
+                        {'key': 'provider_mapping', 'ok': False},
+                    ],
+                    'blockers': ['active_config', 'agent_profile', 'entitlement_probe', 'mdm_synced', 'provider_mapping'],
+                    'go_live_blocked': True,
+                    'latest_probe_message': '',
+                    'latest_mdm_error': '',
+                },
+                'message': 'UAT readiness temporarily unavailable. Please retry.',
+                'errors': [str(exc)],
+            },
+            status=200,
+        )
 
 
 @api_view(['POST'])

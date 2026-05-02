@@ -1,6 +1,7 @@
 import React from 'react';
 import { Routes, Route, Navigate } from 'react-router-dom';
 import ProtectedRoute from '../components/common/ProtectedRoute';
+import AdminRoute from '../components/common/AdminRoute';
 import Layout from '../components/common/Layout';
 
 // Auth components
@@ -42,8 +43,8 @@ import PaymentGatewaysAdmin from '../components/admin/PaymentGatewaysAdmin';
 import PayInPackagesAdmin from '../components/admin/PayInPackagesAdmin';
 import APIMasterManagement from '../components/admin/APIMasterManagement';
 import BillAvenueSettings from '../components/admin/BillAvenueSettings';
-import BillerSyncDashboard from '../components/admin/BillerSyncDashboard';
 import BbpsOpsConsole from '../components/admin/BbpsOpsConsole';
+import BbpsBillerDetails from '../components/admin/BbpsBillerDetails';
 import BbpsProviderGovernance from '../components/admin/BbpsProviderGovernance';
 import WalletHistoryPage from '../components/wallets/WalletHistoryPage';
 
@@ -225,9 +226,11 @@ const AppRoutes = () => {
         path="/admin/users/:userId"
         element={
           <ProtectedRoute>
-            <Layout>
-              <UserDetail />
-            </Layout>
+            <AdminRoute>
+              <Layout>
+                <UserDetail />
+              </Layout>
+            </AdminRoute>
           </ProtectedRoute>
         }
       />
@@ -359,9 +362,11 @@ const AppRoutes = () => {
         path="/admin/announcements"
         element={
           <ProtectedRoute>
-            <Layout>
-              <AnnouncementManagement />
-            </Layout>
+            <AdminRoute>
+              <Layout>
+                <AnnouncementManagement />
+              </Layout>
+            </AdminRoute>
           </ProtectedRoute>
         }
       />
@@ -371,9 +376,11 @@ const AppRoutes = () => {
         path="/admin/gateways"
         element={
           <ProtectedRoute>
-            <Layout>
-              <PaymentGatewaysAdmin />
-            </Layout>
+            <AdminRoute>
+              <Layout>
+                <PaymentGatewaysAdmin />
+              </Layout>
+            </AdminRoute>
           </ProtectedRoute>
         }
       />
@@ -383,9 +390,11 @@ const AppRoutes = () => {
         path="/admin/pay-in-packages"
         element={
           <ProtectedRoute>
-            <Layout>
-              <PayInPackagesAdmin />
-            </Layout>
+            <AdminRoute>
+              <Layout>
+                <PayInPackagesAdmin />
+              </Layout>
+            </AdminRoute>
           </ProtectedRoute>
         }
       />
@@ -395,9 +404,11 @@ const AppRoutes = () => {
         path="/admin/api-master"
         element={
           <ProtectedRoute>
-            <Layout>
-              <APIMasterManagement />
-            </Layout>
+            <AdminRoute>
+              <Layout>
+                <APIMasterManagement />
+              </Layout>
+            </AdminRoute>
           </ProtectedRoute>
         }
       />
@@ -406,20 +417,11 @@ const AppRoutes = () => {
         path="/admin/billavenue-settings"
         element={
           <ProtectedRoute>
-            <Layout>
-              <BillAvenueSettings />
-            </Layout>
-          </ProtectedRoute>
-        }
-      />
-
-      <Route
-        path="/admin/bbps-sync"
-        element={
-          <ProtectedRoute>
-            <Layout>
-              <BillerSyncDashboard />
-            </Layout>
+            <AdminRoute>
+              <Layout>
+                <BillAvenueSettings />
+              </Layout>
+            </AdminRoute>
           </ProtectedRoute>
         }
       />
@@ -428,9 +430,11 @@ const AppRoutes = () => {
         path="/admin/bbps-ops"
         element={
           <ProtectedRoute>
-            <Layout>
-              <BbpsOpsConsole />
-            </Layout>
+            <AdminRoute>
+              <Layout>
+                <BbpsOpsConsole />
+              </Layout>
+            </AdminRoute>
           </ProtectedRoute>
         }
       />
@@ -439,9 +443,23 @@ const AppRoutes = () => {
         path="/admin/bbps-governance"
         element={
           <ProtectedRoute>
-            <Layout>
-              <BbpsProviderGovernance />
-            </Layout>
+            <AdminRoute>
+              <Layout>
+                <BbpsProviderGovernance />
+              </Layout>
+            </AdminRoute>
+          </ProtectedRoute>
+        }
+      />
+      <Route
+        path="/admin/bbps-governance/biller/:billerPk"
+        element={
+          <ProtectedRoute>
+            <AdminRoute>
+              <Layout>
+                <BbpsBillerDetails />
+              </Layout>
+            </AdminRoute>
           </ProtectedRoute>
         }
       />

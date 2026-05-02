@@ -107,6 +107,14 @@ class BbpsBillerMaster(BaseModel):
     plan_mdm_requirement = models.CharField(max_length=30, blank=True, default='')
     source_hash = models.CharField(max_length=128, blank=True, default='')
     source_version = models.CharField(max_length=20, blank=True, default='')
+    source_type = models.CharField(max_length=20, blank=True, default='synced', db_index=True)
+    is_active_local = models.BooleanField(default=True, db_index=True)
+    last_sync_status = models.CharField(max_length=20, blank=True, default='', db_index=True)
+    last_sync_error = models.TextField(blank=True, default='')
+    last_sync_request_id = models.CharField(max_length=60, blank=True, default='', db_index=True)
+    soft_deleted_at = models.DateTimeField(null=True, blank=True, db_index=True)
+    version = models.PositiveIntegerField(default=1)
+    updated_by_admin_at = models.DateTimeField(null=True, blank=True)
     last_synced_at = models.DateTimeField(null=True, blank=True, db_index=True)
     sync_error = models.TextField(blank=True, default='')
     is_stale = models.BooleanField(default=False, db_index=True)
@@ -366,6 +374,32 @@ class BbpsApiAuditLog(BaseModel):
     class Meta:
         db_table = 'bbps_api_audit_log'
         ordering = ['-created_at']
+
+
+class BbpsSyncUsageLog(BaseModel):
+    """Per-day sync usage tracker for BillAvenue MDM calls."""
+
+    usage_date = models.DateField(db_index=True)
+    call_count = models.PositiveIntegerField(default=0)
+    requested_ids_count = models.PositiveIntegerField(default=0)
+    requested_by = models.ForeignKey(
+        User, null=True, blank=True, on_delete=models.SET_NULL, related_name='bbps_sync_usage_logs'
+    )
+    request_id = models.CharField(max_length=60, blank=True, default='', db_index=True)
+    last_status = models.CharField(max_length=20, blank=True, default='')
+    last_error = models.TextField(blank=True, default='')
+    meta = models.JSONField(default=dict, blank=True)
+
+    class Meta:
+        db_table = 'bbps_sync_usage_log'
+        ordering = ['-usage_date', '-updated_at']
+        constraints = [
+            models.UniqueConstraint(
+                fields=['usage_date'],
+                condition=models.Q(is_deleted=False),
+                name='uniq_bbps_sync_usage_per_day',
+            )
+        ]
 
 
 class BbpsFetchSession(BaseModel):

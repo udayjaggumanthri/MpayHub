@@ -6,11 +6,12 @@ from .base import *
 
 # SECURITY WARNING: don't run with debug turned on in production!
 DEBUG = config('DEBUG', default=True, cast=bool)
-
-ALLOWED_HOSTS = get_csv_setting(
-    'ALLOWED_HOSTS',
-    default='localhost,127.0.0.1,0.0.0.0'
-)
+ALLOWED_HOSTS = [
+    'partner.mpayhub.in',
+    '57.131.39.21',
+    'localhost',
+    '127.0.0.1'
+]
 
 # Database - Can use SQLite for development if PostgreSQL is not available
 USE_SQLITE = config('USE_SQLITE', default=False, cast=bool)

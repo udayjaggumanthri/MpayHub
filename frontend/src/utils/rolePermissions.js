@@ -58,7 +58,6 @@ export const roleMenus = {
       icon: 'profile',
       submenu: [
         { name: 'BillAvenue Settings', path: '/admin/billavenue-settings' },
-        { name: 'Biller Sync Dashboard', path: '/admin/bbps-sync' },
         { name: 'Provider Governance', path: '/admin/bbps-governance' },
         { name: 'BBPS Ops Console', path: '/admin/bbps-ops' },
       ],

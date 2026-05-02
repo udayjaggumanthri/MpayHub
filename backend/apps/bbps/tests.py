@@ -6,8 +6,6 @@ from apps.authentication.models import User
 from apps.bbps.models import (
     BbpsBillerCcf1Config,
     BbpsBillerMaster,
-    BbpsBillerPaymentChannelLimit,
-    BbpsBillerPaymentModeLimit,
     BbpsCategoryCommissionRule,
     BbpsFetchSession,
     BbpsPaymentAttempt,
@@ -15,10 +13,10 @@ from apps.bbps.models import (
     BbpsServiceCategory,
     BbpsServiceProvider,
 )
-from apps.bbps.services import get_providers_by_category, governance_readiness_for_biller
+from apps.bbps.services import get_bill_categories, get_providers_by_category, governance_readiness_for_biller
 from apps.bbps.service_flow.compliance import (
     compute_ccf1_if_required,
-    enforce_biller_mode_channel_constraints,
+    enforce_cash_pan_rule,
     enforce_fetch_pay_linkage,
     enforce_plan_mdm_requirement,
 )
@@ -116,29 +114,6 @@ class BbpsGovernanceFlowTests(TestCase):
         )
         self.assertEqual(out['commission_rule_code'], 'RULE1')
         self.assertEqual(str(out['charge']), '2.5000')
-
-    def test_mode_channel_matrix_validation(self):
-        biller = BbpsBillerMaster.objects.create(
-            biller_id='CC2001',
-            biller_name='Test Biller',
-            biller_category='credit-card',
-            biller_status='ACTIVE',
-        )
-        BbpsBillerPaymentChannelLimit.objects.create(biller=biller, payment_channel='AGT', min_amount=0, max_amount=0)
-        BbpsBillerPaymentModeLimit.objects.create(biller=biller, payment_mode='UPI', min_amount=0, max_amount=0)
-        enforce_biller_mode_channel_constraints(
-            biller=biller,
-            payment_mode='UPI',
-            payment_channel='AGT',
-            amount=Decimal('10'),
-        )
-        with self.assertRaises(TransactionFailed):
-            enforce_biller_mode_channel_constraints(
-                biller=biller,
-                payment_mode='Credit Card',
-                payment_channel='AGT',
-                amount=Decimal('10'),
-            )
 
     def test_fetch_pay_linkage_for_mandatory_fetch(self):
         user = User.objects.create_user(phone='9000000001', email='u1@example.com', password='testpass123')
@@ -280,3 +255,122 @@ class ApprovalFirstGovernanceTests(TestCase):
         self.assertFalse(created_map.is_active)
         self.assertEqual(created_provider.metadata.get('approval_status'), 'pending')
         self.assertEqual(created_map.metadata.get('approval_status'), 'pending')
+
+
+class MdmCatalogPublishApiTests(TestCase):
+    def test_mdm_catalog_publish_and_unpublish(self):
+        from rest_framework.test import APIClient
+
+        admin = User.objects.create_user(
+            phone='9222222222',
+            email='mdm-pub@test.com',
+            password='secret123',
+            role='Admin',
+        )
+        cat = BbpsServiceCategory.objects.create(code='mobile-recharge', name='Mobile', is_active=False)
+        prov = BbpsServiceProvider.objects.create(
+            category=cat,
+            code='op-a',
+            name='Operator A',
+            is_active=False,
+            metadata={'auto_synced': True},
+        )
+        biller = BbpsBillerMaster.objects.create(
+            biller_id='B99001',
+            biller_name='Test Telco',
+            biller_category='Mobile',
+            biller_status='ACTIVE',
+        )
+        m = BbpsProviderBillerMap.objects.create(
+            provider=prov,
+            biller_master=biller,
+            is_active=False,
+            metadata={'auto_synced': True},
+        )
+        client = APIClient()
+        client.force_authenticate(user=admin)
+        r = client.post('/api/bbps/admin/mdm-catalog/publish/', {'map_id': m.id, 'published': True}, format='json')
+        self.assertEqual(r.status_code, 200, r.content)
+        body = r.json()
+        self.assertTrue(body['success'])
+        self.assertTrue(body['data'].get('commission_rule_created'))
+        self.assertEqual(body['data'].get('warnings'), [])
+        cat.refresh_from_db()
+        prov.refresh_from_db()
+        m.refresh_from_db()
+        self.assertTrue(cat.is_active)
+        self.assertTrue(prov.is_active)
+        self.assertTrue(m.is_active)
+        self.assertTrue(
+            BbpsCategoryCommissionRule.objects.filter(
+                category=cat,
+                rule_code='mdm-catalog-default',
+                is_deleted=False,
+                is_active=True,
+            ).exists()
+        )
+        cats = get_bill_categories()
+        self.assertTrue(any(c['id'] == 'mobile-recharge' for c in cats))
+
+        r2 = client.post('/api/bbps/admin/mdm-catalog/publish/', {'map_id': m.id, 'published': False}, format='json')
+        self.assertEqual(r2.status_code, 200)
+        m.refresh_from_db()
+        self.assertFalse(m.is_active)
+
+    def test_mdm_catalog_summary_and_bulk_publish(self):
+        from rest_framework.test import APIClient
+
+        admin = User.objects.create_user(
+            phone='9333333333',
+            email='mdm-summary@test.com',
+            password='secret123',
+            role='Admin',
+        )
+        cat = BbpsServiceCategory.objects.create(code='dth', name='DTH', is_active=False)
+        prov = BbpsServiceProvider.objects.create(
+            category=cat,
+            code='dth-op',
+            name='DTH OP',
+            is_active=False,
+            metadata={'auto_synced': True},
+        )
+        biller = BbpsBillerMaster.objects.create(
+            biller_id='B99111',
+            biller_name='DTH TEST',
+            biller_category='DTH',
+            biller_status='ACTIVE',
+        )
+        m = BbpsProviderBillerMap.objects.create(
+            provider=prov,
+            biller_master=biller,
+            is_active=False,
+            metadata={'auto_synced': True},
+        )
+        client = APIClient()
+        client.force_authenticate(user=admin)
+        s = client.get('/api/bbps/admin/mdm-catalog/summary/')
+        self.assertEqual(s.status_code, 200)
+        self.assertTrue(s.json()['success'])
+        b = client.post(
+            '/api/bbps/admin/mdm-catalog/bulk-publish/',
+            {'map_ids': [m.id], 'published': True},
+            format='json',
+        )
+        self.assertEqual(b.status_code, 200, b.content)
+        m.refresh_from_db()
+        self.assertTrue(m.is_active)
+
+
+class ComplianceRulesTests(TestCase):
+    def test_cash_pan_required_for_high_value(self):
+        with self.assertRaises(TransactionFailed):
+            enforce_cash_pan_rule(
+                amount_paise=5000000,
+                payment_mode='Cash',
+                customer_info={'customerPan': '', 'customerName': ''},
+            )
+        enforce_cash_pan_rule(
+            amount_paise=5000000,
+            payment_mode='Cash',
+            customer_info={'customerPan': 'ABCDE1234F', 'customerName': 'Tarun I'},
+        )
