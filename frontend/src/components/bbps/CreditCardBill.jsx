@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { useAuth } from '../../context/AuthContext';
 import { bbpsAPI, walletsAPI } from '../../services/api';
 import { formatCurrency, formatDate } from '../../utils/formatters';
@@ -9,9 +9,11 @@ import Button from '../common/Button';
 import MPINModal from '../common/MPINModal';
 import { FaCircleCheck, FaCircleExclamation, FaMagnifyingGlass } from 'react-icons/fa6';
 import BharatConnectBranding from './BharatConnectBranding';
+import BbpsDynamicFieldSet from './BbpsDynamicFieldSet';
 
 const CreditCardBill = ({ category = 'credit-card', onPaymentSuccess }) => {
   const { user } = useAuth();
+  const paySubmitInFlight = useRef(false);
   const [biller, setBiller] = useState('');
   const [billDetails, setBillDetails] = useState(null);
   const [billId, setBillId] = useState(null);
@@ -33,6 +35,11 @@ const CreditCardBill = ({ category = 'credit-card', onPaymentSuccess }) => {
   const [fetchRequestId, setFetchRequestId] = useState('');
   const [paymentModes, setPaymentModes] = useState([]);
   const [paymentModeChannelMap, setPaymentModeChannelMap] = useState({});
+  const [planMdmRequirement, setPlanMdmRequirement] = useState('');
+  const [billerFetchRequirement, setBillerFetchRequirement] = useState('');
+  const [quickPayOnly, setQuickPayOnly] = useState(false);
+  const [planOptions, setPlanOptions] = useState([]);
+  const [selectedPlanId, setSelectedPlanId] = useState('');
   const title = (category || 'bill-payment').replace(/-/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase());
 
   const getCanonicalValue = useCallback((canonicalKey, fallbackKeys = []) => {
@@ -60,6 +67,9 @@ const CreditCardBill = ({ category = 'credit-card', onPaymentSuccess }) => {
     const fallback = [];
     if (String(inputValues['Customer Number'] || '').trim()) {
       fallback.push({ paramName: 'Customer Number', paramValue: inputValues['Customer Number'] });
+    }
+    if (String(inputValues.CustomerId || '').trim()) {
+      fallback.push({ paramName: 'CustomerId', paramValue: inputValues.CustomerId });
     }
     return fallback;
   }, [inputSchema, inputValues]);
@@ -92,6 +102,11 @@ const CreditCardBill = ({ category = 'credit-card', onPaymentSuccess }) => {
       if (!biller) {
         setPaymentModes([]);
         setPaymentModeChannelMap({});
+        setPlanMdmRequirement('');
+        setBillerFetchRequirement('');
+        setQuickPayOnly(false);
+        setPlanOptions([]);
+        setSelectedPlanId('');
         return;
       }
       const res = await bbpsAPI.getBillerSchema(biller);
@@ -103,6 +118,11 @@ const CreditCardBill = ({ category = 'credit-card', onPaymentSuccess }) => {
           seed[f.param_name] = '';
         });
         setInputValues(seed);
+        setPlanMdmRequirement(String(res.data?.plan_mdm_requirement || '').trim());
+        setBillerFetchRequirement(String(res.data?.biller_fetch_requirement || '').trim());
+        setQuickPayOnly(Boolean(res.data?.quickpay_only));
+        setPlanOptions(Array.isArray(res.data?.plans) ? res.data.plans : []);
+        setSelectedPlanId('');
         const modeList = Array.isArray(res.data?.payment_modes) ? res.data.payment_modes : [];
         const modeChannelMap = res.data?.payment_mode_channel_map || {};
         setPaymentModes(modeList);
@@ -162,10 +182,16 @@ const CreditCardBill = ({ category = 'credit-card', onPaymentSuccess }) => {
   const validateInputs = () => {
     if (!biller) return 'Please select biller.';
     if (inputSchema.length === 0) {
-      if (!String(inputValues['Customer Number'] || inputValues['Card Last4 Digits'] || '').trim()) {
+      if (
+        !String(
+          inputValues['Customer Number'] ||
+            inputValues['Card Last4 Digits'] ||
+            inputValues.CustomerId ||
+            ''
+        ).trim()
+      ) {
         return 'Please enter customer identifier.';
       }
-      if (!String(inputValues['Mobile Number'] || '').trim()) return 'Please enter Mobile Number.';
       return '';
     }
     for (const p of inputSchema) {
@@ -175,6 +201,14 @@ const CreditCardBill = ({ category = 'credit-card', onPaymentSuccess }) => {
       if (v && p.max_length && v.length > p.max_length) return `${p.param_name} is too long.`;
       if (p.canonical_key === 'mobile' && v && v.replace(/\D/g, '').length !== 10) {
         return `${p.param_name} must be 10 digits.`;
+      }
+      if (v && p.regex) {
+        try {
+          const re = new RegExp(p.regex);
+          if (!re.test(v)) return `${p.param_name} format is invalid.`;
+        } catch {
+          /* ignore bad MDM regex */
+        }
       }
     }
     return '';
@@ -199,13 +233,22 @@ const CreditCardBill = ({ category = 'credit-card', onPaymentSuccess }) => {
         ),
       };
       const requestInputParams = buildInputParams();
-      const result = await bbpsAPI.fetchBill(biller, {
+      const mobileFromForm = getCanonicalValue('mobile', ['Mobile Number']);
+      const mobileForApi =
+        String(mobileFromForm || '').trim() || String(user?.phone || '').trim() || undefined;
+      const customerNumber = getCanonicalValue('customer_number', [
+        'Customer Number',
+        'CustomerId',
+        'Customer ID',
+      ]);
+      const fetchPayload = {
         bill_type: category,
         input_params: requestInputParams,
-        card_last4: paramLookup['Card Last4 Digits'] || undefined,
-        mobile: getCanonicalValue('mobile', ['Mobile Number']),
-        customer_number: getCanonicalValue('customer_number', ['Customer Number']),
-      });
+      };
+      if (paramLookup['Card Last4 Digits']) fetchPayload.card_last4 = paramLookup['Card Last4 Digits'];
+      if (mobileForApi) fetchPayload.mobile = mobileForApi;
+      if (String(customerNumber || '').trim()) fetchPayload.customer_number = String(customerNumber).trim();
+      const result = await bbpsAPI.fetchBill(biller, fetchPayload);
       if (result.success && result.data?.bill) {
         const bill = result.data.bill;
         setBillDetails({
@@ -222,7 +265,30 @@ const CreditCardBill = ({ category = 'credit-card', onPaymentSuccess }) => {
         setBillId(bill.id || null);
         setFetchRequestId(String(bill.request_id || bill.requestId || '').trim());
       } else {
-        setError(result.message || 'Bill not found.');
+        const isQuickPayOnly = String(result?.errorCode || '').trim() === 'BBPS_FETCH_QUICKPAY_ONLY'
+          || /quickpay/i.test(String(result?.message || ''));
+        if (isQuickPayOnly) {
+          const amountKey = Object.keys(inputValues).find((k) => /amount/i.test(String(k || '')));
+          const derivedAmount = parseFloat(String(inputValues[amountKey] || '').replace(/[^\d.]/g, '')) || 0;
+          setBillDetails({
+            billerName: biller,
+            billNumber: 'QUICKPAY',
+            billDate: '',
+            billPeriod: '',
+            name: 'QuickPay',
+            telephoneNumber: mobileForApi || 'N/A',
+            dueDate: '',
+            minimumDueAmount: derivedAmount,
+            totalDueAmount: derivedAmount,
+          });
+          setBillId(null);
+          setFetchRequestId('');
+          setError('QuickPay-only biller: fetch is not required. Continue with payment.');
+          return;
+        }
+        const ref = result.traceId || result.error?.trace_id;
+        const base = result.message || 'Bill could not be fetched.';
+        setError(ref ? `${base} Reference: ${ref}` : base);
       }
     } finally {
       setLoading(false);
@@ -231,6 +297,10 @@ const CreditCardBill = ({ category = 'credit-card', onPaymentSuccess }) => {
 
   const handlePayment = () => {
     if (!billDetails) return;
+    if (String(planMdmRequirement || '').toUpperCase() === 'MANDATORY' && !String(selectedPlanId || '').trim()) {
+      setError('Please select a plan for this biller before paying.');
+      return;
+    }
     if (!paymentMode || !paymentModes.includes(paymentMode)) {
       setError('Please select a supported payment method.');
       return;
@@ -264,11 +334,14 @@ const CreditCardBill = ({ category = 'credit-card', onPaymentSuccess }) => {
       setError(`Insufficient BBPS wallet balance. Required: ${formatCurrency(totalDeducted)}, Available: ${formatCurrency(bbpsWallet)}`);
       return;
     }
+    if (paySubmitInFlight.current) return;
+    paySubmitInFlight.current = true;
     setLoading(true);
     setError('');
     try {
       const inputParams = buildInputParams();
-      const mobile = getCanonicalValue('mobile', ['Mobile Number']);
+      const mobile =
+        getCanonicalValue('mobile', ['Mobile Number']) || String(user?.phone || '').trim();
       const displayName = String(billDetails?.name || '').trim();
       const customerNameForPay = displayName && displayName.toUpperCase() !== 'N/A' ? displayName : '';
       const payerName = String(user?.name || '').trim();
@@ -283,6 +356,7 @@ const CreditCardBill = ({ category = 'credit-card', onPaymentSuccess }) => {
         bill_type: category,
         amount,
         mpin,
+        plan_id: String(selectedPlanId || '').trim() || undefined,
         request_id: fetchRequestId || undefined,
         customer_name: customerNameForPay || undefined,
         remitter_name: payerName || undefined,
@@ -295,9 +369,10 @@ const CreditCardBill = ({ category = 'credit-card', onPaymentSuccess }) => {
       if (result.success) {
         const billPayment = result.data?.bill_payment || {};
         const txnAt = new Date().toISOString();
-        setTransactionId(billPayment.service_id || billPayment.id || 'N/A');
+        const bConnectTxnId = billPayment.bconnect_txn_id || billPayment.request_id || billPayment.service_id || 'N/A';
+        setTransactionId(bConnectTxnId);
         setLastReceipt({
-          bConnectTxnId: billPayment.request_id || billPayment.service_id || 'N/A',
+          bConnectTxnId,
           txnRefId: billPayment.service_id || 'N/A',
           billerId: biller,
           billerName: billDetails?.billerName || biller,
@@ -308,12 +383,14 @@ const CreditCardBill = ({ category = 'credit-card', onPaymentSuccess }) => {
           billNumber: billDetails?.billNumber || 'NA',
           dueDate: billDetails?.dueDate || '',
           billAmount: getPaymentAmount(),
-          serviceCharge: serviceCharge,
+          serviceCharge: Number(billPayment.ccf_amount || serviceCharge || 0),
+          ccfAmount: Number(billPayment.ccf_amount || 0),
           totalAmount: totalDeducted,
           paymentMode,
           initChannel: paymentChannel,
           status: 'SUCCESS',
-          approvalNumber: billPayment.request_id || 'AB123456',
+          approvalNumber: billPayment.approval_ref_number || billPayment.request_id || 'NA',
+          statusHistory: Array.isArray(billPayment.status_history) ? billPayment.status_history : [],
           txnAt,
         });
         setShowSuccessNotification(true);
@@ -344,10 +421,24 @@ const CreditCardBill = ({ category = 'credit-card', onPaymentSuccess }) => {
           if (onPaymentSuccess) onPaymentSuccess();
         }, 3000);
       } else {
-        setError(result.message || 'Payment failed.');
+        const ref = result.traceId || result.error?.trace_id;
+        const base = result.message || 'Payment could not be completed.';
+        setError(ref ? `${base} Reference: ${ref}` : base);
+        const mustRefetch =
+          result.retryable ||
+          result.errorCode === 'BBPS_PAY_REQUEST_ID_REUSED' ||
+          /already been used|fetch the bill again before retrying|request id is already been used/i.test(
+            String(base)
+          );
+        if (mustRefetch) {
+          setFetchRequestId('');
+          setBillId(null);
+          setQuote(null);
+        }
       }
     } finally {
       setLoading(false);
+      paySubmitInFlight.current = false;
     }
   };
 
@@ -363,7 +454,7 @@ const CreditCardBill = ({ category = 'credit-card', onPaymentSuccess }) => {
             <div>
               <BharatConnectBranding stage="stage3" />
               <p className="font-semibold text-green-800">Payment successful!</p>
-              <p className="text-sm text-gray-700">Transaction ID: {transactionId}</p>
+              <p className="text-sm text-gray-700">B-Connect Transaction ID: {transactionId}</p>
             </div>
           </div>
         </div>
@@ -420,6 +511,11 @@ const CreditCardBill = ({ category = 'credit-card', onPaymentSuccess }) => {
                   No active billers available for this category. Ask admin to sync and enable billers.
                 </p>
               ) : null}
+              {biller && quickPayOnly ? (
+                <p className="mt-2 text-xs text-blue-700 bg-blue-50 border border-blue-200 rounded px-2 py-1 inline-block">
+                  QuickPay only: this biller may skip bill fetch and proceed directly to pay.
+                </p>
+              ) : null}
             </div>
 
             <div className="grid md:grid-cols-2 gap-4">
@@ -445,6 +541,11 @@ const CreditCardBill = ({ category = 'credit-card', onPaymentSuccess }) => {
                 background based on the selected method.
               </p>
             ) : null}
+            {biller && billerFetchRequirement ? (
+              <p className="text-xs text-gray-500 -mt-2">
+                Fetch requirement: <strong>{billerFetchRequirement}</strong>
+              </p>
+            ) : null}
             {biller && paymentModes.length === 0 ? (
               <p className="text-xs text-amber-700 -mt-2">
                 This biller currently has no method supported for assisted terminal payment. Ask admin to review biller
@@ -453,23 +554,11 @@ const CreditCardBill = ({ category = 'credit-card', onPaymentSuccess }) => {
             ) : null}
 
             {inputSchema.length > 0 ? (
-              <div className="grid md:grid-cols-2 gap-4">
-                {inputSchema.map((f) => (
-                  <Input
-                    key={f.param_name}
-                    label={`${f.param_name}${f.is_optional ? '' : ' *'}`}
-                    type={f.canonical_key === 'mobile' ? 'tel' : 'text'}
-                    value={inputValues[f.param_name] || ''}
-                    onChange={(e) => {
-                      const raw = e.target.value;
-                      const next = f.canonical_key === 'mobile' ? raw.replace(/\D/g, '').slice(0, 10) : raw;
-                      setInputValues((prev) => ({ ...prev, [f.param_name]: next }));
-                    }}
-                    placeholder={f.param_name}
-                    required={!f.is_optional}
-                  />
-                ))}
-              </div>
+              <BbpsDynamicFieldSet
+                fields={inputSchema}
+                values={inputValues}
+                onChange={(name, value) => setInputValues((prev) => ({ ...prev, [name]: value }))}
+              />
             ) : (
               <div className="grid md:grid-cols-2 gap-4">
                 <Input
@@ -483,14 +572,16 @@ const CreditCardBill = ({ category = 'credit-card', onPaymentSuccess }) => {
                   required
                 />
                 <Input
-                  label="Mobile Number *"
+                  label="Mobile Number (optional)"
                   type="text"
                   value={inputValues['Mobile Number'] || ''}
                   onChange={(e) =>
-                    setInputValues((prev) => ({ ...prev, 'Mobile Number': e.target.value.replace(/\D/g, '').slice(0, 10) }))
+                    setInputValues((prev) => ({
+                      ...prev,
+                      'Mobile Number': e.target.value.replace(/\D/g, '').slice(0, 10),
+                    }))
                   }
-                  placeholder="Enter 10-digit mobile"
-                  required
+                  placeholder="10-digit mobile if required by biller"
                 />
               </div>
             )}
@@ -545,6 +636,35 @@ const CreditCardBill = ({ category = 'credit-card', onPaymentSuccess }) => {
                   {formatCurrency(billDetails.totalDueAmount)}
                 </span>
               </div>
+
+              {['MANDATORY', 'OPTIONAL'].includes(String(planMdmRequirement || '').toUpperCase()) ? (
+                <div className="p-4 bg-amber-50 border border-amber-200 rounded-lg">
+                  <label className="block text-sm font-medium text-gray-900 mb-2">
+                    Plan{' '}
+                    {String(planMdmRequirement || '').toUpperCase() === 'MANDATORY' ? '(required)' : '(optional)'}
+                  </label>
+                  {planOptions.length > 0 ? (
+                    <select
+                      className="w-full px-4 py-3 border border-gray-300 rounded-lg"
+                      value={selectedPlanId}
+                      onChange={(e) => setSelectedPlanId(e.target.value)}
+                      required={String(planMdmRequirement || '').toUpperCase() === 'MANDATORY'}
+                    >
+                      <option value="">Select plan…</option>
+                      {planOptions.map((pl) => (
+                        <option key={pl.plan_id || pl.plan_desc} value={pl.plan_id}>
+                          {pl.plan_desc || pl.plan_id}
+                          {pl.amount_in_rupees ? ` — ${pl.amount_in_rupees}` : ''}
+                        </option>
+                      ))}
+                    </select>
+                  ) : (
+                    <p className="text-sm text-amber-900">
+                      No plans are cached for this biller. Ask admin to run plan pull for this biller ID.
+                    </p>
+                  )}
+                </div>
+              ) : null}
 
               <div className="mt-6 p-4 bg-gray-50 rounded-lg border border-gray-200">
                 <h4 className="text-sm font-semibold text-gray-900 mb-4">Select Payment Amount:</h4>
@@ -629,9 +749,16 @@ const CreditCardBill = ({ category = 'credit-card', onPaymentSuccess }) => {
                       </span>
                     </div>
                     <div className="flex justify-between items-center py-2 border-b border-gray-200">
-                      <span className="text-gray-600">Service Charge:</span>
+                      <span className="text-gray-600">Service Charge (BBPS wallet):</span>
                       <span className="font-semibold text-red-600">+{formatCurrency(serviceCharge)}</span>
                     </div>
+                    {quote?.wallet_service_charge_mode ? (
+                      <p className="text-xs text-gray-500 -mt-1 mb-1">
+                        {String(quote.wallet_service_charge_mode).toLowerCase() === 'percent'
+                          ? `Based on admin setting: ${quote.wallet_service_charge_percent}% of bill amount.`
+                          : `Based on admin setting: flat ${formatCurrency(Number(quote.wallet_service_charge_flat || 0))} per payment.`}
+                      </p>
+                    ) : null}
                     {quote?.shadow_mode && (
                       <div className="flex justify-between items-center py-2 border-b border-gray-200">
                         <span className="text-amber-800">Computed Charge (shadow):</span>
@@ -689,6 +816,7 @@ const CreditCardBill = ({ category = 'credit-card', onPaymentSuccess }) => {
               <div className="border rounded p-2">Due Date: <strong>{formatDate(lastReceipt.dueDate)}</strong></div>
               <div className="border rounded p-2">Bill Amount: <strong>{formatCurrency(lastReceipt.billAmount)}</strong></div>
               <div className="border rounded p-2">Service Charge: <strong>{formatCurrency(lastReceipt.serviceCharge)}</strong></div>
+              <div className="border rounded p-2">CCF: <strong>{formatCurrency(lastReceipt.ccfAmount || 0)}</strong></div>
               <div className="border rounded p-2">Total Amount: <strong>{formatCurrency(lastReceipt.totalAmount)}</strong></div>
               <div className="border rounded p-2">Payment Mode: <strong>{lastReceipt.paymentMode}</strong></div>
               <div className="border rounded p-2">Initiating Channel: <strong>{lastReceipt.initChannel}</strong></div>
@@ -696,6 +824,18 @@ const CreditCardBill = ({ category = 'credit-card', onPaymentSuccess }) => {
               <div className="border rounded p-2">Approval Number: <strong>{lastReceipt.approvalNumber}</strong></div>
               <div className="border rounded p-2 md:col-span-2">Transaction Date & Time: <strong>{formatDate(lastReceipt.txnAt)}</strong></div>
             </div>
+            {Array.isArray(lastReceipt.statusHistory) && lastReceipt.statusHistory.length ? (
+              <div className="mt-4 border rounded p-3">
+                <div className="font-semibold text-sm mb-2">Transaction Status History</div>
+                <div className="space-y-1 text-xs">
+                  {lastReceipt.statusHistory.map((item, idx) => (
+                    <div key={`${item.created_at || idx}`} className="border rounded p-2">
+                      <strong>{item.status || 'UNKNOWN'}</strong> ({item.response_code || '-'}) at {formatDate(item.created_at)}
+                    </div>
+                  ))}
+                </div>
+              </div>
+            ) : null}
           </Card>
         )}
       </div>

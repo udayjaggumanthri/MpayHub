@@ -96,6 +96,29 @@ class BillAvenueConfig(BaseModel):
         related_name='billavenue_activated_configs',
     )
 
+    BBPS_WALLET_CHARGE_MODE_CHOICES = [
+        ('FLAT', 'Flat amount'),
+        ('PERCENT', 'Percent of bill amount'),
+    ]
+    bbps_wallet_service_charge_mode = models.CharField(
+        max_length=10,
+        choices=BBPS_WALLET_CHARGE_MODE_CHOICES,
+        default='FLAT',
+        help_text='How BBPS wallet service charge is computed for quote and payment.',
+    )
+    bbps_wallet_service_charge_flat = models.DecimalField(
+        max_digits=18,
+        decimal_places=4,
+        default=5,
+        help_text='Flat charge (INR) when mode is FLAT.',
+    )
+    bbps_wallet_service_charge_percent = models.DecimalField(
+        max_digits=9,
+        decimal_places=4,
+        default=0,
+        help_text='Percent of bill amount when mode is PERCENT (e.g. 1.25 = 1.25%).',
+    )
+
     class Meta:
         db_table = 'billavenue_configs'
         ordering = ['-is_active', '-updated_at']

@@ -1,0 +1,64 @@
+{
+  "_comment": "Representative BillAvenue-style billerInfo shapes for tests and MDM field audit (not live data).",
+  "simple_dth": {
+    "billerId": "DUMMY0000DIG05",
+    "billerName": "DTH_Dummy",
+    "billerCategory": "DTH",
+    "billerStatus": "ACTIVE",
+    "planMdmRequirement": "NOT_SUPPORTED",
+    "billerInputParams": {
+      "paramsList": [
+        {
+          "paramName": "CustomerId",
+          "dataType": "ALPHANUMERIC",
+          "isOptional": false,
+          "minLength": 3,
+          "maxLength": 20,
+          "regEx": "",
+          "visibility": true
+        }
+      ]
+    }
+  },
+  "utility_with_lov": {
+    "billerId": "UTIL0000LOV01",
+    "billerName": "Utility LOV sample",
+    "billerCategory": "Electricity",
+    "billerStatus": "ACTIVE",
+    "planMdmRequirement": "OPTIONAL",
+    "billerInputParams": {
+      "paramsList": [
+        {
+          "paramName": "Consumer Number",
+          "dataType": "NUMERIC",
+          "isOptional": false,
+          "minLength": 10,
+          "maxLength": 12,
+          "paramHelpText": "Enter consumer number from bill",
+          "listOfValues": [
+            { "value": "URBAN", "displayName": "Urban" },
+            { "value": "RURAL", "displayName": "Rural" }
+          ]
+        }
+      ]
+    }
+  },
+  "plan_mandatory_prepaid": {
+    "billerId": "MOB0000PLAN01",
+    "billerName": "Mobile Plan Mandatory sample",
+    "billerCategory": "Mobile Prepaid",
+    "billerStatus": "ACTIVE",
+    "planMdmRequirement": "MANDATORY",
+    "billerInputParams": {
+      "paramsList": [
+        {
+          "paramName": "Mobile Number",
+          "dataType": "NUMERIC",
+          "isOptional": false,
+          "minLength": 10,
+          "maxLength": 10
+        }
+      ]
+    }
+  }
+}

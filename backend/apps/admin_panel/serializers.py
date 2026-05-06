@@ -4,11 +4,18 @@ Serializers for admin_panel app.
 from decimal import Decimal
 
 from rest_framework import serializers
+from django.core.files.uploadedfile import UploadedFile
 from django.utils.text import slugify
 from apps.admin_panel.models import Announcement, PaymentGateway, PayoutGateway, PayoutSlabConfig
 from apps.fund_management.models import PayInPackage, PayoutSlabTier
 
 MAX_IMAGE_BYTES = 5 * 1024 * 1024  # 5 MB
+ALLOWED_IMAGE_CONTENT_TYPES = {
+    'image/jpeg',
+    'image/png',
+    'image/webp',
+    'image/gif',
+}
 
 
 class AnnouncementSerializer(serializers.ModelSerializer):
@@ -38,8 +45,25 @@ class AnnouncementSerializer(serializers.ModelSerializer):
         return url
 
     def validate_image(self, value):
-        if value and value.size > MAX_IMAGE_BYTES:
+        if not value:
+            return value
+        if value.size > MAX_IMAGE_BYTES:
             raise serializers.ValidationError('Image must be 5 MB or smaller.')
+        if isinstance(value, UploadedFile):
+            ct = str(getattr(value, 'content_type', '') or '').lower()
+            if ct and ct not in ALLOWED_IMAGE_CONTENT_TYPES:
+                raise serializers.ValidationError('Unsupported image type. Upload JPG, PNG, WEBP, or GIF.')
+        # Verify file is a real image (prevents polyglots / fake extensions).
+        try:
+            from PIL import Image
+
+            pos = value.tell() if hasattr(value, 'tell') else None
+            img = Image.open(value)
+            img.verify()
+            if pos is not None and hasattr(value, 'seek'):
+                value.seek(pos)
+        except Exception:
+            raise serializers.ValidationError('Invalid or corrupted image.')
         return value
 
     def validate_target_roles(self, value):

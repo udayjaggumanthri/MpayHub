@@ -24,9 +24,11 @@ from apps.bbps.service_flow.compliance import (
     enforce_plan_mdm_requirement,
     validate_channel_device_fields,
 )
+from apps.bbps.service_flow.bbps_wallet_charge import resolve_bbps_wallet_service_charge
 from apps.bbps.service_flow.commission_service import resolve_commission_for_payment
 from apps.core.exceptions import InsufficientBalance, TransactionFailed
 from apps.integrations.bbps_client import BBPSClient, extract_biller_response_dict
+from apps.integrations.models import BillAvenueConfig, BillAvenueModeChannelPolicy
 from apps.transactions.agent_snapshot import passbook_initiator_db_fields, transaction_agent_db_fields
 from apps.transactions.models import PassbookEntry, Transaction
 from apps.wallets.models import Wallet
@@ -34,6 +36,57 @@ from apps.wallets.models import Wallet
 
 def _to_paise(amount) -> int:
     return int((Decimal(str(amount)) * Decimal('100')).to_integral_value())
+
+
+def _optional_fetch_session_synced(*, user, biller: BbpsBillerMaster, request_id: str) -> BbpsFetchSession | None:
+    """When fetch is optional, still replay the latest FETCHED session for this requestId (FASTag additionalInfo, etc.)."""
+    rid = str(request_id or '').strip()
+    if not rid:
+        return None
+    return (
+        BbpsFetchSession.objects.filter(
+            user=user,
+            biller_master=biller,
+            is_deleted=False,
+            request_id=rid,
+            status='FETCHED',
+        )
+        .order_by('-created_at')
+        .first()
+    )
+
+
+def _additional_info_rows_from_session(fetch_session: BbpsFetchSession) -> list[dict]:
+    stored = getattr(fetch_session, 'additional_info', None)
+    rows: list = []
+    if isinstance(stored, list) and stored:
+        rows = stored
+    elif isinstance(stored, dict) and isinstance(stored.get('info'), list):
+        rows = stored['info']
+    if rows:
+        return [x for x in rows if isinstance(x, dict)]
+    raw = fetch_session.biller_response or fetch_session.raw_response or {}
+    if not isinstance(raw, dict):
+        return []
+    ir = (
+        raw.get('additionalInfo', {}).get('info')
+        or raw.get('billFetchResponse', {}).get('additionalInfo', {}).get('info')
+        or []
+    )
+    return [x for x in ir if isinstance(x, dict)] if isinstance(ir, list) else []
+
+
+def _normalize_additional_info_for_pay(rows: list) -> list[dict]:
+    out: list[dict] = []
+    for row in rows:
+        if not isinstance(row, dict):
+            continue
+        name = str(row.get('infoName') or row.get('info_name') or '').strip()
+        if not name:
+            continue
+        val = row.get('infoValue') if 'infoValue' in row else row.get('info_value')
+        out.append({'infoName': name, 'infoValue': '' if val is None else str(val)})
+    return out
 
 
 def _json_safe(value):
@@ -49,6 +102,45 @@ def _json_safe(value):
     if isinstance(value, (list, tuple)):
         return [_json_safe(v) for v in value]
     return value
+
+
+def _auto_block_provider_combo_on_error(*, biller: BbpsBillerMaster, payment_mode: str, payment_channel: str, message: str) -> None:
+    """
+    Persist deny policy for biller/mode/channel when upstream explicitly rejects the combo.
+    This keeps UI/pay mapping aligned with real entitlement behavior.
+    """
+    msg = str(message or '').upper()
+    if not any(code in msg for code in ('E0379', 'E078', 'E0378')):
+        return
+    cfg = BillAvenueConfig.objects.filter(is_deleted=False, enabled=True, is_active=True).first()
+    if not cfg:
+        return
+    mode = str(payment_mode or '').strip()
+    channel = str(payment_channel or '').strip().upper()
+    if not mode or not channel:
+        return
+    row = BillAvenueModeChannelPolicy.objects.filter(
+        is_deleted=False,
+        config=cfg,
+        biller_id=str(getattr(biller, 'biller_id', '') or ''),
+        payment_mode=mode,
+        payment_channel=channel,
+    ).first()
+    if row:
+        if row.action != 'deny' or not row.enabled:
+            row.action = 'deny'
+            row.enabled = True
+            row.save(update_fields=['action', 'enabled', 'updated_at'])
+        return
+    BillAvenueModeChannelPolicy.objects.create(
+        config=cfg,
+        payment_mode=mode,
+        payment_channel=channel,
+        action='deny',
+        biller_id=str(getattr(biller, 'biller_id', '') or ''),
+        biller_category='',
+        enabled=True,
+    )
 
 
 @db_transaction.atomic
@@ -83,6 +175,10 @@ def process_bill_payment_flow(*, user, bill_data: dict) -> dict:
         input_params=(bill_data.get('input_params') or []),
         request_id=str(bill_data.get('request_id') or ''),
     )
+    if fetch_session is None:
+        fetch_session = _optional_fetch_session_synced(
+            user=user, biller=biller, request_id=str(bill_data.get('request_id') or '')
+        )
     # Bill Pay (inner + outer transport) must use the same requestId as the successful bill fetch (Postman UAT).
     if fetch_session and str(getattr(fetch_session, 'request_id', '') or '').strip():
         fetch_rid = str(fetch_session.request_id).strip()
@@ -99,6 +195,10 @@ def process_bill_payment_flow(*, user, bill_data: dict) -> dict:
         br = extract_biller_response_dict(raw_fetch)
         if br:
             bill_data['biller_response'] = br
+    if fetch_session and not bill_data.get('additional_info'):
+        add_rows = _additional_info_rows_from_session(fetch_session)
+        if add_rows:
+            bill_data['additional_info'] = _normalize_additional_info_for_pay(add_rows)
     payer_display = (getattr(user, 'get_full_name', lambda: '')() or '').strip() or str(
         getattr(user, 'phone', '') or ''
     ).strip()
@@ -114,10 +214,12 @@ def process_bill_payment_flow(*, user, bill_data: dict) -> dict:
         customer_info=(bill_data.get('customer_info') or {}),
     )
     computed_charge = Decimal(str(charge_info.get('computed_charge') or charge_info.get('charge') or 0))
+    wallet_meta: dict = {}
     if getattr(settings, 'BBPS_COMMISSION_FINANCIAL_IMPACT_ENABLED', False):
         applied_charge = Decimal(str(charge_info.get('charge') or 0))
     else:
-        applied_charge = Decimal(str(getattr(settings, 'BBPS_SERVICE_CHARGE', 0)))
+        wallet_meta = resolve_bbps_wallet_service_charge(amount=amount)
+        applied_charge = wallet_meta['charge']
     charge_info['charge'] = applied_charge
     charge_info['total_deducted'] = amount + applied_charge
     charge_info['shadow_mode'] = not bool(getattr(settings, 'BBPS_COMMISSION_FINANCIAL_IMPACT_ENABLED', False))
@@ -137,18 +239,19 @@ def process_bill_payment_flow(*, user, bill_data: dict) -> dict:
         status_code='000',
         latency_ms=0,
         success=True,
-        request_meta={
+        request_meta=_json_safe({
             'biller_id': bill_data.get('biller_id') or '',
             'provider_id': bill_data.get('provider_id') or None,
             'bill_type': bill_data.get('bill_type') or '',
-        },
-        response_meta={
+        }),
+        response_meta=_json_safe({
             'commission_rule_code': charge_info.get('commission_rule_code') or '',
             'computed_charge': str(computed_charge),
             'applied_charge': str(charge_info.get('charge') or 0),
             'total_deducted': str(charge_info.get('total_deducted') or 0),
             'shadow_mode': charge_info.get('shadow_mode'),
-        },
+            'wallet_service_charge': wallet_meta,
+        }),
         error_message='',
     )
     idem = f"{user.pk}|{bill_data.get('biller_id','')}|{bill_data.get('bill_type','')}|{_to_paise(amount)}|{bill_data.get('payment_mode','')}|{service_id}"
@@ -295,14 +398,21 @@ def process_bill_payment_flow(*, user, bill_data: dict) -> dict:
         )
         return {'attempt': attempt, 'bill_payment': bill_payment, 'idempotent': False}
 
+    failure_message = payment_result.get('message') or 'Payment failed'
+    _auto_block_provider_combo_on_error(
+        biller=biller,
+        payment_mode=str(bill_data.get('payment_mode') or ''),
+        payment_channel=str(bill_data.get('init_channel') or ''),
+        message=failure_message,
+    )
     attempt.status = 'FAILED'
-    attempt.last_error_message = payment_result.get('message') or 'Payment failed'
+    attempt.last_error_message = failure_message
     attempt.response_payload = _json_safe(payment_result.get('response_payload') or {})
     attempt.save(update_fields=['status', 'last_error_message', 'response_payload', 'updated_at'])
     bill_payment.status = 'FAILED'
-    bill_payment.failure_reason = payment_result.get('message') or 'Payment failed'
+    bill_payment.failure_reason = failure_message
     bill_payment.save(update_fields=['status', 'failure_reason'])
     msg = bill_payment.failure_reason or 'Payment failed'
-    if fetch_session:
+    if str(bill_data.get('request_id') or '').strip():
         msg = f'{msg} Fetch the bill again before retrying payment.'
     raise TransactionFailed(msg)

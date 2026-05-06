@@ -202,12 +202,30 @@ const handleError = (error) => {
       : typeof detail === 'string'
         ? detail
         : '';
+    const errMeta = apiError.error && typeof apiError.error === 'object' ? apiError.error : null;
+    const baseMessage = apiError.message || detailMessage || nonJsonMessage;
+    const isRetryable = Boolean(errMeta?.retryable);
+    const isTimeoutish =
+      error.response.status === 503 ||
+      /timed out|timeout/i.test(baseMessage) ||
+      errMeta?.code === 'BBPS_FETCH_TIMEOUT';
+    let message = baseMessage;
+    const lower = baseMessage.toLowerCase();
+    if (isTimeoutish && !lower.includes('retry')) {
+      message = `${baseMessage} You can retry in a few seconds.`;
+    } else if (isRetryable && !isTimeoutish && !lower.includes('retry')) {
+      message = `${baseMessage} You may try again.`;
+    }
     return {
       success: false,
-      message: apiError.message || detailMessage || nonJsonMessage,
+      message,
       errors: normalizedErrors,
       status: error.response.status,
       data: apiError.data != null ? apiError.data : null,
+      error: errMeta,
+      traceId: errMeta?.trace_id || null,
+      errorCode: errMeta?.code || null,
+      retryable: isRetryable,
     };
   } else if (error.request) {
     // Request made but no response
@@ -1137,6 +1155,22 @@ export const bbpsAPI = {
       return handleError(error);
     }
   },
+  getComplaintHistory: async (params = {}) => {
+    try {
+      const response = await apiClient.get('/bbps/complaints/history/', { params });
+      return extractData(response);
+    } catch (error) {
+      return handleError(error);
+    }
+  },
+  refreshComplaintStatus: async (payload) => {
+    try {
+      const response = await apiClient.post('/bbps/complaints/refresh-status/', payload);
+      return extractData(response);
+    } catch (error) {
+      return handleError(error);
+    }
+  },
   transactionQuery: async (payload) => {
     try {
       const response = await apiClient.post('/bbps/transactions/query/', payload);
@@ -1149,6 +1183,15 @@ export const bbpsAPI = {
   pullPlans: async (billerIds = []) => {
     try {
       const response = await apiClient.post('/bbps/admin/plans/pull/', { biller_ids: billerIds });
+      return extractData(response);
+    } catch (error) {
+      return handleError(error);
+    }
+  },
+
+  getBillerCatalogSummary: async (billerId) => {
+    try {
+      const response = await apiClient.get(`/bbps/admin/billers/${encodeURIComponent(billerId)}/catalog-summary/`);
       return extractData(response);
     } catch (error) {
       return handleError(error);
@@ -1313,6 +1356,22 @@ export const billAvenueAdminAPI = {
   getBillerMasterDetails: async (id) => {
     try {
       const response = await apiClient.get(`/bbps/admin/biller-master/${id}/full-details/`);
+      return extractData(response);
+    } catch (error) {
+      return handleError(error);
+    }
+  },
+  getBillerPaymentMapping: async (billerId) => {
+    try {
+      const response = await apiClient.get(`/bbps/admin/billers/${encodeURIComponent(billerId)}/payment-mapping/`);
+      return extractData(response);
+    } catch (error) {
+      return handleError(error);
+    }
+  },
+  saveBillerPaymentMapping: async (billerId, payload) => {
+    try {
+      const response = await apiClient.put(`/bbps/admin/billers/${encodeURIComponent(billerId)}/payment-mapping/`, payload);
       return extractData(response);
     } catch (error) {
       return handleError(error);

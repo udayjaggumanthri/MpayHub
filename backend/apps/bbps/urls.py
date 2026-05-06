@@ -27,6 +27,8 @@ urlpatterns = [
     path('admin/mode-channel-policies/', views.billavenue_mode_channel_policies_view, name='billavenue-mode-channel-policies'),
     path('admin/service-categories/', views.service_categories_view, name='service-categories'),
     path('admin/service-providers/', views.service_providers_view, name='service-providers'),
+    path('admin/billers/<str:biller_id>/catalog-summary/', views.biller_catalog_summary_view, name='biller-catalog-summary'),
+    path('admin/billers/<str:biller_id>/payment-mapping/', views.biller_payment_mapping_view, name='biller-payment-mapping'),
     path('admin/biller-master/', views.biller_master_admin_view, name='biller-master-admin'),
     path('admin/biller-master/clear-all/', views.biller_master_admin_clear_all_view, name='biller-master-clear-all'),
     path('admin/biller-master/<int:pk>/', views.biller_master_admin_detail_view, name='biller-master-admin-detail'),
@@ -48,6 +50,8 @@ urlpatterns = [
     path('admin/deposit-enquiry/', views.deposit_enquiry_view, name='deposit-enquiry'),
     path('transactions/query/', views.transaction_query_view, name='transaction-query'),
     path('complaints/register/', views.complaint_register_view, name='complaint-register'),
+    path('complaints/history/', views.complaint_history_view, name='complaint-history'),
     path('complaints/track/', views.complaint_track_view, name='complaint-track'),
+    path('complaints/refresh-status/', views.complaint_refresh_status_view, name='complaint-refresh-status'),
     path('callback/billavenue/', views.billavenue_callback_view, name='billavenue-callback'),
 ]

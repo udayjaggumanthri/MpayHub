@@ -34,7 +34,12 @@ const BbpsTransactionQuery = () => {
           <option value="MOBILE_NO">Mobile Number</option>
           <option value="REQUEST_ID">Request ID</option>
         </select>
-        <input className="border rounded px-3 py-2 md:col-span-2" value={trackingValue} onChange={(e) => setTrackingValue(e.target.value)} placeholder="Enter tracking value" />
+        <input
+          className="border rounded px-3 py-2 md:col-span-2"
+          value={trackingValue}
+          onChange={(e) => setTrackingValue(e.target.value)}
+          placeholder={trackingType === 'TRANS_REF_ID' ? 'Enter B-Connect ID (CC...) or Service ID (PMBBPS...)' : 'Enter tracking value'}
+        />
         <button className="bg-blue-600 text-white rounded px-3 py-2 disabled:opacity-50" disabled={loading || !trackingValue} onClick={onSearch}>
           {loading ? 'Searching...' : 'Search'}
         </button>

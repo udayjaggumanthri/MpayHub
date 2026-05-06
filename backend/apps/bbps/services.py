@@ -4,11 +4,14 @@ from django.db.models import Q
 from decimal import Decimal
 from django.conf import settings
 from django.core.cache import cache
+from apps.bbps.mdm_param_utils import infer_input_kind, normalize_schema_choices
 from apps.bbps.models import (
+    BbpsBillerAdditionalInfoSchema,
     BbpsBillerInputParam,
     BbpsBillerMaster,
     BbpsBillerPaymentChannelLimit,
     BbpsBillerPaymentModeLimit,
+    BbpsBillerPlanMeta,
     BbpsCategoryCommissionRule,
     BbpsProviderBillerMap,
     BbpsServiceCategory,
@@ -116,20 +119,25 @@ def governance_readiness_for_biller(biller_id: str) -> dict:
 
 def calculate_bbps_charge(amount):
     """
-    Calculate BBPS service charge (fixed ₹5.00).
-    
+    Calculate BBPS wallet service charge (admin BillAvenue config or BBPS_SERVICE_CHARGE fallback).
+
     Args:
         amount: Bill amount
-    
+
     Returns:
         dict with charge and total_deducted
     """
-    charge = Decimal(str(settings.BBPS_SERVICE_CHARGE))
-    total_deducted = amount + charge
-    
+    from apps.bbps.service_flow.bbps_wallet_charge import resolve_bbps_wallet_service_charge
+
+    info = resolve_bbps_wallet_service_charge(amount=Decimal(str(amount)))
+    charge = info['charge']
+    total_deducted = Decimal(str(amount)) + charge
+
     return {
         'charge': charge,
-        'total_deducted': total_deducted
+        'total_deducted': total_deducted,
+        'mode': info.get('mode'),
+        'source': info.get('source'),
     }
 
 
@@ -226,7 +234,18 @@ def _payment_channel_ui_label(code: str) -> str:
     return labels.get(c, c or 'Channel')
 
 
+# Prefer terminal-safe channels for assisted (B2B-style) flows; MOB/INT need proper initChannel + device fields.
 _UI_AUTO_CHANNEL_PRIORITY = ('AGT', 'POS')
+
+
+def _biller_category_assisted_card_like(raw: str) -> bool:
+    """True for credit-card and loan-repayment style MDM labels (BillAvenue E078 on POS for some instruments)."""
+    s = ' '.join(str(raw or '').strip().lower().replace('_', ' ').replace('-', ' ').split())
+    if 'credit' in s and 'card' in s:
+        return True
+    if 'loan' in s and 'repay' in s:
+        return True
+    return s in ('credit card', 'loan repayment')
 
 
 def get_biller_payment_ui_options(biller_id: str) -> dict:
@@ -235,6 +254,11 @@ def get_biller_payment_ui_options(biller_id: str) -> dict:
     NPCI BBPS channel-vs-instrument rules (see ``display_payment_modes_for_channel``).
     """
     from apps.bbps.service_flow.compliance import display_payment_modes_for_channel
+    from apps.bbps.service_flow.payment_ui_policy import (
+        assisted_card_offer_agt_cash_only,
+        mdm_labels_with_implicit_cash_for_agt,
+    )
+    from apps.bbps.service_flow.provider_policy import provider_policy_decision_for_combo
 
     master = BbpsBillerMaster.objects.filter(
         is_deleted=False,
@@ -272,9 +296,40 @@ def get_biller_payment_ui_options(biller_id: str) -> dict:
     mdm_mode_labels = [m.payment_mode for m in modes if m.payment_mode]
     mdm_for_display = mdm_mode_labels if mdm_mode_labels else None
 
+    offer_agt_cash_only = assisted_card_offer_agt_cash_only(master, ch_codes, mdm_mode_labels)
+
+    # Credit / loan: AGT + Cash only when policy says MDM implied POS modes but omitted Cash on AGT (typical B2B).
+    # Legacy strict MDM intersection remains behind BBPS_ASSISTED_CARD_PAYMENT_UI=mdm_strict.
+    if offer_agt_cash_only:
+        ui_channel_codes = ['AGT']
+        eff_labels = mdm_labels_with_implicit_cash_for_agt(mdm_mode_labels)
+        mdm_for_display_eff = eff_labels
+    else:
+        mdm_for_display_eff = mdm_for_display
+        # Credit / loan: prefer AGT-only when MDM lists at least one AGT-valid instrument (e.g. Cash).
+        if (
+            _biller_category_assisted_card_like(getattr(master, 'biller_category', '') or '')
+            and 'AGT' in ch_codes
+            and display_payment_modes_for_channel('AGT', mdm_for_display)
+        ):
+            ui_channel_codes = ['AGT']
+
     modes_by_channel: dict[str, list[str]] = {}
     for ch in ui_channel_codes:
-        modes_by_channel[ch] = display_payment_modes_for_channel(ch, mdm_for_display)
+        shown = display_payment_modes_for_channel(ch, mdm_for_display_eff)
+        if ch == 'AGT' and not shown and not mdm_mode_labels:
+            shown = ['Cash']
+        shown = [
+            mode
+            for mode in shown
+            if provider_policy_decision_for_combo(
+                biller_id=getattr(master, 'biller_id', ''),
+                biller_category=getattr(master, 'biller_category', ''),
+                payment_mode=mode,
+                payment_channel=ch,
+            ) is not False
+        ]
+        modes_by_channel[ch] = shown
 
     mode_channel_map: dict[str, str] = {}
     ordered_modes: list[str] = []
@@ -300,6 +355,9 @@ def get_biller_payment_ui_options(biller_id: str) -> dict:
     ]
     if not payment_channels:
         payment_channels = [{'code': 'AGT', 'label': _payment_channel_ui_label('AGT'), 'min_amount': '0', 'max_amount': '0'}]
+
+    if offer_agt_cash_only:
+        payment_channels = [p for p in payment_channels if p.get('code') == 'AGT']
 
     if not channels and not modes:
         src = 'bbps_defaults'
@@ -329,40 +387,90 @@ def get_biller_input_schema(biller_id: str) -> list[dict]:
     if not master:
         return []
     params = BbpsBillerInputParam.objects.filter(is_deleted=False, biller=master).order_by('display_order', 'id')
-    rows = [
-        {
-            'param_name': p.param_name,
-            'data_type': p.data_type,
-            'is_optional': p.is_optional,
-            'min_length': p.min_length,
-            'max_length': p.max_length,
-            'regex': p.regex,
-            'visibility': p.visibility,
-            'default_values': p.default_values,
-            'canonical_key': _canonical_input_key(p.param_name),
-            'send_in_input_params': True,
-        }
-        for p in params
-    ]
-    # BillAvenue fetch commonly requires a customer mobile even when some billers
-    # don't declare it cleanly in input params. Ensure UI always captures one.
-    if not any((r.get('canonical_key') == 'mobile') for r in rows):
+    rows = []
+    for p in params:
+        choices = normalize_schema_choices(p.default_values)
+        extras = p.mdm_extras if isinstance(getattr(p, 'mdm_extras', None), dict) else {}
+        help_text = str(extras.get('help_text') or '').strip()
+        input_kind = infer_input_kind(data_type=p.data_type or '', choices=choices)
         rows.append(
             {
-                'param_name': 'Mobile Number',
-                'data_type': 'NUMERIC',
-                'is_optional': False,
-                'min_length': 10,
-                'max_length': 10,
-                'regex': '',
-                'visibility': True,
-                'default_values': {},
-                'canonical_key': 'mobile',
-                'synthetic': True,
-                'send_in_input_params': False,
+                'param_name': p.param_name,
+                'data_type': p.data_type,
+                'is_optional': p.is_optional,
+                'min_length': p.min_length,
+                'max_length': p.max_length,
+                'regex': p.regex,
+                'visibility': p.visibility,
+                'default_values': p.default_values,
+                'choices': choices,
+                'help_text': help_text,
+                'input_kind': input_kind,
+                'canonical_key': _canonical_input_key(p.param_name),
+                'send_in_input_params': True,
             }
         )
+    # Do not inject a synthetic "Mobile Number" when MDM does not list it — some
+    # billers (e.g. DTH dummy) only expose Customer ID. Fetch/pay still send
+    # customerMobile from the authenticated user's phone when the client omits it.
     return rows
+
+
+def get_biller_additional_info_schema(biller_id: str) -> dict[str, list[dict]]:
+    """Group MDM additional-info / plan-additional tags by info_group for the schema API."""
+    master = BbpsBillerMaster.objects.filter(
+        is_deleted=False,
+        biller_id=biller_id,
+        soft_deleted_at__isnull=True,
+    ).first()
+    if not master:
+        return {}
+    rows = (
+        BbpsBillerAdditionalInfoSchema.objects.filter(is_deleted=False, biller=master)
+        .order_by('info_group', 'info_name')
+        .values('info_group', 'info_name', 'data_type', 'is_optional')
+    )
+    grouped: dict[str, list[dict]] = {}
+    for r in rows:
+        grp = str(r.get('info_group') or 'additional')
+        grouped.setdefault(grp, []).append(
+            {
+                'info_name': r.get('info_name'),
+                'data_type': r.get('data_type'),
+                'is_optional': r.get('is_optional'),
+            }
+        )
+    return grouped
+
+
+def get_biller_plans_lite(biller_id: str, *, limit: int = 100) -> tuple[list[dict], bool]:
+    """Active plan rows for pay UI (plan-mandatory billers). Returns (rows, truncated)."""
+    master = BbpsBillerMaster.objects.filter(
+        is_deleted=False,
+        biller_id=biller_id,
+        soft_deleted_at__isnull=True,
+    ).first()
+    if not master:
+        return [], False
+    qs = (
+        BbpsBillerPlanMeta.objects.filter(is_deleted=False, biller=master)
+        .filter(Q(status__iexact='ACTIVE') | Q(status=''))
+        .order_by('amount_in_rupees', 'plan_id')
+    )
+    total = qs.count()
+    truncated = total > limit
+    out = []
+    for p in qs[:limit]:
+        out.append(
+            {
+                'plan_id': str(p.plan_id or '').strip(),
+                'plan_desc': str(p.plan_desc or '').strip(),
+                'amount_in_rupees': str(p.amount_in_rupees or '0'),
+                'category_type': str(p.category_type or '').strip(),
+                'status': str(p.status or '').strip(),
+            }
+        )
+    return out, truncated
 
 
 def _canonical_input_key(param_name: str) -> str:
@@ -370,6 +478,8 @@ def _canonical_input_key(param_name: str) -> str:
     if 'mobile' in normalized or 'phone' in normalized:
         return 'mobile'
     if 'customer' in normalized and ('id' in normalized or 'number' in normalized or 'no' in normalized):
+        return 'customer_number'
+    if normalized == 'customerid' or normalized.startswith('customer id'):
         return 'customer_number'
     if 'card' in normalized and ('last4' in normalized or 'last 4' in normalized or 'digits' in normalized):
         return 'card_last4'

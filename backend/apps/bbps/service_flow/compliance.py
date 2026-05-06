@@ -69,7 +69,9 @@ def _normalize_mode_for_compare(mode: str) -> str:
 
 
 # NPCI BBPS-style: which payment *instruments* are valid per *channel* (AGT/MOB/INT/POS).
-# BillAvenue MDM often lists modes and channels separately; invalid pairs fail at runtime (e.g. E077 UPI + AGT).
+# BillAvenue guidance: AGT = B2B (agent/counter); MOB/INT = B2C (mobile app / internet) with richer
+# device context. MDM lists what the biller supports; this map rejects impossible pairs (e.g. E077 UPI + AGT).
+# Many B2B profiles are AGT + Cash only upstream — see biller info + institute entitlement.
 _BBPS_MODE_KEY_DISPLAY_ORDER: list[tuple[str, str]] = [
     ('cash', 'Cash'),
     ('upi', 'UPI'),
@@ -147,6 +149,8 @@ def enforce_biller_mode_channel_constraints(
     payment_channel: str,
     amount,
 ) -> None:
+    from apps.bbps.service_flow.provider_policy import provider_policy_decision_for_combo
+
     mode = _normalize_mode_for_compare(payment_mode)
     channel = _normalize_text(payment_channel).upper()
     amount_paise = _to_paise(amount)
@@ -178,10 +182,19 @@ def enforce_biller_mode_channel_constraints(
     if allowed_modes:
         names = {_normalize_mode_for_compare(m.payment_mode) for m in allowed_modes if m.payment_mode}
         if mode not in names:
-            raise TransactionFailed(
-                f'Payment mode "{payment_mode}" not allowed for biller {biller.biller_id}.'
-            )
-        current = [m for m in allowed_modes if _normalize_mode_for_compare(m.payment_mode) == mode]
+            from apps.bbps.service_flow.payment_ui_policy import pay_allows_implicit_agt_cash
+
+            if not pay_allows_implicit_agt_cash(
+                biller=biller,
+                payment_mode=payment_mode,
+                payment_channel=payment_channel,
+            ):
+                raise TransactionFailed(
+                    f'Payment mode "{payment_mode}" not allowed for biller {biller.biller_id}.'
+                )
+            current = []
+        else:
+            current = [m for m in allowed_modes if _normalize_mode_for_compare(m.payment_mode) == mode]
         if current and not any(_amount_within_limit(amount_paise, m.min_amount, m.max_amount) for m in current):
             raise TransactionFailed(f'Amount out of allowed range for payment mode "{payment_mode}".')
 
@@ -202,10 +215,21 @@ def enforce_biller_mode_channel_constraints(
             f'Payment mode "{payment_mode}" is disabled for category "{biller.biller_category}".'
         )
 
+    provider_decision = provider_policy_decision_for_combo(
+        biller_id=getattr(biller, 'biller_id', ''),
+        biller_category=getattr(biller, 'biller_category', ''),
+        payment_mode=payment_mode,
+        payment_channel=channel,
+    )
+    if provider_decision is False:
+        raise TransactionFailed(
+            f'Payment mode "{payment_mode}" is disabled for biller {biller.biller_id} on channel {channel} by provider policy.'
+        )
+
     if not bbps_channel_accepts_payment_mode(channel, payment_mode):
         hint = (
-            'Agent (AGT) flows support Cash and card-type instruments; use channel MOB or INT for UPI / Bharat QR / '
-            'Internet Banking. Aligns with NPCI BBPS channel vs instrument rules (see BBPS specification).'
+            'Agent (AGT) supports Cash at the counter; use POS/MOB/INT for cards, UPI, or Bharat QR per NPCI '
+            'channel-vs-instrument rules.'
         )
         raise TransactionFailed(
             f'Payment mode "{payment_mode}" is not valid for channel {channel} for biller {biller.biller_id}. {hint}'

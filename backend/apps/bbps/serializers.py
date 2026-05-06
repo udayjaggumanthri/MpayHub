@@ -6,6 +6,8 @@ from urllib.parse import urlparse
 import re
 from apps.bbps.models import (
     BbpsBillerInputParam,
+    BbpsComplaint,
+    BbpsComplaintEvent,
     BillPayment,
     BbpsBillerMaster,
     BbpsCategoryCommissionRule,
@@ -23,31 +25,70 @@ from apps.integrations.models import (
 
 class BillPaymentSerializer(serializers.ModelSerializer):
     """Serializer for BillPayment model."""
-    
+
+    bconnect_txn_id = serializers.SerializerMethodField()
+    approval_ref_number = serializers.SerializerMethodField()
+    ccf_amount = serializers.SerializerMethodField()
+    status_history = serializers.SerializerMethodField()
+
     class Meta:
         model = BillPayment
         fields = [
             'id', 'biller', 'biller_id', 'bill_type', 'amount', 'charge',
             'total_deducted', 'status', 'service_id', 'request_id',
-            'failure_reason', 'created_at'
+            'failure_reason', 'created_at',
+            'bconnect_txn_id', 'approval_ref_number', 'ccf_amount', 'status_history',
         ]
         read_only_fields = [
             'id', 'charge', 'total_deducted', 'status', 'service_id',
-            'request_id', 'failure_reason', 'created_at'
+            'request_id', 'failure_reason', 'created_at',
+            'bconnect_txn_id', 'approval_ref_number', 'ccf_amount', 'status_history',
         ]
+
+    def _latest_attempt(self, obj):
+        return obj.attempts.filter(is_deleted=False).order_by('-created_at').first()
+
+    def get_bconnect_txn_id(self, obj):
+        attempt = self._latest_attempt(obj)
+        return str(getattr(attempt, 'txn_ref_id', '') or '')
+
+    def get_approval_ref_number(self, obj):
+        attempt = self._latest_attempt(obj)
+        return str(getattr(attempt, 'approval_ref_number', '') or '')
+
+    def get_ccf_amount(self, obj):
+        # Charge currently carries CCF/service-fee impact for receipt rendering.
+        return str(getattr(obj, 'charge', '') or '0')
+
+    def get_status_history(self, obj):
+        attempt = self._latest_attempt(obj)
+        if not attempt:
+            return []
+        polls = attempt.status_polls.filter(is_deleted=False).order_by('-created_at')[:20]
+        out = []
+        for row in polls:
+            out.append(
+                {
+                    'status': str(row.txn_status or ''),
+                    'response_code': str(row.response_code or ''),
+                    'error_message': str(row.error_message or ''),
+                    'created_at': row.created_at.isoformat() if row.created_at else None,
+                }
+            )
+        return out
 
 
 class FetchBillSerializer(serializers.Serializer):
     """Serializer for fetching bill."""
     biller = serializers.CharField(max_length=200, required=False, allow_blank=True)
-    biller_id = serializers.CharField(max_length=100, required=False)
+    biller_id = serializers.CharField(max_length=100, required=False, allow_blank=True)
     category = serializers.CharField(max_length=50, required=False, allow_blank=True)
     provider_id = serializers.IntegerField(required=False)
     init_channel = serializers.CharField(max_length=20, required=False, allow_blank=True)
-    # Category-specific fields
-    card_last4 = serializers.CharField(max_length=4, required=False)
-    mobile = serializers.CharField(max_length=10, required=False)
-    customer_number = serializers.CharField(max_length=50, required=False)
+    # Category-specific fields (allow_blank: client may send "" when values only exist in input_params)
+    card_last4 = serializers.CharField(max_length=4, required=False, allow_blank=True)
+    mobile = serializers.CharField(max_length=10, required=False, allow_blank=True)
+    customer_number = serializers.CharField(max_length=50, required=False, allow_blank=True)
     input_params = serializers.ListField(
         child=serializers.DictField(),
         required=False,
@@ -113,6 +154,9 @@ class BillAvenueConfigSerializer(serializers.ModelSerializer):
             'activated_at',
             'created_at',
             'updated_at',
+            'bbps_wallet_service_charge_mode',
+            'bbps_wallet_service_charge_flat',
+            'bbps_wallet_service_charge_percent',
             'has_working_key',
             'has_iv',
             'has_callback_secret',
@@ -137,6 +181,8 @@ class BillAvenueConfigSerializer(serializers.ModelSerializer):
         return bool((getattr(obj, 'callback_secret_encrypted', None) or '').strip())
 
     def validate(self, attrs):
+        from decimal import Decimal
+
         attrs = super().validate(attrs)
         mode = str(attrs.get('mode', getattr(self.instance, 'mode', '')) or '').lower()
         enabled = bool(attrs.get('enabled', getattr(self.instance, 'enabled', False)))
@@ -149,6 +195,24 @@ class BillAvenueConfigSerializer(serializers.ModelSerializer):
             if not parsed.scheme or not parsed.netloc:
                 raise serializers.ValidationError({'base_url': 'Enter a valid URL with host, e.g. https://stgapi.billavenue.com'})
             attrs['base_url'] = f"{parsed.scheme}://{parsed.netloc}"
+
+        ch_mode = str(attrs.get('bbps_wallet_service_charge_mode') or getattr(self.instance, 'bbps_wallet_service_charge_mode', '') or 'FLAT').upper()
+        if ch_mode == 'PERCENT':
+            pct = attrs.get('bbps_wallet_service_charge_percent', getattr(self.instance, 'bbps_wallet_service_charge_percent', 0))
+            try:
+                pct_dec = Decimal(str(pct))
+            except Exception:
+                raise serializers.ValidationError({'bbps_wallet_service_charge_percent': 'Enter a valid number.'})
+            if pct_dec < 0 or pct_dec > 100:
+                raise serializers.ValidationError({'bbps_wallet_service_charge_percent': 'Percent must be between 0 and 100.'})
+        if ch_mode == 'FLAT':
+            flat = attrs.get('bbps_wallet_service_charge_flat', getattr(self.instance, 'bbps_wallet_service_charge_flat', 0))
+            try:
+                flat_dec = Decimal(str(flat))
+            except Exception:
+                raise serializers.ValidationError({'bbps_wallet_service_charge_flat': 'Enter a valid number.'})
+            if flat_dec < 0:
+                raise serializers.ValidationError({'bbps_wallet_service_charge_flat': 'Flat charge cannot be negative.'})
         return attrs
 
 
@@ -215,13 +279,86 @@ class TransactionQuerySerializer(serializers.Serializer):
 
 
 class ComplaintRegisterSerializer(serializers.Serializer):
-    txn_ref_id = serializers.CharField(max_length=40)
+    # Accept both B-Connect txn reference (CC...) and internal service id (PMBBPS...).
+    # Internal ids can be longer than 40 and are mapped to txn_ref_id in service layer.
+    txn_ref_id = serializers.CharField(max_length=100)
     complaint_desc = serializers.CharField(max_length=255)
     complaint_disposition = serializers.CharField(max_length=255)
 
 
 class ComplaintTrackSerializer(serializers.Serializer):
     complaint_id = serializers.CharField(max_length=60)
+
+
+class ComplaintHistoryQuerySerializer(serializers.Serializer):
+    status = serializers.CharField(max_length=40, required=False, allow_blank=True)
+    q = serializers.CharField(max_length=120, required=False, allow_blank=True)
+    page = serializers.IntegerField(min_value=1, required=False, default=1)
+    page_size = serializers.IntegerField(min_value=1, max_value=100, required=False, default=20)
+    include_events = serializers.BooleanField(required=False, default=False)
+
+
+class ComplaintEventSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = BbpsComplaintEvent
+        fields = ['id', 'complaint_status', 'remarks', 'response_payload', 'created_at']
+
+
+class ComplaintHistoryItemSerializer(serializers.ModelSerializer):
+    events = serializers.SerializerMethodField()
+    is_manual_escalation = serializers.SerializerMethodField()
+    provider_track_eligible = serializers.SerializerMethodField()
+    service_id = serializers.SerializerMethodField()
+    payment_id = serializers.SerializerMethodField()
+    bill_type = serializers.SerializerMethodField()
+
+    class Meta:
+        model = BbpsComplaint
+        fields = [
+            'id',
+            'complaint_id',
+            'txn_ref_id',
+            'complaint_desc',
+            'complaint_disposition',
+            'complaint_status',
+            'response_code',
+            'response_reason',
+            'raw_payload',
+            'created_at',
+            'updated_at',
+            'is_manual_escalation',
+            'provider_track_eligible',
+            'service_id',
+            'payment_id',
+            'bill_type',
+            'events',
+        ]
+
+    def get_events(self, obj):
+        include = bool(self.context.get('include_events'))
+        if not include:
+            return []
+        rows = obj.events.filter(is_deleted=False).order_by('-created_at')[:20]
+        return ComplaintEventSerializer(rows, many=True).data
+
+    def get_is_manual_escalation(self, obj):
+        return str(obj.complaint_status or '').upper() == 'MANUAL_ESCALATION_REQUIRED' or str(
+            obj.complaint_id or ''
+        ).upper().startswith('MANUAL-')
+
+    def get_provider_track_eligible(self, obj):
+        return not self.get_is_manual_escalation(obj)
+
+    def get_service_id(self, obj):
+        return str(getattr(obj.attempt, 'service_id', '') or '')
+
+    def get_payment_id(self, obj):
+        bill_payment = getattr(obj.attempt, 'bill_payment', None)
+        return getattr(bill_payment, 'id', None)
+
+    def get_bill_type(self, obj):
+        bill_payment = getattr(obj.attempt, 'bill_payment', None)
+        return str(getattr(bill_payment, 'bill_type', '') or '')
 
 
 class PlanPullSerializer(serializers.Serializer):
@@ -261,7 +398,7 @@ class BbpsBillerInputParamSerializer(serializers.ModelSerializer):
         model = BbpsBillerInputParam
         fields = [
             'param_name', 'data_type', 'is_optional', 'min_length', 'max_length',
-            'regex', 'visibility', 'default_values', 'display_order',
+            'regex', 'visibility', 'default_values', 'mdm_extras', 'display_order',
         ]
 
 

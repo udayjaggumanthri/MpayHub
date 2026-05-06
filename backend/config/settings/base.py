@@ -254,6 +254,12 @@ PLATFORM_PAYIN_SETTLEMENT_USER_ID = _optional_positive_int('PLATFORM_PAYIN_SETTL
 BBPS_SERVICE_CHARGE = config('BBPS_SERVICE_CHARGE', default=5.00, cast=float)
 BBPS_PROVIDER_GOVERNANCE_ENABLED = config('BBPS_PROVIDER_GOVERNANCE_ENABLED', default=True, cast=bool)
 BBPS_COMMISSION_FINANCIAL_IMPACT_ENABLED = config('BBPS_COMMISSION_FINANCIAL_IMPACT_ENABLED', default=False, cast=bool)
+BBPS_AUTO_PULL_PLANS_ON_SYNC = config('BBPS_AUTO_PULL_PLANS_ON_SYNC', default=True, cast=bool)
+BBPS_AUTO_PULL_PLANS_MAX_BILLERS = config('BBPS_AUTO_PULL_PLANS_MAX_BILLERS', default=50, cast=int)
+# Assisted credit-card / loan mapping strategy:
+# - mdm_strict (default): do not synthesize Cash; use only MDM-listed payment modes.
+# - agt_cash_when_eligible: legacy fallback for AGT+Cash where business wants forced assisted counter mode.
+BBPS_ASSISTED_CARD_PAYMENT_UI = config('BBPS_ASSISTED_CARD_PAYMENT_UI', default='mdm_strict')
 BANK_VERIFICATION_CHARGE = config('BANK_VERIFICATION_CHARGE', default=3.00, cast=float)
 
 # Payout slab (addition model): amount ≤ PAYOUT_SLAB_LOW_MAX → low charge; else high charge

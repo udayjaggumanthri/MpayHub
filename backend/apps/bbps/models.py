@@ -268,6 +268,7 @@ class BbpsBillerInputParam(BaseModel):
     regex = models.CharField(max_length=500, blank=True, default='')
     visibility = models.BooleanField(default=True)
     default_values = models.JSONField(default=list, blank=True)
+    mdm_extras = models.JSONField(default=dict, blank=True)
     display_order = models.PositiveIntegerField(default=0)
 
     class Meta:

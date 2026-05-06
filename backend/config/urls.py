@@ -4,10 +4,18 @@ URL configuration for mPayhub project.
 from django.conf import settings
 from django.conf.urls.static import static
 from django.contrib import admin
+from django.http import JsonResponse
 from django.urls import path, include
 from drf_spectacular.views import SpectacularAPIView, SpectacularSwaggerView
 
+
+def api_root(_request):
+    """Quiet probe/bot traffic to ``GET /`` (avoids 404 noise in API logs)."""
+    return JsonResponse({'service': 'mpayhub-api', 'status': 'ok'})
+
+
 urlpatterns = [
+    path('', api_root),
     path('admin/', admin.site.urls),
     
     # API Documentation

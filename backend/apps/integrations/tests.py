@@ -9,6 +9,7 @@ from apps.integrations.billavenue.crypto import decrypt_payload, encrypt_payload
 from apps.integrations.billavenue.envelope import build_encrypted_envelope
 from apps.integrations.billavenue.request_id import generate_billavenue_request_id
 from apps.integrations.billavenue.xml_request import (
+    build_bill_fetch_plain_xml,
     build_biller_info_plain_xml,
     build_bill_pay_plain_xml,
     build_plan_pull_plain_xml,
@@ -42,6 +43,28 @@ class BillAvenueCryptoTests(TestCase):
         self.assertIn('encRequest', env)
         self.assertIn('ver', env)
         self.assertIn('instituteId', env)
+
+
+class BillAvenueBillFetchXmlTests(TestCase):
+    def test_bill_fetch_xml_emits_all_input_params(self):
+        xml = build_bill_fetch_plain_xml(
+            {
+                'agentId': 'AG01',
+                'billerId': 'B1',
+                'customerInfo': {'customerMobile': '9999999999'},
+                'agentDeviceInfo': {'initChannel': 'AGT', 'ip': '127.0.0.1'},
+                'inputParams': {
+                    'input': [
+                        {'paramName': 'CustomerId', 'paramValue': 'C1'},
+                        {'paramName': 'SubDivision', 'paramValue': 'SDO1'},
+                    ]
+                },
+            }
+        )
+        self.assertIn('<paramName>CustomerId</paramName>', xml)
+        self.assertIn('<paramValue>C1</paramValue>', xml)
+        self.assertIn('<paramName>SubDivision</paramName>', xml)
+        self.assertIn('<paramValue>SDO1</paramValue>', xml)
 
 
 class BillAvenueXmlRequestTests(TestCase):

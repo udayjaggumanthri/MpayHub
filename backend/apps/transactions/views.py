@@ -78,15 +78,27 @@ def transactions_list_view(request):
 
     try:
         page_size = int(request.query_params.get('page_size', 20))
-    except ValueError:
-        page_size = 20
-    page_size = max(1, min(page_size, 500))
-
-    try:
         page = int(request.query_params.get('page', 1))
-    except ValueError:
-        page = 1
-    page = max(1, page)
+    except Exception:
+        return Response(
+            {
+                'success': False,
+                'data': None,
+                'message': 'Invalid pagination parameters',
+                'errors': {'page': ['Must be an integer >= 1'], 'page_size': ['Must be an integer between 1 and 500']},
+            },
+            status=status.HTTP_400_BAD_REQUEST,
+        )
+    if page < 1 or page_size < 1 or page_size > 500:
+        return Response(
+            {
+                'success': False,
+                'data': None,
+                'message': 'Invalid pagination parameters',
+                'errors': {'page': ['Must be an integer >= 1'], 'page_size': ['Must be an integer between 1 and 500']},
+            },
+            status=status.HTTP_400_BAD_REQUEST,
+        )
 
     total = transactions.count()
     start = (page - 1) * page_size
@@ -159,15 +171,27 @@ def passbook_view(request):
 
     try:
         page_size = int(request.query_params.get('page_size', 20))
-    except ValueError:
-        page_size = 20
-    page_size = max(1, min(page_size, 500))
-
-    try:
         page = int(request.query_params.get('page', 1))
-    except ValueError:
-        page = 1
-    page = max(1, page)
+    except Exception:
+        return Response(
+            {
+                'success': False,
+                'data': None,
+                'message': 'Invalid pagination parameters',
+                'errors': {'page': ['Must be an integer >= 1'], 'page_size': ['Must be an integer between 1 and 500']},
+            },
+            status=status.HTTP_400_BAD_REQUEST,
+        )
+    if page < 1 or page_size < 1 or page_size > 500:
+        return Response(
+            {
+                'success': False,
+                'data': None,
+                'message': 'Invalid pagination parameters',
+                'errors': {'page': ['Must be an integer >= 1'], 'page_size': ['Must be an integer between 1 and 500']},
+            },
+            status=status.HTTP_400_BAD_REQUEST,
+        )
 
     total = entries.count()
     start = (page - 1) * page_size

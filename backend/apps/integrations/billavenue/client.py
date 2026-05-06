@@ -99,6 +99,38 @@ def _error_message_from_normalized(normalized: dict) -> str:
     return ''
 
 
+def _extract_error_block(normalized: dict) -> dict:
+    """Extract top-level provider error details for audit/debug."""
+    if not isinstance(normalized, dict):
+        return {}
+    code = ''
+    message = ''
+    err_info = normalized.get('errorInfo')
+    if isinstance(err_info, dict):
+        err_list = err_info.get('error')
+        if isinstance(err_list, list) and err_list:
+            first = err_list[0] if isinstance(err_list[0], dict) else {}
+            code = str(first.get('errorCode') or '').strip()
+            message = str(first.get('errorMessage') or '').strip()
+        err = err_info.get('error')
+        if isinstance(err, dict):
+            code = str(err.get('errorCode') or '').strip()
+            message = str(err.get('errorMessage') or '').strip()
+    elif isinstance(err_info, list) and err_info:
+        first = err_info[0] if isinstance(err_info[0], dict) else {}
+        err = first.get('error') if isinstance(first, dict) else {}
+        if isinstance(err, dict):
+            code = str(err.get('errorCode') or '').strip()
+            message = str(err.get('errorMessage') or '').strip()
+    if not code and isinstance(normalized.get('errorCode'), str):
+        code = str(normalized.get('errorCode') or '').strip()
+    if not message and isinstance(normalized.get('errorMessage'), str):
+        message = str(normalized.get('errorMessage') or '').strip()
+    if not code and not message:
+        return {}
+    return {'errorCode': code, 'errorMessage': message}
+
+
 _ENDPOINTS_BY_KEY = {
     'biller_info': {
         'json': 'billpay/extMdmCntrl/mdmRequestNew/json',
@@ -188,8 +220,8 @@ class BillAvenueClient:
         connect_cfg = _to_int(getattr(self.config, 'connect_timeout_seconds', 5), 5)
         read_cfg = _to_int(getattr(self.config, 'read_timeout_seconds', 20), 20)
         connect_timeout = min(max(connect_cfg, 2), 10)
-        # Keep a hard cap below typical gunicorn worker timeout budgets.
-        read_timeout = min(max(read_cfg, 5), 25)
+        # Keep bounded so sync workers can return graceful timeout responses (avoid worker aborts).
+        read_timeout = min(max(read_cfg, 5), 20)
         return (connect_timeout, read_timeout)
 
     def _endpoint_for(self, endpoint_key: str) -> str:
@@ -200,6 +232,10 @@ class BillAvenueClient:
         hit the **/json** URLs or BillAvenue commonly returns responseCode 001 on the /xml path.
         """
         mapping = _ENDPOINTS_BY_KEY.get(endpoint_key) or {}
+        # Transaction status endpoint is consistently deployed on /json in BillAvenue stacks.
+        # Avoid /xml entirely here; some environments return 404 on /xml and break end-user query screens.
+        if endpoint_key == 'txn_status':
+            return str(mapping.get('json') or '').strip()
         v = self._variant()
         if v == 'xml' and endpoint_key not in ('biller_info', 'plan_pull', 'bill_fetch', 'bill_pay'):
             return str(mapping.get('json') or '').strip()
@@ -494,9 +530,15 @@ class BillAvenueClient:
             if last_exc:
                 raise last_exc
 
+        response_meta = {'normalized': normalized}
+        if endpoint_name in ('complaint_register', 'complaint_track'):
+            err = _extract_error_block(normalized if isinstance(normalized, dict) else {})
+            if err:
+                response_meta['provider_error'] = err
+
         # Do not treat a missing code as success; unparseable bodies often yield '' and would mask failures.
         ok = str(code or '').strip() in ('000', '0')
-        self._audit(endpoint_name, env.get('requestId', ''), code, ok, started, request_meta, {'normalized': normalized}, '')
+        self._audit(endpoint_name, env.get('requestId', ''), code, ok, started, request_meta, response_meta, '')
         if not ok:
             c = str(code or '').strip()
             if not c:

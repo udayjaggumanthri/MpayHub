@@ -22,6 +22,7 @@ const BbpsProviderGovernance = () => {
   const [syncUsage, setSyncUsage] = useState(null);
   const [syncUsageHistory, setSyncUsageHistory] = useState([]);
   const [syncInputIds, setSyncInputIds] = useState('');
+  const [syncInvalidIds, setSyncInvalidIds] = useState([]);
   const [opsSummary, setOpsSummary] = useState(null);
   const [observability, setObservability] = useState(null);
   const [categories, setCategories] = useState([]);
@@ -44,6 +45,7 @@ const BbpsProviderGovernance = () => {
   const [directoryPage, setDirectoryPage] = useState(1);
   const [directoryPageSize, setDirectoryPageSize] = useState(25);
   const [directoryPagination, setDirectoryPagination] = useState({ page: 1, page_size: 25, total: 0, total_pages: 1 });
+  const [selectedDirectoryBillerIds, setSelectedDirectoryBillerIds] = useState([]);
   const navigate = useNavigate();
 
   const visibleServicesCount = useMemo(
@@ -85,6 +87,10 @@ const BbpsProviderGovernance = () => {
   }, [billerMaster]);
 
   const filteredDirectoryBillers = billerMaster;
+  const allVisibleDirectoryIds = useMemo(
+    () => filteredDirectoryBillers.map((b) => String(b.biller_id || '').trim()).filter(Boolean),
+    [filteredDirectoryBillers],
+  );
 
   const uatSteps = useMemo(() => [
     {
@@ -152,16 +158,41 @@ const BbpsProviderGovernance = () => {
     loadAll();
   }, [loadAll]);
 
+  useEffect(() => {
+    const visibleSet = new Set(allVisibleDirectoryIds);
+    setSelectedDirectoryBillerIds((prev) => prev.filter((id) => visibleSet.has(id)));
+  }, [allVisibleDirectoryIds]);
+
   const runSync = async () => {
     setSyncing(true);
     setError('');
     setInfo('');
     try {
-      const ids = syncInputIds.split(/[\s,\n]+/).map((x) => x.trim()).filter(Boolean);
+      const parsed = syncInputIds.split(/[\s,\n]+/).map((x) => x.trim()).filter(Boolean);
+      const validRe = /^[A-Za-z0-9\-_]+$/;
+      const invalid = parsed.filter((x) => !validRe.test(x));
+      if (invalid.length) {
+        setSyncInvalidIds(invalid.slice(0, 20));
+        setError(`Invalid biller ID format for ${invalid.length} entr${invalid.length > 1 ? 'ies' : 'y'}. Use only letters, numbers, '-' and '_'.`);
+        setSyncing(false);
+        return;
+      }
+      const ids = [...new Set(parsed)];
+      if (parsed.length && ids.length === 0) {
+        setError('No valid biller IDs found in input.');
+        setSyncing(false);
+        return;
+      }
+      if (ids.length > 2000) {
+        setError('Maximum 2000 biller IDs are allowed per sync call.');
+        setSyncing(false);
+        return;
+      }
+      setSyncInvalidIds([]);
       const res = await bbpsAPI.syncBillers(ids);
       if (!res.success) {
         const code = String(res.data?.billavenue_code || '').trim();
-        if (code === '001' || code === '205') {
+        if (code === '001' || code === '205' || code === 'PARSE') {
           const cached = Number(res.data?.mdm_cached_count || 0);
           setInfo(
             [
@@ -174,7 +205,9 @@ const BbpsProviderGovernance = () => {
           await loadAll();
           return;
         }
-        setError(res.message || res.data?.actionable_hint || 'Sync failed');
+        const fieldErrors = Array.isArray(res.errors) ? res.errors.join(' | ') : '';
+        const hint = res.data?.actionable_hint ? ` ${res.data.actionable_hint}` : '';
+        setError(`${res.message || 'Sync failed'}${hint}${fieldErrors ? ` Details: ${fieldErrors}` : ''}`);
         return;
       }
       setSyncDiagnostics(res.data || null);
@@ -182,7 +215,7 @@ const BbpsProviderGovernance = () => {
       setInfo('Biller sync completed successfully.');
       await loadAll();
     } catch (e) {
-      setError('Failed to run biller sync.');
+      setError('Failed to run biller sync. Please retry.');
     } finally {
       setSyncing(false);
     }
@@ -243,6 +276,43 @@ const BbpsProviderGovernance = () => {
 
   const openDirectoryBiller = (biller) => navigate(`/admin/bbps-governance/biller/${biller.id}`);
 
+  const toggleDirectoryRowSelection = (billerId) => {
+    const bid = String(billerId || '').trim();
+    if (!bid) return;
+    setSelectedDirectoryBillerIds((prev) => (
+      prev.includes(bid) ? prev.filter((x) => x !== bid) : [...prev, bid]
+    ));
+  };
+
+  const toggleSelectAllDirectoryRows = () => {
+    const all = allVisibleDirectoryIds;
+    if (!all.length) return;
+    setSelectedDirectoryBillerIds((prev) => (
+      prev.length === all.length ? [] : all
+    ));
+  };
+
+  const syncSelectedDirectoryBillers = async () => {
+    const ids = selectedDirectoryBillerIds.filter(Boolean);
+    if (ids.length < 1 || ids.length > 2000) {
+      setError('Select at least 1 and at most 2000 biller IDs to sync.');
+      return;
+    }
+    setSyncing(true);
+    setError('');
+    setInfo('');
+    const res = await bbpsAPI.syncBillers(ids);
+    setSyncing(false);
+    if (!res.success) {
+      const details = Array.isArray(res.errors) && res.errors.length ? ` Details: ${res.errors.join(' | ')}` : '';
+      setError(`${res.message || 'Failed to sync selected billers.'}${details}`);
+      return;
+    }
+    setSyncDiagnostics(res.data || null);
+    setInfo(`Synced ${ids.length} selected biller ID(s) successfully.`);
+    await loadAll();
+  };
+
   const toggleLocalBillerState = async (biller) => {
     const call = biller.is_active_local
       ? billAvenueAdminAPI.disableBillerMaster(biller.id)
@@ -295,15 +365,15 @@ const BbpsProviderGovernance = () => {
           <div className="rounded-lg border border-blue-100 bg-blue-50 p-3">
             <p className="text-xs text-blue-700">Total Billers</p>
             <p className="text-lg font-semibold text-blue-900">{billerMaster.length}</p>
-          </div>
+      </div>
           <div className="rounded-lg border border-indigo-100 bg-indigo-50 p-3">
             <p className="text-xs text-indigo-700">Available Services</p>
             <p className="text-lg font-semibold text-indigo-900">{mapCount}</p>
-          </div>
+                </div>
           <div className="rounded-lg border border-green-100 bg-green-50 p-3">
             <p className="text-xs text-green-700">Visible to Users</p>
             <p className="text-lg font-semibold text-green-900">{visibleServicesCount}</p>
-          </div>
+            </div>
           <div className="rounded-lg border border-amber-100 bg-amber-50 p-3">
             <p className="text-xs text-amber-700">Hidden Services</p>
             <p className="text-lg font-semibold text-amber-900">{hiddenServicesCount}</p>
@@ -382,19 +452,19 @@ const BbpsProviderGovernance = () => {
               className="px-3 py-2 border rounded text-sm"
               placeholder="Optional biller IDs (comma/newline, max 2000)"
             />
-            <button
-              type="button"
-              onClick={runSync}
-              disabled={syncing}
-              className="px-4 py-2 bg-blue-600 text-white text-sm rounded disabled:opacity-50"
-            >
-              {syncing ? 'Running sync...' : 'Run Biller Sync'}
-            </button>
-            <button
-              type="button"
-              onClick={refreshCache}
-              className="px-4 py-2 bg-slate-100 text-slate-800 text-sm rounded border border-slate-300"
-            >
+          <button
+            type="button"
+            onClick={runSync}
+            disabled={syncing}
+            className="px-4 py-2 bg-blue-600 text-white text-sm rounded disabled:opacity-50"
+          >
+            {syncing ? 'Running sync...' : 'Run Biller Sync'}
+          </button>
+          <button
+            type="button"
+            onClick={refreshCache}
+            className="px-4 py-2 bg-slate-100 text-slate-800 text-sm rounded border border-slate-300"
+          >
               Refresh Cache
             </button>
             <button
@@ -403,8 +473,22 @@ const BbpsProviderGovernance = () => {
               className="px-4 py-2 bg-red-50 text-red-700 text-sm rounded border border-red-200"
             >
               Clear All Billers
-            </button>
-          </div>
+          </button>
+        </div>
+          {syncInputIds.trim() ? (
+            <div className="text-xs border rounded p-3 bg-slate-50 space-y-1">
+              <div>
+                Parsed IDs: <strong>{[...new Set(syncInputIds.split(/[\s,\n]+/).map((x) => x.trim()).filter(Boolean))].length}</strong>
+              </div>
+              {syncInvalidIds.length ? (
+                <div className="text-red-700">
+                  Invalid IDs ({syncInvalidIds.length} shown): {syncInvalidIds.join(', ')}
+                </div>
+              ) : (
+                <div className="text-emerald-700">Input format looks valid.</div>
+              )}
+            </div>
+          ) : null}
 
           {syncUsage && (
             <div className="text-xs border rounded p-3 bg-slate-50 space-y-2">
@@ -419,7 +503,7 @@ const BbpsProviderGovernance = () => {
             </div>
           )}
 
-          {syncDiagnostics && (
+        {syncDiagnostics && (
             <div className="rounded-lg border border-slate-200 bg-slate-50 p-3 text-xs grid grid-cols-2 md:grid-cols-4 gap-2">
               <div><strong>Updated:</strong> {syncDiagnostics.updated_count || 0}</div>
               <div><strong>Source Rows:</strong> {syncDiagnostics.biller_count || 0}</div>
@@ -427,8 +511,8 @@ const BbpsProviderGovernance = () => {
               <div><strong>Retry Used:</strong> {syncDiagnostics.retry_without_agent_used ? 'Yes' : 'No'}</div>
               {syncDiagnostics.warning ? <div className="col-span-2 md:col-span-4 text-amber-700"><strong>Warning:</strong> {syncDiagnostics.warning}</div> : null}
             </div>
-          )}
-        </div>
+        )}
+      </div>
       )}
 
       {activeTab === 'directory' && (
@@ -477,10 +561,32 @@ const BbpsProviderGovernance = () => {
             </select>
           </div>
 
+          <div className="flex flex-wrap items-center justify-between gap-2 border rounded p-2 bg-slate-50 text-xs">
+            <div>
+              Selected billers: <strong>{selectedDirectoryBillerIds.length}</strong>
+              {selectedDirectoryBillerIds.length ? ` (${selectedDirectoryBillerIds.slice(0, 5).join(', ')}${selectedDirectoryBillerIds.length > 5 ? ', ...' : ''})` : ''}
+            </div>
+            <button
+              type="button"
+              onClick={syncSelectedDirectoryBillers}
+              disabled={syncing || selectedDirectoryBillerIds.length < 1 || selectedDirectoryBillerIds.length > 2000}
+              className="px-3 py-1.5 bg-blue-600 text-white rounded disabled:opacity-50"
+            >
+              {syncing ? 'Syncing selected...' : 'Sync selected'}
+            </button>
+          </div>
+
           <div className="overflow-auto border rounded-lg">
             <table className="w-full text-sm">
               <thead className="bg-gray-50">
                 <tr>
+                  <th className="text-left p-2">
+                    <input
+                      type="checkbox"
+                      checked={allVisibleDirectoryIds.length > 0 && selectedDirectoryBillerIds.length === allVisibleDirectoryIds.length}
+                      onChange={toggleSelectAllDirectoryRows}
+                    />
+                  </th>
                   <th className="text-left p-2">Biller</th>
                   <th className="text-left p-2">Biller ID</th>
                   <th className="text-left p-2">Category</th>
@@ -493,6 +599,13 @@ const BbpsProviderGovernance = () => {
               <tbody>
                 {filteredDirectoryBillers.map((b) => (
                   <tr key={b.id} className="border-t">
+                    <td className="p-2">
+                      <input
+                        type="checkbox"
+                        checked={selectedDirectoryBillerIds.includes(String(b.biller_id || '').trim())}
+                        onChange={() => toggleDirectoryRowSelection(b.biller_id)}
+                      />
+                    </td>
                     <td className="p-2 font-medium">{b.biller_name || '—'}</td>
                     <td className="p-2 font-mono text-xs">{b.biller_id}</td>
                     <td className="p-2">{b.biller_category || '—'}</td>
@@ -526,7 +639,7 @@ const BbpsProviderGovernance = () => {
                 ))}
                 {filteredDirectoryBillers.length === 0 ? (
                   <tr>
-                    <td colSpan={7} className="p-4 text-center text-sm text-gray-500">No billers found for this filter.</td>
+                    <td colSpan={8} className="p-4 text-center text-sm text-gray-500">No billers found for this filter.</td>
                   </tr>
                 ) : null}
               </tbody>
@@ -566,31 +679,31 @@ const BbpsProviderGovernance = () => {
             <form onSubmit={saveCategory} className="space-y-2">
               <p className="text-sm font-medium">Create Category</p>
               <input className="w-full border rounded px-3 py-2 text-sm" placeholder="code" value={categoryForm.code} onChange={(e) => setCategoryForm((s) => ({ ...s, code: e.target.value }))} required />
-              <input className="w-full border rounded px-3 py-2 text-sm" placeholder="name" value={categoryForm.name} onChange={(e) => setCategoryForm((s) => ({ ...s, name: e.target.value }))} required />
+          <input className="w-full border rounded px-3 py-2 text-sm" placeholder="name" value={categoryForm.name} onChange={(e) => setCategoryForm((s) => ({ ...s, name: e.target.value }))} required />
               <button type="submit" className="px-3 py-1.5 bg-blue-600 text-white text-sm rounded">Save category</button>
-            </form>
+        </form>
 
             <form onSubmit={saveProvider} className="space-y-2">
               <p className="text-sm font-medium">Create Provider</p>
-              <select className="w-full border rounded px-3 py-2 text-sm" value={providerForm.category} onChange={(e) => setProviderForm((s) => ({ ...s, category: e.target.value }))} required>
-                <option value="">Select category</option>
-                {categories.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
-              </select>
-              <input className="w-full border rounded px-3 py-2 text-sm" placeholder="provider code" value={providerForm.code} onChange={(e) => setProviderForm((s) => ({ ...s, code: e.target.value }))} required />
-              <input className="w-full border rounded px-3 py-2 text-sm" placeholder="provider name" value={providerForm.name} onChange={(e) => setProviderForm((s) => ({ ...s, name: e.target.value }))} required />
+          <select className="w-full border rounded px-3 py-2 text-sm" value={providerForm.category} onChange={(e) => setProviderForm((s) => ({ ...s, category: e.target.value }))} required>
+            <option value="">Select category</option>
+            {categories.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
+          </select>
+          <input className="w-full border rounded px-3 py-2 text-sm" placeholder="provider code" value={providerForm.code} onChange={(e) => setProviderForm((s) => ({ ...s, code: e.target.value }))} required />
+          <input className="w-full border rounded px-3 py-2 text-sm" placeholder="provider name" value={providerForm.name} onChange={(e) => setProviderForm((s) => ({ ...s, name: e.target.value }))} required />
               <button type="submit" className="px-3 py-1.5 bg-blue-600 text-white text-sm rounded">Save provider</button>
-            </form>
+        </form>
 
             <form onSubmit={saveMap} className="space-y-2">
               <p className="text-sm font-medium">{mapForm.id ? 'Update Provider-Biller Map' : 'Create Provider-Biller Map'}</p>
-              <select className="w-full border rounded px-3 py-2 text-sm" value={mapForm.provider} onChange={(e) => setMapForm((s) => ({ ...s, provider: e.target.value }))} required>
-                <option value="">Select provider</option>
+          <select className="w-full border rounded px-3 py-2 text-sm" value={mapForm.provider} onChange={(e) => setMapForm((s) => ({ ...s, provider: e.target.value }))} required>
+            <option value="">Select provider</option>
                 {providers.map((p) => <option key={p.id} value={p.id}>{p.name} ({p.category_code})</option>)}
-              </select>
-              <select className="w-full border rounded px-3 py-2 text-sm" value={mapForm.biller_master} onChange={(e) => setMapForm((s) => ({ ...s, biller_master: e.target.value }))} required>
-                <option value="">Select biller</option>
+          </select>
+          <select className="w-full border rounded px-3 py-2 text-sm" value={mapForm.biller_master} onChange={(e) => setMapForm((s) => ({ ...s, biller_master: e.target.value }))} required>
+            <option value="">Select biller</option>
                 {providerScopedBillers.map((b) => <option key={b.id} value={b.id}>{b.biller_name} ({b.biller_id}) - {b.biller_category}</option>)}
-              </select>
+          </select>
               <button type="submit" className="px-3 py-1.5 bg-blue-600 text-white text-sm rounded">
                 {mapForm.id ? 'Update map' : 'Save map'}
               </button>
@@ -599,8 +712,8 @@ const BbpsProviderGovernance = () => {
                   Cancel edit
                 </button>
               ) : null}
-            </form>
-          </div>
+        </form>
+      </div>
 
           <div className="bg-white rounded-xl border border-gray-200 p-5 space-y-3">
             <h2 className="font-semibold">Ops Summary & Existing Mappings</h2>
@@ -620,33 +733,33 @@ const BbpsProviderGovernance = () => {
                 className="px-2 py-1 border rounded text-xs"
                 placeholder="Search provider/biller/category"
               />
-            </div>
+        </div>
             <div className="max-h-72 overflow-auto border rounded">
               <table className="w-full text-xs">
-                <thead className="bg-gray-50">
-                  <tr>
+            <thead className="bg-gray-50">
+              <tr>
                     <th className="text-left p-2">Category</th>
-                    <th className="text-left p-2">Provider</th>
-                    <th className="text-left p-2">Biller</th>
+                <th className="text-left p-2">Provider</th>
+                <th className="text-left p-2">Biller</th>
                     <th className="text-left p-2">Biller ID</th>
                     <th className="text-left p-2">Action</th>
-                  </tr>
-                </thead>
-                <tbody>
+              </tr>
+            </thead>
+            <tbody>
                   {filteredOpsMaps.slice(0, 100).map((m) => (
-                    <tr key={m.id} className="border-t">
+                <tr key={m.id} className="border-t">
                       <td className="p-2">{m.category_name || m.category_code || '—'}</td>
-                      <td className="p-2">{m.provider_name || m.provider_code}</td>
+                  <td className="p-2">{m.provider_name || m.provider_code}</td>
                       <td className="p-2">{m.biller_name || '—'}</td>
                       <td className="p-2">{m.biller_id || '—'}</td>
-                      <td className="p-2">
+                  <td className="p-2">
                         <button type="button" className="px-2 py-1 border rounded" onClick={() => editMap(m)}>Edit</button>
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
             <p className="text-[11px] text-gray-500">Showing {Math.min(filteredOpsMaps.length, 100)} of {filteredOpsMaps.length} mappings.</p>
           </div>
         </div>
@@ -699,21 +812,21 @@ const BbpsProviderGovernance = () => {
                       <th className="text-left p-2">Calls</th>
                       <th className="text-left p-2">IDs</th>
                       <th className="text-left p-2">Status</th>
-                    </tr>
-                  </thead>
-                  <tbody>
+              </tr>
+            </thead>
+            <tbody>
                     {syncUsageHistory.slice(0, 15).map((row) => (
                       <tr key={row.id} className="border-t">
                         <td className="p-2">{row.usage_date || '-'}</td>
                         <td className="p-2">{row.call_count || 0}</td>
                         <td className="p-2">{row.requested_ids_count || 0}</td>
                         <td className="p-2">{toTitle(row.last_status || 'n/a')}</td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            </div>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      </div>
           ) : null}
         </div>
       ) : null}

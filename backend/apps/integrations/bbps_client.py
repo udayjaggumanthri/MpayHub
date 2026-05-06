@@ -408,6 +408,18 @@ class BBPSClient(BaseIntegration):
                 or normalized.get('billFetchResponse', {}).get('additionalInfo', {}).get('info')
                 or []
             )
+            additional_info_for_pay: list[dict] = []
+            if isinstance(additional_info_rows, list):
+                for row in additional_info_rows:
+                    if not isinstance(row, dict):
+                        continue
+                    name = str(row.get('infoName') or row.get('info_name') or '').strip()
+                    if not name:
+                        continue
+                    val = row.get('infoValue') if 'infoValue' in row else row.get('info_value')
+                    additional_info_for_pay.append(
+                        {'infoName': name, 'infoValue': '' if val is None else str(val)}
+                    )
             info_map = {}
             if isinstance(additional_info_rows, list):
                 for row in additional_info_rows:
@@ -449,6 +461,7 @@ class BBPSClient(BaseIntegration):
                 'raw': normalized,
                 'request_id': out.request_id,
                 'response_code': out.response_code,
+                'additional_info': additional_info_for_pay,
             }
         except Exception as exc:
             self.handle_error(exc)

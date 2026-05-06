@@ -1,7 +1,7 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { FiX } from 'react-icons/fi';
 
-const MPINModal = ({ isOpen, onClose, onVerify, title = 'Enter MPIN', error = '' }) => {
+const MPINModal = ({ isOpen, onClose, onVerify, title = 'Enter MPIN', error = '', loading = false }) => {
   const [mpin, setMpin] = useState(['', '', '', '', '', '']);
   const inputRefs = useRef([]);
 
@@ -23,7 +23,7 @@ const MPINModal = ({ isOpen, onClose, onVerify, title = 'Enter MPIN', error = ''
       inputRefs.current[index + 1]?.focus();
     }
 
-    if (index === 5 && value && newMpin.every((digit) => digit !== '')) {
+    if (index === 5 && value && newMpin.every((digit) => digit !== '') && !loading) {
       handleSubmit(newMpin.join(''));
     }
   };
@@ -35,6 +35,7 @@ const MPINModal = ({ isOpen, onClose, onVerify, title = 'Enter MPIN', error = ''
   };
 
   const handleSubmit = (mpinValue = mpin.join('')) => {
+    if (loading) return;
     if (mpinValue.length === 6) {
       onVerify(mpinValue);
     }
@@ -72,7 +73,8 @@ const MPINModal = ({ isOpen, onClose, onVerify, title = 'Enter MPIN', error = ''
               value={mpin[index]}
               onChange={(e) => handleChange(index, e.target.value)}
               onKeyDown={(e) => handleKeyDown(index, e)}
-              className="w-12 h-14 text-center text-2xl font-bold border-2 border-gray-300 rounded-lg focus:border-blue-500 focus:ring-2 focus:ring-blue-200"
+              disabled={loading}
+              className="w-12 h-14 text-center text-2xl font-bold border-2 border-gray-300 rounded-lg focus:border-blue-500 focus:ring-2 focus:ring-blue-200 disabled:opacity-50"
             />
           ))}
         </div>
@@ -85,11 +87,12 @@ const MPINModal = ({ isOpen, onClose, onVerify, title = 'Enter MPIN', error = ''
             Cancel
           </button>
           <button
+            type="button"
             onClick={() => handleSubmit()}
-            disabled={mpin.some((digit) => digit === '')}
+            disabled={mpin.some((digit) => digit === '') || loading}
             className="flex-1 px-4 py-3 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
           >
-            Verify
+            {loading ? 'Processing…' : 'Verify'}
           </button>
         </div>
       </div>
