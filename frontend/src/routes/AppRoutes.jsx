@@ -21,7 +21,11 @@ import BillPayment from '../components/bbps/BillPayment';
 import MyBills from '../components/bbps/MyBills';
 import BbpsWalletFund from '../components/bbps/BbpsWalletFund';
 import BbpsTransactionQuery from '../components/bbps/BbpsTransactionQuery';
-import BbpsComplaintManager from '../components/bbps/BbpsComplaintManager';
+import BbpsComplaintsModule from '../components/bbps/complaints/BbpsComplaintsModule';
+import ComplaintsHub from '../components/bbps/complaints/ComplaintsHub';
+import ComplaintsRegister from '../components/bbps/complaints/ComplaintsRegister';
+import ComplaintsTrack from '../components/bbps/complaints/ComplaintsTrack';
+import ComplaintHistoryPanel from '../components/bbps/complaints/ComplaintHistoryPanel';
 
 // Reports
 import Reports from '../components/reports/Reports';
@@ -182,11 +186,17 @@ const AppRoutes = () => {
         element={
           <ProtectedRoute blockFinancialTransactions>
             <Layout>
-              <BbpsComplaintManager />
+              <BbpsComplaintsModule />
             </Layout>
           </ProtectedRoute>
         }
-      />
+      >
+        <Route index element={<ComplaintsHub />} />
+        <Route path="register" element={<ComplaintsRegister />} />
+        <Route path="track" element={<ComplaintsTrack />} />
+        <Route path="search-transaction" element={<BbpsTransactionQuery variant="complaints" />} />
+        <Route path="history" element={<ComplaintHistoryPanel />} />
+      </Route>
 
       <Route
         path="/bill-payments/fund-wallet"

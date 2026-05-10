@@ -21,7 +21,7 @@ class ComplaintServiceTests(TestCase):
             'user': self.user,
             'txn_ref_id': 'CC015135BAAA92192259',
             'complaint_desc': 'Service not received after successful payment',
-            'complaint_disposition': 'Transaction Successful, Amount Debited but services not received',
+            'complaint_disposition': 'Transaction successful, Amount Debited but services not received',
         }
 
     @patch('apps.bbps.service_flow.complaint_service.enforce_complaint_cooling')
@@ -111,7 +111,7 @@ class ComplaintServiceTests(TestCase):
         payload = {
             'txn_ref_id': 'PMBBPS20260505153803C75612',
             'complaint_desc': 'Service not received',
-            'complaint_disposition': 'Transaction Successful, Amount Debited but services not received',
+            'complaint_disposition': 'Transaction successful, Amount Debited but services not received',
         }
         ser = ComplaintRegisterSerializer(data=payload)
         self.assertTrue(ser.is_valid(), ser.errors)

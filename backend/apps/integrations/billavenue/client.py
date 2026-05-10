@@ -174,6 +174,13 @@ _ENDPOINTS_BY_KEY = {
     },
 }
 
+# Transaction status: never use /xml here — many BillAvenue stacks return HTTP 404 on XML paths.
+# Try lowercase JSON first, then camelCase JSON if the gateway only exposes one variant.
+_TXN_STATUS_JSON_PATH_FALLBACKS = (
+    'billpay/transactionstatus/fetchinfo/json',
+    'billpay/transactionStatus/fetchInfo/json',
+)
+
 
 @dataclass
 class BillAvenueResult:
@@ -235,7 +242,7 @@ class BillAvenueClient:
         # Transaction status endpoint is consistently deployed on /json in BillAvenue stacks.
         # Avoid /xml entirely here; some environments return 404 on /xml and break end-user query screens.
         if endpoint_key == 'txn_status':
-            return str(mapping.get('json') or '').strip()
+            return str(_TXN_STATUS_JSON_PATH_FALLBACKS[0] if _TXN_STATUS_JSON_PATH_FALLBACKS else mapping.get('json') or '').strip()
         v = self._variant()
         if v == 'xml' and endpoint_key not in ('biller_info', 'plan_pull', 'bill_fetch', 'bill_pay'):
             return str(mapping.get('json') or '').strip()
@@ -376,29 +383,34 @@ class BillAvenueClient:
                 )
             else:
                 # BillAvenue note: other APIs accept encRequest as POST parameter.
-                request_meta = {**request_meta, 'url': url, 'transport': 'form-post-params'}
-                resp = requests.post(
-                    url,
-                    data=env,
-                    timeout=timeout,
-                )
-                # Safe fallback: txn status casing mismatch can return HTML 404 on some deployments.
+                base = self.config.base_url.rstrip('/')
+                request_meta = {**request_meta, 'transport': 'form-post-params'}
                 if (
                     endpoint_name == 'txn_status'
-                    and bool(getattr(self.config, 'allow_variant_fallback', True))
                     and bool(getattr(self.config, 'allow_txn_status_path_fallback', True))
-                    and resp.status_code == 404
-                    and 'text/html' in (resp.headers.get('Content-Type') or '').lower()
                 ):
-                    alt = _ENDPOINTS_BY_KEY.get('txn_status', {}).get('xml_alt') if self._variant() == 'xml' else None
-                    if alt:
-                        alt_url = f"{self.config.base_url.rstrip('/')}/{alt.lstrip('/')}"
-                        request_meta = {**request_meta, 'txn_status_fallback_url': alt_url}
-                        resp = requests.post(
-                            alt_url,
-                            data=env,
-                            timeout=timeout,
-                        )
+                    # Retry alternate JSON paths on 404 (XML paths and wrong casing both surface as 404).
+                    primary_path = str(endpoint or '').lstrip('/')
+                    ordered = []
+                    seen_paths = set()
+                    for p in (primary_path,) + _TXN_STATUS_JSON_PATH_FALLBACKS:
+                        p_norm = str(p or '').lstrip('/')
+                        if p_norm and p_norm not in seen_paths:
+                            seen_paths.add(p_norm)
+                            ordered.append(p_norm)
+                    attempts = []
+                    resp = None
+                    for path in ordered:
+                        try_url = f"{base}/{path}"
+                        attempts.append(try_url)
+                        resp = requests.post(try_url, data=env, timeout=timeout)
+                        if resp.status_code != 404:
+                            break
+                    request_meta['url'] = attempts[-1] if attempts else url
+                    request_meta['txn_status_url_attempts'] = attempts
+                else:
+                    request_meta = {**request_meta, 'url': url}
+                    resp = requests.post(url, data=env, timeout=timeout)
             resp.raise_for_status()
             data = resp.json() if 'application/json' in (resp.headers.get('Content-Type') or '').lower() else {'raw': resp.text}
         except requests.exceptions.Timeout as exc:

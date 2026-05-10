@@ -336,6 +336,16 @@ def _user_display_name(u: User) -> str:
     return name or (u.email or u.phone or str(u.pk))
 
 
+def _hierarchy_public_ref(u: User) -> str:
+    """Non-null string for lineage paths (join-safe). Some legacy rows have empty user_id."""
+    uid = getattr(u, 'user_id', None)
+    if uid is not None:
+        s = str(uid).strip()
+        if s:
+            return s
+    return str(u.pk)
+
+
 def build_user_lineage(user: User) -> dict:
     """
     Upline (root → immediate parent), direct parent links (who added / when),
@@ -360,6 +370,7 @@ def build_user_lineage(user: User) -> dict:
 
     # Walk upline using first parent edge per level (matches commission upline behaviour)
     upline_steps = []
+    upline_path_segments = []
     seen = set()
     current = user
     while current is not None and current.id not in seen:
@@ -381,14 +392,15 @@ def build_user_lineage(user: User) -> dict:
                 'link_created_at': rel.created_at.isoformat() if rel.created_at else None,
             }
         )
+        upline_path_segments.append(_hierarchy_public_ref(p))
         current = p
 
     upline_steps.reverse()
+    upline_path_segments.reverse()
 
-    path_ids = [s['user_id'] for s in upline_steps]
-    if user.user_id:
-        path_ids.append(user.user_id)
-    map_path = ' → '.join(path_ids) if path_ids else (user.user_id or str(user.pk))
+    path_ids = list(upline_path_segments)
+    path_ids.append(_hierarchy_public_ref(user))
+    map_path = ' → '.join(path_ids) if path_ids else _hierarchy_public_ref(user)
 
     # Direct reports (one level)
     direct_reports = []
