@@ -4,6 +4,76 @@ import { bbpsAPI } from '../../../services/api';
 import BharatConnectBranding from '../BharatConnectBranding';
 import { statusBadgeClass, statusLabel, toneClass, toUserMessage } from './complaintUiHelpers';
 
+async function copyTextToClipboard(text) {
+  const t = String(text || '');
+  if (!t) return false;
+  try {
+    if (typeof navigator !== 'undefined' && navigator.clipboard?.writeText) {
+      await navigator.clipboard.writeText(t);
+      return true;
+    }
+  } catch {
+    /* non-secure context or denied — try fallback */
+  }
+  const ta = document.createElement('textarea');
+  ta.value = t;
+  ta.setAttribute('readonly', '');
+  ta.style.position = 'fixed';
+  ta.style.left = '-9999px';
+  document.body.appendChild(ta);
+  ta.select();
+  try {
+    document.execCommand('copy');
+    return true;
+  } finally {
+    document.body.removeChild(ta);
+  }
+}
+
+/**
+ * Full-width ID cell: shows complete value (wraps), click copies to clipboard.
+ */
+function CopyableIdCell({ value, emptyLabel = '—', emptyHint = '', mono = true, className = '' }) {
+  const raw = value != null ? String(value).trim() : '';
+  const empty = !raw;
+  const [copied, setCopied] = useState(false);
+
+  const handleCopy = async () => {
+    if (empty) return;
+    try {
+      await copyTextToClipboard(raw);
+      setCopied(true);
+      window.setTimeout(() => setCopied(false), 2000);
+    } catch {
+      setCopied(false);
+    }
+  };
+
+  return (
+    <td className={`px-3 py-2 align-top ${className}`}>
+      {empty ? (
+        <span className="text-gray-400 text-xs" title={emptyHint || undefined}>
+          {emptyLabel}
+        </span>
+      ) : (
+        <button
+          type="button"
+          className={`w-full max-w-md text-left rounded px-1 py-0.5 -mx-1 hover:bg-violet-50 focus:outline-none focus-visible:ring-2 focus-visible:ring-violet-400 ${
+            mono ? 'font-mono text-xs' : 'text-sm font-medium'
+          }`}
+          onClick={handleCopy}
+          title={`${raw}\n\nClick to copy to clipboard`}
+        >
+          <span className="block break-all whitespace-normal">{raw}</span>
+          {copied ? (
+            <span className="mt-1 block text-[11px] font-sans font-medium text-emerald-700">Copied to clipboard</span>
+          ) : null}
+        </button>
+      )}
+    </td>
+  );
+}
+
 const ComplaintHistoryPanel = () => {
   const [complaintId, setComplaintId] = useState('');
   const [message, setMessage] = useState('');
@@ -163,7 +233,7 @@ const ComplaintHistoryPanel = () => {
           className="border rounded px-3 py-2"
           value={historyQuery}
           onChange={(e) => setHistoryQuery(e.target.value)}
-          placeholder="Search complaint id / txn ref / service id"
+          placeholder="Search complaint id / complaint or payment request id / txn ref / service id"
         />
         <select className="border rounded px-3 py-2" value={historyStatus} onChange={(e) => setHistoryStatus(e.target.value)}>
           <option value="">All statuses</option>
@@ -178,12 +248,22 @@ const ComplaintHistoryPanel = () => {
         </button>
       </div>
 
+      <p className="text-xs text-gray-600 mb-3 max-w-4xl">
+        <strong>Note:</strong> “Complaint register request ID” is the 35-character ID sent when opening the complaint with
+        BillAvenue (for support). “Payment request ID” is from the original bill payment (same as <strong>My Bills → Request ID</strong>).
+        “Txn ref” is the B-Connect reference (CC…); “Service ID” matches <strong>My Bills → Transaction ID</strong> (PMBBPS…).{' '}
+        <strong>ID columns</strong> show the full value (wrapped); <strong>click an ID</strong> to copy it to the clipboard.
+      </p>
+
       <div className="mt-4 overflow-auto border rounded">
         <table className="min-w-full text-sm">
           <thead className="bg-gray-50">
             <tr className="text-left text-gray-600">
-              <th className="px-3 py-2">Complaint ID</th>
-              <th className="px-3 py-2">Txn Ref</th>
+              <th className="px-3 py-2 whitespace-nowrap min-w-[9rem]">Complaint ID</th>
+              <th className="px-3 py-2 min-w-[14rem]">Complaint register req. ID</th>
+              <th className="px-3 py-2 min-w-[14rem]">Payment req. ID</th>
+              <th className="px-3 py-2 min-w-[12rem]">Txn ref (CC…)</th>
+              <th className="px-3 py-2 min-w-[14rem]">Service ID</th>
               <th className="px-3 py-2">Status</th>
               <th className="px-3 py-2">Issue Type</th>
               <th className="px-3 py-2">Updated</th>
@@ -193,15 +273,22 @@ const ComplaintHistoryPanel = () => {
           <tbody>
             {history.length === 0 && (
               <tr>
-                <td className="px-3 py-4 text-gray-500" colSpan={6}>
+                <td className="px-3 py-4 text-gray-500" colSpan={9}>
                   {historyLoading ? 'Loading complaint history...' : 'No complaints found.'}
                 </td>
               </tr>
             )}
             {history.map((row) => (
               <tr key={row.id} className="border-t">
-                <td className="px-3 py-2 font-medium">{row.complaint_id || '-'}</td>
-                <td className="px-3 py-2">{row.txn_ref_id || '-'}</td>
+                <CopyableIdCell value={row.complaint_id} emptyLabel="-" mono={false} />
+                <CopyableIdCell
+                  value={row.billavenue_request_id}
+                  emptyLabel="—"
+                  emptyHint="Not stored for older complaints"
+                />
+                <CopyableIdCell value={row.payment_request_id} />
+                <CopyableIdCell value={row.txn_ref_id} emptyLabel="-" />
+                <CopyableIdCell value={row.service_id} />
                 <td className="px-3 py-2">
                   <span className={`inline-flex border rounded px-2 py-0.5 text-xs font-medium ${statusBadgeClass(row.complaint_status)}`}>
                     {statusLabel(row.complaint_status)}

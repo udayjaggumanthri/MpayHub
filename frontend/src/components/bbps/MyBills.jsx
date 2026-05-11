@@ -1,4 +1,5 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
+import { useLocation, useNavigate } from 'react-router-dom';
 import { bbpsAPI } from '../../services/api';
 import { formatCurrency, formatDateTime } from '../../utils/formatters';
 import Card from '../common/Card';
@@ -17,6 +18,7 @@ import Button from '../common/Button';
 import BharatConnectBranding from './BharatConnectBranding';
 import bAssuredPrimary from '../../assets/bbps/b-assured-primary.svg';
 import bharatConnectPrimary from '../../assets/bbps/bharat-connect-primary.svg';
+import { normalizeCategorySlug } from '../../constants/bbpsCanonicalCategories';
 
 const escapeHtml = (value) =>
   String(value ?? '')
@@ -26,7 +28,96 @@ const escapeHtml = (value) =>
     .replaceAll('"', '&quot;')
     .replaceAll("'", '&#39;');
 
+const deriveCustomerId = (row) => {
+  const r = row || {};
+  const details = r.customer_details && typeof r.customer_details === 'object' ? r.customer_details : {};
+  const inputParams = Array.isArray(r.input_params) ? r.input_params : [];
+  const fromInputParam =
+    inputParams.find((p) => /customer.?id|customer.?number|consumer.?number/i.test(String(p?.paramName || '')))
+      ?.paramValue || '';
+  return (
+    r.customer_id ||
+    r.customer_number ||
+    details.customer_id ||
+    details.customerId ||
+    details['Customer ID'] ||
+    details['CustomerId'] ||
+    details['Customer Number'] ||
+    fromInputParam ||
+    r.mobile ||
+    r.card_last4 ||
+    ''
+  );
+};
+
+const toInputParamRows = (row) =>
+  Array.isArray(row?.inputParams)
+    ? row.inputParams
+    : Array.isArray(row?.input_params)
+      ? row.input_params
+      : [];
+
+const toCustomerDetails = (row) => {
+  const details = row?.customerDetails || row?.customer_details;
+  return details && typeof details === 'object' ? details : {};
+};
+
+const pickFromInputParams = (row, patterns = []) => {
+  const rows = toInputParamRows(row);
+  for (const item of rows) {
+    const key = String(item?.paramName || item?.param_name || '').toLowerCase();
+    const value = String(item?.paramValue || item?.param_value || '').trim();
+    if (!key || !value) continue;
+    if (patterns.some((rx) => rx.test(key))) return value;
+  }
+  return '';
+};
+
+const pickFromCustomerDetails = (row, patterns = []) => {
+  const details = toCustomerDetails(row);
+  for (const [k, v] of Object.entries(details)) {
+    const key = String(k || '').toLowerCase();
+    const value = String(v || '').trim();
+    if (!key || !value) continue;
+    if (patterns.some((rx) => rx.test(key))) return value;
+  }
+  return '';
+};
+
+const deriveReceiptIdentity = (row) => {
+  const rawCat = String(row?.billType || row?.bill_type || row?.category || '');
+  const category = rawCat.toLowerCase();
+  const byPattern = (patterns) => pickFromCustomerDetails(row, patterns) || pickFromInputParams(row, patterns);
+
+  const catNorm = normalizeCategorySlug(rawCat);
+  const isFastag = catNorm === 'fastag' || catNorm === 'fast-tag' || rawCat.toLowerCase().includes('fastag');
+  if (isFastag) {
+    const vehicleNumber =
+      byPattern([/vehicle/, /registration/, /\breg\b/, /\bvrn\b/, /\brc\b/, /veh.*no/, /car.*no/]) ||
+      String(row?.vehicle_number || row?.vehicle_no || '').trim();
+    if (vehicleNumber) return { label: 'Vehicle Number', value: vehicleNumber };
+  }
+
+  if (category.includes('credit') && category.includes('card')) {
+    const last4 =
+      byPattern([/card.*last.?4/, /last.?4/, /card.*digit/]) ||
+      String(row?.cardLast4 || row?.card_last4 || '').trim();
+    if (last4) return { label: 'Card Number (Last 4)', value: last4 };
+  }
+
+  if (category.includes('mobile')) {
+    const mobile = byPattern([/mobile/, /phone/]) || String(row?.mobile || '').trim();
+    if (mobile) return { label: 'Mobile Number', value: mobile };
+  }
+
+  const fallback = deriveCustomerId(row);
+  return { label: 'Customer ID', value: fallback || 'N/A' };
+};
+
 const MyBills = () => {
+  const location = useLocation();
+  const navigate = useNavigate();
+  const autoOpenDoneRef = useRef(false);
   const [transactions, setTransactions] = useState([]);
   const [loading, setLoading] = useState(true);
   const [filters, setFilters] = useState({
@@ -39,6 +130,7 @@ const MyBills = () => {
   const [selectedTransaction, setSelectedTransaction] = useState(null);
   const [showDetailsModal, setShowDetailsModal] = useState(false);
   const [detailsLoading, setDetailsLoading] = useState(false);
+  const selectedIdentity = deriveReceiptIdentity(selectedTransaction || {});
 
   const loadTransactions = useCallback(async () => {
     setLoading(true);
@@ -67,7 +159,9 @@ const MyBills = () => {
             billType: p.category || p.bill_type || 'Bill Payment',
             biller: p.biller_name || p.biller || 'N/A',
             billerId: p.biller_id || null,
-            customerId: p.customer_id || p.customer_number || p.mobile || p.card_last4 || null,
+            customerId: deriveCustomerId(p) || null,
+            inputParams: Array.isArray(p.input_params) ? p.input_params : [],
+            customerDetails: p.customer_details && typeof p.customer_details === 'object' ? p.customer_details : {},
             date: p.created_at || p.transaction_date,
             status: (p.status || 'PENDING').toUpperCase(),
             cardLast4: p.card_last4 || null,
@@ -153,7 +247,12 @@ const MyBills = () => {
         status: String(row.status || prev?.status || transaction.status || 'PENDING').toUpperCase(),
         failureReason: row.failure_reason || prev?.failureReason || '',
         statusHistory: Array.isArray(row.status_history) ? row.status_history : (prev?.statusHistory || []),
-        customerId: row.customer_id || row.customer_number || prev?.customerId || transaction.customerId || '',
+        customerId: deriveCustomerId(row) || prev?.customerId || transaction.customerId || '',
+        inputParams: Array.isArray(row.input_params) ? row.input_params : (prev?.inputParams || transaction.inputParams || []),
+        customerDetails:
+          row.customer_details && typeof row.customer_details === 'object'
+            ? row.customer_details
+            : (prev?.customerDetails || transaction.customerDetails || {}),
       }));
     } finally {
       setDetailsLoading(false);
@@ -166,11 +265,35 @@ const MyBills = () => {
     setDetailsLoading(false);
   };
 
+  useEffect(() => {
+    if (autoOpenDoneRef.current) return;
+    if (loading || !transactions.length) return;
+    const ref = location.state?.openReceipt;
+    if (!ref) return;
+
+    let target = null;
+    if (ref.paymentId != null) {
+      target = transactions.find((t) => String(t.id) === String(ref.paymentId));
+    }
+    if (!target && ref.serviceId) {
+      target = transactions.find((t) => String(t.serviceId || '') === String(ref.serviceId));
+    }
+    if (!target && ref.requestId) {
+      target = transactions.find((t) => String(t.requestId || '') === String(ref.requestId));
+    }
+    if (!target) return;
+
+    autoOpenDoneRef.current = true;
+    handleViewDetails(target);
+    navigate('/bill-payments/my-bills', { replace: true, state: null });
+  }, [loading, transactions, location.state, navigate]);
+
   const downloadReceipt = (txn) => {
     if (!txn) return;
     const txnDate = formatDateTime(txn.date) || 'N/A';
     const totalDeducted = Number(txn.totalDeducted || (txn.amount + (txn.charge || 0)));
     const ccf = Number(txn.ccfAmount || txn.charge || 0);
+    const identity = deriveReceiptIdentity(txn);
     const html = `
       <html>
         <head>
@@ -213,7 +336,7 @@ const MyBills = () => {
           <div class="section-title">Biller Information</div>
           <table>
             <tr><th>Biller Name</th><td>${escapeHtml(txn.biller || 'N/A')}</td><th>Biller ID</th><td>${escapeHtml(txn.billerId || 'N/A')}</td></tr>
-            <tr><th>Customer ID</th><td>${escapeHtml(txn.customerId || 'N/A')}</td><th>Category</th><td>${escapeHtml(txn.billType || 'N/A')}</td></tr>
+            <tr><th>${escapeHtml(identity.label || 'Customer ID')}</th><td>${escapeHtml(identity.value || 'N/A')}</td><th>Category</th><td>${escapeHtml(txn.billType || 'N/A')}</td></tr>
             <tr><th>Transaction Date & Time</th><td>${escapeHtml(txnDate)}</td><th>Transaction Status</th><td>${escapeHtml(txn.status || 'N/A')}</td></tr>
           </table>
 
@@ -225,18 +348,54 @@ const MyBills = () => {
         </body>
       </html>
     `;
-    const printWindow = window.open('', '_blank', 'width=900,height=700,noopener,noreferrer');
-    if (!printWindow) return;
-    try {
-      printWindow.opener = null;
-    } catch {
-      /* ignore */
+    const script = `
+      <script>
+        window.addEventListener('load', function () {
+          setTimeout(function () {
+            try { window.focus(); window.print(); } catch (e) {}
+          }, 350);
+        });
+      <\/script>
+    `;
+    const htmlWithPrint = html.includes('</body>') ? html.replace('</body>', `${script}</body>`) : `${html}${script}`;
+
+    const printWindow = window.open('about:blank', '_blank', 'width=900,height=700');
+    if (!printWindow) {
+      // Popup blocked fallback: print in hidden iframe.
+      const iframe = document.createElement('iframe');
+      iframe.style.position = 'fixed';
+      iframe.style.right = '0';
+      iframe.style.bottom = '0';
+      iframe.style.width = '0';
+      iframe.style.height = '0';
+      iframe.style.border = '0';
+      document.body.appendChild(iframe);
+      const doc = iframe.contentWindow?.document;
+      if (!doc) return;
+      doc.open();
+      doc.write(htmlWithPrint);
+      doc.close();
+      setTimeout(() => {
+        iframe.contentWindow?.focus();
+        iframe.contentWindow?.print();
+        setTimeout(() => {
+          document.body.removeChild(iframe);
+        }, 800);
+      }, 300);
+      return;
     }
-    printWindow.document.open();
-    printWindow.document.write(html);
-    printWindow.document.close();
-    printWindow.focus();
-    printWindow.print();
+    try {
+      const blob = new Blob([htmlWithPrint], { type: 'text/html;charset=utf-8' });
+      const receiptUrl = URL.createObjectURL(blob);
+      printWindow.location.replace(receiptUrl);
+      // Release object URL after viewer has had time to load/print.
+      window.setTimeout(() => URL.revokeObjectURL(receiptUrl), 120000);
+    } catch {
+      // Final fallback when Blob URL creation fails.
+      printWindow.document.open();
+      printWindow.document.write(htmlWithPrint);
+      printWindow.document.close();
+    }
   };
 
   if (loading) {
@@ -534,9 +693,9 @@ const MyBills = () => {
                     </div>
                   )}
                   <div>
-                    <label className="text-xs text-gray-500 uppercase">Customer ID</label>
+                    <label className="text-xs text-gray-500 uppercase">{selectedIdentity.label}</label>
                     <p className="text-sm font-medium text-gray-900 mt-1">
-                      {selectedTransaction.customerId || selectedTransaction.mobile || selectedTransaction.cardLast4 || 'N/A'}
+                      {selectedIdentity.value || 'N/A'}
                     </p>
                   </div>
                 </div>

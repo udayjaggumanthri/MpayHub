@@ -14,6 +14,7 @@ import AnnouncementBanner from './AnnouncementBanner';
 import Card from '../common/Card';
 import DashboardAnalyticsCharts from './DashboardAnalyticsCharts';
 import { FiUser, FiChevronRight } from 'react-icons/fi';
+import bMnemonicPrimary from '../../assets/bbps/b-mnemonic-primary.svg';
 import {
   FaArrowUp,
   FaArrowDown,
@@ -133,6 +134,7 @@ const Dashboard = () => {
         title: 'BBPS — Pay bills',
         description: 'Electricity, mobile, DTH & more',
         icon: FaMoneyBillWave,
+        iconImage: bMnemonicPrimary,
         gradient: 'from-violet-600 to-fuchsia-700',
         onClick: () => navigate('/bill-payments/pay'),
       },
@@ -311,6 +313,7 @@ const Dashboard = () => {
             >
               {quickActions.map((action) => {
                 const Icon = action.icon;
+                const usesImageIcon = Boolean(action.iconImage);
                 return (
                   <button
                     key={action.id}
@@ -319,9 +322,19 @@ const Dashboard = () => {
                     className="group flex items-center gap-4 rounded-2xl border border-slate-200/90 bg-white p-5 text-left shadow-sm transition-all hover:-translate-y-0.5 hover:border-slate-300 hover:shadow-md"
                   >
                     <div
-                      className={`flex-shrink-0 rounded-2xl bg-gradient-to-br p-4 shadow-md ${action.gradient}`}
+                      className={`flex-shrink-0 rounded-2xl p-4 ${
+                        usesImageIcon ? '' : `bg-gradient-to-br shadow-md ${action.gradient}`
+                      }`}
                     >
-                      <Icon size={24} className="text-white" />
+                      {usesImageIcon ? (
+                        <img
+                          src={action.iconImage}
+                          alt="Bharat Connect B mnemonic"
+                          className="h-10 w-10 object-contain"
+                        />
+                      ) : (
+                        <Icon size={24} className="text-white" />
+                      )}
                     </div>
                     <div className="min-w-0 flex-1">
                       <p className="font-semibold text-slate-900">{action.title}</p>

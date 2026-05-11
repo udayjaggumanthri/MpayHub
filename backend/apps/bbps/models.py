@@ -510,6 +510,13 @@ class BbpsComplaint(BaseModel):
     complaint_status = models.CharField(max_length=40, blank=True, default='', db_index=True)
     response_code = models.CharField(max_length=20, blank=True, default='')
     response_reason = models.CharField(max_length=100, blank=True, default='')
+    billavenue_request_id = models.CharField(
+        max_length=50,
+        blank=True,
+        default='',
+        db_index=True,
+        help_text='requestId sent on BillAvenue complaint register call (35 chars; for support).',
+    )
     raw_payload = models.JSONField(default=dict, blank=True)
 
     class Meta:

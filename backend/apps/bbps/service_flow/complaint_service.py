@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import uuid
 
-from apps.bbps.models import BbpsComplaint, BbpsComplaintEvent, BbpsPaymentAttempt
+from apps.bbps.models import BillPayment, BbpsComplaint, BbpsComplaintEvent, BbpsPaymentAttempt
 from apps.bbps.service_flow.compliance import enforce_complaint_cooling
 from apps.core.exceptions import TransactionFailed
 from apps.integrations.billavenue.errors import BillAvenueClientError
@@ -96,6 +96,137 @@ def _is_terminal_complaint_status(status: str) -> bool:
     return s in {'RESOLVED', 'CLOSED', 'REJECTED', 'CANCELLED'}
 
 
+def _is_internal_service_id(value: str) -> bool:
+    return str(value or '').strip().upper().startswith('PMBBPS')
+
+
+def _deep_find_txn_ref_in_payload(obj, *, depth: int = 0, max_depth: int = 12) -> str:
+    """
+    Recover B-Connect txnRefId from nested bill-pay / status JSON when the ORM field was not persisted.
+    Ignores values that look like our internal PMBBPS service_id.
+    """
+    if depth > max_depth:
+        return ''
+    if isinstance(obj, dict):
+        for key, val in obj.items():
+            lk = str(key or '')
+            if lk.lower() in ('txnrefid', 'txn_ref_id', 'txnref_id'):
+                if isinstance(val, (str, int)):
+                    cand = str(val).strip()
+                    if cand and not _is_internal_service_id(cand):
+                        return cand
+            hit = _deep_find_txn_ref_in_payload(val, depth=depth + 1, max_depth=max_depth)
+            if hit:
+                return hit
+    elif isinstance(obj, list):
+        for item in obj[:80]:
+            hit = _deep_find_txn_ref_in_payload(item, depth=depth + 1, max_depth=max_depth)
+            if hit:
+                return hit
+    return ''
+
+
+def _txn_ref_from_attempt_row(attempt: BbpsPaymentAttempt | None) -> str:
+    if not attempt:
+        return ''
+    tid = str(getattr(attempt, 'txn_ref_id', '') or '').strip()
+    if tid and not _is_internal_service_id(tid):
+        return tid
+    payload = getattr(attempt, 'response_payload', None)
+    if isinstance(payload, dict):
+        nested = _deep_find_txn_ref_in_payload(payload)
+        if nested:
+            return nested
+    return ''
+
+
+def _best_txn_ref_from_payment_attempts(*, user, bill_payment_id: int) -> tuple[str, BbpsPaymentAttempt | None]:
+    """Prefer latest attempt with a non-empty upstream txn ref for this bill payment."""
+    rows = (
+        BbpsPaymentAttempt.objects.filter(
+            user=user,
+            bill_payment_id=bill_payment_id,
+            is_deleted=False,
+        )
+        .order_by('-created_at')[:20]
+    )
+    for row in rows:
+        tid = _txn_ref_from_attempt_row(row)
+        if tid and not _is_internal_service_id(tid):
+            return tid, row
+    return '', None
+
+
+def _resolve_complaint_txn_and_attempt(*, user, raw_ref: str) -> tuple[str, BbpsPaymentAttempt | None]:
+    """
+    Map user input (CC…, PMBBPS…, or bill-pay request_id) to the BillAvenue B-Connect txn ref and owning attempt.
+    All ORM lookups are scoped to ``user`` so one user cannot resolve another user's payments.
+    """
+    raw = str(raw_ref or '').strip()
+    if not raw:
+        return '', None
+
+    attempt = (
+        BbpsPaymentAttempt.objects.filter(user=user, txn_ref_id=raw, is_deleted=False)
+        .order_by('-created_at')
+        .first()
+    )
+    if attempt:
+        tid = (_txn_ref_from_attempt_row(attempt) or '').strip() or (raw if not _is_internal_service_id(raw) else '')
+        if tid and not _is_internal_service_id(tid):
+            return tid, attempt
+
+    if _is_internal_service_id(raw):
+        attempt = (
+            BbpsPaymentAttempt.objects.filter(user=user, service_id=raw, is_deleted=False)
+            .order_by('-created_at')
+            .first()
+        )
+        if not attempt:
+            bp = (
+                BillPayment.objects.filter(user=user, service_id=raw, is_deleted=False)
+                .order_by('-created_at')
+                .first()
+            )
+            if bp:
+                tid, att = _best_txn_ref_from_payment_attempts(user=user, bill_payment_id=bp.pk)
+                if tid:
+                    return tid, att
+                attempt = (
+                    BbpsPaymentAttempt.objects.filter(user=user, bill_payment_id=bp.pk, is_deleted=False)
+                    .order_by('-created_at')
+                    .first()
+                )
+        if attempt:
+            tid = _txn_ref_from_attempt_row(attempt)
+            if tid and not _is_internal_service_id(tid):
+                return tid, attempt
+            if attempt.bill_payment_id:
+                tid, att = _best_txn_ref_from_payment_attempts(user=user, bill_payment_id=attempt.bill_payment_id)
+                if tid:
+                    return tid, att
+        return raw, attempt
+
+    attempt = (
+        BbpsPaymentAttempt.objects.filter(user=user, request_id=raw, is_deleted=False)
+        .order_by('-created_at')
+        .first()
+    )
+    if attempt:
+        tid = _txn_ref_from_attempt_row(attempt)
+        if tid and not _is_internal_service_id(tid):
+            return tid, attempt
+        if attempt.bill_payment_id:
+            tid, att = _best_txn_ref_from_payment_attempts(user=user, bill_payment_id=attempt.bill_payment_id)
+            if tid:
+                return tid, att
+
+    if raw.upper().startswith('CC'):
+        return raw, None
+
+    return raw, None
+
+
 def _find_open_duplicate_complaint(*, user, upstream_txn_ref_id: str, complaint_disposition: str):
     rows = (
         BbpsComplaint.objects.filter(
@@ -121,20 +252,17 @@ def register_complaint(*, user, txn_ref_id: str, complaint_desc: str, complaint_
         raise TransactionFailed('Complaint description is required.')
     if not disposition:
         raise TransactionFailed('Complaint disposition is required.')
-    attempt = BbpsPaymentAttempt.objects.filter(txn_ref_id=raw_ref, is_deleted=False).first()
-    upstream_txn_ref_id = raw_ref
-    # UI users often copy internal service ID (PMBBPS...) from My Bills table.
-    # If we can map it to a settled attempt, use the true B-Connect txn_ref_id for complaints.
-    if not attempt and raw_ref:
-        attempt = BbpsPaymentAttempt.objects.filter(
-            service_id=raw_ref,
-            is_deleted=False,
-        ).order_by('-created_at').first()
-        if attempt and str(getattr(attempt, 'txn_ref_id', '') or '').strip():
-            upstream_txn_ref_id = str(attempt.txn_ref_id).strip()
+    upstream_txn_ref_id, attempt = _resolve_complaint_txn_and_attempt(user=user, raw_ref=raw_ref)
     if not upstream_txn_ref_id:
         raise TransactionFailed(
             'B-Connect Transaction ID is required. Use the transaction reference that starts with CC... from receipt/success screen.'
+        )
+    if _is_internal_service_id(upstream_txn_ref_id):
+        raise TransactionFailed(
+            'Could not resolve this payment to a B-Connect transaction reference (CC…). '
+            'Use the CC… value from your payment receipt or success screen, or the B-Connect txn shown after '
+            'querying the transaction. Internal service IDs (PMBBPS…) cannot be sent to BillAvenue until the '
+            'CC reference is available on the payment record.'
         )
     duplicate = _find_open_duplicate_complaint(
         user=user,
@@ -169,13 +297,19 @@ def register_complaint(*, user, txn_ref_id: str, complaint_desc: str, complaint_
     ]
     resp = None
     last_error = None
+    last_billavenue_request_id = ''
     for idx, payload in enumerate(payload_attempts):
         try:
-            resp = client.register_complaint(payload)
+            normalized, rid = client.register_complaint(payload)
+            last_billavenue_request_id = str(rid or '').strip() or last_billavenue_request_id
+            resp = normalized
             last_error = None
             break
         except BillAvenueClientError as exc:
             last_error = exc
+            rid = str(getattr(exc, 'billavenue_request_id', '') or '').strip()
+            if rid:
+                last_billavenue_request_id = rid
             if _is_manual_escalation_error(exc):
                 manual_id = f"MANUAL-{uuid.uuid4().hex[:12].upper()}"
                 return BbpsComplaint.objects.create(
@@ -188,6 +322,7 @@ def register_complaint(*, user, txn_ref_id: str, complaint_desc: str, complaint_
                     complaint_status='MANUAL_ESCALATION_REQUIRED',
                     response_code='257',
                     response_reason='Provider requested manual complaint escalation to cms@billavenue.com',
+                    billavenue_request_id=last_billavenue_request_id,
                     raw_payload={'provider_error': str(exc)},
                 )
             if not _is_description_missing_error(exc):
@@ -207,6 +342,7 @@ def register_complaint(*, user, txn_ref_id: str, complaint_desc: str, complaint_
         complaint_status=str(body.get('complaintStatus') or 'ASSIGNED'),
         response_code=str(body.get('responseCode') or ''),
         response_reason=str(body.get('responseReason') or '')[:100],
+        billavenue_request_id=last_billavenue_request_id,
         raw_payload=resp,
     )
     return c

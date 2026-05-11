@@ -10,6 +10,13 @@ import MPINModal from '../common/MPINModal';
 import { FaCircleCheck, FaCircleExclamation, FaMagnifyingGlass } from 'react-icons/fa6';
 import BharatConnectBranding from './BharatConnectBranding';
 import BbpsDynamicFieldSet from './BbpsDynamicFieldSet';
+import bAssuredPrimary from '../../assets/bbps/b-assured-primary.svg';
+import { normalizeCategorySlug } from '../../constants/bbpsCanonicalCategories';
+
+const isFastagBillCategory = (raw) => {
+  const n = normalizeCategorySlug(raw);
+  return n === 'fastag' || n === 'fast-tag' || n.includes('fastag');
+};
 
 const CreditCardBill = ({ category = 'credit-card', onPaymentSuccess }) => {
   const { user } = useAuth();
@@ -33,6 +40,8 @@ const CreditCardBill = ({ category = 'credit-card', onPaymentSuccess }) => {
   const [quote, setQuote] = useState(null);
   const [lastReceipt, setLastReceipt] = useState(null);
   const [fetchRequestId, setFetchRequestId] = useState('');
+  const [showConfirmPayModal, setShowConfirmPayModal] = useState(false);
+  const [isPaymentProcessing, setIsPaymentProcessing] = useState(false);
   const [paymentModes, setPaymentModes] = useState([]);
   const [paymentModeChannelMap, setPaymentModeChannelMap] = useState({});
   const [planMdmRequirement, setPlanMdmRequirement] = useState('');
@@ -214,6 +223,60 @@ const CreditCardBill = ({ category = 'credit-card', onPaymentSuccess }) => {
     return '';
   };
 
+  const resolveCustomerIdentifier = useCallback(() => {
+    const preferred = [
+      getCanonicalValue('customer_number', ['Customer Number', 'CustomerId', 'Customer ID']),
+      String(inputValues.CustomerId || '').trim(),
+      String(inputValues['Customer ID'] || '').trim(),
+      String(inputValues['Customer Number'] || '').trim(),
+      String(inputValues['Mobile Number'] || '').trim(),
+      String(billDetails?.telephoneNumber || '').trim(),
+      String(user?.phone || '').trim(),
+    ];
+    return preferred.find((v) => String(v || '').trim()) || 'N/A';
+  }, [getCanonicalValue, inputValues, billDetails, user]);
+
+  /** FASTag / dynamic MDM: vehicle is often a dedicated input, not "customer id". */
+  const pickFastagVehicleNumber = useCallback(() => {
+    if (!isFastagBillCategory(category)) return '';
+
+    const haystackField = (f) =>
+      `${f?.param_name || ''} ${f?.canonical_key || ''} ${f?.display_name || ''} ${f?.label || ''}`;
+    const vehicleRx = /vehicle|registration|reg\.?\s*no|vrn|\brc\b|tag|plate|consumerno|consumer\s*no|chassis|w\.?number/i;
+
+    for (const ck of [
+      'vehicle_number',
+      'vehicle_no',
+      'registration_number',
+      'registration',
+      'consumer_number',
+      'customer_vehicle',
+    ]) {
+      const v = getCanonicalValue(ck, []);
+      if (v) return v;
+    }
+    for (const f of inputSchema) {
+      if (vehicleRx.test(haystackField(f))) {
+        const v = String(inputValues[f.param_name] || '').trim();
+        if (v) return v;
+      }
+    }
+    for (const [k, v] of Object.entries(inputValues)) {
+      if (vehicleRx.test(k) && String(v || '').trim()) return String(v).trim();
+    }
+    const bn = String(billDetails?.billNumber || '').trim();
+    if (bn && !/^na$/i.test(bn) && bn !== 'QUICKPAY') return bn;
+    return '';
+  }, [category, inputSchema, inputValues, getCanonicalValue, billDetails]);
+
+  const getPaymentSummaryIdentity = useCallback(() => {
+    if (isFastagBillCategory(category)) {
+      const vn = pickFastagVehicleNumber();
+      return { label: 'Vehicle Number', value: vn || 'N/A' };
+    }
+    return { label: 'Customer ID', value: resolveCustomerIdentifier() };
+  }, [category, pickFastagVehicleNumber, resolveCustomerIdentifier]);
+
   const handleFetchBill = async () => {
     const invalid = validateInputs();
     if (invalid) {
@@ -318,7 +381,7 @@ const CreditCardBill = ({ category = 'credit-card', onPaymentSuccess }) => {
       setError('Quote not ready. Please wait and retry.');
       return;
     }
-    setShowPaymentModal(true);
+    setShowConfirmPayModal(true);
   };
 
   const handleMPINSubmit = async (mpin) => {
@@ -337,6 +400,7 @@ const CreditCardBill = ({ category = 'credit-card', onPaymentSuccess }) => {
     if (paySubmitInFlight.current) return;
     paySubmitInFlight.current = true;
     setLoading(true);
+    setIsPaymentProcessing(true);
     setError('');
     try {
       const inputParams = buildInputParams();
@@ -371,13 +435,15 @@ const CreditCardBill = ({ category = 'credit-card', onPaymentSuccess }) => {
         const txnAt = new Date().toISOString();
         const bConnectTxnId = billPayment.bconnect_txn_id || billPayment.request_id || billPayment.service_id || 'N/A';
         setTransactionId(bConnectTxnId);
+        const summaryIdentity = getPaymentSummaryIdentity();
         setLastReceipt({
           bConnectTxnId,
           txnRefId: billPayment.service_id || 'N/A',
           billerId: biller,
           billerName: billDetails?.billerName || biller,
           customerName: billDetails?.name || 'N/A',
-          customerNumber: inputValues['Customer Number'] || inputValues['Mobile Number'] || 'N/A',
+          customerNumber: summaryIdentity.value,
+          identityLabel: summaryIdentity.label,
           billDate: billDetails?.billDate || '',
           billPeriod: billDetails?.billPeriod || 'NA',
           billNumber: billDetails?.billNumber || 'NA',
@@ -406,6 +472,7 @@ const CreditCardBill = ({ category = 'credit-card', onPaymentSuccess }) => {
           osc.stop(audioCtx.currentTime + 0.2);
         } catch (_) {}
         setShowPaymentModal(false);
+        setShowConfirmPayModal(false);
         await loadWallets();
         setTimeout(() => {
           setShowSuccessNotification(false);
@@ -418,8 +485,14 @@ const CreditCardBill = ({ category = 'credit-card', onPaymentSuccess }) => {
           setQuote(null);
           setPaymentAmountType('total');
           setCustomAmount('');
-          if (onPaymentSuccess) onPaymentSuccess();
-        }, 3000);
+          if (onPaymentSuccess) {
+            onPaymentSuccess({
+              paymentId: billPayment.id || null,
+              serviceId: billPayment.service_id || '',
+              requestId: billPayment.request_id || '',
+            });
+          }
+        }, 900);
       } else {
         const ref = result.traceId || result.error?.trace_id;
         const base = result.message || 'Payment could not be completed.';
@@ -438,6 +511,7 @@ const CreditCardBill = ({ category = 'credit-card', onPaymentSuccess }) => {
       }
     } finally {
       setLoading(false);
+      setIsPaymentProcessing(false);
       paySubmitInFlight.current = false;
     }
   };
@@ -448,19 +522,50 @@ const CreditCardBill = ({ category = 'credit-card', onPaymentSuccess }) => {
   return (
     <>
       {showSuccessNotification && (
-        <div className="fixed top-4 right-4 z-50 animate-slide-in">
-          <div className="bg-green-50 border-2 border-green-200 rounded-lg p-4 shadow-lg flex items-center space-x-3 min-w-[300px]">
-            <FaCircleCheck className="text-green-600 flex-shrink-0" size={24} />
-            <div>
+        <div className="fixed inset-0 z-[70] bg-black/35 backdrop-blur-[1px] flex items-center justify-center p-4">
+          <div className="bg-white border border-emerald-200 rounded-2xl shadow-2xl p-6 max-w-lg w-full">
+            <div className="flex items-center justify-between gap-3">
               <BharatConnectBranding stage="stage3" />
-              <p className="font-semibold text-green-800">Payment successful!</p>
-              <p className="text-sm text-gray-700">B-Connect Transaction ID: {transactionId}</p>
+              <img src={bAssuredPrimary} alt="B-Assured logo" className="h-12 w-auto object-contain" />
+              <span className="inline-flex items-center gap-2 rounded-full border border-emerald-300 bg-emerald-50 px-3 py-1 text-xs font-semibold text-emerald-800">
+                <FaCircleCheck size={14} />
+                Payment Successful
+              </span>
+            </div>
+            <div className="mt-4 rounded-lg border border-emerald-100 bg-emerald-50/60 p-4">
+              <p className="text-sm text-gray-700">Your BBPS payment has been processed successfully.</p>
+              <p className="mt-1 text-sm font-semibold text-gray-900">
+                B-Connect Transaction ID: <span className="font-mono">{transactionId}</span>
+              </p>
             </div>
           </div>
         </div>
       )}
 
       <div className="space-y-6">
+        {isPaymentProcessing && (
+          <div className="fixed inset-0 z-[60] bg-black/45 backdrop-blur-[1px] flex items-center justify-center p-4">
+            <div className="bg-white rounded-2xl shadow-2xl max-w-lg w-full p-6 border border-blue-100">
+              <div className="flex items-center justify-between gap-3">
+                <BharatConnectBranding stage="stage2" title="Processing Payment" variant="compact" />
+                <span className="inline-flex items-center rounded-full border border-blue-200 bg-blue-50 px-3 py-1 text-xs font-semibold text-blue-700">
+                  In Progress
+                </span>
+              </div>
+              <div className="mt-3 rounded-lg border border-slate-200 p-4 bg-slate-50">
+                <div className="flex items-center gap-3">
+                  <div className="h-10 w-10 animate-spin rounded-full border-4 border-blue-100 border-t-blue-600 flex-shrink-0" />
+                  <div>
+                    <p className="text-sm font-semibold text-gray-900">Please wait while we submit your bill payment</p>
+                    <p className="text-xs text-gray-600 mt-1">
+                      Do not refresh, close, or navigate back until this completes.
+                    </p>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
         <Card padding="lg">
           <div className="p-4 sm:p-6 bg-gradient-to-r from-blue-50 to-indigo-50 border-2 border-blue-200 rounded-xl">
             <p className="text-sm font-medium text-gray-600 mb-2">Your BBPS Wallet Balance:</p>
@@ -588,7 +693,7 @@ const CreditCardBill = ({ category = 'credit-card', onPaymentSuccess }) => {
 
             <Button
               onClick={handleFetchBill}
-              disabled={loading || !biller}
+              disabled={loading || isPaymentProcessing || !biller}
               loading={loading}
               icon={FaMagnifyingGlass}
               iconPosition="left"
@@ -788,7 +893,9 @@ const CreditCardBill = ({ category = 'credit-card', onPaymentSuccess }) => {
               disabled={
                 (paymentAmountType === 'custom' && (!customAmount || parseFloat(customAmount) <= 0)) ||
                 bbpsWallet < totalDeducted ||
-                !quote
+                !quote ||
+                loading ||
+                isPaymentProcessing
               }
               variant="primary"
               size="lg"
@@ -802,14 +909,19 @@ const CreditCardBill = ({ category = 'credit-card', onPaymentSuccess }) => {
 
         {lastReceipt && (
           <Card title="B-Connect Receipt" subtitle="Payment confirmation with enterprise receipt fields" padding="lg">
-            <BharatConnectBranding stage="stage3" />
+            <div className="flex items-start justify-between gap-4 mb-3">
+              <BharatConnectBranding stage="stage3" />
+              <div className="rounded-xl border border-emerald-200 bg-emerald-50 px-3 py-2 shadow-sm">
+                <img src={bAssuredPrimary} alt="B-Assured logo" className="h-14 w-auto object-contain" />
+              </div>
+            </div>
             <div className="grid md:grid-cols-2 gap-3 text-sm">
               <div className="border rounded p-2">B-Connect Transaction ID: <strong>{lastReceipt.bConnectTxnId}</strong></div>
               <div className="border rounded p-2">Transaction Ref ID: <strong>{lastReceipt.txnRefId}</strong></div>
               <div className="border rounded p-2">Biller ID: <strong>{lastReceipt.billerId}</strong></div>
               <div className="border rounded p-2">Biller Name: <strong>{lastReceipt.billerName}</strong></div>
               <div className="border rounded p-2">Customer Name: <strong>{lastReceipt.customerName}</strong></div>
-              <div className="border rounded p-2">Customer Number: <strong>{lastReceipt.customerNumber}</strong></div>
+              <div className="border rounded p-2">{lastReceipt.identityLabel || 'Customer Number'}: <strong>{lastReceipt.customerNumber}</strong></div>
               <div className="border rounded p-2">Bill Date: <strong>{formatDate(lastReceipt.billDate)}</strong></div>
               <div className="border rounded p-2">Bill Period: <strong>{lastReceipt.billPeriod}</strong></div>
               <div className="border rounded p-2">Bill Number: <strong>{lastReceipt.billNumber}</strong></div>
@@ -851,6 +963,45 @@ const CreditCardBill = ({ category = 'credit-card', onPaymentSuccess }) => {
         error={error}
         loading={loading}
       />
+
+      {showConfirmPayModal && billDetails && (() => {
+        const summaryIdentity = getPaymentSummaryIdentity();
+        return (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black bg-opacity-50 overflow-y-auto">
+          <div className="bg-white rounded-2xl shadow-xl max-w-lg w-full p-6">
+            <h3 className="text-xl font-bold text-gray-900">Confirm Payment</h3>
+            <p className="mt-2 text-sm text-gray-600">
+              You are about to pay this bill. Please verify details before continuing.
+            </p>
+            <div className="mt-4 space-y-2 text-sm border rounded-lg p-3 bg-slate-50">
+              <div className="flex justify-between"><span className="text-gray-500">Biller</span><span className="font-semibold">{billDetails.billerName || biller}</span></div>
+              <div className="flex justify-between"><span className="text-gray-500">{summaryIdentity.label}</span><span className="font-semibold">{summaryIdentity.value}</span></div>
+              <div className="flex justify-between"><span className="text-gray-500">Amount</span><span className="font-semibold">{formatCurrency(getPaymentAmount())}</span></div>
+              <div className="flex justify-between"><span className="text-gray-500">Total Deducted</span><span className="font-bold text-blue-700">{formatCurrency(totalDeducted)}</span></div>
+            </div>
+            <div className="mt-5 flex gap-3">
+              <button
+                type="button"
+                onClick={() => setShowConfirmPayModal(false)}
+                className="flex-1 px-4 py-2.5 border border-gray-300 rounded-lg text-gray-700 hover:bg-gray-50"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  setShowConfirmPayModal(false);
+                  setShowPaymentModal(true);
+                }}
+                className="flex-1 px-4 py-2.5 bg-blue-600 text-white rounded-lg hover:bg-blue-700"
+              >
+                Continue to MPIN
+              </button>
+            </div>
+          </div>
+        </div>
+        );
+      })()}
     </>
   );
 };

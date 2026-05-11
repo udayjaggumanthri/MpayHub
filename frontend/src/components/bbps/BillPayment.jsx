@@ -9,9 +9,17 @@ const BillPayment = () => {
   const { category } = useParams();
   const navigate = useNavigate();
 
-  const handlePaymentSuccess = () => {
-    // Navigate back to category selection after successful payment
-    navigate('/bill-payments/pay');
+  const handlePaymentSuccess = (receiptRef = {}) => {
+    // Redirect to My Bills and auto-open the latest paid transaction receipt.
+    navigate('/bill-payments/my-bills', {
+      state: {
+        openReceipt: {
+          paymentId: receiptRef?.paymentId || null,
+          serviceId: receiptRef?.serviceId || '',
+          requestId: receiptRef?.requestId || '',
+        },
+      },
+    });
   };
 
   // If no category selected, show category selector
@@ -19,7 +27,14 @@ const BillPayment = () => {
     return (
       <div className="max-w-6xl mx-auto space-y-6">
         <div className="bg-white rounded-xl shadow-sm p-6 border border-gray-200">
-          <BharatConnectBranding stage="stage1" title="Bill Payments" />
+          <BharatConnectBranding
+            stage="stage1"
+            title="Bill Payments"
+            subtitle=""
+            showMnemonic={false}
+            emphasizeRightLogo
+            logoSize="lg"
+          />
 
           {/* Category Selector */}
           <div className="mb-8">

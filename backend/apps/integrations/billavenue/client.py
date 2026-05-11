@@ -29,6 +29,14 @@ from apps.bbps.models import BbpsApiAuditLog
 logger = logging.getLogger(__name__)
 
 
+def _attach_billavenue_request_id(exc: BaseException, request_id: str) -> None:
+    """Let upstream handlers read getattr(exc, 'billavenue_request_id', '') for support (e.g. BBPS complaints)."""
+    try:
+        setattr(exc, 'billavenue_request_id', str(request_id or '').strip())
+    except Exception:
+        pass
+
+
 def _extract_enc_response_field(data: dict) -> str:
     """BillAvenue JSON keys vary by stack (encResponse, EncResponse, enc_response)."""
     if not isinstance(data, dict):
@@ -416,10 +424,14 @@ class BillAvenueClient:
         except requests.exceptions.Timeout as exc:
             err = f"TIMEOUT endpoint={endpoint_name} connect={timeout[0]}s read={timeout[1]}s: {exc}"
             self._audit(endpoint_name, env.get('requestId', ''), '', False, started, request_meta, {}, err)
-            raise BillAvenueTransportError(err) from exc
+            te = BillAvenueTransportError(err)
+            _attach_billavenue_request_id(te, env.get('requestId', ''))
+            raise te from exc
         except Exception as exc:
             self._audit(endpoint_name, env.get('requestId', ''), '', False, started, request_meta, {}, str(exc))
-            raise BillAvenueTransportError(str(exc)) from exc
+            te = BillAvenueTransportError(str(exc))
+            _attach_billavenue_request_id(te, env.get('requestId', ''))
+            raise te from exc
 
         enc_resp = _extract_enc_response_field(data)
         if enc_resp:
@@ -474,10 +486,12 @@ class BillAvenueClient:
             if 'unauthorized access detected' in low or 'access denied' in low:
                 code = 'PP001'
                 self._audit(endpoint_name, env.get('requestId', ''), code, False, started, request_meta, {'normalized': normalized}, 'Unauthorized access from BillAvenue module')
-                raise BillAvenueAuthError(
+                ae = BillAvenueAuthError(
                     f"BillAvenue access denied for endpoint '{endpoint_name}' (requestId={env.get('requestId','')}). "
                     'Verify Access Code/Institute ID/Agent privileges and endpoint entitlement.'
                 )
+                _attach_billavenue_request_id(ae, env.get('requestId', ''))
+                raise ae
 
         code = extract_response_code(normalized)
         # Some providers return decrypted JSON text as a string; recover code from it.
@@ -558,15 +572,19 @@ class BillAvenueClient:
                 raw_preview = ''
                 if isinstance(normalized, dict):
                     raw_preview = str(normalized.get('raw') or '')[:180].replace('\n', ' ')
-                raise BillAvenueClientError(
+                ce = BillAvenueClientError(
                     f"BillAvenue API failed ({endpoint_name}): missing responseCode in parsed gateway payload "
                     f"(top-level keys: {keys}; raw-preview: {raw_preview}). "
                     'Check UAT credentials, endpoint version, and BillAvenue response format.'
                 )
+                _attach_billavenue_request_id(ce, env.get('requestId', ''))
+                raise ce
             exc_cls = exception_for_code(code)
             provider_err = _error_message_from_normalized(normalized if isinstance(normalized, dict) else {})
             suffix = f' ({provider_err})' if provider_err else ''
-            raise exc_cls(f'BillAvenue API failed ({endpoint_name}) code={c}{suffix}')
+            pe = exc_cls(f'BillAvenue API failed ({endpoint_name}) code={c}{suffix}')
+            _attach_billavenue_request_id(pe, env.get('requestId', ''))
+            raise pe
         return BillAvenueResult(request_id=env['requestId'], response_code=code, normalized=normalized, raw_response=data)
 
     def _audit(self, endpoint_name, request_id, response_code, success, started_at, request_meta, response_meta, error_message):

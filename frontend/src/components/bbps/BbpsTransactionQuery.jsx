@@ -8,24 +8,69 @@ const fmtVal = (v) => {
   return s || '—';
 };
 
+const pickCI = (obj, keys = []) => {
+  if (!obj || typeof obj !== 'object') return '';
+  for (const k of keys) {
+    if (obj[k] != null && String(obj[k]).trim() !== '') return String(obj[k]).trim();
+  }
+  const map = Object.entries(obj).reduce((acc, [k, v]) => {
+    acc[String(k).toLowerCase()] = v;
+    return acc;
+  }, {});
+  for (const k of keys) {
+    const v = map[String(k).toLowerCase()];
+    if (v != null && String(v).trim() !== '') return String(v).trim();
+  }
+  return '';
+};
+
+const infoArrayMap = (row) => {
+  const sources = [
+    ...(Array.isArray(row?.additionalInfo?.info) ? row.additionalInfo.info : []),
+    ...(Array.isArray(row?.paymentInfo?.info) ? row.paymentInfo.info : []),
+    ...(Array.isArray(row?.billerResponse?.additionalInfo?.info) ? row.billerResponse.additionalInfo.info : []),
+  ];
+  const out = {};
+  for (const item of sources) {
+    const name = String(item?.infoName || item?.name || '').trim();
+    const value = String(item?.infoValue || item?.value || '').trim();
+    if (name && value) out[name.toLowerCase()] = value;
+  }
+  return out;
+};
+
 /**
  * Map BillAvenue txn row (shape varies) into display fields for the Query Transaction card.
  */
-const normalizeTxnRow = (r) => ({
-  billerName: r.billerName || r.biller_name || r.billerId || r.biller_id,
-  billNumber: r.billNumber || r.bill_number || r.billNo || r.consumerNumber || r.customerRefNumber,
-  dueDate: r.dueDate || r.due_date,
-  registeredMobile: r.registeredMobile || r.regMobileNo || r.mobileNo || r.mobileNumber,
-  ccf: r.customerConvenienceFee || r.ccf || r.convFee,
-  billAmount: r.billAmount || r.bill_amount || r.amount,
-  txnReferenceId: r.txnReferenceId || r.txnRefId || r.transactionRefId,
-  mobileNumber: r.mobileNumber || r.mobileNo || r.customerMobile,
-  billDate: r.billDate || r.bill_date,
-  paymentMode: r.paymentMode || r.payMode || r.payment_method,
-  txnDate: r.txnDate || r.txn_date || r.transactionDate,
-  txnStatus: r.txnStatus || r.txn_status || r.status,
-  totalAmount: r.totalAmount || r.total_amount || r.amountPaid || r.billAmount,
-});
+const normalizeTxnRow = (r) => {
+  const row = r && typeof r === 'object' ? r : {};
+  const billerResp = row.billerResponse && typeof row.billerResponse === 'object' ? row.billerResponse : {};
+  const infoMap = infoArrayMap(row);
+  const pick = (...keys) =>
+    pickCI(row, keys) ||
+    pickCI(billerResp, keys) ||
+    keys.map((k) => infoMap[String(k).toLowerCase()]).find((v) => String(v || '').trim()) ||
+    '';
+
+  const billAmount = pick('billAmount', 'bill_amount', 'amount');
+  const totalAmount = pick('totalAmount', 'total_amount', 'amountPaid', 'amount', 'paidAmount', 'paymentAmount');
+
+  return {
+    billerName: pick('billerName', 'biller_name', 'billerId', 'biller_id', 'biller'),
+    billNumber: pick('billNumber', 'bill_number', 'billNo', 'consumerNumber', 'customerRefNumber', 'consumerNo'),
+    dueDate: pick('dueDate', 'due_date', 'billDueDate'),
+    registeredMobile: pick('registeredMobile', 'regMobileNo', 'registeredMobileNumber', 'mobileNo', 'mobileNumber'),
+    ccf: pick('customerConvenienceFee', 'ccf', 'convFee', 'customerConvFee', 'convenienceFee'),
+    billAmount,
+    txnReferenceId: pick('txnReferenceId', 'txnRefId', 'transactionRefId', 'bConnectTxnId'),
+    mobileNumber: pick('mobileNumber', 'mobileNo', 'customerMobile', 'mobile'),
+    billDate: pick('billDate', 'bill_date'),
+    paymentMode: pick('paymentMode', 'payMode', 'payment_method', 'paymentModeDesc'),
+    txnDate: pick('txnDate', 'txn_date', 'transactionDate', 'txnDateTime', 'transactionDateTime'),
+    txnStatus: pick('txnStatus', 'txn_status', 'status', 'txnRespType'),
+    totalAmount: totalAmount || billAmount,
+  };
+};
 
 const TransactionDetailCard = ({ row, onRaiseComplaint }) => {
   const n = normalizeTxnRow(row);

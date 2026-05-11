@@ -670,7 +670,9 @@ class BBPSClient(BaseIntegration):
         return out.normalized
 
     def register_complaint(self, payload: dict):
-        return self._require_live_client().complaint_register(payload).normalized
+        """Returns (normalized_decrypted_body, billavenue_request_id)."""
+        out = self._require_live_client().complaint_register(payload)
+        return out.normalized, out.request_id
 
     def track_complaint(self, payload: dict):
         return self._require_live_client().complaint_track(payload).normalized

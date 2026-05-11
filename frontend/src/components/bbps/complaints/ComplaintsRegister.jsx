@@ -118,8 +118,11 @@ const ComplaintsRegister = () => {
       setMessageTone('error');
       return;
     }
-    if (!/^CC/i.test(tx) && !/^PMBBPS/i.test(tx)) {
-      setMessage('Use B-Connect Transaction ID (CC…) or internal service ID (PMBBPS…).');
+    const looksLikeBillPayRequestId = tx.length >= 20 && tx.length <= 55 && /^[A-Za-z0-9_-]+$/.test(tx);
+    if (!/^CC/i.test(tx) && !/^PMBBPS/i.test(tx) && !looksLikeBillPayRequestId) {
+      setMessage(
+        'Use B-Connect Transaction ID (CC…), internal service ID (PMBBPS…), or the bill-pay Request ID from My Bills.'
+      );
       setMessageTone('error');
       return;
     }

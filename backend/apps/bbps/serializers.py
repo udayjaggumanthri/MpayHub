@@ -30,6 +30,10 @@ class BillPaymentSerializer(serializers.ModelSerializer):
     approval_ref_number = serializers.SerializerMethodField()
     ccf_amount = serializers.SerializerMethodField()
     status_history = serializers.SerializerMethodField()
+    input_params = serializers.SerializerMethodField()
+    customer_details = serializers.SerializerMethodField()
+    mobile = serializers.SerializerMethodField()
+    card_last4 = serializers.SerializerMethodField()
 
     class Meta:
         model = BillPayment
@@ -38,11 +42,13 @@ class BillPaymentSerializer(serializers.ModelSerializer):
             'total_deducted', 'status', 'service_id', 'request_id',
             'failure_reason', 'created_at',
             'bconnect_txn_id', 'approval_ref_number', 'ccf_amount', 'status_history',
+            'input_params', 'customer_details', 'mobile', 'card_last4',
         ]
         read_only_fields = [
             'id', 'charge', 'total_deducted', 'status', 'service_id',
             'request_id', 'failure_reason', 'created_at',
             'bconnect_txn_id', 'approval_ref_number', 'ccf_amount', 'status_history',
+            'input_params', 'customer_details', 'mobile', 'card_last4',
         ]
 
     def _latest_attempt(self, obj):
@@ -76,6 +82,41 @@ class BillPaymentSerializer(serializers.ModelSerializer):
                 }
             )
         return out
+
+    def _request_payload(self, obj):
+        attempt = self._latest_attempt(obj)
+        payload = getattr(attempt, 'request_payload', None) if attempt else None
+        return payload if isinstance(payload, dict) else {}
+
+    def get_input_params(self, obj):
+        payload = self._request_payload(obj)
+        rows = payload.get('input_params')
+        return rows if isinstance(rows, list) else []
+
+    def get_customer_details(self, obj):
+        payload = self._request_payload(obj)
+        details = payload.get('customer_details')
+        return details if isinstance(details, dict) else {}
+
+    def get_mobile(self, obj):
+        payload = self._request_payload(obj)
+        details = payload.get('customer_details') if isinstance(payload.get('customer_details'), dict) else {}
+        return str(
+            details.get('Mobile Number')
+            or details.get('mobile')
+            or payload.get('mobile')
+            or ''
+        ).strip()
+
+    def get_card_last4(self, obj):
+        payload = self._request_payload(obj)
+        details = payload.get('customer_details') if isinstance(payload.get('customer_details'), dict) else {}
+        return str(
+            details.get('Card Last4 Digits')
+            or details.get('Card Last 4 Digits')
+            or payload.get('card_last4')
+            or ''
+        ).strip()
 
 
 class FetchBillSerializer(serializers.Serializer):
@@ -309,6 +350,7 @@ class ComplaintHistoryItemSerializer(serializers.ModelSerializer):
     is_manual_escalation = serializers.SerializerMethodField()
     provider_track_eligible = serializers.SerializerMethodField()
     service_id = serializers.SerializerMethodField()
+    payment_request_id = serializers.SerializerMethodField()
     payment_id = serializers.SerializerMethodField()
     bill_type = serializers.SerializerMethodField()
 
@@ -317,6 +359,8 @@ class ComplaintHistoryItemSerializer(serializers.ModelSerializer):
         fields = [
             'id',
             'complaint_id',
+            'billavenue_request_id',
+            'payment_request_id',
             'txn_ref_id',
             'complaint_desc',
             'complaint_disposition',
@@ -351,6 +395,10 @@ class ComplaintHistoryItemSerializer(serializers.ModelSerializer):
 
     def get_service_id(self, obj):
         return str(getattr(obj.attempt, 'service_id', '') or '')
+
+    def get_payment_request_id(self, obj):
+        """BillAvenue requestId from the original bill-pay call (same as My Bills → Request ID)."""
+        return str(getattr(obj.attempt, 'request_id', '') or '')
 
     def get_payment_id(self, obj):
         bill_payment = getattr(obj.attempt, 'bill_payment', None)

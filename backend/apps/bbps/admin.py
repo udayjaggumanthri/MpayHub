@@ -179,9 +179,9 @@ class BbpsStatusPollLogAdmin(admin.ModelAdmin):
 
 @admin.register(BbpsComplaint)
 class BbpsComplaintAdmin(admin.ModelAdmin):
-    list_display = ['complaint_id', 'user', 'txn_ref_id', 'complaint_status', 'response_code', 'created_at']
+    list_display = ['complaint_id', 'billavenue_request_id', 'user', 'txn_ref_id', 'complaint_status', 'response_code', 'created_at']
     list_filter = ['complaint_status', 'response_code']
-    search_fields = ['complaint_id', 'txn_ref_id', 'user__user_id']
+    search_fields = ['complaint_id', 'billavenue_request_id', 'txn_ref_id', 'user__user_id']
 
 
 @admin.register(BbpsComplaintEvent)

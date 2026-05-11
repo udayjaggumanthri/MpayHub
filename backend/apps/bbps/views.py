@@ -2393,21 +2393,89 @@ def transaction_query_view(request):
     )
 
 
+def _complaint_register_post_body(request) -> dict:
+    """Normalize DRF request.data (dict or QueryDict) for logging."""
+    raw = getattr(request, 'data', None)
+    if raw is None:
+        return {}
+    if hasattr(raw, 'dict'):
+        try:
+            return dict(raw.dict())
+        except Exception:
+            pass
+    if isinstance(raw, dict):
+        return raw
+    try:
+        return dict(raw)
+    except Exception:
+        return {}
+
+
+def _complaint_register_request_summary(data) -> dict:
+    """Safe fields for ops logs (avoid logging full free-text complaint body)."""
+    if not isinstance(data, dict):
+        return {}
+    out: dict = {}
+    tid = str(data.get('txn_ref_id') or '').strip()
+    if tid:
+        out['txn_ref_id_prefix'] = tid[:8] + ('…' if len(tid) > 8 else '')
+        out['txn_ref_id_len'] = len(tid)
+    disp = str(data.get('complaint_disposition') or '').strip()
+    if disp:
+        out['complaint_disposition_prefix'] = disp[:60] + ('…' if len(disp) > 60 else '')
+    desc = str(data.get('complaint_desc') or '').strip()
+    if desc:
+        out['complaint_desc_len'] = len(desc)
+    return out
+
+
+def _log_complaint_register_failure(*, request, http_status: int, message: str, **extra):
+    payload = {
+        'event': 'bbps_complaint_register_failed',
+        'user_id': getattr(request.user, 'pk', None),
+        'http_status': http_status,
+        'message': str(message or '')[:2000],
+        **_complaint_register_request_summary(_complaint_register_post_body(request)),
+    }
+    payload.update({k: v for k, v in extra.items() if v is not None})
+    try:
+        line = json.dumps(payload, default=str, ensure_ascii=False)
+    except Exception:
+        line = str(payload)
+    logger.warning('%s', line)
+
+
 @api_view(['POST'])
 @permission_classes([IsAuthenticated])
 def complaint_register_view(request):
     ser = ComplaintRegisterSerializer(data=request.data)
     if not ser.is_valid():
+        _log_complaint_register_failure(
+            request=request,
+            http_status=400,
+            message='Invalid complaint request',
+            validation_errors=json.loads(json.dumps(ser.errors, default=str)),
+        )
         return Response({'success': False, 'data': None, 'message': 'Invalid complaint request', 'errors': ser.errors}, status=400)
     try:
         row = register_complaint(user=request.user, **ser.validated_data)
     except TransactionFailed as exc:
         msg = str(exc)
         status_code = 409 if 'duplicate complaint' in msg.lower() else 400
+        _log_complaint_register_failure(request=request, http_status=status_code, message=msg)
         return Response({'success': False, 'data': None, 'message': msg, 'errors': []}, status=status_code)
     except BillAvenueClientError as exc:
-        return Response({'success': False, 'data': None, 'message': _friendly_complaint_error_message(str(exc)), 'errors': []}, status=400)
+        raw = str(exc)
+        friendly = _friendly_complaint_error_message(raw)
+        _log_complaint_register_failure(
+            request=request,
+            http_status=400,
+            message=friendly,
+            billavenue_error_detail=raw[:2000],
+        )
+        return Response({'success': False, 'data': None, 'message': friendly, 'errors': []}, status=400)
     except BillAvenueTransportError as exc:
+        _log_complaint_register_failure(request=request, http_status=503, message=str(exc))
         return Response({'success': False, 'data': None, 'message': str(exc), 'errors': []}, status=503)
     msg = 'Complaint registered with BBPS (BillAvenue). Use the complaint ID to track status.'
     code = 201
@@ -2419,6 +2487,19 @@ def complaint_register_view(request):
             'To proceed, email cms@billavenue.com with your B-Connect transaction ID (CC…), disposition, and description.'
         )
         code = 202
+        logger.info(
+            '%s',
+            json.dumps(
+                {
+                    'event': 'bbps_complaint_register_manual_escalation',
+                    'user_id': getattr(request.user, 'pk', None),
+                    'complaint_id': str(row.complaint_id or ''),
+                    'http_status': 202,
+                },
+                default=str,
+                ensure_ascii=False,
+            ),
+        )
     return Response(
         {
             'success': True,
@@ -2498,6 +2579,8 @@ def complaint_history_view(request):
             | Q(complaint_desc__icontains=q)
             | Q(complaint_disposition__icontains=q)
             | Q(attempt__service_id__icontains=q)
+            | Q(billavenue_request_id__icontains=q)
+            | Q(attempt__request_id__icontains=q)
         )
 
     total = rows.count()
