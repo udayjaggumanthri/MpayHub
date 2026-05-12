@@ -47,6 +47,7 @@ Use the biller schema / input params from MDM, then fetch:
 
 - Expected: decrypted payload contains `responseCode` = `000`
 - Output includes `billAmount`, `dueDate`, and optional amount options.
+- Some UAT billers (example: `OTME00005XXZ43`) expose MDM `paramName` values like `a`, `a b` with no human labels. Use the **exact** sample `paramValue`s from your BillAvenue / NPCI UAT pack for that biller; arbitrary digits often fail or return `FNR003` from the biller switch.
 
 ### 4) Transaction status sanity
 

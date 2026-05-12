@@ -102,10 +102,7 @@ const UserDetail = () => {
     setPackagesLoading(true);
     setPackageMessage('');
     try {
-      const [pkgRes, assignableRes] = await Promise.all([
-        fundManagementAPI.getUserPackages(userId),
-        fundManagementAPI.getAssignablePackages(),
-      ]);
+      const pkgRes = await fundManagementAPI.getUserPackages(userId);
       if (pkgRes.success && pkgRes.data) {
         setUserPackages({
           assigned: pkgRes.data.assigned_packages || [],
@@ -114,15 +111,22 @@ const UserDetail = () => {
       } else {
         setPackageMessage(pkgRes.message || '');
       }
-      if (assignableRes.success && assignableRes.data?.packages) {
-        setAssignablePackages(assignableRes.data.packages);
+      if (isAdmin) {
+        const assignableRes = await fundManagementAPI.getAssignablePackages();
+        if (assignableRes.success && assignableRes.data?.packages) {
+          setAssignablePackages(assignableRes.data.packages);
+        } else {
+          setAssignablePackages([]);
+        }
+      } else {
+        setAssignablePackages([]);
       }
     } catch (err) {
       console.error('Failed to load packages:', err);
     } finally {
       setPackagesLoading(false);
     }
-  }, [userId]);
+  }, [userId, isAdmin]);
 
   useEffect(() => {
     loadUser();
@@ -452,7 +456,7 @@ const UserDetail = () => {
                           {(user.hierarchy_lineage.direct_reports || []).map((c) => (
                             <Link
                               key={c.user_id}
-                              to={`/admin/users/${c.id || c.user_id}`}
+                              to={`/user-management/users/${c.id ?? c.user_id}`}
                               className="flex items-center gap-4 px-4 py-3 hover:bg-slate-50 transition-colors"
                             >
                               <span className="font-mono text-sm font-semibold text-indigo-700">{formatUserId(c.user_id)}</span>
@@ -679,14 +683,16 @@ const UserDetail = () => {
                                 {pkg.is_default && <FaStar className="text-amber-500" size={14} />}
                                 <span className="font-medium text-violet-900">{pkg.display_name}</span>
                               </div>
-                              <button
-                                onClick={() => handleRemovePackage(pkg.id)}
-                                disabled={packageAssigning === pkg.id}
-                                className="rounded-lg p-2 text-violet-600 hover:bg-violet-100 hover:text-red-600 transition-colors disabled:opacity-50"
-                                title="Remove package"
-                              >
-                                <FaTrash size={14} />
-                              </button>
+                              {isAdmin ? (
+                                <button
+                                  onClick={() => handleRemovePackage(pkg.id)}
+                                  disabled={packageAssigning === pkg.id}
+                                  className="rounded-lg p-2 text-violet-600 hover:bg-violet-100 hover:text-red-600 transition-colors disabled:opacity-50"
+                                  title="Remove package"
+                                >
+                                  <FaTrash size={14} />
+                                </button>
+                              ) : null}
                             </div>
                           ))}
                         </div>
@@ -717,8 +723,10 @@ const UserDetail = () => {
                       )}
                     </div>
 
-                    {/* Assign New Package */}
-                    {assignablePackages.filter((pkg) => !userPackages.assigned.find((ap) => ap.id === pkg.id)).length > 0 && (
+                    {/* Assign New Package (Admin only) */}
+                    {isAdmin &&
+                      assignablePackages.filter((pkg) => !userPackages.assigned.find((ap) => ap.id === pkg.id)).length >
+                        0 && (
                       <div className="pt-4 border-t border-slate-100">
                         <p className="text-xs font-semibold uppercase tracking-wide text-slate-600 mb-3">
                           Assign Package

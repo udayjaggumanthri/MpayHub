@@ -119,12 +119,13 @@ def create_user(user_data, created_by):
     Wallet.objects.create(user=user, wallet_type='commission', balance=0.00)
     Wallet.objects.create(user=user, wallet_type='bbps', balance=0.00)
 
-    # Auto-assign default package (if configured) or packages passed during creation
+    # Auto-assign default package (if configured) or packages passed during creation (Admin only)
     from apps.fund_management.services import auto_assign_default_package, assign_package_to_user
-    
-    package_ids = user_data.get('package_ids', [])
+
+    creator_role = (getattr(created_by, 'role', None) or '').strip()
+    package_ids = user_data.get('package_ids', []) if creator_role == 'Admin' else []
     if package_ids:
-        # Assign specific packages passed during user creation
+        # Assign specific packages passed during user creation (Admin only)
         for pkg_id in package_ids:
             assign_package_to_user(
                 assigner=created_by,

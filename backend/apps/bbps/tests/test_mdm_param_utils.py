@@ -3,7 +3,15 @@ from pathlib import Path
 
 from django.test import SimpleTestCase
 
-from apps.bbps.mdm_param_utils import extract_param_lov_and_extras, infer_input_kind, normalize_schema_choices
+from apps.bbps.catalog.mdm_parse import extract_param_rows
+from apps.bbps.mdm_param_utils import (
+    constraints_hint_for_schema_row,
+    extract_param_lov_and_extras,
+    infer_input_kind,
+    input_schema_display_label,
+    is_placeholder_style_param_name,
+    normalize_schema_choices,
+)
 
 
 class MdmParamUtilsTests(SimpleTestCase):
@@ -28,6 +36,49 @@ class MdmParamUtilsTests(SimpleTestCase):
         self.assertEqual(infer_input_kind(data_type='NUMERIC', choices=[]), 'numeric')
         self.assertEqual(infer_input_kind(data_type='DATE', choices=[]), 'date')
         self.assertEqual(infer_input_kind(data_type='TEXT', choices=[{'value': 'a', 'label': 'A'}]), 'select')
+
+    def test_extract_display_label_from_param_label(self):
+        row = {'paramName': 'a', 'paramLabel': 'Subscriber number'}
+        _, extras = extract_param_lov_and_extras(row)
+        self.assertEqual(extras.get('display_label'), 'Subscriber number')
+
+    def test_is_placeholder_style_param_name(self):
+        self.assertTrue(is_placeholder_style_param_name('a'))
+        self.assertTrue(is_placeholder_style_param_name('a b c'))
+        self.assertFalse(is_placeholder_style_param_name('CustomerId'))
+        self.assertFalse(is_placeholder_style_param_name('Mobile Number'))
+
+    def test_input_schema_display_label_fallback_for_placeholder_wire(self):
+        lab = input_schema_display_label(
+            wire='a b',
+            help_text='',
+            extras={},
+            order=2,
+            raw_row=None,
+        )
+        self.assertEqual(lab, 'Bill reference detail 2')
+
+    def test_extract_param_rows_skips_empty_params_list_wrapper(self):
+        outer = {'paramsList': [], 'note': 'x'}
+        self.assertEqual(extract_param_rows([outer]), [])
+
+    def test_extract_param_rows_accepts_direct_param_dicts(self):
+        rows = extract_param_rows([{'paramName': 'CustomerId', 'dataType': 'ALPHANUMERIC', 'minLength': 3}])
+        self.assertEqual(len(rows), 1)
+        self.assertEqual(rows[0]['paramName'], 'CustomerId')
+
+    def test_constraints_hint_for_schema_row(self):
+        h = constraints_hint_for_schema_row(
+            min_length=10,
+            max_length=10,
+            data_type='NUMERIC',
+            regex='',
+            input_kind='numeric',
+        )
+        self.assertIn('10', h)
+        self.assertIn('characters', h)
+        self.assertIn('NUMERIC', h)
+        self.assertIn('digits only', h)
 
     def test_fixture_profiles_parseable(self):
         path = Path(__file__).resolve().parent / 'fixtures' / 'mdm_biller_profiles.json'

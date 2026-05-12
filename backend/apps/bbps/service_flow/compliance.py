@@ -236,6 +236,21 @@ def enforce_biller_mode_channel_constraints(
         )
 
 
+def _input_params_signature(rows) -> tuple[tuple[str, str], ...]:
+    """Order-insensitive comparison for fetch vs pay input rows (BillAvenue cares about wire order; we validate semantics)."""
+    if not isinstance(rows, list):
+        return ()
+    norm: list[tuple[str, str, str]] = []
+    for row in rows:
+        if not isinstance(row, dict):
+            continue
+        pn = str(row.get('paramName') or row.get('param_name') or '').strip()
+        pv = row.get('paramValue') if 'paramValue' in row else row.get('param_value')
+        norm.append((pn.lower(), pn, '' if pv is None else str(pv).strip()))
+    norm.sort(key=lambda x: x[0])
+    return tuple((x[1], x[2]) for x in norm)
+
+
 def enforce_fetch_pay_linkage(
     *,
     user,
@@ -247,25 +262,36 @@ def enforce_fetch_pay_linkage(
     if requirement != 'MANDATORY':
         return None
     params = input_params if isinstance(input_params, list) else []
-    session = (
-        BbpsFetchSession.objects.filter(
-            user=user,
-            biller_master=biller,
-            is_deleted=False,
-            status='FETCHED',
-        )
-        .order_by('-created_at')
-        .first()
+    rid = _normalize_text(request_id)
+    base_qs = BbpsFetchSession.objects.filter(
+        user=user,
+        biller_master=biller,
+        is_deleted=False,
+        status='FETCHED',
     )
+    if rid:
+        session = base_qs.filter(request_id=rid).order_by('-created_at').first()
+        if not session:
+            raise TransactionFailed(
+                'No fetched bill matches this request reference. Fetch the bill again, then pay using the '
+                'same request id returned from fetch (do not start a new fetch in another tab first).'
+            )
+    else:
+        if base_qs.count() > 1:
+            raise TransactionFailed(
+                'More than one fetched bill is open for this biller. Pay using the request_id from the fetch you '
+                'intend to settle (returned as request_id on the fetch response), or fetch again in this screen only.'
+            )
+        session = base_qs.order_by('-created_at').first()
     if not session:
         raise TransactionFailed(
             'Fetch is mandatory for this biller. Please fetch the bill before payment. '
             'If a previous payment attempt failed or was declined, fetch the bill again before retrying.'
         )
     existing_inputs = ((session.input_params or {}).get('input') or [])
-    if params and existing_inputs and params != existing_inputs:
+    if _input_params_signature(params) != _input_params_signature(existing_inputs):
         raise TransactionFailed('Payment input parameters do not match latest fetched bill snapshot.')
-    if request_id and _normalize_text(session.request_id) and request_id != session.request_id:
+    if rid and _normalize_text(session.request_id) and rid != session.request_id:
         raise TransactionFailed('For mandatory fetch billers, payment request_id must match fetched request_id.')
     return session
 

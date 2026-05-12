@@ -28,25 +28,25 @@ def team_transaction_user_ids(viewer: User) -> frozenset[int]:
     """
     User PKs whose activity is visible in *team* scope for Transaction / PassbookEntry.
 
-    - Super Distributor / Admin: self + full downline tree (Admin handled separately via Q()).
-    - Master Distributor: self + Distributor + Retailer in subtree.
-    - Distributor: self + Retailer downline only.
+    Downline only: the viewer's own transactions are never included (use scope=self for that).
+
+    - Super Distributor: all users in subtree (recursive subordinates).
+    - Master Distributor: Distributor + Retailer subordinates only (hired under this MD).
+    - Distributor: Retailer subordinates only.
+    - Admin: not used here — ``transaction_user_q`` uses ``~Q(user=viewer)`` for team scope.
     """
     role = getattr(viewer, 'role', None) or ''
-    base = {viewer.pk}
     subs = UserHierarchy.get_subordinates(viewer)
     if role == 'Super Distributor':
-        return frozenset(base | {s.pk for s in subs})
+        return frozenset(s.pk for s in subs)
     if role == 'Master Distributor':
-        return frozenset(
-            base | {s.pk for s in subs if getattr(s, 'role', '') in ('Distributor', 'Retailer')}
-        )
+        return frozenset(s.pk for s in subs if getattr(s, 'role', '') in ('Distributor', 'Retailer'))
     if role == 'Distributor':
-        return frozenset(base | {s.pk for s in subs if getattr(s, 'role', '') == 'Retailer'})
+        return frozenset(s.pk for s in subs if getattr(s, 'role', '') == 'Retailer')
     if role == 'Admin':
         # Not used — caller uses Q() for all users.
         return frozenset()
-    return frozenset(base)
+    return frozenset()
 
 
 def commission_team_source_user_ids(viewer: User) -> list[int] | None:
@@ -77,7 +77,8 @@ def transaction_user_q(request) -> Q:
     if role not in TEAM_SCOPE_ROLES:
         raise PermissionDenied('Team report scope is not enabled for your role.')
     if role == 'Admin':
-        return Q()
+        # Team = platform activity excluding the admin's own wallet rows.
+        return ~Q(user=user)
     ids = team_transaction_user_ids(user)
     if not ids:
         return Q(pk__in=[])

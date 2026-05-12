@@ -1,5 +1,5 @@
 import React from 'react';
-import { Routes, Route, Navigate } from 'react-router-dom';
+import { Routes, Route, Navigate, useParams } from 'react-router-dom';
 import ProtectedRoute from '../components/common/ProtectedRoute';
 import AdminRoute from '../components/common/AdminRoute';
 import Layout from '../components/common/Layout';
@@ -51,6 +51,12 @@ import BbpsOpsConsole from '../components/admin/BbpsOpsConsole';
 import BbpsBillerDetails from '../components/admin/BbpsBillerDetails';
 import BbpsProviderGovernance from '../components/admin/BbpsProviderGovernance';
 import WalletHistoryPage from '../components/wallets/WalletHistoryPage';
+
+/** Old URL `/admin/users/:id` → canonical user profile (all roles that may view a profile). */
+function LegacyAdminUserDetailRedirect() {
+  const { userId } = useParams();
+  return <Navigate to={`/user-management/users/${userId}`} replace />;
+}
 
 const AppRoutes = () => {
   return (
@@ -233,14 +239,21 @@ const AppRoutes = () => {
       />
 
       <Route
+        path="/user-management/users/:userId"
+        element={
+          <ProtectedRoute>
+            <Layout>
+              <UserDetail />
+            </Layout>
+          </ProtectedRoute>
+        }
+      />
+
+      <Route
         path="/admin/users/:userId"
         element={
           <ProtectedRoute>
-            <AdminRoute>
-              <Layout>
-                <UserDetail />
-              </Layout>
-            </AdminRoute>
+            <LegacyAdminUserDetailRedirect />
           </ProtectedRoute>
         }
       />

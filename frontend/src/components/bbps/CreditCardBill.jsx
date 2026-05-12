@@ -49,6 +49,7 @@ const CreditCardBill = ({ category = 'credit-card', onPaymentSuccess }) => {
   const [quickPayOnly, setQuickPayOnly] = useState(false);
   const [planOptions, setPlanOptions] = useState([]);
   const [selectedPlanId, setSelectedPlanId] = useState('');
+  const [schemaInputGuidance, setSchemaInputGuidance] = useState('');
   const title = (category || 'bill-payment').replace(/-/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase());
 
   const getCanonicalValue = useCallback((canonicalKey, fallbackKeys = []) => {
@@ -116,12 +117,14 @@ const CreditCardBill = ({ category = 'credit-card', onPaymentSuccess }) => {
         setQuickPayOnly(false);
         setPlanOptions([]);
         setSelectedPlanId('');
+        setSchemaInputGuidance('');
         return;
       }
       const res = await bbpsAPI.getBillerSchema(biller);
       if (res.success) {
         const schema = res.data?.input_schema || [];
         setInputSchema(schema);
+        setSchemaInputGuidance(String(res.data?.input_guidance || '').trim());
         const seed = {};
         schema.forEach((f) => {
           seed[f.param_name] = '';
@@ -151,6 +154,8 @@ const CreditCardBill = ({ category = 'credit-card', onPaymentSuccess }) => {
         } else {
           setError('');
         }
+      } else {
+        setSchemaInputGuidance('');
       }
     };
     loadSchema();
@@ -205,16 +210,17 @@ const CreditCardBill = ({ category = 'credit-card', onPaymentSuccess }) => {
     }
     for (const p of inputSchema) {
       const v = String(inputValues[p.param_name] || '').trim();
-      if (!p.is_optional && !v) return `Please enter ${p.param_name}.`;
-      if (v && p.min_length && v.length < p.min_length) return `${p.param_name} is too short.`;
-      if (v && p.max_length && v.length > p.max_length) return `${p.param_name} is too long.`;
+      const labelForMsg = String(p.display_label || p.label || p.param_name || '').trim() || p.param_name;
+      if (!p.is_optional && !v) return `Please enter ${labelForMsg}.`;
+      if (v && p.min_length && v.length < p.min_length) return `${labelForMsg} is too short.`;
+      if (v && p.max_length && v.length > p.max_length) return `${labelForMsg} is too long.`;
       if (p.canonical_key === 'mobile' && v && v.replace(/\D/g, '').length !== 10) {
-        return `${p.param_name} must be 10 digits.`;
+        return `${labelForMsg} must be 10 digits.`;
       }
       if (v && p.regex) {
         try {
           const re = new RegExp(p.regex);
-          if (!re.test(v)) return `${p.param_name} format is invalid.`;
+          if (!re.test(v)) return `${labelForMsg} format is invalid.`;
         } catch {
           /* ignore bad MDM regex */
         }
@@ -241,7 +247,7 @@ const CreditCardBill = ({ category = 'credit-card', onPaymentSuccess }) => {
     if (!isFastagBillCategory(category)) return '';
 
     const haystackField = (f) =>
-      `${f?.param_name || ''} ${f?.canonical_key || ''} ${f?.display_name || ''} ${f?.label || ''}`;
+      `${f?.param_name || ''} ${f?.canonical_key || ''} ${f?.display_name || ''} ${f?.display_label || ''} ${f?.label || ''}`;
     const vehicleRx = /vehicle|registration|reg\.?\s*no|vrn|\brc\b|tag|plate|consumerno|consumer\s*no|chassis|w\.?number/i;
 
     for (const ck of [
@@ -662,6 +668,7 @@ const CreditCardBill = ({ category = 'credit-card', onPaymentSuccess }) => {
               <BbpsDynamicFieldSet
                 fields={inputSchema}
                 values={inputValues}
+                formGuidance={schemaInputGuidance}
                 onChange={(name, value) => setInputValues((prev) => ({ ...prev, [name]: value }))}
               />
             ) : (

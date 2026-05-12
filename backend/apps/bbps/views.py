@@ -78,6 +78,7 @@ from apps.bbps.services import (
     get_setup_readiness,
     normalize_category_code,
 )
+from apps.bbps.mdm_param_utils import is_placeholder_style_param_name
 from apps.bbps.service_flow.bbps_wallet_charge import resolve_bbps_wallet_service_charge
 from apps.bbps.service_flow.commission_service import resolve_commission_for_payment
 from apps.bbps.service_flow import (
@@ -155,6 +156,11 @@ def _friendly_pay_error_message(raw_message: str) -> str:
         return (
             'Extra bill details from the provider (additionalInfo) did not match this payment. '
             'Fetch the bill again and pay immediately without changing tags, amount, or plan selection.'
+        )
+    if 'e211' in low or 'billerresponse value mismatch' in low:
+        return (
+            'The bill snapshot sent to BillAvenue did not match your last successful fetch (billerResponse mismatch). '
+            'Fetch the bill again, then pay immediately without changing amount, inputs, or plan selection.'
         )
     if 'e204' in low and ('already been used' in low or 'already been' in low):
         return 'This fetch reference is already consumed. Fetch the bill again before retrying payment.'
@@ -302,12 +308,20 @@ def biller_schema_view(request, biller_id):
     )
     additional_info_schema = get_biller_additional_info_schema(biller_id)
     plans_lite, plans_truncated = get_biller_plans_lite(biller_id, limit=100)
+    input_guidance = None
+    if schema and all(is_placeholder_style_param_name(str(r.get('param_name') or '')) for r in schema):
+        input_guidance = (
+            'This biller catalog uses internal BillAvenue test codes (parameter names like "a", "a b") instead of '
+            'friendly labels. Enter the exact sample values from your BillAvenue / NPCI UAT document for this biller ID; '
+            'random numbers usually fail fetch or return FNR003 from the biller switch.'
+        )
     return Response(
         {
             'success': True,
             'data': {
                 'biller_id': biller_id,
                 'input_schema': schema,
+                'input_guidance': input_guidance,
                 'plan_mdm_requirement': plan_req,
                 'biller_fetch_requirement': fetch_req,
                 'quickpay_only': bool(quickpay_only),
@@ -447,6 +461,8 @@ def fetch_bill_view(request):
                 derived_mobile = str(getattr(request.user, 'phone', '') or '').strip()
             derived_customer = str(serializer.validated_data.get('customer_number') or _extract_customer_number_from_input_map(input_map) or '').strip()
             validate_biller_inputs(biller_id=biller_id, input_map=input_map)
+            fetch_master = BbpsBillerMaster.objects.filter(biller_id=biller_id, is_deleted=False).first()
+            biller_adhoc_flag = bool(getattr(fetch_master, 'biller_adhoc', False)) if fetch_master else False
             flow = fetch_bill_with_cache(
                 user=request.user,
                 biller_id=biller_id,
@@ -457,7 +473,7 @@ def fetch_bill_view(request):
                     'ip': request.META.get('REMOTE_ADDR') or '',
                 },
                 agent_id=_default_agent_id(),
-                biller_adhoc=False,
+                biller_adhoc=biller_adhoc_flag,
             )
             result = flow['bill_result']
             return Response({

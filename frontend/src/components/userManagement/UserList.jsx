@@ -90,7 +90,7 @@ const UserList = ({ role, onCreateNew, currentUserId, isAdmin = false }) => {
   }, [loadUsers]);
 
   const handleViewDetails = (user) => {
-    navigate(`/admin/users/${user.id}`);
+    navigate(`/user-management/users/${user.id}`);
   };
 
   const performActiveToggle = async (userRow, nextActive) => {

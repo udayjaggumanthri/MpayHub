@@ -13,7 +13,7 @@ from apps.bbps.models import (
     BbpsServiceCategory,
     BbpsServiceProvider,
 )
-from apps.bbps.services import get_bill_categories, get_providers_by_category, governance_readiness_for_biller
+from apps.bbps.services import get_bill_categories, get_billers_by_category, get_providers_by_category, governance_readiness_for_biller
 from apps.bbps.service_flow.compliance import (
     compute_ccf1_if_required,
     enforce_cash_pan_rule,
@@ -149,6 +149,182 @@ class BbpsGovernanceFlowTests(TestCase):
         )
         self.assertIsNotNone(out)
 
+    def test_fetch_pay_linkage_selects_session_matching_request_id(self):
+        user = User.objects.create_user(phone='9000000002', email='u2@example.com', password='testpass123')
+        biller = BbpsBillerMaster.objects.create(
+            biller_id='CC3002',
+            biller_name='Multi Fetch',
+            biller_category='credit-card',
+            biller_status='ACTIVE',
+            biller_fetch_requirement='MANDATORY',
+        )
+        inp = [{'paramName': 'a', 'paramValue': '1'}]
+        stored = {'input': inp}
+        BbpsFetchSession.objects.create(
+            user=user,
+            biller_master=biller,
+            request_id='REQ_OLD',
+            input_params=stored,
+            biller_response={},
+            amount_paise=100,
+            raw_response={},
+            status='FETCHED',
+        )
+        BbpsFetchSession.objects.create(
+            user=user,
+            biller_master=biller,
+            request_id='REQ_NEW',
+            input_params=stored,
+            biller_response={},
+            amount_paise=200,
+            raw_response={},
+            status='FETCHED',
+        )
+        session = enforce_fetch_pay_linkage(
+            user=user,
+            biller=biller,
+            input_params=inp,
+            request_id='REQ_OLD',
+        )
+        self.assertEqual(session.request_id, 'REQ_OLD')
+
+    def test_fetch_pay_linkage_input_params_order_insensitive(self):
+        user = User.objects.create_user(phone='9000000005', email='u5@example.com', password='testpass123')
+        biller = BbpsBillerMaster.objects.create(
+            biller_id='CC3005',
+            biller_name='Order Test',
+            biller_category='credit-card',
+            biller_status='ACTIVE',
+            biller_fetch_requirement='MANDATORY',
+        )
+        stored = {
+            'input': [
+                {'paramName': 'a', 'paramValue': '1'},
+                {'paramName': 'a b', 'paramValue': '2'},
+            ]
+        }
+        BbpsFetchSession.objects.create(
+            user=user,
+            biller_master=biller,
+            request_id='REQ_ORDER',
+            input_params=stored,
+            biller_response={},
+            amount_paise=100,
+            raw_response={},
+            status='FETCHED',
+        )
+        pay_params = [
+            {'paramName': 'a b', 'paramValue': '2'},
+            {'paramName': 'a', 'paramValue': '1'},
+        ]
+        session = enforce_fetch_pay_linkage(
+            user=user,
+            biller=biller,
+            input_params=pay_params,
+            request_id='REQ_ORDER',
+        )
+        self.assertEqual(session.request_id, 'REQ_ORDER')
+
+    def test_fetch_pay_linkage_placeholder_param_names_must_match_mdm_exactly(self):
+        """BillAvenue expects ``paramName`` exactly as in MDM (e.g. ``a b``, not ``ab``)."""
+        user = User.objects.create_user(phone='9000000006', email='u6@example.com', password='testpass123')
+        biller = BbpsBillerMaster.objects.create(
+            biller_id='CC3006',
+            biller_name='Wire exact',
+            biller_category='credit-card',
+            biller_status='ACTIVE',
+            biller_fetch_requirement='MANDATORY',
+        )
+        BbpsFetchSession.objects.create(
+            user=user,
+            biller_master=biller,
+            request_id='REQ_COMP',
+            input_params={'input': [{'paramName': 'a b', 'paramValue': '2'}, {'paramName': 'a', 'paramValue': '1'}]},
+            biller_response={},
+            amount_paise=100,
+            raw_response={},
+            status='FETCHED',
+        )
+        with self.assertRaises(TransactionFailed):
+            enforce_fetch_pay_linkage(
+                user=user,
+                biller=biller,
+                input_params=[{'paramName': 'ab', 'paramValue': '2'}, {'paramName': 'a', 'paramValue': '1'}],
+                request_id='REQ_COMP',
+            )
+        session = enforce_fetch_pay_linkage(
+            user=user,
+            biller=biller,
+            input_params=[{'paramName': 'a b', 'paramValue': '2'}, {'paramName': 'a', 'paramValue': '1'}],
+            request_id='REQ_COMP',
+        )
+        self.assertEqual(session.request_id, 'REQ_COMP')
+
+    def test_fetch_pay_linkage_unknown_request_id_raises(self):
+        user = User.objects.create_user(phone='9000000003', email='u3@example.com', password='testpass123')
+        biller = BbpsBillerMaster.objects.create(
+            biller_id='CC3003',
+            biller_name='No Match',
+            biller_category='credit-card',
+            biller_status='ACTIVE',
+            biller_fetch_requirement='MANDATORY',
+        )
+        BbpsFetchSession.objects.create(
+            user=user,
+            biller_master=biller,
+            request_id='REQ_A',
+            input_params={'input': [{'paramName': 'a', 'paramValue': '1'}]},
+            biller_response={},
+            amount_paise=100,
+            raw_response={},
+            status='FETCHED',
+        )
+        with self.assertRaises(TransactionFailed):
+            enforce_fetch_pay_linkage(
+                user=user,
+                biller=biller,
+                input_params=[{'paramName': 'a', 'paramValue': '1'}],
+                request_id='REQ_MISSING',
+            )
+
+    def test_fetch_pay_linkage_requires_request_id_when_multiple_open_fetches(self):
+        user = User.objects.create_user(phone='9000000004', email='u4@example.com', password='testpass123')
+        biller = BbpsBillerMaster.objects.create(
+            biller_id='CC3004',
+            biller_name='Two Open',
+            biller_category='credit-card',
+            biller_status='ACTIVE',
+            biller_fetch_requirement='MANDATORY',
+        )
+        inp = {'input': [{'paramName': 'a', 'paramValue': '1'}]}
+        BbpsFetchSession.objects.create(
+            user=user,
+            biller_master=biller,
+            request_id='R1',
+            input_params=inp,
+            biller_response={},
+            amount_paise=100,
+            raw_response={},
+            status='FETCHED',
+        )
+        BbpsFetchSession.objects.create(
+            user=user,
+            biller_master=biller,
+            request_id='R2',
+            input_params=inp,
+            biller_response={},
+            amount_paise=200,
+            raw_response={},
+            status='FETCHED',
+        )
+        with self.assertRaises(TransactionFailed):
+            enforce_fetch_pay_linkage(
+                user=user,
+                biller=biller,
+                input_params=[{'paramName': 'a', 'paramValue': '1'}],
+                request_id='',
+            )
+
     def test_ccf1_computation_floor(self):
         biller = BbpsBillerMaster.objects.create(
             biller_id='CC4001',
@@ -257,7 +433,33 @@ class ApprovalFirstGovernanceTests(TestCase):
         self.assertEqual(created_map.metadata.get('approval_status'), 'pending')
 
 
-class MdmCatalogPublishApiTests(TestCase):
+class BbpsMobileCategoryRoutingTests(TestCase):
+    """Regression: BillAvenue ``Mobile`` must map to partner route ``mobile-postpaid`` for list + APIs."""
+
+    def test_get_billers_by_category_mobile_postpaid_matches_mobile_biller_category(self):
+        BbpsBillerMaster.objects.create(
+            biller_id='OTME00000XX243',
+            biller_name='OTME',
+            biller_category='Mobile',
+            biller_status='ACTIVE',
+            is_active_local=True,
+        )
+        rows = get_billers_by_category('mobile-postpaid')
+        self.assertEqual(len(rows), 1)
+        self.assertEqual(rows[0]['biller_id'], 'OTME00000XX243')
+
+    def test_get_bill_categories_uses_partner_slug_for_mobile_cluster(self):
+        BbpsBillerMaster.objects.create(
+            biller_id='OTME00000XX244',
+            biller_name='OTME',
+            biller_category='Mobile',
+            biller_status='ACTIVE',
+            is_active_local=True,
+        )
+        cats = get_bill_categories()
+        self.assertEqual([c for c in cats if c['id'] == 'mobile-postpaid'], [{'id': 'mobile-postpaid', 'name': 'Mobile Postpaid'}])
+
+
     def test_mdm_catalog_publish_and_unpublish(self):
         from rest_framework.test import APIClient
 
@@ -310,7 +512,7 @@ class MdmCatalogPublishApiTests(TestCase):
             ).exists()
         )
         cats = get_bill_categories()
-        self.assertTrue(any(c['id'] == 'mobile-recharge' for c in cats))
+        self.assertTrue(any(c['id'] == 'mobile-postpaid' for c in cats))
 
         r2 = client.post('/api/bbps/admin/mdm-catalog/publish/', {'map_id': m.id, 'published': False}, format='json')
         self.assertEqual(r2.status_code, 200)

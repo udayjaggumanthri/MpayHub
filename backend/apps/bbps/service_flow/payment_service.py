@@ -183,15 +183,23 @@ def process_bill_payment_flow(*, user, bill_data: dict) -> dict:
     if fetch_session and str(getattr(fetch_session, 'request_id', '') or '').strip():
         fetch_rid = str(fetch_session.request_id).strip()
         bill_data['request_id'] = fetch_rid
-    # Keep bill-pay request aligned with bill-fetch snapshot.
+    # Keep bill-pay request aligned with bill-fetch snapshot (order + flags matter for BillAvenue E211).
     if fetch_session and isinstance(getattr(fetch_session, 'input_params', None), dict):
         inp = fetch_session.input_params or {}
+        stored_in = inp.get('input')
+        if isinstance(stored_in, list) and stored_in and all(isinstance(r, dict) for r in stored_in):
+            bill_data['input_params'] = [dict(r) for r in stored_in]
         if not isinstance(bill_data.get('agent_device_info'), dict) or not bill_data.get('agent_device_info'):
             bill_data['agent_device_info'] = inp.get('agentDeviceInfo') or {}
-        if not isinstance(bill_data.get('customer_info'), dict) or not bill_data.get('customer_info'):
-            bill_data['customer_info'] = inp.get('customerInfo') or {}
+        incoming_ci = bill_data.get('customer_info') if isinstance(bill_data.get('customer_info'), dict) else {}
+        fetch_ci = inp.get('customerInfo') if isinstance(inp.get('customerInfo'), dict) else {}
+        if fetch_ci or incoming_ci:
+            bill_data['customer_info'] = {**incoming_ci, **fetch_ci}
     if fetch_session and isinstance(getattr(fetch_session, 'biller_response', None), dict):
         raw_fetch = fetch_session.biller_response or {}
+        lit = raw_fetch.get('__mpayhub_biller_response_xml')
+        if isinstance(lit, str) and lit.strip():
+            bill_data['biller_response_xml'] = lit.strip()
         br = extract_biller_response_dict(raw_fetch)
         if br:
             bill_data['biller_response'] = br
@@ -325,10 +333,14 @@ def process_bill_payment_flow(*, user, bill_data: dict) -> dict:
             amount_info['CCF1'] = str(ccf1.ccf1_paise)
         payload['amountInfo'] = amount_info
         bill_data['bill_payment_payload'] = payload
+    payment_result: dict = {'status': 'FAILED', 'message': 'Payment did not complete'}
     try:
         payment_result = client.process_payment(bill_payment.service_id, bill_payment.request_id, amount, bill_data)
     finally:
-        if fetch_session:
+        # Leave FETCHED session intact on decline so the user can retry pay with the same snapshot
+        # (BillAvenue E211/E0379, etc.). Consume only after a committed or in-flight success path.
+        st = str((payment_result or {}).get('status') or '').upper()
+        if fetch_session and st in ('SUCCESS', 'AWAITED'):
             BbpsFetchSession.objects.filter(pk=fetch_session.pk, status='FETCHED').update(status='CONSUMED')
     status = payment_result.get('status')
 
@@ -413,6 +425,4 @@ def process_bill_payment_flow(*, user, bill_data: dict) -> dict:
     bill_payment.failure_reason = failure_message
     bill_payment.save(update_fields=['status', 'failure_reason'])
     msg = bill_payment.failure_reason or 'Payment failed'
-    if str(bill_data.get('request_id') or '').strip():
-        msg = f'{msg} Fetch the bill again before retrying payment.'
     raise TransactionFailed(msg)

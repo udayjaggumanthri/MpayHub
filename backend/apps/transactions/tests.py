@@ -46,7 +46,7 @@ class ReportScopeTests(TestCase):
 
 
 class TeamTransactionUserIdsTests(TestCase):
-    """Distributor team scope includes self + Retailer downline only (not other distributors)."""
+    """Distributor team scope: Retailer subordinates only; viewer and peer distributors excluded."""
 
     def setUp(self):
         self.dt = User.objects.create_user(
@@ -79,11 +79,72 @@ class TeamTransactionUserIdsTests(TestCase):
         UserHierarchy.objects.create(parent_user=self.dt, child_user=self.rt)
         UserHierarchy.objects.create(parent_user=self.dt, child_user=self.other_dt)
 
-    def test_distributor_team_includes_only_retailers_plus_self(self):
+    def test_distributor_team_is_retailer_subordinates_only_excluding_self(self):
         ids = team_transaction_user_ids(self.dt)
-        self.assertIn(self.dt.pk, ids)
+        self.assertNotIn(self.dt.pk, ids)
         self.assertIn(self.rt.pk, ids)
         self.assertNotIn(self.other_dt.pk, ids)
+
+
+class TeamTransactionUserQMdTests(TestCase):
+    """Master Distributor team IDs: Distributors and Retailers under MD only, not MD."""
+
+    def setUp(self):
+        self.md = User.objects.create_user(
+            phone='9555555555',
+            email='md_team@test.com',
+            password='testpass123',
+            role='Master Distributor',
+            user_id='MDT1',
+            first_name='M',
+            last_name='D',
+        )
+        self.dt = User.objects.create_user(
+            phone='9666666666',
+            email='md_dt@test.com',
+            password='testpass123',
+            role='Distributor',
+            user_id='MDD1',
+            first_name='D',
+            last_name='1',
+        )
+        self.rt = User.objects.create_user(
+            phone='9777777777',
+            email='md_rt@test.com',
+            password='testpass123',
+            role='Retailer',
+            user_id='MDR1',
+            first_name='R',
+            last_name='1',
+        )
+        UserHierarchy.objects.create(parent_user=self.md, child_user=self.dt)
+        UserHierarchy.objects.create(parent_user=self.dt, child_user=self.rt)
+
+    def test_md_team_includes_dt_and_rt_not_self(self):
+        ids = team_transaction_user_ids(self.md)
+        self.assertNotIn(self.md.pk, ids)
+        self.assertIn(self.dt.pk, ids)
+        self.assertIn(self.rt.pk, ids)
+
+
+class TransactionUserQTeamAdminTests(TestCase):
+    def setUp(self):
+        self.admin = User.objects.create_user(
+            phone='9888888888',
+            email='adm_team@test.com',
+            password='testpass123',
+            role='Admin',
+            user_id='ADM1',
+            first_name='A',
+            last_name='D',
+        )
+
+    def test_admin_team_scope_excludes_own_user(self):
+        req = Mock()
+        req.user = self.admin
+        req.query_params = {'scope': 'team'}
+        q = transaction_user_q(req)
+        self.assertEqual(q, ~Q(user=self.admin))
 
 
 class MoneyPrecisionTests(TestCase):

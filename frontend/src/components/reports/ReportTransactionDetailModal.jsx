@@ -1,6 +1,8 @@
 import React, { useEffect } from 'react';
 import { FiX } from 'react-icons/fi';
+import { useAuth } from '../../context/AuthContext';
 import { formatCurrency, formatReportDateTime } from '../../utils/formatters';
+import { isAdminUser } from '../../utils/rolePermissions';
 
 function DetailField({ label, value }) {
   return (
@@ -134,6 +136,7 @@ function StatusBadge({ status }) {
  * Pay In / Pay Out transaction detail — layout aligned with bill-payment reference.
  */
 const ReportTransactionDetailModal = ({ open, onClose, variant, record }) => {
+  const { user } = useAuth();
   useEffect(() => {
     if (!open) return undefined;
     const onKey = (e) => {
@@ -146,6 +149,11 @@ const ReportTransactionDetailModal = ({ open, onClose, variant, record }) => {
   if (!open || !record) return null;
 
   const isPayin = variant === 'payin';
+  const showPayinFeeBreakdown =
+    isPayin &&
+    isAdminUser(user) &&
+    record.detail?.feeSnapshot &&
+    typeof record.detail.feeSnapshot === 'object';
 
   return (
     <div
@@ -273,7 +281,7 @@ const ReportTransactionDetailModal = ({ open, onClose, variant, record }) => {
                         </dd>
                       </div>
                     ) : null}
-                    {record.detail?.feeSnapshot && typeof record.detail.feeSnapshot === 'object' ? (
+                    {showPayinFeeBreakdown ? (
                       <div className="sm:col-span-2">
                         <dt className="text-gray-500">Fee breakdown</dt>
                         <dd className="mt-1">

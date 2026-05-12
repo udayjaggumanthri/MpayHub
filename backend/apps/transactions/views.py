@@ -45,7 +45,7 @@ def transactions_list_view(request):
     """
     List transactions with filters.
     GET /api/transactions/
-    Query: scope=self|team (team: downline activity for managers; Admin = all users).
+    Query: scope=self|team (team: downline-only activity for managers; Admin team = all users except own).
     """
     try:
         uq = transaction_user_q(request)

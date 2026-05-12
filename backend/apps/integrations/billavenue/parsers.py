@@ -103,6 +103,47 @@ def _xml_local_name(key: str) -> str:
     return k
 
 
+def extract_element_outer_xml_from_plaintext(plaintext: str, local_name: str) -> str:
+    """
+    Return the first XML element whose local tag matches ``local_name`` as serialized UTF-8 text.
+
+    BillAvenue compares the bill-pay ``billerResponse`` echo to the fetch snapshot. When the fetch
+    body is XML, round-tripping through PostgreSQL ``jsonb`` can reorder object keys; rebuilding
+    ``billerResponse`` from JSON then emits a different element order and triggers **E211**. Storing
+    this outer XML preserves the exact subtree for pay.
+    """
+    want = str(local_name or '').strip().lower()
+    if not want:
+        return ''
+    lt = (plaintext or '').find('<')
+    if lt < 0:
+        return ''
+    snippet = normalize_decrypted_plaintext(plaintext[lt:])
+    if not snippet.startswith('<'):
+        return ''
+    try:
+        doc_root = ET.fromstring(snippet)
+    except Exception:
+        return ''
+
+    def dfs(el: ET.Element) -> ET.Element | None:
+        if _xml_local_name(el.tag).lower() == want:
+            return el
+        for child in el:
+            hit = dfs(child)
+            if hit is not None:
+                return hit
+        return None
+
+    hit = dfs(doc_root)
+    if hit is None:
+        return ''
+    try:
+        return ET.tostring(hit, encoding='unicode')
+    except Exception:
+        return ''
+
+
 _RESPONSE_CODE_LOCAL_NAMES = frozenset(
     {
         'responsecode',

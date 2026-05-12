@@ -156,6 +156,28 @@ def quote_payin(package: PayInPackage, gross: Decimal, payer_user: Optional[User
     }
 
 
+def payin_quote_api_payload_for_user(user, q: dict) -> dict:
+    """
+    Serialize quote_payin() for HTTP responses.
+    Commission line-items, hierarchy notes, and aggregate deduction fields are Admin-only.
+    Non-admins still receive net_credit (and empty lines/breakdown) so checkout can proceed.
+    """
+    if getattr(user, 'role', None) == 'Admin':
+        return {
+            'breakdown': q['snapshot'],
+            'lines': q['lines'],
+            'net_credit': str(q['net_credit']),
+            'total_deduction': str(q['total_deduction']),
+            'retailer_commission': str(q['retailer_commission']),
+            'retailer_share_absorbed_to_admin': str(q['retailer_share_absorbed_to_admin']),
+        }
+    return {
+        'breakdown': {},
+        'lines': [],
+        'net_credit': str(q['net_credit']),
+    }
+
+
 def _api_master_for_payin_razorpay(package: PayInPackage):
     """
     Resolve which ApiMaster supplies Razorpay keys for this pay-in package.
@@ -310,6 +332,9 @@ def create_payin_order(user, *, package_id: int, gross: Decimal, contact_id: int
     else:
         response['mock'] = True
         response['message'] = 'Mock provider: call POST /fund-management/pay-in/complete-mock/ with transaction_id'
+
+    if getattr(user, 'role', None) != 'Admin':
+        response['fee_preview'] = {}
 
     return lm, response
 
@@ -764,26 +789,12 @@ def get_user_assigned_packages(user: User):
 
 def can_user_assign_package(assigner: User, package_id: int) -> bool:
     """
-    Check if assigner has access to a package and can delegate it to others.
-    Admin can assign any active package.
-    Non-admin can only assign packages they have been assigned.
+    Only Admin may assign pay-in packages to users (package definition + assignment).
     """
-    from apps.fund_management.models import UserPackageAssignment
-
     assigner_role = (getattr(assigner, 'role', None) or '').strip()
-    
-    # Admin can assign any active package
-    if assigner_role == 'Admin':
-        return PayInPackage.objects.filter(
-            id=package_id, is_active=True, is_deleted=False
-        ).exists()
-
-    # Non-admin must have the package assigned to them
-    return UserPackageAssignment.objects.filter(
-        user=assigner,
-        package_id=package_id,
-        is_deleted=False,
-    ).exists()
+    if assigner_role != 'Admin':
+        return False
+    return PayInPackage.objects.filter(id=package_id, is_active=True, is_deleted=False).exists()
 
 
 def is_user_in_downline(senior: User, junior: User) -> bool:
@@ -821,14 +832,13 @@ def assign_package_to_user(
     package_id: int,
 ) -> dict:
     """
-    Assign a package from assigner's pool to target_user.
-    
+    Assign a package to target_user.
+
+    Admin only (validated via ``can_user_assign_package``).
+
     Validation:
-    - Assigner must have access to the package (or be Admin)
-    - Target must be in assigner's downline (or assigner is Admin)
-    - Package must be active
-    
-    Returns dict with 'success', 'assignment', 'message'.
+    - Assigner must be Admin with access to the package
+    - Target must be in assigner's downline (Admin may assign to any user)
     """
     from apps.fund_management.models import UserPackageAssignment
 
@@ -895,11 +905,8 @@ def remove_package_assignment(
 ) -> dict:
     """
     Remove a package assignment from target_user.
-    
-    Validation:
-    - Remover must be Admin or the original assigner or an upline of target
-    
-    Returns dict with 'success', 'message'.
+
+    Admin only.
     """
     from apps.fund_management.models import UserPackageAssignment
 
@@ -914,12 +921,7 @@ def remove_package_assignment(
     if not assignment:
         return {'success': False, 'message': 'Assignment not found.'}
 
-    # Permission check: Admin, original assigner, or upline can remove
-    can_remove = (
-        remover_role == 'Admin'
-        or (assignment.assigned_by and assignment.assigned_by.pk == remover.pk)
-        or is_user_in_downline(remover, target_user)
-    )
+    can_remove = remover_role == 'Admin'
 
     if not can_remove:
         return {
@@ -988,15 +990,10 @@ def auto_assign_default_package(user: User, assigner: User = None) -> dict:
 
 def get_assignable_packages_for_user(assigner: User):
     """
-    Returns packages that the assigner can assign to their downline.
-    Admin: all active packages.
-    Non-admin: only packages assigned to them.
+    Returns packages an Admin may assign to users (all active packages).
+    Non-admin callers should not use assignment flows; returns empty queryset.
     """
     assigner_role = (getattr(assigner, 'role', None) or '').strip()
-    
-    if assigner_role == 'Admin':
-        return PayInPackage.objects.filter(
-            is_active=True, is_deleted=False
-        ).order_by('sort_order', 'display_name')
-
-    return get_user_assigned_packages(assigner)
+    if assigner_role != 'Admin':
+        return PayInPackage.objects.none()
+    return PayInPackage.objects.filter(is_active=True, is_deleted=False).order_by('sort_order', 'display_name')

@@ -155,20 +155,30 @@ def extract_biller_response_dict(raw: dict | None) -> dict:
     Stored JSON may be flat, nested under ``billFetchResponse``, or wrapped in
     ``ExtBillFetchResponse`` (common in UAT). Without this, pay flows miss ``customerName``
     and BillAvenue returns E092 (Remitter Name required).
+
+    Prefer the nested envelope (Ext → billFetchResponse → billerResponse) over a
+    same-level ``billerResponse`` stub so the pay echo matches what BillAvenue hashed
+    (avoids E211 billerResponse value mismatch when both keys exist).
+    XML-to-dict keys may be namespaced; use case-insensitive resolution.
     """
     if not isinstance(raw, dict) or not raw:
         return {}
-    direct = raw.get('billerResponse')
-    if isinstance(direct, dict) and direct:
-        return direct
-    bfr = raw.get('billFetchResponse')
-    if isinstance(bfr, dict):
-        inner = bfr.get('billerResponse')
-        if isinstance(inner, dict) and inner:
-            return inner
+    raw = {k: v for k, v in raw.items() if not str(k).startswith('__mpayhub_')}
+    if not raw:
+        return {}
     ext = raw.get('ExtBillFetchResponse') or _get_ci(raw, 'ExtBillFetchResponse')
     if isinstance(ext, dict):
-        return extract_biller_response_dict(ext)
+        nested = extract_biller_response_dict(ext)
+        if nested:
+            return nested
+    bfr = raw.get('billFetchResponse') or _get_ci(raw, 'billFetchResponse')
+    if isinstance(bfr, dict):
+        inner = bfr.get('billerResponse') or _get_ci(bfr, 'billerResponse')
+        if isinstance(inner, dict) and inner:
+            return inner
+    direct = raw.get('billerResponse') or _get_ci(raw, 'billerResponse')
+    if isinstance(direct, dict) and direct:
+        return direct
     return {}
 
 
@@ -496,8 +506,8 @@ class BBPSClient(BaseIntegration):
                     merged.update(ex_ai)
                     payload['amountInfo'] = merged
             # Outer HTTP ``requestId`` must match the successful bill-fetch envelope id so BillAvenue can
-            # resolve fetch context (E210 otherwise). Retrying pay with the same id returns E204 — consume
-            # the fetch session after a pay attempt so the user must fetch again.
+            # resolve fetch context (E210 otherwise). Duplicate pay correlation can return E204; failed
+            # pays keep the fetch session FETCHED so the partner can retry without refetching when safe.
             pay_transport = _billavenue_correlation_ref(
                 bill_data=bill_data,
                 request_id=str(request_id or '').strip(),
@@ -614,8 +624,11 @@ class BBPSClient(BaseIntegration):
         if corr:
             payload['requestId'] = corr
             payload['paymentRefId'] = corr
+        br_xml = str(bill_data.get('biller_response_xml') or '').strip()
         biller_response = bill_data.get('biller_response') or {}
-        if isinstance(biller_response, dict) and biller_response:
+        if br_xml:
+            payload['billerResponseXml'] = br_xml
+        elif isinstance(biller_response, dict) and biller_response:
             payload['billerResponse'] = biller_response
         payment_info = bill_data.get('payment_info')
         infos = []

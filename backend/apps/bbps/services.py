@@ -4,7 +4,17 @@ from django.db.models import Q
 from decimal import Decimal
 from django.conf import settings
 from django.core.cache import cache
-from apps.bbps.mdm_param_utils import infer_input_kind, normalize_schema_choices
+from apps.bbps.catalog.mdm_parse import extract_param_rows
+from apps.bbps.constants import ALLOWED_BILLER_STATUSES
+from apps.bbps.mdm_param_utils import (
+    constraints_hint_for_schema_row,
+    extract_param_lov_and_extras,
+    infer_input_kind,
+    input_schema_display_label,
+    is_placeholder_style_param_name,
+    mdm_input_param_wire_name,
+    normalize_schema_choices,
+)
 from apps.bbps.models import (
     BbpsBillerAdditionalInfoSchema,
     BbpsBillerInputParam,
@@ -16,6 +26,7 @@ from apps.bbps.models import (
     BbpsProviderBillerMap,
     BbpsServiceCategory,
 )
+from apps.integrations.billavenue.parsers import _get_ci
 from apps.integrations.bbps_client import BBPSClient
 import random
 import string
@@ -30,9 +41,6 @@ BBPS_CATEGORY_ALIASES = {
     'landline-postpaid': 'landline',
 }
 
-ALLOWED_BILLER_STATUSES = {'ACTIVE', 'ENABLED', 'FLUCTUATING'}
-
-
 def _normalize_text(value: str) -> str:
     return str(value or '').strip()
 
@@ -42,6 +50,21 @@ def normalize_category_code(category: str) -> str:
     while '--' in out:
         out = out.replace('--', '-')
     return BBPS_CATEGORY_ALIASES.get(out, out)
+
+
+def partner_route_category_slug(normalized_biller_category: str) -> str:
+    """
+    Map normalized MDM/biller_category codes to the primary route slug used on the partner app.
+
+    BillAvenue often stores prepaid-ish mobile as ``Mobile`` which normalizes to ``mobile-recharge``,
+    while the UI route and ``get_billers_by_category`` requests use ``mobile-postpaid`` (see
+    ``bbpsCanonicalCategories.js``). Without this mapping, categories appear "available" but biller
+    lists are empty after navigation.
+    """
+    n = normalize_category_code(normalized_biller_category)
+    if n in ('mobile-recharge', 'mobile'):
+        return 'mobile-postpaid'
+    return n
 
 
 def _category_lookup_values(category: str) -> set[str]:
@@ -56,6 +79,31 @@ def _category_lookup_values(category: str) -> set[str]:
     if ' ' in norm:
         vals.add(norm.replace(' ', '-'))
     vals.add(norm.replace('-', '').replace(' ', ''))
+    # BillAvenue / NPCI store many mobile variants; partner UI routes use mobile-postpaid / mobile-prepaid.
+    _mobile_route = frozenset(
+        {
+            'mobile-postpaid',
+            'mobilepostpaid',
+            'mobile-recharge',
+            'mobilerecharge',
+            'mobile-prepaid',
+            'mobileprepaid',
+            'mobile',
+        }
+    )
+    if norm in _mobile_route:
+        vals.update(
+            {
+                'mobile',
+                'mobile-recharge',
+                'mobile-postpaid',
+                'mobile postpaid',
+                'mobilepostpaid',
+                'mobile-prepaid',
+                'mobile prepaid',
+                'mobileprepaid',
+            }
+        )
     return {v for v in vals if v}
 
 
@@ -173,14 +221,25 @@ def get_bill_categories():
         for code in visible_qs.values_list('biller_category', flat=True)
         if str(code or '').strip()
     }
-    allowed_codes = sorted(visible_codes)
-    if not allowed_codes:
+    partner_slugs = sorted({partner_route_category_slug(c) for c in visible_codes})
+    if not partner_slugs:
         return []
     name_map = {
         normalize_category_code(row.code): row.name
         for row in BbpsServiceCategory.objects.filter(is_deleted=False, is_active=True)
     }
-    return [{'id': code, 'name': name_map.get(code, to_title_case(code))} for code in allowed_codes]
+    out = []
+    for slug in partner_slugs:
+        sources = sorted(c for c in visible_codes if partner_route_category_slug(c) == slug)
+        name = None
+        for src in sources:
+            if src in name_map:
+                name = name_map[src]
+                break
+        if not name:
+            name = to_title_case(slug)
+        out.append({'id': slug, 'name': name})
+    return out
 
 
 def to_title_case(value: str) -> str:
@@ -386,16 +445,51 @@ def get_biller_input_schema(biller_id: str) -> list[dict]:
     ).first()
     if not master:
         return []
+    raw_payload = master.raw_payload if isinstance(getattr(master, 'raw_payload', None), dict) else {}
+    raw_block = _get_ci(raw_payload, 'billerInputParams') or []
+    raw_rows = extract_param_rows(raw_block)
+    raw_by_wire_lower: dict[str, dict] = {}
+    for rr in raw_rows:
+        w = mdm_input_param_wire_name(rr)
+        if w:
+            raw_by_wire_lower.setdefault(w.lower(), rr)
+
     params = BbpsBillerInputParam.objects.filter(is_deleted=False, biller=master).order_by('display_order', 'id')
     rows = []
-    for p in params:
+    for idx, p in enumerate(params, start=1):
         choices = normalize_schema_choices(p.default_values)
-        extras = p.mdm_extras if isinstance(getattr(p, 'mdm_extras', None), dict) else {}
+        extras = dict(p.mdm_extras) if isinstance(getattr(p, 'mdm_extras', None), dict) else {}
         help_text = str(extras.get('help_text') or '').strip()
+        wire = str(p.param_name or '').strip()
+        raw_match = raw_by_wire_lower.get(wire.lower()) if wire else None
+        if raw_match and isinstance(raw_match, dict):
+            _, ex_raw = extract_param_lov_and_extras(raw_match)
+            if not help_text:
+                help_text = str(ex_raw.get('help_text') or '').strip()
+            if not str(extras.get('display_label') or '').strip() and ex_raw.get('display_label'):
+                extras['display_label'] = str(ex_raw.get('display_label')).strip()
         input_kind = infer_input_kind(data_type=p.data_type or '', choices=choices)
+        display_label = input_schema_display_label(
+            wire=wire,
+            help_text=help_text,
+            extras=extras,
+            order=idx,
+            raw_row=None,
+        )
+        constraints_hint = constraints_hint_for_schema_row(
+            min_length=int(p.min_length or 0),
+            max_length=int(p.max_length or 0),
+            data_type=str(p.data_type or ''),
+            regex=str(p.regex or ''),
+            input_kind=input_kind,
+        )
         rows.append(
             {
                 'param_name': p.param_name,
+                'display_label': display_label,
+                'label': display_label,
+                'billavenue_param_key': wire,
+                'is_placeholder_wire_name': is_placeholder_style_param_name(wire),
                 'data_type': p.data_type,
                 'is_optional': p.is_optional,
                 'min_length': p.min_length,
@@ -405,6 +499,7 @@ def get_biller_input_schema(biller_id: str) -> list[dict]:
                 'default_values': p.default_values,
                 'choices': choices,
                 'help_text': help_text,
+                'constraints_hint': constraints_hint,
                 'input_kind': input_kind,
                 'canonical_key': _canonical_input_key(p.param_name),
                 'send_in_input_params': True,

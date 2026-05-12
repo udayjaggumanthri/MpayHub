@@ -10,8 +10,10 @@ import ContactSearchTypeahead from './ContactSearchTypeahead';
 import { formatCurrency } from '../../utils/formatters';
 import { validateAmount } from '../../utils/validators';
 import { useWallet } from '../../context/WalletContext';
+import { useAuth } from '../../context/AuthContext';
 import { FiSearch, FiMail, FiX, FiInfo } from 'react-icons/fi';
 import { FaPhone, FaUser, FaDollarSign, FaCircleCheck, FaCircleExclamation } from 'react-icons/fa6';
+import { isAdminUser } from '../../utils/rolePermissions';
 
 function loadRazorpayScript() {
   return new Promise((resolve, reject) => {
@@ -36,6 +38,7 @@ function loadRazorpayScript() {
 
 const LoadMoney = () => {
   const navigate = useNavigate();
+  const { user } = useAuth();
   const { refreshWallets } = useWallet();
   const [customerSearch, setCustomerSearch] = useState('');
   const [customerDetails, setCustomerDetails] = useState(null);
@@ -116,6 +119,10 @@ const LoadMoney = () => {
     }, 350);
     return () => clearTimeout(t);
   }, [selectedPackageId, amount]);
+
+  useEffect(() => {
+    if (!isAdminUser(user)) setShowPriceBreakdown(false);
+  }, [user]);
 
   const handlePickCustomer = useCallback((mapped) => {
     setCustomerDetails(mapped);
@@ -351,6 +358,11 @@ const LoadMoney = () => {
   const netNum = quote ? parseFloat(quote.net_credit) : 0;
   const grossNum = amount ? parseFloat(amount) : 0;
   const absorbedRetailerShare = quote ? parseFloat(quote.retailer_share_absorbed_to_admin || 0) : 0;
+  const showPayinCommissionDetail = isAdminUser(user);
+  const quoteTotalDeduction =
+    quote && quote.total_deduction != null && String(quote.total_deduction).trim() !== ''
+      ? parseFloat(quote.total_deduction)
+      : null;
 
   return (
     <div className="max-w-5xl mx-auto space-y-4 sm:space-y-6 px-4 sm:px-0">
@@ -508,11 +520,15 @@ const LoadMoney = () => {
                         <span className="text-gray-600">You pay (gross)</span>
                         <span className="font-semibold text-gray-900 text-lg">{formatCurrency(grossNum)}</span>
                       </div>
-                      <div className="flex justify-between items-center py-2 border-b border-gray-200">
-                        <span className="text-gray-600">Total deductions (gateway + platform + upline)</span>
-                        <span className="font-semibold text-red-600">-{formatCurrency(parseFloat(quote.total_deduction))}</span>
-                      </div>
-                      {absorbedRetailerShare > 0 ? (
+                      {showPayinCommissionDetail &&
+                      quoteTotalDeduction != null &&
+                      !Number.isNaN(quoteTotalDeduction) ? (
+                        <div className="flex justify-between items-center py-2 border-b border-gray-200">
+                          <span className="text-gray-600">Total deductions (gateway + platform + upline)</span>
+                          <span className="font-semibold text-red-600">-{formatCurrency(quoteTotalDeduction)}</span>
+                        </div>
+                      ) : null}
+                      {showPayinCommissionDetail && absorbedRetailerShare > 0 ? (
                         <p className="text-xs text-gray-600 bg-slate-50 border border-slate-200 rounded-lg px-3 py-2">
                           The package’s retailer commission rate ({quote.breakdown?.retailer_commission_pct ?? '—'}%) is
                           included in the <strong>Admin (platform)</strong> share — it is not added to your commission
@@ -526,6 +542,7 @@ const LoadMoney = () => {
                     </div>
                   </div>
 
+                  {showPayinCommissionDetail ? (
                   <div className="relative">
                     <button
                       type="button"
@@ -535,7 +552,7 @@ const LoadMoney = () => {
                       <FiInfo size={18} />
                       {showPriceBreakdown ? 'Hide price breakdown' : 'Prices — full breakdown'}
                     </button>
-                    {showPriceBreakdown && quote.lines && (
+                    {showPriceBreakdown && quote.lines && quote.lines.length > 0 ? (
                       <div className="mt-3 space-y-2">
                         {quote.breakdown?.hierarchy_adjusted ? (
                           <p className="text-xs text-gray-600 rounded-lg bg-slate-50 border border-slate-200 px-3 py-2">
@@ -573,8 +590,9 @@ const LoadMoney = () => {
                           </table>
                         </div>
                       </div>
-                    )}
+                    ) : null}
                   </div>
+                  ) : null}
                 </div>
               )}
 
@@ -622,10 +640,14 @@ const LoadMoney = () => {
                   <span className="text-gray-600">Gross</span>
                   <span className="font-semibold text-gray-900">{formatCurrency(grossNum)}</span>
                 </div>
-                <div className="flex justify-between">
-                  <span className="text-gray-600">Deductions</span>
-                  <span className="font-semibold text-red-600">-{formatCurrency(parseFloat(quote.total_deduction))}</span>
-                </div>
+                {showPayinCommissionDetail &&
+                quoteTotalDeduction != null &&
+                !Number.isNaN(quoteTotalDeduction) ? (
+                  <div className="flex justify-between">
+                    <span className="text-gray-600">Deductions</span>
+                    <span className="font-semibold text-red-600">-{formatCurrency(quoteTotalDeduction)}</span>
+                  </div>
+                ) : null}
                 <div className="pt-3 border-t border-gray-300 flex justify-between">
                   <span className="font-semibold text-gray-900">Net credit</span>
                   <span className="font-bold text-blue-600 text-xl">{formatCurrency(netNum)}</span>

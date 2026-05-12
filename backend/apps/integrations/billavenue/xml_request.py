@@ -2,7 +2,53 @@
 
 from __future__ import annotations
 
-from xml.etree.ElementTree import Element, SubElement, tostring
+from xml.etree.ElementTree import Element, SubElement, fromstring, tostring
+
+
+def _fill_biller_response_subtree(parent_el: Element, data: dict) -> None:
+    """
+    Emit BillAvenue ``billerResponse`` children including nested dicts/lists.
+
+    The previous implementation only wrote scalar fields and **skipped** nested
+    structures; BillAvenue then rejects pay with **E211 billerResponse value mismatch**
+    when the echoed snapshot does not match fetch (e.g. ``additionalInfo`` inside
+    ``billerResponse``).
+    """
+    if not isinstance(data, dict):
+        return
+    for raw_k, raw_v in data.items():
+        k = str(raw_k)
+        if raw_v is None:
+            continue
+        if isinstance(raw_v, dict):
+            child = SubElement(parent_el, k)
+            _fill_biller_response_subtree(child, raw_v)
+        elif isinstance(raw_v, list):
+            for item in raw_v:
+                if isinstance(item, dict):
+                    if any(x in item for x in ('infoName', 'info_name')):
+                        row_tag = 'info'
+                    elif any(x in item for x in ('paramName', 'param_name')):
+                        row_tag = 'input'
+                    else:
+                        row_tag = 'item'
+                    row_el = SubElement(parent_el, row_tag)
+                    for ik, iv in item.items():
+                        if isinstance(iv, dict):
+                            sub = SubElement(row_el, str(ik))
+                            _fill_biller_response_subtree(sub, iv)
+                        elif isinstance(iv, list):
+                            _fill_biller_response_subtree(row_el, {str(ik): iv})
+                        else:
+                            SubElement(row_el, str(ik)).text = '' if iv is None else str(iv).strip()
+                else:
+                    leaf = SubElement(parent_el, k)
+                    leaf.text = str(item).strip()
+        elif isinstance(raw_v, bool):
+            SubElement(parent_el, k).text = 'true' if raw_v else 'false'
+        else:
+            # Emit empty-string leaves too; skipping them breaks echo vs BillAvenue fetch (E211).
+            SubElement(parent_el, k).text = '' if raw_v is None else str(raw_v).strip()
 
 
 def build_biller_info_plain_xml(payload: dict) -> str:
@@ -154,14 +200,18 @@ def build_bill_pay_plain_xml(payload: dict) -> str:
             SubElement(inp, 'paramValue').text = value
 
     biller_response = p.get('billerResponse') or {}
-    if isinstance(biller_response, dict) and biller_response:
+    br_xml = str(p.get('billerResponseXml') or '').strip()
+    if br_xml:
+        try:
+            frag_el = fromstring(br_xml)
+            root.append(frag_el)
+        except Exception:
+            if isinstance(biller_response, dict) and biller_response:
+                br = SubElement(root, 'billerResponse')
+                _fill_biller_response_subtree(br, biller_response)
+    elif isinstance(biller_response, dict) and biller_response:
         br = SubElement(root, 'billerResponse')
-        for k, v in biller_response.items():
-            if isinstance(v, (dict, list, tuple)):
-                continue
-            sv = str(v or '').strip()
-            if sv:
-                SubElement(br, str(k)).text = sv
+        _fill_biller_response_subtree(br, biller_response)
 
     additional_info = p.get('additionalInfo') or {}
     infos = additional_info.get('info') if isinstance(additional_info, dict) else []

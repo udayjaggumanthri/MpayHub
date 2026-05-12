@@ -22,7 +22,12 @@ from apps.integrations.billavenue.errors import (
     BillAvenueValidationError,
     exception_for_code,
 )
-from apps.integrations.billavenue.parsers import extract_response_code, normalize_decrypted_plaintext, parse_payload_text
+from apps.integrations.billavenue.parsers import (
+    extract_element_outer_xml_from_plaintext,
+    extract_response_code,
+    normalize_decrypted_plaintext,
+    parse_payload_text,
+)
 from apps.integrations.models import BillAvenueConfig
 from apps.bbps.models import BbpsApiAuditLog
 
@@ -434,6 +439,7 @@ class BillAvenueClient:
             raise te from exc
 
         enc_resp = _extract_enc_response_field(data)
+        decrypted_plain = ''
         if enc_resp:
             plain = decrypt_payload_auto(
                 enc_resp,
@@ -442,6 +448,7 @@ class BillAvenueClient:
                 key_derivation=str(getattr(self.config, 'crypto_key_derivation', 'rawhex') or 'rawhex'),
             )
             plain = normalize_decrypted_plaintext(plain)
+            decrypted_plain = str(plain or '')
             normalized = _retry_parse_if_only_raw(parse_payload_text(plain), plain)
             # If primary decrypt produced only raw text, retry with alternate key derivations on encResponse.
             if isinstance(normalized, dict) and set(normalized.keys()) == {'raw'}:
@@ -462,6 +469,7 @@ class BillAvenueClient:
                         key_derivation=str(getattr(self.config, 'crypto_key_derivation', 'rawhex') or 'rawhex'),
                     )
                     plain = normalize_decrypted_plaintext(plain)
+                    decrypted_plain = str(plain or '')
                     normalized = _retry_parse_if_only_raw(parse_payload_text(plain), plain)
                 except Exception:
                     normalized = data if isinstance(data, dict) else {'raw': data}
@@ -585,6 +593,10 @@ class BillAvenueClient:
             pe = exc_cls(f'BillAvenue API failed ({endpoint_name}) code={c}{suffix}')
             _attach_billavenue_request_id(pe, env.get('requestId', ''))
             raise pe
+        if endpoint_name == 'bill_fetch' and decrypted_plain.strip() and isinstance(normalized, dict):
+            frag = extract_element_outer_xml_from_plaintext(decrypted_plain, 'billerResponse')
+            if frag:
+                normalized = {**normalized, '__mpayhub_biller_response_xml': frag}
         return BillAvenueResult(request_id=env['requestId'], response_code=code, normalized=normalized, raw_response=data)
 
     def _audit(self, endpoint_name, request_id, response_code, success, started_at, request_meta, response_meta, error_message):

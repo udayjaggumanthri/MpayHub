@@ -11,7 +11,7 @@ from apps.bbps.catalog.mdm_parse import (
     mdm_as_bool,
     mdm_field_str,
 )
-from apps.bbps.mdm_param_utils import extract_param_lov_and_extras
+from apps.bbps.mdm_param_utils import extract_param_lov_and_extras, mdm_input_param_wire_name
 from apps.bbps.models import (
     BbpsBillerAdditionalInfoSchema,
     BbpsBillerCcf1Config,
@@ -20,9 +20,7 @@ from apps.bbps.models import (
     BbpsBillerPaymentChannelLimit,
     BbpsBillerPaymentModeLimit,
 )
-from apps.bbps.services import ALLOWED_BILLER_STATUSES
-from apps.bbps.service_flow.payment_ui_policy import maybe_add_implicit_cash_payment_mode
-from apps.bbps.service_flow.provider_policy import bootstrap_default_biller_policy_if_missing
+from apps.bbps.constants import ALLOWED_BILLER_STATUSES
 from apps.integrations.billavenue.parsers import _get_ci
 
 
@@ -37,6 +35,11 @@ def persist_biller_from_mdm_row(raw: dict, *, request_id: str = '') -> tuple[Bbp
 
     Returns ``(master, governance_created_counts)``.
     """
+    # Local imports: avoid loading ``service_flow`` package (and ``biller_sync`` → orchestrator)
+    # while this module is still initializing — that caused circular import errors.
+    from apps.bbps.service_flow.payment_ui_policy import maybe_add_implicit_cash_payment_mode
+    from apps.bbps.service_flow.provider_policy import bootstrap_default_biller_policy_if_missing
+
     biller_id = mdm_field_str(raw, 'billerId').strip()
     if not biller_id:
         raise ValueError('MDM row missing billerId')
@@ -85,12 +88,15 @@ def persist_biller_from_mdm_row(raw: dict, *, request_id: str = '') -> tuple[Bbp
     params_block = _get_ci(raw, 'billerInputParams') or []
     order = 0
     for p in extract_param_rows(params_block):
+        wire = mdm_input_param_wire_name(p if isinstance(p, dict) else {})
+        if not wire:
+            continue
         order += 1
         vis = _get_ci(p, 'visibility')
         lov_rows, mdm_extras = extract_param_lov_and_extras(p if isinstance(p, dict) else {})
         BbpsBillerInputParam.objects.create(
             biller=m,
-            param_name=mdm_field_str(p, 'paramName'),
+            param_name=wire,
             data_type=mdm_field_str(p, 'dataType'),
             is_optional=mdm_as_bool(_get_ci(p, 'isOptional')),
             min_length=int(str(_get_ci(p, 'minLength') or '0') or 0),

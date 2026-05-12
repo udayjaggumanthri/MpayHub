@@ -1,4 +1,4 @@
-from django.test import TestCase
+from django.test import SimpleTestCase, TestCase
 
 from apps.integrations.bbps_client import (
     _normalize_bbps_payment_mode,
@@ -8,6 +8,7 @@ from apps.integrations.bbps_client import (
 from apps.integrations.billavenue.crypto import decrypt_payload, encrypt_payload
 from apps.integrations.billavenue.envelope import build_encrypted_envelope
 from apps.integrations.billavenue.request_id import generate_billavenue_request_id
+from apps.integrations.billavenue.parsers import extract_element_outer_xml_from_plaintext
 from apps.integrations.billavenue.xml_request import (
     build_bill_fetch_plain_xml,
     build_biller_info_plain_xml,
@@ -112,6 +113,25 @@ class BbpsBillAvenueHardeningTests(TestCase):
         }
         self.assertEqual(extract_biller_response_dict(raw).get('customerName'), 'Carol')
 
+    def test_extract_prefers_nested_biller_response_over_shallow_stub(self):
+        raw = {
+            'billerResponse': {'billAmount': '100000'},
+            'billFetchResponse': {
+                'billerResponse': {
+                    'billAmount': '100000',
+                    'customerName': 'Full',
+                    'additionalInfo': {'info': [{'infoName': 'Plan', 'infoValue': 'P1'}]},
+                }
+            },
+        }
+        br = extract_biller_response_dict(raw)
+        self.assertEqual(br.get('customerName'), 'Full')
+        self.assertIn('additionalInfo', br)
+
+    def test_extract_case_insensitive_bill_fetch_keys(self):
+        raw = {'BillFetchResponse': {'BillerResponse': {'customerName': 'Zed'}}}
+        self.assertEqual(extract_biller_response_dict(raw).get('customerName'), 'Zed')
+
     def test_resolve_remitter_from_biller_response(self):
         name = resolve_remitter_display_name(
             {'biller_response': {'customerName': '  Dee  '}, 'customer_name': 'ignored'}
@@ -173,6 +193,71 @@ class BbpsBillAvenueHardeningTests(TestCase):
         self.assertIn('<infoName>Remitter Name</infoName>', xml)
         self.assertIn('<infoValue>Shop Owner</infoValue>', xml)
 
+    def test_build_bill_pay_plain_xml_biller_response_nested_additional_info(self):
+        xml = build_bill_pay_plain_xml(
+            {
+                'paymentRefId': 'CORR1',
+                'requestId': 'CORR1',
+                'agentId': 'AG01',
+                'billerAdhoc': False,
+                'agentDeviceInfo': {'initChannel': 'AGT'},
+                'customerInfo': {'customerMobile': '9999999999', 'customerName': 'Payer'},
+                'billerId': 'OTME00005XXZ43',
+                'inputParams': {'input': [{'paramName': 'a', 'paramValue': '1'}]},
+                'billerResponse': {
+                    'billAmount': '100000',
+                    'customerName': 'Cust',
+                    'additionalInfo': {
+                        'info': [
+                            {'infoName': 'Minimum Amount Due', 'infoValue': '50000'},
+                            {'infoName': 'Current Outstanding Amount', 'infoValue': '100000'},
+                        ]
+                    },
+                },
+                'amountInfo': {'amount': '100000', 'currency': '356', 'custConvFee': '0'},
+                'paymentMethod': {'paymentMode': 'Cash', 'quickPay': 'N', 'splitPay': 'N'},
+                'paymentInfo': {
+                    'info': [
+                        {'infoName': 'Remitter Name', 'infoValue': 'Payer'},
+                        {'infoName': 'PaymentRefId', 'infoValue': 'CORR1'},
+                        {'infoName': 'Payment Account Info', 'infoValue': 'CORR1|CORR1'},
+                        {'infoName': 'Payment mode', 'infoValue': 'Cash'},
+                    ]
+                },
+            }
+        )
+        self.assertIn('<billerResponse>', xml)
+        self.assertIn('<additionalInfo>', xml)
+        self.assertIn('<infoName>Minimum Amount Due</infoName>', xml)
+        self.assertIn('<infoValue>50000</infoValue>', xml)
+        self.assertIn('<billAmount>100000</billAmount>', xml)
+
+    def test_bill_pay_xml_biller_response_emits_empty_scalar_leaf(self):
+        xml = build_bill_pay_plain_xml(
+            {
+                'paymentRefId': 'CORR1',
+                'requestId': 'CORR1',
+                'agentId': 'AG01',
+                'billerAdhoc': False,
+                'agentDeviceInfo': {'initChannel': 'AGT'},
+                'customerInfo': {'customerMobile': '9999999999', 'customerName': 'Payer'},
+                'billerId': 'B1',
+                'inputParams': {'input': []},
+                'billerResponse': {'dueDate': '', 'billAmount': '100000'},
+                'amountInfo': {'amount': '100000', 'currency': '356', 'custConvFee': '0'},
+                'paymentMethod': {'paymentMode': 'Cash', 'quickPay': 'N', 'splitPay': 'N'},
+                'paymentInfo': {
+                    'info': [
+                        {'infoName': 'Remitter Name', 'infoValue': 'Payer'},
+                        {'infoName': 'PaymentRefId', 'infoValue': 'CORR1'},
+                        {'infoName': 'Payment Account Info', 'infoValue': 'CORR1|CORR1'},
+                        {'infoName': 'Payment mode', 'infoValue': 'Cash'},
+                    ]
+                },
+            }
+        )
+        self.assertIn('<dueDate></dueDate>', xml)
+
     def test_safe_timeout_tuple_clamps_configured_values(self):
         client = BillAvenueClient.__new__(BillAvenueClient)
         client.config = type(
@@ -184,3 +269,61 @@ class BbpsBillAvenueHardeningTests(TestCase):
             },
         )()
         self.assertEqual(client._safe_timeout_tuple(), (10, 25))
+
+
+class BillAvenueSnapshotXmlTests(SimpleTestCase):
+    """No DB — parser / XML helpers for fetch→pay billerResponse echo (E211)."""
+
+    def test_extract_biller_response_ignores_internal_xml_snapshot_key(self):
+        raw = {
+            '__mpayhub_biller_response_xml': '<billerResponse><billAmount>1</billAmount></billerResponse>',
+            'billFetchResponse': {'billerResponse': {'customerName': 'Keep'}},
+        }
+        br = extract_biller_response_dict(raw)
+        self.assertEqual(br.get('customerName'), 'Keep')
+        self.assertNotIn('__mpayhub', str(br))
+
+    def test_extract_element_outer_xml_from_plaintext_nested(self):
+        plain = (
+            '<?xml version="1.0" encoding="UTF-8"?>'
+            '<billFetchResponse>'
+            '<responseCode>000</responseCode>'
+            '<billerResponse><billAmount>100500</billAmount><customerName>OTME</customerName></billerResponse>'
+            '</billFetchResponse>'
+        )
+        frag = extract_element_outer_xml_from_plaintext(plain, 'billerResponse')
+        self.assertIn('<billAmount>100500</billAmount>', frag)
+        self.assertIn('<customerName>OTME</customerName>', frag)
+
+    def test_build_bill_pay_prefers_biller_response_xml_literal(self):
+        frag = (
+            '<billerResponse><billAmount>100500</billAmount>'
+            '<customerName>FromXml</customerName></billerResponse>'
+        )
+        xml = build_bill_pay_plain_xml(
+            {
+                'paymentRefId': 'CORR1',
+                'requestId': 'CORR1',
+                'agentId': 'AG01',
+                'billerAdhoc': False,
+                'agentDeviceInfo': {'initChannel': 'AGT'},
+                'customerInfo': {'customerMobile': '9999999999', 'customerName': 'Payer'},
+                'billerId': 'OTME00005XXZ43',
+                'inputParams': {'input': [{'paramName': 'a', 'paramValue': '1'}]},
+                'billerResponseXml': frag,
+                'billerResponse': {'billAmount': '999999', 'customerName': 'Wrong'},
+                'amountInfo': {'amount': '100500', 'currency': '356', 'custConvFee': '0'},
+                'paymentMethod': {'paymentMode': 'Cash', 'quickPay': 'N', 'splitPay': 'N'},
+                'paymentInfo': {
+                    'info': [
+                        {'infoName': 'Remitter Name', 'infoValue': 'Payer'},
+                        {'infoName': 'PaymentRefId', 'infoValue': 'CORR1'},
+                        {'infoName': 'Payment Account Info', 'infoValue': 'CORR1|CORR1'},
+                        {'infoName': 'Payment mode', 'infoValue': 'Cash'},
+                    ]
+                },
+            }
+        )
+        self.assertIn('<billAmount>100500</billAmount>', xml)
+        self.assertIn('<customerName>FromXml</customerName>', xml)
+        self.assertNotIn('Wrong', xml)

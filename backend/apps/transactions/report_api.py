@@ -138,6 +138,10 @@ def payin_rows_for_transactions(
 
         card_last4 = (t.card_last4 or '').strip() or card_last4_from_payment_meta(gateway_meta)
 
+        # Commission / fee-split snapshot: Admin-only (avoid leaking upline splits via API).
+        if getattr(viewer, 'role', None) != 'Admin':
+            fee_breakdown_snapshot = None
+
         row_user = t.user
         out.append(
             {

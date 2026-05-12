@@ -11,9 +11,10 @@ def fetch_bill_with_cache(*, user, biller_id: str, customer_info: dict, input_pa
     master = BbpsBillerMaster.objects.filter(biller_id=biller_id, is_deleted=False).first()
     init_channel = str((agent_device_info or {}).get('initChannel') or '')
     validate_channel_device_fields(init_channel=init_channel, agent_device_info=agent_device_info or {})
+    input_rows = input_params if isinstance(input_params, list) else []
     fetch_kwargs = {
         'customerInfo': customer_info,
-        'input': input_params,
+        'input': input_rows,
         'agentDeviceInfo': agent_device_info,
         'agent_id': agent_id,
         'biller_adhoc': biller_adhoc,
@@ -42,7 +43,7 @@ def fetch_bill_with_cache(*, user, biller_id: str, customer_info: dict, input_pa
         biller_master=master,
         request_id=str(result.get('request_id') or ''),
         service_id=str(result.get('request_id') or ''),
-        input_params={'input': input_params, 'customerInfo': customer_info, 'agentDeviceInfo': agent_device_info},
+        input_params={'input': input_rows, 'customerInfo': customer_info, 'agentDeviceInfo': agent_device_info},
         biller_response=result.get('raw') or {},
         additional_info=addl,
         amount_paise=int(float(result.get('amount') or 0) * 100),

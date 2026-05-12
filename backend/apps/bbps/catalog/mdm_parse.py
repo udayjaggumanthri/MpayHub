@@ -92,17 +92,30 @@ def _coerce_obj_list(v) -> list[dict]:
     return []
 
 
+def _row_looks_like_biller_input_param(row: dict) -> bool:
+    """Avoid treating wrapper objects (whole billerInputParams) as a single input row."""
+    if not isinstance(row, dict) or not row:
+        return False
+    keys = {str(k).lower() for k in row.keys()}
+    if keys & {'paramname', 'param_name', 'parametername', 'customerparamname', 'fieldname'}:
+        return True
+    # Some MDM rows omit paramName but still describe an input field
+    if keys & {'datatype', 'data_type'} and keys & {'minlength', 'min_length', 'maxlength', 'max_length'}:
+        return True
+    return False
+
+
 def extract_param_rows(block) -> list[dict]:
     out: list[dict] = []
     for outer in _coerce_obj_list(block):
-        params = (
-            _get_ci(outer, 'paramsList')
-            or _get_ci(outer, 'paramInfo')
-            or _get_ci(outer, 'input')
-            or outer
-        )
+        params = _get_ci(outer, 'paramsList') or _get_ci(outer, 'paramInfo') or _get_ci(outer, 'input')
+        if params is None and _row_looks_like_biller_input_param(outer):
+            params = outer
+        if params is None:
+            continue
         for row in _coerce_obj_list(params):
-            out.append(row)
+            if _row_looks_like_biller_input_param(row):
+                out.append(row)
     return out
 
 

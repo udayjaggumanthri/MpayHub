@@ -1,5 +1,5 @@
-"""BBPS biller catalog: MDM parse (pure) + persistence projections + orchestration."""
+"""BBPS biller catalog: MDM parse, persistence, orchestration.
 
-from apps.bbps.catalog.orchestrator import CatalogOrchestrator
-
-__all__ = ['CatalogOrchestrator']
+Import concrete modules explicitly, e.g. ``from apps.bbps.catalog.orchestrator import CatalogOrchestrator``,
+to avoid import cycles when ``apps.bbps.services`` loads ``catalog.mdm_parse``.
+"""

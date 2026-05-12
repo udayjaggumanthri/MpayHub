@@ -44,6 +44,52 @@ class MdmSchemaShapeTests(TestCase):
         self.assertEqual(rows[0]['input_kind'], 'select')
         self.assertEqual(len(rows[0]['choices']), 2)
         self.assertEqual(rows[0]['help_text'], 'Pick one')
+        self.assertIn('constraints_hint', rows[0])
+        self.assertIn('billavenue_param_key', rows[0])
+
+    def test_input_schema_display_label_from_mdm_extras(self):
+        BbpsBillerInputParam.objects.create(
+            biller=self.master,
+            param_name='a',
+            data_type='ALPHANUMERIC',
+            is_optional=False,
+            min_length=1,
+            max_length=20,
+            regex='',
+            visibility=True,
+            display_order=1,
+            default_values=[],
+            mdm_extras={'display_label': 'Customer mobile number'},
+        )
+        rows = get_biller_input_schema('SCHEMA01')
+        self.assertEqual(len(rows), 1)
+        self.assertEqual(rows[0]['param_name'], 'a')
+        self.assertEqual(rows[0]['display_label'], 'Customer mobile number')
+        self.assertEqual(rows[0]['label'], 'Customer mobile number')
+
+    def test_input_schema_display_label_from_raw_payload_when_extras_empty(self):
+        self.master.raw_payload = {
+            'billerId': 'SCHEMA01',
+            'billerInputParams': {
+                'paramsList': [{'paramName': 'a', 'paramLabel': 'Subscriber ID from bill', 'dataType': 'ALPHANUMERIC'}]
+            },
+        }
+        self.master.save(update_fields=['raw_payload'])
+        BbpsBillerInputParam.objects.create(
+            biller=self.master,
+            param_name='a',
+            data_type='ALPHANUMERIC',
+            is_optional=False,
+            min_length=1,
+            max_length=20,
+            regex='',
+            visibility=True,
+            display_order=1,
+            default_values=[],
+            mdm_extras={},
+        )
+        rows = get_biller_input_schema('SCHEMA01')
+        self.assertEqual(rows[0]['display_label'], 'Subscriber ID from bill')
 
     def test_normalize_schema_choices_plain_strings(self):
         out = normalize_schema_choices(['x', 'y'])

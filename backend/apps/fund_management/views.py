@@ -12,6 +12,7 @@ from rest_framework.response import Response
 
 from apps.core.exceptions import InsufficientBalance, TransactionFailed
 from apps.core.financial_access import assert_can_perform_financial_txn
+from apps.core.permissions import IsAdmin
 from apps.fund_management.models import LoadMoney, PayInPackage, Payout
 from apps.fund_management.serializers import (
     LegacyLoadMoneyCreateSerializer,
@@ -33,6 +34,7 @@ from apps.fund_management.services import (
     get_user_assigned_packages,
     list_active_pay_in_packages,
     max_payout_eligible_for_user,
+    payin_quote_api_payload_for_user,
     payout_slab_charge_for_user,
     process_load_money,
     process_payout,
@@ -74,14 +76,7 @@ def pay_in_quote_view(request):
     return Response(
         {
             'success': True,
-            'data': {
-                'breakdown': q['snapshot'],
-                'lines': q['lines'],
-                'net_credit': str(q['net_credit']),
-                'total_deduction': str(q['total_deduction']),
-                'retailer_commission': str(q['retailer_commission']),
-                'retailer_share_absorbed_to_admin': str(q['retailer_share_absorbed_to_admin']),
-            },
+            'data': payin_quote_api_payload_for_user(request.user, q),
             'message': 'OK',
             'errors': [],
         },
@@ -117,7 +112,7 @@ def pay_in_create_order_view(request):
             {'success': False, 'data': None, 'message': str(e), 'errors': []},
             status=status.HTTP_400_BAD_REQUEST,
         )
-    payload['load_money'] = LoadMoneySerializer(lm).data
+    payload['load_money'] = LoadMoneySerializer(lm, context={'request': request}).data
     return Response(
         {'success': True, 'data': payload, 'message': 'Order created', 'errors': []},
         status=status.HTTP_201_CREATED,
@@ -150,7 +145,7 @@ def pay_in_complete_mock_view(request):
     return Response(
         {
             'success': True,
-            'data': {'load_money': LoadMoneySerializer(lm).data},
+            'data': {'load_money': LoadMoneySerializer(lm, context={'request': request}).data},
             'message': 'Payment completed',
             'errors': [],
         },
@@ -211,7 +206,7 @@ def pay_in_verify_razorpay_view(request):
     return Response(
         {
             'success': True,
-            'data': {'load_money': LoadMoneySerializer(lm).data},
+            'data': {'load_money': LoadMoneySerializer(lm, context={'request': request}).data},
             'message': 'Payment verified and wallet updated',
             'errors': [],
         },
@@ -307,7 +302,7 @@ def load_money_view(request):
             amount = serializer.validated_data['amount']
             gateway_id = serializer.validated_data.get('gateway')
             load_money = process_load_money(request.user, amount, gateway_id)
-            response_data = LoadMoneySerializer(load_money).data
+            response_data = LoadMoneySerializer(load_money, context={'request': request}).data
             return Response(
                 {
                     'success': True,
@@ -385,7 +380,7 @@ def load_money_list_view(request):
     start = (page - 1) * page_size
     end = start + page_size
     paginated_transactions = transactions[start:end]
-    serializer = LoadMoneySerializer(paginated_transactions, many=True)
+    serializer = LoadMoneySerializer(paginated_transactions, many=True, context={'request': request})
     return Response(
         {
             'success': True,
@@ -616,14 +611,12 @@ def user_packages_view(request, user_id):
 
 
 @api_view(['GET'])
-@permission_classes([IsAuthenticated])
+@permission_classes([IsAuthenticated, IsAdmin])
 def assignable_packages_view(request):
     """
     GET /api/fund-management/packages/assignable/
-    
-    Returns packages that the current user can assign to their downline.
-    Admin: all active packages
-    Non-admin: only their assigned packages
+
+    Admin only. Returns active packages that may be assigned to users.
     """
     packages = get_assignable_packages_for_user(request.user)
     return Response(
@@ -638,17 +631,12 @@ def assignable_packages_view(request):
 
 
 @api_view(['POST'])
-@permission_classes([IsAuthenticated])
+@permission_classes([IsAuthenticated, IsAdmin])
 def assign_package_view(request):
     """
     POST /api/fund-management/packages/assign/
-    
-    Assign a package to a user.
-    Body: { user_id: int, package_id: int }
-    
-    Validation:
-    - Assigner must have access to the package (or be Admin)
-    - Target must be in assigner's downline (or assigner is Admin)
+
+    Admin only. Body: { user_id: int, package_id: int }
     """
     from apps.authentication.models import User
 
@@ -714,15 +702,12 @@ def assign_package_view(request):
 
 
 @api_view(['POST'])
-@permission_classes([IsAuthenticated])
+@permission_classes([IsAuthenticated, IsAdmin])
 def remove_package_assignment_view(request):
     """
     POST /api/fund-management/packages/unassign/
-    
-    Remove a package assignment from a user.
-    Body: { user_id: int, package_id: int }
-    
-    Only Admin, original assigner, or upline can remove.
+
+    Admin only. Body: { user_id: int, package_id: int }
     """
     from apps.authentication.models import User
 

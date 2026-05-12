@@ -267,3 +267,6 @@ export const isAdminOperationalIsolationRole = (role) => role === 'Admin';
 /** Roles that may request downline-scoped reports (scope=team). */
 export const canUseTeamReportScope = (role) =>
   ['Admin', 'Super Distributor', 'Master Distributor', 'Distributor'].includes(role);
+
+/** Platform admin (e.g. pay-in commission / fee-split visibility in reports). */
+export const isAdminUser = (user) => (user?.role || '') === 'Admin';

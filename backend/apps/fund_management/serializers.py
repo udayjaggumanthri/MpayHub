@@ -93,6 +93,7 @@ class LoadMoneySerializer(serializers.ModelSerializer):
 
     payment_mode_display = serializers.SerializerMethodField()
     payment_gateway_name = serializers.SerializerMethodField()
+    fee_breakdown_snapshot = serializers.SerializerMethodField()
 
     class Meta:
         model = LoadMoney
@@ -132,6 +133,14 @@ class LoadMoneySerializer(serializers.ModelSerializer):
             'payment_mode_display',
             'payment_gateway_name',
         ]
+
+    def get_fee_breakdown_snapshot(self, obj):
+        raw = obj.fee_breakdown_snapshot if isinstance(obj.fee_breakdown_snapshot, dict) else {}
+        request = self.context.get('request')
+        user = getattr(request, 'user', None) if request else None
+        if user and getattr(user, 'is_authenticated', False) and getattr(user, 'role', None) == 'Admin':
+            return raw
+        return {}
 
     def get_payment_mode_display(self, obj):
         return payin_payment_mode_display(obj)
