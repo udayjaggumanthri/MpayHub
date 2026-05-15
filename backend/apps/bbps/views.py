@@ -98,7 +98,7 @@ from apps.bbps.service_flow.compliance import (
     display_payment_modes_for_channel,
 )
 from apps.core.exceptions import InsufficientBalance, TransactionFailed
-from apps.core.financial_access import assert_can_perform_financial_txn
+from apps.core.financial_access import assert_can_pay_out
 from apps.core.permissions import IsAdmin
 from apps.integrations.billavenue.crypto import decrypt_payload
 from apps.integrations.billavenue.errors import (
@@ -234,6 +234,41 @@ def _friendly_complaint_error_message(raw_message: str) -> str:
         return 'Invalid B-Connect Transaction ID. Use the CC... reference shown on receipt/success screen.'
     if 'v5004' in low or 'description missing' in low:
         return 'Complaint description was rejected by provider. Please retry with a clear issue summary.'
+    if (
+        'complaint_register' in low
+        and 'code=001' in low
+        and (
+            'unable to raise a new ticket' in low
+            or 'unable to raise' in low
+            and 'ticket' in low
+            or 'the ticket is already' in low
+            or 'ticket is already' in low
+            or 'already open' in low
+            or 'existing ticket' in low
+            or 'complaint is already' in low
+        )
+    ):
+        return (
+            'BillAvenue indicates a complaint ticket may already exist for this transaction, or another rule prevents '
+            'opening a new ticket. Use Complaint Tracking for this B-Connect transaction ID, or contact support with '
+            'your transaction ID and the BillAvenue request ID shown on this screen.'
+        )
+    if (
+        'complaint_register' in low
+        and 'code=001' in low
+        and ('unable to process' in low or 'unable to process your request' in low)
+    ):
+        return (
+            'BillAvenue did not accept a complaint for this transaction reference. '
+            'Double-check the CC… ID from your receipt, confirm the payment shows as successful under My Bills / transaction query, '
+            'and retry after a few minutes if the payment was very recent. If this keeps happening, contact support with the transaction ID.'
+        )
+    if 'complaint_register' in low and 'code=205' in low:
+        return (
+            'BillAvenue returned error 205 for complaint registration (often access, institute rules, or request validation). '
+            'Confirm disposition text matches BillAvenue’s official list, the B-Connect transaction ID is correct, and share the '
+            'BillAvenue request ID from this screen with support if it continues.'
+        )
     if 'cooling period' in low or 'cooling window' in low:
         return msg
     provider_msg = re.search(r'"errorMessage"\s*:\s*"([^"]+)"', msg)
@@ -570,7 +605,7 @@ def pay_bill_view(request):
     Process bill payment.
     POST /api/bbps/pay/
     """
-    assert_can_perform_financial_txn(request.user)
+    assert_can_pay_out(request.user)
     serializer = BillPaymentCreateSerializer(data=request.data)
     if serializer.is_valid():
         try:
@@ -2439,7 +2474,7 @@ def _complaint_register_request_summary(data) -> dict:
     disp = str(data.get('complaint_disposition') or '').strip()
     if disp:
         out['complaint_disposition_prefix'] = disp[:60] + ('…' if len(disp) > 60 else '')
-    desc = str(data.get('complaint_desc') or '').strip()
+    desc = str(data.get('complaint_desc') or data.get('complain_desc') or '').strip()
     if desc:
         out['complaint_desc_len'] = len(desc)
     return out
@@ -2477,19 +2512,37 @@ def complaint_register_view(request):
         row = register_complaint(user=request.user, **ser.validated_data)
     except TransactionFailed as exc:
         msg = str(exc)
-        status_code = 409 if 'duplicate complaint' in msg.lower() else 400
+        status_code = (
+            409
+            if (
+                'duplicate complaint' in msg.lower()
+                or 'already has an open complaint' in msg.lower()
+                or 'this transaction already has an open complaint' in msg.lower()
+                or 'billavenue usually rejects' in msg.lower()
+                or 'billavenue reports this transaction already has' in msg.lower()
+            )
+            else 400
+        )
         _log_complaint_register_failure(request=request, http_status=status_code, message=msg)
         return Response({'success': False, 'data': None, 'message': msg, 'errors': []}, status=status_code)
     except BillAvenueClientError as exc:
         raw = str(exc)
         friendly = _friendly_complaint_error_message(raw)
+        ba_rid = str(getattr(exc, 'billavenue_request_id', '') or '').strip()
         _log_complaint_register_failure(
             request=request,
             http_status=400,
             message=friendly,
             billavenue_error_detail=raw[:2000],
+            billavenue_request_id=ba_rid or None,
         )
-        return Response({'success': False, 'data': None, 'message': friendly, 'errors': []}, status=400)
+        err_body = {
+            'success': False,
+            'message': friendly,
+            'errors': [],
+            'data': {'billavenue_request_id': ba_rid} if ba_rid else {},
+        }
+        return Response(err_body, status=400)
     except BillAvenueTransportError as exc:
         _log_complaint_register_failure(request=request, http_status=503, message=str(exc))
         return Response({'success': False, 'data': None, 'message': str(exc), 'errors': []}, status=503)
@@ -2541,7 +2594,18 @@ def complaint_track_view(request):
         return Response({'success': False, 'data': None, 'message': 'Invalid complaint track request', 'errors': ser.errors}, status=400)
     complaint = BbpsComplaint.objects.filter(complaint_id=ser.validated_data['complaint_id'], user=request.user, is_deleted=False).first()
     if not complaint:
-        return Response({'success': False, 'data': None, 'message': 'Complaint not found', 'errors': []}, status=404)
+        return Response(
+            {
+                'success': False,
+                'data': {
+                    'hint': 'Use the Complaint ID from your registration confirmation or open Complaint Management → '
+                    'Complaint History. Tracking only works for complaints saved on this account.'
+                },
+                'message': 'Complaint not found for this account.',
+                'errors': [],
+            },
+            status=404,
+        )
     resp = track_complaint(complaint=complaint)
     manual = str(complaint.complaint_status or '') == 'MANUAL_ESCALATION_REQUIRED' or str(
         complaint.complaint_id or ''

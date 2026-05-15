@@ -11,7 +11,7 @@ from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 
 from apps.core.exceptions import InsufficientBalance, TransactionFailed
-from apps.core.financial_access import assert_can_perform_financial_txn
+from apps.core.financial_access import assert_can_pay_in, assert_can_pay_out
 from apps.core.permissions import IsAdmin
 from apps.fund_management.models import LoadMoney, PayInPackage, Payout
 from apps.fund_management.serializers import (
@@ -51,7 +51,7 @@ logger = logging.getLogger(__name__)
 @permission_classes([IsAuthenticated])
 def pay_in_quote_view(request):
     """POST /api/fund-management/pay-in/quote/ — fee breakdown for a package + amount."""
-    assert_can_perform_financial_txn(request.user)
+    assert_can_pay_in(request.user)
     ser = PayInQuoteSerializer(data=request.data)
     if not ser.is_valid():
         return Response(
@@ -88,7 +88,7 @@ def pay_in_quote_view(request):
 @permission_classes([IsAuthenticated])
 def pay_in_create_order_view(request):
     """POST /api/fund-management/pay-in/create-order/"""
-    assert_can_perform_financial_txn(request.user)
+    assert_can_pay_in(request.user)
     ser = PayInCreateOrderSerializer(data=request.data)
     if not ser.is_valid():
         return Response(
@@ -123,7 +123,7 @@ def pay_in_create_order_view(request):
 @permission_classes([IsAuthenticated])
 def pay_in_complete_mock_view(request):
     """POST /api/fund-management/pay-in/complete-mock/ — dev/mock provider only."""
-    assert_can_perform_financial_txn(request.user)
+    assert_can_pay_in(request.user)
     ser = PayInMockCompleteSerializer(data=request.data)
     if not ser.is_valid():
         return Response(
@@ -157,7 +157,7 @@ def pay_in_complete_mock_view(request):
 @permission_classes([IsAuthenticated])
 def pay_in_verify_razorpay_view(request):
     """POST /api/fund-management/pay-in/verify-razorpay/ — confirm checkout + credit wallet."""
-    assert_can_perform_financial_txn(request.user)
+    assert_can_pay_in(request.user)
     ser = PayInRazorpayVerifySerializer(data=request.data)
     if not ser.is_valid():
         return Response(
@@ -250,7 +250,7 @@ def pay_in_packages_view(request):
 @permission_classes([IsAuthenticated])
 def payout_quote_view(request):
     """GET /api/fund-management/payout/quote/?amount= optional — max eligible + slab preview."""
-    assert_can_perform_financial_txn(request.user)
+    assert_can_pay_out(request.user)
     from django.conf import settings
     from apps.wallets.models import Wallet
 
@@ -404,7 +404,7 @@ def payout_view(request):
     Initiate payout transaction.
     POST /api/fund-management/payout/
     """
-    assert_can_perform_financial_txn(request.user)
+    assert_can_pay_out(request.user)
     serializer = PayoutSerializer(data=request.data)
     if serializer.is_valid():
         vd = serializer.validated_data
@@ -521,8 +521,11 @@ def get_gateways_view(request):
     Get available payment/payout gateways for the user.
     GET /api/fund-management/gateways/?type=payment
     """
-    assert_can_perform_financial_txn(request.user)
     gateway_type = request.query_params.get('type', 'payment')
+    if gateway_type == 'payout':
+        assert_can_pay_out(request.user)
+    else:
+        assert_can_pay_in(request.user)
     gateways = get_available_gateways(request.user.role, gateway_type)
     gateway_list = []
     for gateway in gateways:

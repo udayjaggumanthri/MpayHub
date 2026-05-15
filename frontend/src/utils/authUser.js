@@ -22,7 +22,9 @@ export function normalizeAuthUser(raw) {
     name,
     userId,
     onboarding: raw.onboarding ?? null,
-    // Backend omits is_active only for very old payloads; treat as active.
     is_active: raw.is_active !== false,
+    is_restricted: Boolean(raw.is_restricted),
+    payments_locked: Boolean(raw.payments_locked),
+    pay_in_allowed_when_disabled: Boolean(raw.pay_in_allowed_when_disabled),
   };
 }

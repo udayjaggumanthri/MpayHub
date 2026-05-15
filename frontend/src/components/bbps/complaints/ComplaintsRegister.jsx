@@ -85,16 +85,6 @@ const ComplaintsRegister = () => {
         setMessageTone('error');
         return;
       }
-      if (!fromDate || !toDate) {
-        setMessage('From date and To date are required.');
-        setMessageTone('error');
-        return;
-      }
-      if (fromDate > toDate) {
-        setMessage('From date cannot be after To date.');
-        setMessageTone('error');
-        return;
-      }
     }
 
     if (method === METHOD_MOBILE && !selectedTxnRef) {
@@ -155,7 +145,12 @@ const ComplaintsRegister = () => {
     const details = Array.isArray(res.errors)
       ? res.errors.flatMap((e) => (Array.isArray(e) ? e : [e])).filter(Boolean).join(' ')
       : '';
-    setMessage([msg, details].filter(Boolean).join(' '));
+    const baRid = res.data?.billavenue_request_id;
+    const ridLine =
+      baRid && typeof baRid === 'string'
+        ? `BillAvenue request ID (for support): ${baRid}`
+        : '';
+    setMessage([msg, details, ridLine].filter(Boolean).join('\n\n'));
     setSuccessPayload(null);
   };
 
@@ -312,30 +307,10 @@ const ComplaintsRegister = () => {
                 onChange={(e) => setTxnRefId(e.target.value)}
                 placeholder="Enter B-Connect TXN ID"
               />
-            </div>
-            <div className="grid sm:grid-cols-2 gap-4">
-              <div>
-                <label className="block text-sm text-gray-600 mb-1">
-                  From Date <span className="text-red-600">*</span>
-                </label>
-                <input
-                  type="date"
-                  className="w-full border rounded-lg px-3 py-2"
-                  value={fromDate}
-                  onChange={(e) => setFromDate(e.target.value)}
-                />
-              </div>
-              <div>
-                <label className="block text-sm text-gray-600 mb-1">
-                  To Date <span className="text-red-600">*</span>
-                </label>
-                <input
-                  type="date"
-                  className="w-full border rounded-lg px-3 py-2"
-                  value={toDate}
-                  onChange={(e) => setToDate(e.target.value)}
-                />
-              </div>
+              <p className="mt-1 text-xs text-gray-500">
+                Only the CC… reference is sent when you submit. Use Mobile Number below if you need to search by date
+                range first.
+              </p>
             </div>
           </>
         )}
@@ -456,12 +431,13 @@ const ComplaintsRegister = () => {
         </div>
 
         <p className="text-xs text-gray-500">
-          Use B-Connect Transaction ID from receipt (CC…) or internal service ID (PMBBPS…). Dates on this form help you
-          narrow search context; registration is sent to BBPS with your transaction reference and disposition.
+          Use B-Connect Transaction ID from receipt (CC…) or internal service ID (PMBBPS…). For mobile search, pick a
+          date range that includes the payment day; direct B-Connect submission uses only the transaction reference and
+          disposition.
         </p>
 
         {message && (
-          <div className={`text-sm rounded border p-3 ${toneClass(messageTone)}`}>{message}</div>
+          <div className={`text-sm rounded border p-3 whitespace-pre-wrap ${toneClass(messageTone)}`}>{message}</div>
         )}
 
         <div className="flex justify-end pt-2">

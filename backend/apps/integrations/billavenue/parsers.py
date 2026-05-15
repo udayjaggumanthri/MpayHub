@@ -158,6 +158,30 @@ _RESPONSE_CODE_LOCAL_NAMES = frozenset(
 )
 
 
+def extract_complaint_api_outcome_code(normalized: dict) -> str:
+    """
+    Prefer business codes inside complaintRegistrationResp / complaintTrackingResp.
+
+    BillAvenue often returns a generic outer ``responseCode`` (e.g. 205) with ``responseReason`` FAILURE
+    while the real outcome lives under ``complaintRegistrationResp.complaintResponseCode`` (000, 001, …).
+    Using the outer code alone mis-classifies failures and drops the real complaint reason.
+    """
+    if not isinstance(normalized, dict):
+        return ''
+    for key, val in normalized.items():
+        local = _xml_local_name(key).lower().replace('_', '')
+        if local not in ('complaintregistrationresp', 'complainttrackingresp'):
+            continue
+        if not isinstance(val, dict):
+            continue
+        crc = val.get('complaintResponseCode')
+        if crc is None:
+            crc = _get_ci(val, 'complaintResponseCode')
+        if crc is not None and str(crc).strip():
+            return str(crc).strip()
+    return extract_response_code(normalized)
+
+
 def extract_response_code(normalized: dict, _depth: int = 0) -> str:
     """
     BillAvenue puts responseCode at varying depths and uses XML namespaces on keys.

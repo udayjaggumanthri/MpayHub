@@ -57,6 +57,19 @@ class User(AbstractUser, TimestampedModel):
     mpin_hash = models.CharField(max_length=255, blank=True, null=True)
     user_id = models.CharField(max_length=20, unique=True, db_index=True, null=True, blank=True)
     is_active = models.BooleanField(default=True)
+    # Admin access controls (see apps.core.financial_access)
+    is_restricted = models.BooleanField(
+        default=False,
+        help_text='Read-only portal: no pay-in or payment outflows.',
+    )
+    payments_locked = models.BooleanField(
+        default=False,
+        help_text='Block BBPS pay, payout, and wallet transfers; pay-in allowed unless restricted.',
+    )
+    pay_in_allowed_when_disabled = models.BooleanField(
+        default=False,
+        help_text='When is_active=False, user may still log in for pay-in (load money) only.',
+    )
     last_login = models.DateTimeField(null=True, blank=True)
     
     USERNAME_FIELD = 'phone'

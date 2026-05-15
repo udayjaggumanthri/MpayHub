@@ -91,6 +91,41 @@ def _is_manual_escalation_error(exc: Exception) -> bool:
     return 'e051' in low or 'cms@billavenue.com' in low or 'code=257' in low
 
 
+# BillAvenue official disposition strings (NPCI wording). UI may send legacy phrasing — normalize before upstream.
+# viii) matches BillAvenue XML samples (no trailing period on the disposition line).
+_BILLAVENUE_OFFICIAL_COMPLAINT_DISPOSITIONS: tuple[str, ...] = (
+    'Transaction Successful, Amount Debited but services not received',
+    'Transaction Successful, Amount Debited but Service Disconnected or Service Stopped',
+    'Transaction Successful, Amount Debited but Late Payment Surcharge Charges add in next bill',
+    'Erroneously paid in wrong account',
+    'Duplicate Payment',
+    'Erroneously paid the wrong amount',
+    'Payment information not received from Biller or Delay in receiving payment information from the Biller.',
+    'Bill Paid but Amount not adjusted or still showing due amount',
+)
+_DISPOSITION_BY_CASEFOLD: dict[str, str] = {s.casefold(): s for s in _BILLAVENUE_OFFICIAL_COMPLAINT_DISPOSITIONS}
+# Older portal labels / casing → official string BillAvenue expects.
+_LEGACY_COMPLAINT_DISPOSITION_ALIASES: dict[str, str] = {
+    'transaction successful, amount debited but service disconnected or stopped': 'Transaction Successful, Amount Debited but Service Disconnected or Service Stopped',
+    'transaction successful, amount debited but late payment surcharge charges added': 'Transaction Successful, Amount Debited but Late Payment Surcharge Charges add in next bill',
+    'erroneously paid wrong amount': 'Erroneously paid the wrong amount',
+    'payment info not received / delayed from biller': 'Payment information not received from Biller or Delay in receiving payment information from the Biller.',
+    'bill paid but still showing due amount': 'Bill Paid but Amount not adjusted or still showing due amount',
+    # Some docs show a trailing full stop on viii); wire XML samples often omit it.
+    'bill paid but amount not adjusted or still showing due amount.': 'Bill Paid but Amount not adjusted or still showing due amount',
+}
+
+
+def _canonical_billavenue_complaint_disposition(value: str) -> str:
+    raw = str(value or '').strip()
+    if not raw:
+        return raw
+    k = raw.casefold()
+    if k in _LEGACY_COMPLAINT_DISPOSITION_ALIASES:
+        return _LEGACY_COMPLAINT_DISPOSITION_ALIASES[k]
+    return _DISPOSITION_BY_CASEFOLD.get(k, raw)
+
+
 def _is_terminal_complaint_status(status: str) -> bool:
     s = str(status or '').strip().upper()
     return s in {'RESOLVED', 'CLOSED', 'REJECTED', 'CANCELLED'}
@@ -227,13 +262,53 @@ def _resolve_complaint_txn_and_attempt(*, user, raw_ref: str) -> tuple[str, Bbps
     return raw, None
 
 
+def _billavenue_complaint_correlation_extras(attempt: BbpsPaymentAttempt | None) -> dict:
+    """
+    BillAvenue complaint register often correlates the case to the original bill-pay context.
+    Without agent / biller / payment reference, UAT may return complaintResponseCode=001 and refuse
+    the txnRefId even when the payment succeeded.
+    """
+    if not attempt:
+        return {}
+    out: dict = {}
+    rp = attempt.request_payload if isinstance(attempt.request_payload, dict) else {}
+    agent = str(rp.get('agent_id') or rp.get('agentId') or '').strip()
+    if agent:
+        out['agentId'] = agent
+    biller = str(getattr(attempt, 'biller_id', '') or '').strip()
+    if biller:
+        out['billerId'] = biller
+    pay_ref = str(getattr(attempt, 'request_id', '') or '').strip()
+    if pay_ref:
+        out['paymentRefId'] = pay_ref
+    return out
+
+
 def _find_open_duplicate_complaint(*, user, upstream_txn_ref_id: str, complaint_disposition: str):
+    canon = str(complaint_disposition or '').strip()
     rows = (
         BbpsComplaint.objects.filter(
             user=user,
             is_deleted=False,
             txn_ref_id=upstream_txn_ref_id,
-            complaint_disposition__iexact=complaint_disposition,
+        )
+        .order_by('-created_at')
+    )
+    for row in rows:
+        if _is_terminal_complaint_status(row.complaint_status):
+            continue
+        if _canonical_billavenue_complaint_disposition(str(row.complaint_disposition or '')) == canon:
+            return row
+    return None
+
+
+def _find_any_open_complaint_for_txn(*, user, upstream_txn_ref_id: str) -> BbpsComplaint | None:
+    """First non-terminal complaint for this user + B-Connect txn (any disposition)."""
+    rows = (
+        BbpsComplaint.objects.filter(
+            user=user,
+            is_deleted=False,
+            txn_ref_id=upstream_txn_ref_id,
         )
         .order_by('-created_at')
     )
@@ -247,7 +322,7 @@ def register_complaint(*, user, txn_ref_id: str, complaint_desc: str, complaint_
     client = BBPSClient()
     raw_ref = str(txn_ref_id or '').strip()
     desc = str(complaint_desc or '').strip()
-    disposition = str(complaint_disposition or '').strip()
+    disposition = _canonical_billavenue_complaint_disposition(str(complaint_disposition or '').strip())
     if not desc:
         raise TransactionFailed('Complaint description is required.')
     if not disposition:
@@ -274,26 +349,40 @@ def register_complaint(*, user, txn_ref_id: str, complaint_desc: str, complaint_
             'Duplicate complaint already exists for this transaction and disposition. '
             f'Use Complaint ID {duplicate.complaint_id} to track the current case.'
         )
+    other_open = _find_any_open_complaint_for_txn(user=user, upstream_txn_ref_id=upstream_txn_ref_id)
+    if other_open and _canonical_billavenue_complaint_disposition(str(other_open.complaint_disposition or '')) != disposition:
+        raise TransactionFailed(
+            'This transaction already has an open complaint on your account '
+            f'(Complaint ID {other_open.complaint_id}, disposition: {other_open.complaint_disposition}). '
+            'BillAvenue usually rejects a second ticket until that case is closed. '
+            'Use Complaint Management → Track complaint and enter that Complaint ID.'
+        )
     enforce_complaint_cooling(attempt=attempt)
     # Bharat Bill Payment System 2.8.7 / BillAvenue UAT: minimal JSON is txnRefId + complaintDesc + complaintDisposition
     # (see postman_billavenue_uat_collection "Complaint Register (ver 2.0)"). Do not send disposition codes (D11, …).
-    base_payload = {
+    core = {
         'txnRefId': upstream_txn_ref_id,
         'complaintDisposition': disposition,
     }
+    extras = _billavenue_complaint_correlation_extras(attempt)
+    # complaintType is mandatory on several BBPS complaint stacks; try enriched payloads first so BillAvenue
+    # can tie the complaint to the same agent/biller/paymentRefId as bill pay.
     payload_attempts = [
-        {**base_payload, 'complaintDesc': desc},
+        {**core, 'complaintType': 'Transaction', 'complaintDesc': desc, **extras},
+        {**core, 'complaintDesc': desc, **extras},
+        {**core, 'complaintDesc': desc},
         # BillAvenue v2.8.7 JSON sample uses complainDesc (without "t").
-        {**base_payload, 'complainDesc': desc},
+        {**core, 'complainDesc': desc},
         # Some partner stacks accept one or more aliases.
         {
-            **base_payload,
+            **core,
             'complaintDesc': desc,
             'complainDesc': desc,
             'complaintDescription': desc,
+            **extras,
         },
-        # Last resort: optional complaint classification used on some stacks (not in minimal Postman sample).
-        {**base_payload, 'complaintDesc': desc, 'complaintType': 'Transaction'},
+        # Last resort: complaintType without correlation extras (older Postman-only shape).
+        {**core, 'complaintDesc': desc, 'complaintType': 'Transaction'},
     ]
     resp = None
     last_error = None
@@ -330,6 +419,21 @@ def register_complaint(*, user, txn_ref_id: str, complaint_desc: str, complaint_
             if idx == len(payload_attempts) - 1:
                 raise
     if resp is None and last_error:
+        # Ensure support can correlate with BillAvenue logs even when the last raised error
+        # did not carry requestId (e.g. chained retries).
+        br = str(last_billavenue_request_id or '').strip()
+        if br and not str(getattr(last_error, 'billavenue_request_id', '') or '').strip():
+            setattr(last_error, 'billavenue_request_id', br)
+        raw_l = str(last_error).lower()
+        if 'code=001' in raw_l and ('already exist' in raw_l or 'in-process' in raw_l or 'in process' in raw_l):
+            existing_any = _find_any_open_complaint_for_txn(user=user, upstream_txn_ref_id=upstream_txn_ref_id)
+            if existing_any:
+                raise TransactionFailed(
+                    'BillAvenue reports this transaction already has an active complaint ticket. '
+                    f'Your open case in this portal: Complaint ID {existing_any.complaint_id} '
+                    f'(disposition: {existing_any.complaint_disposition}). '
+                    'Use Complaint Management → Track complaint and enter that Complaint ID.'
+                ) from last_error
         raise last_error
     body = _registration_row_from_response(resp)
     c = BbpsComplaint.objects.create(

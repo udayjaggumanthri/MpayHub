@@ -28,6 +28,7 @@ import {
 import Button from '../common/Button';
 import Card from '../common/Card';
 import FeedbackModal from '../common/FeedbackModal';
+import AccessStatusBadges from './AccessStatusBadges';
 
 const ADMIN_ASSIGNABLE_ROLES = [
   'Admin',
@@ -68,7 +69,10 @@ const UserDetail = () => {
 
   const [activeStatusSaving, setActiveStatusSaving] = useState(false);
   const [activeStatusMessage, setActiveStatusMessage] = useState('');
+  const [accessControlsSaving, setAccessControlsSaving] = useState(false);
+  const [accessControlsMessage, setAccessControlsMessage] = useState('');
   const [accountConfirm, setAccountConfirm] = useState(null);
+  const [allowPayInWhenDisabled, setAllowPayInWhenDisabled] = useState(false);
   const [selfBlockOpen, setSelfBlockOpen] = useState(false);
 
   const [userPackages, setUserPackages] = useState({ assigned: [], accessible: [] });
@@ -199,7 +203,12 @@ const UserDetail = () => {
     setActiveStatusSaving(true);
     setActiveStatusMessage('');
     try {
-      const res = await usersAPI.setUserActiveStatus(user.id, nextActive);
+      const res = await usersAPI.setUserAccessControls(user.id, {
+        is_active: nextActive,
+        ...(nextActive
+          ? {}
+          : { pay_in_allowed_when_disabled: Boolean(allowPayInWhenDisabled) }),
+      });
       const u = res.data?.user ?? res.data;
       if (res.success && u && u.id != null) {
         setUser(u);
@@ -213,6 +222,27 @@ const UserDetail = () => {
     } finally {
       setActiveStatusSaving(false);
       setAccountConfirm(null);
+      setAllowPayInWhenDisabled(false);
+    }
+  };
+
+  const applyAccessFlag = async (patch) => {
+    if (!user?.id) return;
+    setAccessControlsSaving(true);
+    setAccessControlsMessage('');
+    try {
+      const res = await usersAPI.setUserAccessControls(user.id, patch);
+      const u = res.data?.user ?? res.data;
+      if (res.success && u?.id != null) {
+        setUser(u);
+        setAccessControlsMessage('Access settings updated.');
+      } else {
+        setAccessControlsMessage(res.message || 'Update failed.');
+      }
+    } catch {
+      setAccessControlsMessage('Update failed.');
+    } finally {
+      setAccessControlsSaving(false);
     }
   };
 
@@ -281,16 +311,7 @@ const UserDetail = () => {
             <span className={`inline-flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-semibold ${roleBadgeClass(user.role)}`}>
               {user.role}
             </span>
-            <span
-              className={`inline-flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-semibold ${
-                accountIsActive(user)
-                  ? 'bg-emerald-100 text-emerald-800 ring-1 ring-emerald-200'
-                  : 'bg-red-100 text-red-800 ring-1 ring-red-200'
-              }`}
-            >
-              <span className={`h-2 w-2 rounded-full ${accountIsActive(user) ? 'bg-emerald-500' : 'bg-red-500'}`} />
-              {accountIsActive(user) ? 'Active' : 'Disabled'}
-            </span>
+            <AccessStatusBadges user={user} className="justify-end" />
           </div>
         </div>
 
@@ -608,10 +629,11 @@ const UserDetail = () => {
                   {/* Account Status */}
                   <div className="pt-4 border-t border-slate-100">
                     <p className="text-xs font-semibold uppercase tracking-wide text-slate-600 mb-3">Account Access</p>
+                    <AccessStatusBadges user={user} className="mb-3" />
                     <div className="flex gap-2">
                       <Button
                         onClick={() => requestToggleAccountActive(false)}
-                        disabled={activeStatusSaving || !accountIsActive(user)}
+                        disabled={activeStatusSaving || accessControlsSaving || !accountIsActive(user)}
                         variant="outline"
                         size="md"
                         icon={FaUserSlash}
@@ -622,7 +644,7 @@ const UserDetail = () => {
                       </Button>
                       <Button
                         onClick={() => requestToggleAccountActive(true)}
-                        disabled={activeStatusSaving || accountIsActive(user)}
+                        disabled={activeStatusSaving || accessControlsSaving || accountIsActive(user)}
                         variant="success"
                         size="md"
                         icon={FaUserCheck}
@@ -634,11 +656,50 @@ const UserDetail = () => {
                     </div>
                     {activeStatusMessage && (
                       <p className={`mt-2 text-sm ${
-                        activeStatusMessage.includes('enabled') || activeStatusMessage.includes('disabled')
+                        activeStatusMessage.includes('success') || activeStatusMessage.includes('enabled') || activeStatusMessage.includes('disabled')
                           ? 'text-emerald-700'
                           : 'text-red-600'
                       }`}>
                         {activeStatusMessage}
+                      </p>
+                    )}
+                  </div>
+
+                  <div className="pt-4 border-t border-slate-100 space-y-3">
+                    <p className="text-xs font-semibold uppercase tracking-wide text-slate-600">Access restrictions</p>
+                    <label className="flex items-start gap-3 rounded-xl border border-slate-200 bg-slate-50/80 px-4 py-3 text-sm text-slate-700 cursor-pointer">
+                      <input
+                        type="checkbox"
+                        className="mt-0.5 h-4 w-4 rounded border-slate-300 text-indigo-600 focus:ring-indigo-500"
+                        checked={Boolean(user.is_restricted)}
+                        disabled={accessControlsSaving || activeStatusSaving}
+                        onChange={(e) => applyAccessFlag({ is_restricted: e.target.checked })}
+                      />
+                      <span>
+                        <span className="font-medium text-slate-900">Restrict user</span>
+                        <span className="block text-xs text-slate-500 mt-0.5">
+                          Read-only portal: reports and profile only; no pay-in or payments.
+                        </span>
+                      </span>
+                    </label>
+                    <label className="flex items-start gap-3 rounded-xl border border-slate-200 bg-slate-50/80 px-4 py-3 text-sm text-slate-700 cursor-pointer">
+                      <input
+                        type="checkbox"
+                        className="mt-0.5 h-4 w-4 rounded border-slate-300 text-indigo-600 focus:ring-indigo-500"
+                        checked={Boolean(user.payments_locked)}
+                        disabled={accessControlsSaving || activeStatusSaving || !accountIsActive(user)}
+                        onChange={(e) => applyAccessFlag({ payments_locked: e.target.checked })}
+                      />
+                      <span>
+                        <span className="font-medium text-slate-900">Lock payments</span>
+                        <span className="block text-xs text-slate-500 mt-0.5">
+                          Blocks BBPS, payout, and transfers; pay-in still allowed unless restricted.
+                        </span>
+                      </span>
+                    </label>
+                    {accessControlsMessage && (
+                      <p className={`text-sm ${accessControlsMessage.includes('updated') ? 'text-emerald-700' : 'text-red-600'}`}>
+                        {accessControlsMessage}
                       </p>
                     )}
                   </div>
@@ -816,10 +877,22 @@ const UserDetail = () => {
                 <p className="mt-2 text-sm text-slate-600">
                   {accountConfirm.nextActive
                     ? `${fullName} will be able to sign in and use the platform.`
-                    : `${fullName} will be signed out and cannot log in until re-enabled.`}
+                    : `${fullName} will be signed out and cannot use the platform normally until re-enabled.`}
                 </p>
               </div>
             </div>
+            {!accountConfirm.nextActive && (
+              <label className="mt-4 flex items-start gap-3 rounded-xl border border-slate-200 bg-slate-50/80 px-4 py-3 text-sm text-slate-700 cursor-pointer">
+                <input
+                  type="checkbox"
+                  className="mt-0.5 h-4 w-4 rounded border-slate-300 text-indigo-600 focus:ring-indigo-500"
+                  checked={allowPayInWhenDisabled}
+                  onChange={(e) => setAllowPayInWhenDisabled(e.target.checked)}
+                  disabled={activeStatusSaving}
+                />
+                <span>Allow Pay-In (load money) while account is disabled</span>
+              </label>
+            )}
             <div className="mt-6 flex gap-3 justify-end">
               <Button
                 onClick={() => setAccountConfirm(null)}

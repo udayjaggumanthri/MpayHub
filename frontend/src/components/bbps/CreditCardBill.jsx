@@ -12,6 +12,7 @@ import BharatConnectBranding from './BharatConnectBranding';
 import BbpsDynamicFieldSet from './BbpsDynamicFieldSet';
 import bAssuredPrimary from '../../assets/bbps/b-assured-primary.svg';
 import { normalizeCategorySlug } from '../../constants/bbpsCanonicalCategories';
+import AccountAccessBanner from '../common/AccountAccessBanner';
 
 const isFastagBillCategory = (raw) => {
   const n = normalizeCategorySlug(raw);
@@ -549,6 +550,7 @@ const CreditCardBill = ({ category = 'credit-card', onPaymentSuccess }) => {
       )}
 
       <div className="space-y-6">
+        <AccountAccessBanner user={user} mode="pay_out" />
         {isPaymentProcessing && (
           <div className="fixed inset-0 z-[60] bg-black/45 backdrop-blur-[1px] flex items-center justify-center p-4">
             <div className="bg-white rounded-2xl shadow-2xl max-w-lg w-full p-6 border border-blue-100">

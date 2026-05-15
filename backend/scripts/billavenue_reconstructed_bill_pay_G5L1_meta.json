@@ -1,0 +1,12 @@
+{
+  "audit_utc": "2026-05-12T14:45:46.228552+00:00",
+  "url": "https://stgapi.billavenue.com/billpay/extBillPayCntrl/billPayRequest/xml",
+  "requestId": "G5L1CIPZYN7Y7BY1X36770D5T6A61322015",
+  "ver": "1.0",
+  "instituteId": "PI39",
+  "encRequest_length": 4576,
+  "encRequest_prefix": "4ffb824b4808b5f7236a63fc5f8c68a3c28947bb8a45d080",
+  "encRequest_suffix": "d1bfcac6f4f854da25a75bf616b61a368b95638b136cfcf1",
+  "inner_plaintext_length": 2284,
+  "inner_plaintext_preview": "<?xml version=\"1.0\" encoding=\"UTF-8\"?><billPaymentRequest><paymentRefId>G5L1CIPZYN7Y7BY1X36770D5T6A61322015</paymentRefId><agentId>CC01CC01513515340681</agentId><billerAdhoc>true</billerAdhoc><agentDeviceInfo><ip>172.18.0.2</ip><initChannel>AGT</initChannel></agentDeviceInfo><customerInfo><customerMobile>9876543212</customerMobile><customerName>BBPS</customerName><customerEmail>tarun@gmail.com</cu"
+}

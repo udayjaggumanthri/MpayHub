@@ -1,11 +1,11 @@
 from unittest.mock import patch
 
-from django.test import TestCase
+from django.test import SimpleTestCase, TestCase
 
 from apps.authentication.models import User
 from apps.bbps.models import BbpsComplaint, BbpsPaymentAttempt
 from apps.bbps.serializers import ComplaintRegisterSerializer
-from apps.bbps.service_flow.complaint_service import register_complaint
+from apps.bbps.service_flow.complaint_service import _canonical_billavenue_complaint_disposition, register_complaint
 from apps.core.exceptions import TransactionFailed
 from apps.integrations.billavenue.errors import BillAvenueClientError
 
@@ -26,7 +26,7 @@ class ComplaintServiceTests(TestCase):
             'user': self.user,
             'txn_ref_id': 'CC015135BAAA92192259',
             'complaint_desc': 'Service not received after successful payment',
-            'complaint_disposition': 'Transaction successful, Amount Debited but services not received',
+            'complaint_disposition': 'Transaction Successful, Amount Debited but services not received',
         }
 
     @patch('apps.bbps.service_flow.complaint_service.enforce_complaint_cooling')
@@ -45,7 +45,7 @@ class ComplaintServiceTests(TestCase):
         sent_payload = client.register_complaint.call_args_list[0].args[0]
         self.assertEqual(sent_payload.get('complaintDesc'), self.base_kwargs['complaint_desc'])
         self.assertNotIn('complainDesc', sent_payload)
-        self.assertNotIn('complaintType', sent_payload)
+        self.assertEqual(sent_payload.get('complaintType'), 'Transaction')
 
     @patch('apps.bbps.service_flow.complaint_service.enforce_complaint_cooling')
     @patch('apps.bbps.service_flow.complaint_service.BBPSClient')
@@ -57,13 +57,15 @@ class ComplaintServiceTests(TestCase):
         e1.billavenue_request_id = 'E' * 35
         client.register_complaint.side_effect = [
             e1,
+            e1,
+            e1,
             _reg_ok({'complaintRegistrationResp': {'responseCode': '000', 'responseReason': 'SUCCESS', 'complaintId': 'CMP2'}}),
         ]
 
         register_complaint(**self.base_kwargs)
 
-        self.assertEqual(client.register_complaint.call_count, 2)
-        sent_payload = client.register_complaint.call_args_list[1].args[0]
+        self.assertEqual(client.register_complaint.call_count, 4)
+        sent_payload = client.register_complaint.call_args_list[3].args[0]
         self.assertEqual(sent_payload.get('complainDesc'), self.base_kwargs['complaint_desc'])
 
     @patch('apps.bbps.service_flow.complaint_service.enforce_complaint_cooling')
@@ -75,13 +77,15 @@ class ComplaintServiceTests(TestCase):
         client.register_complaint.side_effect = [
             err,
             err,
+            err,
+            err,
             _reg_ok({'complaintRegistrationResp': {'responseCode': '000', 'responseReason': 'SUCCESS', 'complaintId': 'CMP3'}}),
         ]
 
         register_complaint(**self.base_kwargs)
 
-        self.assertEqual(client.register_complaint.call_count, 3)
-        sent_payload = client.register_complaint.call_args_list[2].args[0]
+        self.assertEqual(client.register_complaint.call_count, 5)
+        sent_payload = client.register_complaint.call_args_list[4].args[0]
         self.assertEqual(sent_payload.get('complaintDesc'), self.base_kwargs['complaint_desc'])
         self.assertEqual(sent_payload.get('complainDesc'), self.base_kwargs['complaint_desc'])
         self.assertEqual(sent_payload.get('complaintDescription'), self.base_kwargs['complaint_desc'])
@@ -129,10 +133,21 @@ class ComplaintServiceTests(TestCase):
         payload = {
             'txn_ref_id': 'PMBBPS20260505153803C75612',
             'complaint_desc': 'Service not received',
-            'complaint_disposition': 'Transaction successful, Amount Debited but services not received',
+            'complaint_disposition': 'Transaction Successful, Amount Debited but services not received',
         }
         ser = ComplaintRegisterSerializer(data=payload)
         self.assertTrue(ser.is_valid(), ser.errors)
+
+    def test_serializer_accepts_complain_desc_alias(self):
+        ser = ComplaintRegisterSerializer(
+            data={
+                'txn_ref_id': 'CC015135BAAA92192259',
+                'complain_desc': 'Testing Complaint registration through API',
+                'complaint_disposition': 'Transaction Successful, Amount Debited but services not received',
+            }
+        )
+        self.assertTrue(ser.is_valid(), ser.errors)
+        self.assertEqual(ser.validated_data['complaint_desc'], 'Testing Complaint registration through API')
 
     @patch('apps.bbps.service_flow.complaint_service.enforce_complaint_cooling')
     @patch('apps.bbps.service_flow.complaint_service.BBPSClient')
@@ -151,6 +166,27 @@ class ComplaintServiceTests(TestCase):
         with self.assertRaises(TransactionFailed) as exc:
             register_complaint(**self.base_kwargs)
         self.assertIn('Duplicate complaint already exists', str(exc.exception))
+        mock_client_cls.return_value.register_complaint.assert_not_called()
+
+    @patch('apps.bbps.service_flow.complaint_service.enforce_complaint_cooling')
+    @patch('apps.bbps.service_flow.complaint_service.BBPSClient')
+    def test_register_complaint_blocks_when_open_complaint_other_disposition(self, mock_client_cls, _mock_cooling):
+        BbpsComplaint.objects.create(
+            user=self.user,
+            txn_ref_id=self.base_kwargs['txn_ref_id'],
+            complaint_id='CMP-OTHER-DISP',
+            complaint_desc='First case',
+            complaint_disposition='Duplicate Payment',
+            complaint_status='ASSIGNED',
+            response_code='000',
+            response_reason='SUCCESS',
+            raw_payload={},
+        )
+        kwargs = {**self.base_kwargs, 'complaint_disposition': 'Erroneously paid in wrong account'}
+        with self.assertRaises(TransactionFailed) as exc:
+            register_complaint(**kwargs)
+        self.assertIn('this transaction already has an open complaint', str(exc.exception).lower())
+        self.assertIn('CMP-OTHER-DISP', str(exc.exception))
         mock_client_cls.return_value.register_complaint.assert_not_called()
 
     @patch('apps.bbps.service_flow.complaint_service.enforce_complaint_cooling')
@@ -232,3 +268,28 @@ class ComplaintServiceTests(TestCase):
 
         sent = client.register_complaint.call_args_list[0].args[0]
         self.assertEqual(sent.get('txnRefId'), 'CC_VIA_REQUEST_ID_LOOKUP')
+        self.assertEqual(sent.get('paymentRefId'), rid)
+
+
+class ComplaintDispositionCanonicalTests(SimpleTestCase):
+    def test_legacy_lowercase_successful_maps_to_official(self):
+        self.assertEqual(
+            _canonical_billavenue_complaint_disposition(
+                'Transaction successful, Amount Debited but services not received'
+            ),
+            'Transaction Successful, Amount Debited but services not received',
+        )
+
+    def test_viii_trailing_period_maps_to_xml_canonical(self):
+        self.assertEqual(
+            _canonical_billavenue_complaint_disposition(
+                'Bill Paid but Amount not adjusted or still showing due amount.'
+            ),
+            'Bill Paid but Amount not adjusted or still showing due amount',
+        )
+
+    def test_payment_info_alias_maps(self):
+        self.assertEqual(
+            _canonical_billavenue_complaint_disposition('Payment info not received / delayed from biller'),
+            'Payment information not received from Biller or Delay in receiving payment information from the Biller.',
+        )

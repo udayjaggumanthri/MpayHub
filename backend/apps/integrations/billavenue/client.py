@@ -13,6 +13,8 @@ from apps.integrations.billavenue.xml_request import (
     build_biller_info_plain_xml,
     build_bill_fetch_plain_xml,
     build_bill_pay_plain_xml,
+    build_complaint_register_plain_xml,
+    build_complaint_track_plain_xml,
     build_plan_pull_plain_xml,
 )
 from apps.integrations.billavenue.errors import (
@@ -23,6 +25,7 @@ from apps.integrations.billavenue.errors import (
     exception_for_code,
 )
 from apps.integrations.billavenue.parsers import (
+    extract_complaint_api_outcome_code,
     extract_element_outer_xml_from_plaintext,
     extract_response_code,
     normalize_decrypted_plaintext,
@@ -90,6 +93,50 @@ def _normalized_text(normalized: dict) -> str:
         return json.dumps(normalized, ensure_ascii=False)
     except Exception:
         return str(normalized)
+
+
+def _inner_complaint_response_blocks(normalized: dict) -> list:
+    """Return dict bodies under complaintRegistrationResp / complaintTrackingResp (any key casing)."""
+    if not isinstance(normalized, dict):
+        return []
+    out = []
+    for k, v in normalized.items():
+        lk = str(k).lower().replace('_', '')
+        if lk in ('complaintregistrationresp', 'complainttrackingresp') and isinstance(v, dict):
+            out.append(v)
+    return out
+
+
+def _extract_complaint_response_reason(normalized) -> str:
+    """Walk nested complaint payloads for the human-readable provider reason (avoid truncating mid-sentence)."""
+    if isinstance(normalized, dict):
+        for block in _inner_complaint_response_blocks(normalized):
+            for sk in (
+                'complaintResponseReason',
+                'ComplaintResponseReason',
+                'responseReason',
+                'ResponseReason',
+                'errorMessage',
+                'ErrorMessage',
+            ):
+                v = block.get(sk)
+                if isinstance(v, str) and v.strip():
+                    return v.strip()
+    if isinstance(normalized, dict):
+        for key, val in normalized.items():
+            lk = str(key).lower().replace('_', '')
+            if lk == 'complaintresponsereason' and isinstance(val, str) and val.strip():
+                return val.strip()
+        for val in normalized.values():
+            hit = _extract_complaint_response_reason(val)
+            if hit:
+                return hit
+    elif isinstance(normalized, list):
+        for it in normalized:
+            hit = _extract_complaint_response_reason(it)
+            if hit:
+                return hit
+    return ''
 
 
 def _has_invalid_enc_request(normalized: dict) -> bool:
@@ -247,11 +294,16 @@ class BillAvenueClient:
     def _endpoint_for(self, endpoint_key: str) -> str:
         """Resolve HTTP path for BillAvenue.
 
-        When api_format=xml we only build native XML plaintext for MDM (`biller_info`) and plan MDM
-        (`plan_pull`). All other calls still use JSON-shaped plaintext inside encRequest — those must
-        hit the **/json** URLs or BillAvenue commonly returns responseCode 001 on the /xml path.
+        Complaint register/track always use the **/xml** paths with XML inside ``encRequest`` (BillAvenue
+        reference). When api_format=xml we only build native XML plaintext for MDM (`biller_info`) and plan MDM
+        (`plan_pull`). Other non-complaint calls still use JSON-shaped plaintext inside encRequest with **/json**
+        URLs when api_format=xml (see branch below).
         """
         mapping = _ENDPOINTS_BY_KEY.get(endpoint_key) or {}
+        # BillAvenue complaint APIs: official samples use /extComplaints/{register|track}/xml with XML
+        # inside encRequest (query-string envelope). JSON + /json often yields 205 FAILURE on UAT.
+        if endpoint_key in ('complaint_register', 'complaint_track'):
+            return str(mapping.get('xml') or mapping.get('json') or '').strip()
         # Transaction status endpoint is consistently deployed on /json in BillAvenue stacks.
         # Avoid /xml entirely here; some environments return 404 on /xml and break end-user query screens.
         if endpoint_key == 'txn_status':
@@ -262,7 +314,11 @@ class BillAvenueClient:
         return str(mapping.get(v) or mapping.get('json') or '').strip()
 
     def _inner_plaintext_for_post(self, endpoint_name: str, payload_obj: dict) -> str:
-        """Encrypted inner body: JSON for /json URLs; XML variant uses real XML for MDM/plan MDM, JSON fallback elsewhere."""
+        """Encrypted inner body: JSON for /json URLs; XML for MDM, bill fetch/pay, plan MDM, and complaints."""
+        if endpoint_name == 'complaint_register':
+            return build_complaint_register_plain_xml(payload_obj or {})
+        if endpoint_name == 'complaint_track':
+            return build_complaint_track_plain_xml(payload_obj or {})
         if self._variant() == 'json':
             return json.dumps(payload_obj or {}, separators=(',', ':'))
         if endpoint_name == 'biller_info':
@@ -394,6 +450,15 @@ class BillAvenueClient:
                     headers={'Content-Type': 'text/plain; charset=utf-8'},
                     timeout=timeout,
                 )
+            elif endpoint_name in ('complaint_register', 'complaint_track'):
+                # BillAvenue (2026): extComplaints expects accessCode, requestId, instituteId, ver, encRequest
+                # as query parameters — not as x-www-form-urlencoded POST body.
+                request_meta = {
+                    **request_meta,
+                    'url': url,
+                    'transport': 'complaint-envelope-query-string',
+                }
+                resp = requests.post(url, params=env, timeout=timeout)
             else:
                 # BillAvenue note: other APIs accept encRequest as POST parameter.
                 base = self.config.base_url.rstrip('/')
@@ -501,7 +566,7 @@ class BillAvenueClient:
                 _attach_billavenue_request_id(ae, env.get('requestId', ''))
                 raise ae
 
-        code = extract_response_code(normalized)
+        code = extract_complaint_api_outcome_code(normalized) if endpoint_name in ('complaint_register', 'complaint_track') else extract_response_code(normalized)
         # Some providers return decrypted JSON text as a string; recover code from it.
         if not code and isinstance(normalized, dict):
             raw = str(normalized.get('raw') or '').strip()
@@ -509,7 +574,10 @@ class BillAvenueClient:
                 try:
                     parsed_raw = json.loads(raw)
                     if isinstance(parsed_raw, dict):
-                        recovered = extract_response_code(parsed_raw)
+                        if endpoint_name in ('complaint_register', 'complaint_track'):
+                            recovered = extract_complaint_api_outcome_code(parsed_raw)
+                        else:
+                            recovered = extract_response_code(parsed_raw)
                         if recovered:
                             normalized = parsed_raw
                             code = recovered
@@ -588,7 +656,19 @@ class BillAvenueClient:
                 _attach_billavenue_request_id(ce, env.get('requestId', ''))
                 raise ce
             exc_cls = exception_for_code(code)
-            provider_err = _error_message_from_normalized(normalized if isinstance(normalized, dict) else {})
+            if endpoint_name in ('complaint_register', 'complaint_track'):
+                provider_err = _extract_complaint_response_reason(
+                    normalized if isinstance(normalized, dict) else {}
+                )
+                if not provider_err and isinstance(normalized, dict):
+                    blk = _extract_error_block(normalized)
+                    provider_err = str(blk.get('errorMessage') or '').strip()
+                if not provider_err:
+                    provider_err = _error_message_from_normalized(normalized if isinstance(normalized, dict) else {})
+            else:
+                provider_err = _error_message_from_normalized(normalized if isinstance(normalized, dict) else {})
+            if provider_err and len(provider_err) > 1800:
+                provider_err = provider_err[:1800] + '…'
             suffix = f' ({provider_err})' if provider_err else ''
             pe = exc_cls(f'BillAvenue API failed ({endpoint_name}) code={c}{suffix}')
             _attach_billavenue_request_id(pe, env.get('requestId', ''))

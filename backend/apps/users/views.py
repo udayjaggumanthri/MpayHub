@@ -14,12 +14,14 @@ from apps.users.serializers import (
     UserDetailSerializer,
     UserRoleChangeSerializer,
     UserActiveStatusSerializer,
+    UserAccessControlsSerializer,
     PANVerificationSerializer,
     AadhaarOTPSerializer,
     AadhaarOTPVerificationSerializer,
 )
 from apps.users.services import (
     admin_change_user_role,
+    apply_user_access_controls,
     create_user,
     verify_pan,
     send_aadhaar_otp,
@@ -71,6 +73,10 @@ class UserViewSet(viewsets.ModelViewSet):
                 queryset = queryset.filter(is_active=True)
             elif acct in ('inactive', 'disabled'):
                 queryset = queryset.filter(is_active=False)
+            elif acct == 'restricted':
+                queryset = queryset.filter(is_restricted=True)
+            elif acct == 'payments_locked':
+                queryset = queryset.filter(payments_locked=True)
 
         return queryset.select_related('profile', 'kyc')
     
@@ -399,9 +405,20 @@ class UserViewSet(viewsets.ModelViewSet):
                 },
                 status=status.HTTP_400_BAD_REQUEST,
             )
-        instance.is_active = serializer.validated_data['is_active']
-        instance.save(update_fields=['is_active'])
-        instance.refresh_from_db()
+        patch = {'is_active': serializer.validated_data['is_active']}
+        if 'pay_in_allowed_when_disabled' in serializer.validated_data:
+            patch['pay_in_allowed_when_disabled'] = serializer.validated_data['pay_in_allowed_when_disabled']
+        try:
+            instance = apply_user_access_controls(
+                actor=request.user,
+                target=instance,
+                patch=patch,
+            )
+        except ValueError as e:
+            return Response(
+                {'success': False, 'data': None, 'message': str(e), 'errors': []},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
         user_data = UserDetailSerializer(instance, context=self.get_serializer_context()).data
         state = 'enabled' if instance.is_active else 'disabled'
         return Response(
@@ -409,6 +426,56 @@ class UserViewSet(viewsets.ModelViewSet):
                 'success': True,
                 'data': {'user': user_data},
                 'message': f'User account {state} successfully.',
+                'errors': [],
+            },
+            status=status.HTTP_200_OK,
+        )
+
+    @action(detail=True, methods=['patch'], url_path='access-controls')
+    def set_access_controls(self, request, pk=None):
+        """Admin-only: restrict, lock payments, disable, or allow pay-in when disabled."""
+        if getattr(request.user, 'role', None) != 'Admin':
+            return Response(
+                {
+                    'success': False,
+                    'data': None,
+                    'message': 'Only administrators may change user access controls.',
+                    'errors': [],
+                },
+                status=status.HTTP_403_FORBIDDEN,
+            )
+        instance = self.get_object()
+        serializer = UserAccessControlsSerializer(
+            data=request.data,
+            context={'request': request, 'target': instance},
+        )
+        if not serializer.is_valid():
+            return Response(
+                {
+                    'success': False,
+                    'data': None,
+                    'message': 'Invalid access controls payload',
+                    'errors': serializer.errors,
+                },
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        try:
+            instance = apply_user_access_controls(
+                actor=request.user,
+                target=instance,
+                patch=serializer.validated_data,
+            )
+        except ValueError as e:
+            return Response(
+                {'success': False, 'data': None, 'message': str(e), 'errors': []},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        user_data = UserDetailSerializer(instance, context=self.get_serializer_context()).data
+        return Response(
+            {
+                'success': True,
+                'data': {'user': user_data},
+                'message': 'User access controls updated successfully.',
                 'errors': [],
             },
             status=status.HTTP_200_OK,

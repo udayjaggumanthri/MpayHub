@@ -1,17 +1,18 @@
 """
-JWT / session auth that rejects disabled (is_active=False) users.
+JWT / session auth that rejects users who may not log in (disabled without pay-in exception).
 """
+from apps.core.financial_access import user_may_login
 from rest_framework.authentication import SessionAuthentication
 from rest_framework.exceptions import AuthenticationFailed
 from rest_framework_simplejwt.authentication import JWTAuthentication
 
 
 class ActiveUserJWTAuthentication(JWTAuthentication):
-    """Invalidate API access for deactivated accounts while a token is still unexpired."""
+    """Invalidate API access when account is disabled and pay-in-only exception does not apply."""
 
     def get_user(self, validated_token):
         user = super().get_user(validated_token)
-        if user is not None and not user.is_active:
+        if user is not None and not user_may_login(user):
             raise AuthenticationFailed('User account is disabled.')
         return user
 
@@ -24,6 +25,6 @@ class ActiveUserSessionAuthentication(SessionAuthentication):
         if result is None:
             return None
         user, auth = result
-        if not user.is_active:
+        if not user_may_login(user):
             raise AuthenticationFailed('User account is disabled.')
         return user, auth

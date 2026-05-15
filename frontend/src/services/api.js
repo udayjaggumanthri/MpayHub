@@ -9,6 +9,7 @@
 
 import axios from 'axios';
 import { normalizeAuthUser } from '../utils/authUser';
+import { messageForAccessDetail } from '../utils/userAccess';
 
 const normalizeApiBaseUrl = (rawBaseUrl) => {
   const fallback = '/api';
@@ -203,7 +204,10 @@ const handleError = (error) => {
         ? detail
         : '';
     const errMeta = apiError.error && typeof apiError.error === 'object' ? apiError.error : null;
-    const baseMessage = apiError.message || detailMessage || nonJsonMessage;
+    const detailObj =
+      detail && typeof detail === 'object' && !Array.isArray(detail) ? detail : null;
+    const accessMessage = detailObj ? messageForAccessDetail(detailObj) : null;
+    const baseMessage = accessMessage || apiError.message || detailMessage || nonJsonMessage;
     const isRetryable = Boolean(errMeta?.retryable);
     const isTimeoutish =
       error.response.status === 503 ||
@@ -632,11 +636,26 @@ export const usersAPI = {
    * Admin only: enable or disable user account (blocks login and API access).
    * PATCH /api/users/{id}/active-status/
    */
-  setUserActiveStatus: async (userId, isActive) => {
+  setUserActiveStatus: async (userId, isActive, options = {}) => {
     try {
-      const response = await apiClient.patch(`/users/${userId}/active-status/`, {
-        is_active: Boolean(isActive),
-      });
+      const body = { is_active: Boolean(isActive) };
+      if (options.pay_in_allowed_when_disabled !== undefined) {
+        body.pay_in_allowed_when_disabled = Boolean(options.pay_in_allowed_when_disabled);
+      }
+      const response = await apiClient.patch(`/users/${userId}/active-status/`, body);
+      return extractData(response);
+    } catch (error) {
+      return handleError(error);
+    }
+  },
+
+  /**
+   * Admin only: restrict, lock payments, disable, allow pay-in when disabled.
+   * PATCH /api/users/{id}/access-controls/
+   */
+  setUserAccessControls: async (userId, payload) => {
+    try {
+      const response = await apiClient.patch(`/users/${userId}/access-controls/`, payload);
       return extractData(response);
     } catch (error) {
       return handleError(error);

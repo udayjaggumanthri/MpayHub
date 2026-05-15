@@ -11,6 +11,7 @@ import FeedbackModal from '../common/FeedbackModal';
 import ContactSearchTypeahead from './ContactSearchTypeahead';
 import { formatCurrency } from '../../utils/formatters';
 import { validateAmount } from '../../utils/validators';
+import AccountAccessBanner from '../common/AccountAccessBanner';
 import { formatAccountNumber } from '../../utils/formatters';
 import {
   FaPhone,
@@ -361,6 +362,7 @@ const Payout = () => {
       )}
 
       <div className="max-w-5xl mx-auto space-y-4 sm:space-y-6 px-4 sm:px-0">
+        <AccountAccessBanner user={user} mode="pay_out" />
         <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between">
           <div>
             <h1 className="text-2xl sm:text-3xl font-bold text-gray-900">Payout (Withdraw Funds)</h1>

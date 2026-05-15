@@ -320,11 +320,27 @@ class TransactionQuerySerializer(serializers.Serializer):
 
 
 class ComplaintRegisterSerializer(serializers.Serializer):
+    """
+    Partner-facing register payload. BillAvenue ``/extComplaints/register/xml`` uses encrypted XML
+    (``complaintRegistrationReq``: txnRefId, complaintDesc, complaintDisposition); we accept the same
+    ideas as snake_case here. Optional ``complain_desc`` mirrors BillAvenue JSON samples that typo the key.
+    """
     # Accept both B-Connect txn reference (CC...) and internal service id (PMBBPS...).
     # Internal ids can be longer than 40 and are mapped to txn_ref_id in service layer.
     txn_ref_id = serializers.CharField(max_length=100)
-    complaint_desc = serializers.CharField(max_length=255)
+    complaint_desc = serializers.CharField(max_length=255, required=False, allow_blank=True)
+    complain_desc = serializers.CharField(max_length=255, required=False, allow_blank=True, write_only=True)
     complaint_disposition = serializers.CharField(max_length=255)
+
+    def validate(self, attrs):
+        desc = str(attrs.get('complaint_desc') or attrs.get('complain_desc') or '').strip()
+        if not desc:
+            raise serializers.ValidationError(
+                {'complaint_desc': 'This field is required. Use complaint_desc (or complain_desc per BillAvenue JSON samples).'}
+            )
+        attrs['complaint_desc'] = desc
+        attrs.pop('complain_desc', None)
+        return attrs
 
 
 class ComplaintTrackSerializer(serializers.Serializer):

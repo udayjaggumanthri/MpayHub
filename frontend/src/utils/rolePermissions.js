@@ -270,3 +270,5 @@ export const canUseTeamReportScope = (role) =>
 
 /** Platform admin (e.g. pay-in commission / fee-split visibility in reports). */
 export const isAdminUser = (user) => (user?.role || '') === 'Admin';
+
+export { isPayInOnlySession, userMayLogin } from './userAccess';

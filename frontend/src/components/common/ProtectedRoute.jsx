@@ -2,6 +2,7 @@ import React from 'react';
 import { Navigate, useLocation } from 'react-router-dom';
 import { useAuth } from '../../context/AuthContext';
 import { isOperationalFundBlockedRole } from '../../utils/rolePermissions';
+import { shouldBlockPathForUser, userMayLogin } from '../../utils/userAccess';
 
 const ProtectedRoute = ({ children, requireMPIN = true, blockFinancialTransactions = false }) => {
   const { isAuthenticated, mpinVerified, loading, user } = useAuth();
@@ -23,8 +24,22 @@ const ProtectedRoute = ({ children, requireMPIN = true, blockFinancialTransactio
     return <Navigate to="/login" replace />;
   }
 
-  if (user && user.is_active === false) {
+  if (user && !userMayLogin(user)) {
     return <Navigate to="/login" replace state={{ from: path, disabledAccount: true }} />;
+  }
+
+  if (user && shouldBlockPathForUser(user, path)) {
+    return (
+      <Navigate
+        to="/dashboard"
+        replace
+        state={{
+          accessBlocked: true,
+          message:
+            'This area is not available for your account status. Use Load Money if pay-in is enabled, or contact your administrator.',
+        }}
+      />
+    );
   }
 
   const ob = user?.onboarding;

@@ -55,3 +55,26 @@ class BbpsErrorMappingTests(SimpleTestCase):
             'BillAvenue API failed (complaint_register) code=205 {"errorCode":"V5004","errorMessage":"Description missing"}'
         )
         self.assertIn('description was rejected', msg.lower())
+
+    def test_complaint_register_code_001_unable_to_process_is_friendly(self):
+        raw = (
+            'BillAvenue API failed (complaint_register) code=001 ({"complaintResponseCode": "001", '
+            '"complaintResponseReason": "Sorry, we were unable to process your request against Transaction Id  : CC01."})'
+        )
+        msg = _friendly_complaint_error_message(raw)
+        self.assertIn('BillAvenue did not accept', msg)
+        self.assertIn('CC', msg)
+
+    def test_complaint_register_code_001_existing_ticket_is_friendly(self):
+        raw = (
+            'BillAvenue API failed (complaint_register) code=001 ({"complaintResponseCode": "001", '
+            '"complaintResponseReason": "Sorry, we are unable to raise a new ticket for transaction ID : CC01."})'
+        )
+        msg = _friendly_complaint_error_message(raw)
+        self.assertIn('already exist', msg.lower())
+        self.assertIn('Complaint Tracking', msg)
+
+    def test_complaint_register_code_205_is_friendly(self):
+        msg = _friendly_complaint_error_message('BillAvenue API failed (complaint_register) code=205 (FAILURE)')
+        self.assertIn('205', msg)
+        self.assertIn('BillAvenue', msg)

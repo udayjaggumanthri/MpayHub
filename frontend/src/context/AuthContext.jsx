@@ -1,6 +1,7 @@
 import React, { createContext, useState, useContext, useEffect, useCallback } from 'react';
 import { authAPI } from '../services/api';
 import { normalizeAuthUser } from '../utils/authUser';
+import { userMayLogin } from '../utils/userAccess';
 import { SESSION_POST_MPIN_ANNOUNCE } from '../utils/announcements';
 
 const AuthContext = createContext();
@@ -37,7 +38,7 @@ export const AuthProvider = ({ children }) => {
           const result = await authAPI.getCurrentUser();
           if (result.success && result.data?.user) {
             const u = normalizeAuthUser(result.data.user);
-            if (u && u.is_active === false) {
+            if (u && !userMayLogin(u)) {
               await authAPI.logout();
               setUser(null);
               setIsAuthenticated(false);
@@ -69,7 +70,7 @@ export const AuthProvider = ({ children }) => {
       const result = await authAPI.login(phone, password);
       if (result.success && result.data?.user) {
         const u = normalizeAuthUser(result.data.user);
-        if (u && u.is_active === false) {
+        if (u && !userMayLogin(u)) {
           return {
             success: false,
             message: 'This account has been disabled. Contact your administrator.',
@@ -139,7 +140,7 @@ export const AuthProvider = ({ children }) => {
       const result = await authAPI.getCurrentUser();
       if (result.success && result.data?.user) {
         const u = normalizeAuthUser(result.data.user);
-        if (u && u.is_active === false) {
+        if (u && !userMayLogin(u)) {
           await authAPI.logout();
           setUser(null);
           setIsAuthenticated(false);

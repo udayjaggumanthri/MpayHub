@@ -342,7 +342,8 @@ class UserListSerializer(serializers.ModelSerializer):
         model = User
         fields = [
             'id', 'user_id', 'phone', 'email', 'first_name', 'last_name',
-            'role', 'is_active', 'profile', 'kyc', 'mpin_configured', 'created_at',
+            'role', 'is_active', 'is_restricted', 'payments_locked',
+            'pay_in_allowed_when_disabled', 'profile', 'kyc', 'mpin_configured', 'created_at',
         ]
         read_only_fields = ['id', 'user_id', 'created_at']
 
@@ -357,8 +358,31 @@ class UserActiveStatusSerializer(serializers.Serializer):
     """Admin-only body for PATCH .../users/{id}/active-status/."""
 
     is_active = serializers.BooleanField()
+    pay_in_allowed_when_disabled = serializers.BooleanField(required=False)
 
     def validate(self, attrs):
+        request = self.context.get('request')
+        target = self.context.get('target')
+        actor = getattr(request, 'user', None) if request else None
+        if attrs.get('is_active') is False and target and actor:
+            try:
+                assert_admin_may_deactivate_user(actor=actor, target=target)
+            except ValueError as e:
+                raise serializers.ValidationError({'is_active': str(e)}) from e
+        return attrs
+
+
+class UserAccessControlsSerializer(serializers.Serializer):
+    """Admin-only partial body for PATCH .../users/{id}/access-controls/."""
+
+    is_active = serializers.BooleanField(required=False)
+    is_restricted = serializers.BooleanField(required=False)
+    payments_locked = serializers.BooleanField(required=False)
+    pay_in_allowed_when_disabled = serializers.BooleanField(required=False)
+
+    def validate(self, attrs):
+        if not attrs:
+            raise serializers.ValidationError('At least one access control field is required.')
         request = self.context.get('request')
         target = self.context.get('target')
         actor = getattr(request, 'user', None) if request else None
@@ -381,7 +405,8 @@ class UserDetailSerializer(serializers.ModelSerializer):
         model = User
         fields = [
             'id', 'user_id', 'phone', 'email', 'first_name', 'last_name',
-            'role', 'is_active', 'profile', 'kyc', 'hierarchy_lineage',
+            'role', 'is_active', 'is_restricted', 'payments_locked',
+            'pay_in_allowed_when_disabled', 'profile', 'kyc', 'hierarchy_lineage',
             'mpin_configured', 'created_at', 'updated_at',
         ]
         read_only_fields = ['id', 'user_id', 'created_at', 'updated_at', 'hierarchy_lineage']

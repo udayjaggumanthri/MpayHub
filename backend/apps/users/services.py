@@ -1,9 +1,22 @@
 """
 User management business logic services.
 """
+import json
+import logging
+
 from django.db import transaction
 from django.db.models import Q
+
 from apps.authentication.models import User
+
+logger = logging.getLogger(__name__)
+
+ACCESS_CONTROL_FIELDS = (
+    'is_active',
+    'is_restricted',
+    'payments_locked',
+    'pay_in_allowed_when_disabled',
+)
 from apps.users.models import UserProfile, KYC, UserHierarchy
 from apps.core.utils import generate_user_id, validate_pan, validate_aadhaar
 from apps.core.exceptions import InvalidUserRole
@@ -12,6 +25,69 @@ from apps.authentication.services import send_otp, verify_otp
 
 # Fixed first-login password when hierarchy creates a user without supplying one.
 DEFAULT_ONBOARDING_PASSWORD = 'default123'
+
+
+def _access_controls_snapshot(user: User) -> dict:
+    return {f: bool(getattr(user, f, False)) for f in ACCESS_CONTROL_FIELDS}
+
+
+@transaction.atomic
+def apply_user_access_controls(*, actor: User, target: User, patch: dict) -> User:
+    """
+    Admin-only: update account access flags (login, restrict, lock payments, pay-in when disabled).
+
+    When re-enabling (is_active=True), clears pay_in_allowed_when_disabled.
+    """
+    if getattr(actor, 'role', None) != 'Admin':
+        raise ValueError('Only administrators may change user access controls.')
+
+    before = _access_controls_snapshot(target)
+    update_fields: list[str] = []
+
+    if 'is_active' in patch:
+        new_active = bool(patch['is_active'])
+        if not new_active and new_active != target.is_active:
+            assert_admin_may_deactivate_user(actor=actor, target=target)
+        target.is_active = new_active
+        update_fields.append('is_active')
+        if new_active:
+            target.pay_in_allowed_when_disabled = False
+            if 'pay_in_allowed_when_disabled' not in patch:
+                update_fields.append('pay_in_allowed_when_disabled')
+
+    for field in ('is_restricted', 'payments_locked', 'pay_in_allowed_when_disabled'):
+        if field in patch:
+            setattr(target, field, bool(patch[field]))
+            update_fields.append(field)
+
+    if not update_fields:
+        return target
+
+    if not target.is_active and not target.pay_in_allowed_when_disabled:
+        target.pay_in_allowed_when_disabled = False
+        if 'pay_in_allowed_when_disabled' not in update_fields:
+            update_fields.append('pay_in_allowed_when_disabled')
+
+    target.save(update_fields=list(dict.fromkeys(update_fields)))
+    target.refresh_from_db()
+
+    after = _access_controls_snapshot(target)
+    if before != after:
+        logger.info(
+            '%s',
+            json.dumps(
+                {
+                    'event': 'user_access_controls_changed',
+                    'actor_id': actor.pk,
+                    'target_id': target.pk,
+                    'target_user_id': str(target.user_id or ''),
+                    'before': before,
+                    'after': after,
+                },
+                default=str,
+            ),
+        )
+    return target
 
 
 def assert_admin_may_deactivate_user(*, actor: User, target: User) -> None:

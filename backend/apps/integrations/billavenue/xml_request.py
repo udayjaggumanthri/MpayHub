@@ -263,3 +263,47 @@ def build_bill_pay_plain_xml(payload: dict) -> str:
 
     body = tostring(root, encoding='unicode')
     return '<?xml version="1.0" encoding="UTF-8"?>' + body
+
+
+def build_complaint_register_plain_xml(payload: dict) -> str:
+    """
+    Inner plaintext for ``/billpay/extComplaints/register/xml`` per BillAvenue integration samples.
+
+    BillAvenue documents query-string envelope fields with XML inside ``encRequest`` (not JSON on /json
+    for this flow on many UAT stacks — JSON + /json can return 205 FAILURE).
+
+    Expected root: ``complaintRegistrationReq`` with ``txnRefId``, ``complaintDesc``, ``complaintDisposition``
+    (and optional ``complaintType``, ``agentId``, ``billerId``, ``paymentRefId``). Disposition strings must
+    match NPCI/BillAvenue’s official disposition list (same strings as the partner portal / API samples).
+    """
+    p = payload or {}
+    root = Element('complaintRegistrationReq')
+    tid = str(p.get('txnRefId') or '').strip()
+    if tid:
+        SubElement(root, 'txnRefId').text = tid
+    desc = str(p.get('complaintDesc') or p.get('complainDesc') or p.get('complaintDescription') or '').strip()
+    if desc:
+        SubElement(root, 'complaintDesc').text = desc
+    disp = str(p.get('complaintDisposition') or '').strip()
+    if disp:
+        SubElement(root, 'complaintDisposition').text = disp
+    ctype = str(p.get('complaintType') or '').strip()
+    if ctype:
+        SubElement(root, 'complaintType').text = ctype
+    for tag in ('agentId', 'billerId', 'paymentRefId'):
+        v = str(p.get(tag) or '').strip()
+        if v:
+            SubElement(root, tag).text = v
+    body = tostring(root, encoding='unicode')
+    return '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>' + body
+
+
+def build_complaint_track_plain_xml(payload: dict) -> str:
+    """Inner plaintext for ``/billpay/extComplaints/track/xml`` (complaintId in request body)."""
+    p = payload or {}
+    root = Element('complaintTrackingReq')
+    cid = str(p.get('complaintId') or '').strip()
+    if cid:
+        SubElement(root, 'complaintId').text = cid
+    body = tostring(root, encoding='unicode')
+    return '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>' + body

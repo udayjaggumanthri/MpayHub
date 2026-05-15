@@ -2,6 +2,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import { Link, useLocation } from 'react-router-dom';
 import { useAuth } from '../../context/AuthContext';
 import { getMenuForRole } from '../../utils/rolePermissions';
+import { shouldBlockPathForUser } from '../../utils/userAccess';
 import {
   FiMenu,
   FiX,
@@ -26,7 +27,20 @@ const Sidebar = () => {
   const menuNavRef = useRef(null);
 
   const menu = getMenuForRole(user?.role || 'Retailer');
-  const menuItems = Array.isArray(menu) ? menu : [];
+  const rawMenuItems = Array.isArray(menu) ? menu : [];
+
+  const menuItems = rawMenuItems
+    .map((item) => {
+      if (!item.submenu?.length) {
+        return shouldBlockPathForUser(user, item.path) ? null : item;
+      }
+      const submenu = item.submenu.filter((sub) => !shouldBlockPathForUser(user, sub.path));
+      if (!submenu.length && shouldBlockPathForUser(user, item.path)) {
+        return null;
+      }
+      return { ...item, submenu };
+    })
+    .filter(Boolean);
 
   // Scroll to top when mobile menu opens to ensure Dashboard is visible
   useEffect(() => {

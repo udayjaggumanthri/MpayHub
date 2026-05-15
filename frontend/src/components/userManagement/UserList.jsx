@@ -19,6 +19,7 @@ import {
 } from 'react-icons/fa6';
 import Button from '../common/Button';
 import FeedbackModal from '../common/FeedbackModal';
+import AccessStatusBadges from './AccessStatusBadges';
 
 const accountIsActive = (u) => u && u.is_active !== false;
 
@@ -42,6 +43,7 @@ const UserList = ({ role, onCreateNew, currentUserId, isAdmin = false }) => {
   const [loading, setLoading] = useState(false);
   const [activeStatusSaving, setActiveStatusSaving] = useState(false);
   const [accountConfirm, setAccountConfirm] = useState(null);
+  const [allowPayInWhenDisabled, setAllowPayInWhenDisabled] = useState(false);
   const [selfBlockOpen, setSelfBlockOpen] = useState(false);
 
   const loadUsers = useCallback(async () => {
@@ -96,7 +98,12 @@ const UserList = ({ role, onCreateNew, currentUserId, isAdmin = false }) => {
   const performActiveToggle = async (userRow, nextActive) => {
     setActiveStatusSaving(true);
     try {
-      const res = await usersAPI.setUserActiveStatus(userRow.id, nextActive);
+      const res = await usersAPI.setUserAccessControls(userRow.id, {
+        is_active: nextActive,
+        ...(nextActive
+          ? {}
+          : { pay_in_allowed_when_disabled: Boolean(allowPayInWhenDisabled) }),
+      });
       if (res.success) {
         await loadUsers();
       }
@@ -105,6 +112,7 @@ const UserList = ({ role, onCreateNew, currentUserId, isAdmin = false }) => {
     } finally {
       setActiveStatusSaving(false);
       setAccountConfirm(null);
+      setAllowPayInWhenDisabled(false);
     }
   };
 
@@ -114,6 +122,7 @@ const UserList = ({ role, onCreateNew, currentUserId, isAdmin = false }) => {
       setSelfBlockOpen(true);
       return;
     }
+    setAllowPayInWhenDisabled(false);
     setAccountConfirm({ user: userRow, nextActive });
   };
 
@@ -276,17 +285,7 @@ const UserList = ({ role, onCreateNew, currentUserId, isAdmin = false }) => {
                         </span>
                       </td>
                       <td className="px-5 py-4 align-top">
-                        <div className="flex items-center gap-2">
-                          <span
-                            className={`inline-flex h-2 w-2 shrink-0 rounded-full ${activeOk ? 'bg-emerald-500 shadow-[0_0_0_3px_rgba(16,185,129,0.25)]' : 'bg-slate-400'}`}
-                            aria-hidden
-                          />
-                          <span
-                            className={`text-sm font-medium ${activeOk ? 'text-emerald-800' : 'text-slate-600'}`}
-                          >
-                            {activeOk ? 'Active' : 'Disabled'}
-                          </span>
-                        </div>
+                        <AccessStatusBadges user={user} />
                       </td>
                       <td className="px-5 py-4 align-top">
                         <div className="flex flex-col gap-1.5 text-xs">
@@ -400,11 +399,23 @@ const UserList = ({ role, onCreateNew, currentUserId, isAdmin = false }) => {
                 </>
               ) : (
                 <>
-                  <span className="font-medium text-slate-800">{confirmLabel}</span> will be signed out and cannot log in
-                  until you re-enable them. Existing sessions stop working on the next request.
+                  <span className="font-medium text-slate-800">{confirmLabel}</span> will be signed out and cannot use the
+                  platform normally until you re-enable them. Existing sessions stop working on the next request.
                 </>
               )}
             </p>
+            {!accountConfirm.nextActive && (
+              <label className="mt-4 flex items-start gap-3 rounded-xl border border-slate-200 bg-slate-50/80 px-4 py-3 text-sm text-slate-700 cursor-pointer">
+                <input
+                  type="checkbox"
+                  className="mt-0.5 h-4 w-4 rounded border-slate-300 text-indigo-600 focus:ring-indigo-500"
+                  checked={allowPayInWhenDisabled}
+                  onChange={(e) => setAllowPayInWhenDisabled(e.target.checked)}
+                  disabled={activeStatusSaving}
+                />
+                <span>Allow Pay-In (load money) while account is disabled</span>
+              </label>
+            )}
             <div className="mt-6 flex flex-col-reverse gap-3 sm:flex-row sm:justify-end">
               <Button
                 type="button"

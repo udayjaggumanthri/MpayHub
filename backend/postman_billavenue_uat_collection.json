@@ -2,7 +2,7 @@
   "info": {
     "_postman_id": "billavenue-bbps-uat-fixed",
     "name": "BillAvenue BBPS UAT (Prajnadhara)",
-    "description": "Import and run collection for direct BillAvenue UAT API checks. Generates requestId and encRequest automatically in pre-request scripts.",
+    "description": "Import and run collection for direct BillAvenue UAT API checks. Generates requestId and encRequest automatically in pre-request scripts. extComplaints (register/track) use envelope fields as query parameters on POST, per BillAvenue integration guidance.",
     "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
   },
   "event": [
@@ -291,18 +291,16 @@
       }
     },
     {
-      "name": "5) Complaint Register (ver 2.0)",
+      "name": "5) Complaint Register (ver 2.0, XML)",
       "event": [
         {
           "listen": "prerequest",
           "script": {
             "type": "text/javascript",
             "exec": [
-              "pm.collectionVariables.set('ba_plain_payload', JSON.stringify({",
-              "  txnRefId: pm.collectionVariables.get('ba_txn_ref_id'),",
-              "  complaintDesc: 'Test complaint from Postman',",
-              "  complaintDisposition: 'Need support'",
-              "}));",
+              "const tid = pm.collectionVariables.get('ba_txn_ref_id') || '';",
+              "const xml = `<?xml version='1.0' encoding='UTF-8' standalone='yes'?><complaintRegistrationReq><txnRefId>${tid}</txnRefId><complaintDesc>Test complaint from Postman</complaintDesc><complaintDisposition>Transaction Successful, Amount Debited but services not received</complaintDisposition></complaintRegistrationReq>`;",
+              "pm.collectionVariables.set('ba_plain_payload', xml);",
               "pm.collectionVariables.set('ba_ver_active', pm.collectionVariables.get('ba_ver_complaint'));"
             ]
           }
@@ -310,40 +308,32 @@
       ],
       "request": {
         "method": "POST",
-        "header": [
-          {
-            "key": "Content-Type",
-            "value": "application/x-www-form-urlencoded"
-          }
-        ],
-        "body": {
-          "mode": "urlencoded",
-          "urlencoded": [
+        "header": [],
+        "url": {
+          "raw": "{{ba_base_url}}/billpay/extComplaints/register/xml?accessCode={{ba_access_code}}&requestId={{ba_request_id}}&encRequest={{ba_enc_request}}&ver={{ba_ver_active}}&instituteId={{ba_institute_id}}",
+          "host": ["{{ba_base_url}}"],
+          "path": ["billpay", "extComplaints", "register", "xml"],
+          "query": [
             { "key": "accessCode", "value": "{{ba_access_code}}", "type": "text" },
             { "key": "requestId", "value": "{{ba_request_id}}", "type": "text" },
             { "key": "encRequest", "value": "{{ba_enc_request}}", "type": "text" },
             { "key": "ver", "value": "{{ba_ver_active}}", "type": "text" },
             { "key": "instituteId", "value": "{{ba_institute_id}}", "type": "text" }
           ]
-        },
-        "url": {
-          "raw": "{{ba_base_url}}/billpay/extComplaints/register/json",
-          "host": ["{{ba_base_url}}"],
-          "path": ["billpay", "extComplaints", "register", "json"]
         }
       }
     },
     {
-      "name": "6) Complaint Track (ver 2.0)",
+      "name": "6) Complaint Track (ver 2.0, XML)",
       "event": [
         {
           "listen": "prerequest",
           "script": {
             "type": "text/javascript",
             "exec": [
-              "pm.collectionVariables.set('ba_plain_payload', JSON.stringify({",
-              "  complaintId: pm.collectionVariables.get('ba_complaint_id')",
-              "}));",
+              "const cid = pm.collectionVariables.get('ba_complaint_id') || '';",
+              "const xml = `<?xml version='1.0' encoding='UTF-8' standalone='yes'?><complaintTrackingReq><complaintId>${cid}</complaintId></complaintTrackingReq>`;",
+              "pm.collectionVariables.set('ba_plain_payload', xml);",
               "pm.collectionVariables.set('ba_ver_active', pm.collectionVariables.get('ba_ver_complaint'));"
             ]
           }
@@ -351,26 +341,18 @@
       ],
       "request": {
         "method": "POST",
-        "header": [
-          {
-            "key": "Content-Type",
-            "value": "application/x-www-form-urlencoded"
-          }
-        ],
-        "body": {
-          "mode": "urlencoded",
-          "urlencoded": [
+        "header": [],
+        "url": {
+          "raw": "{{ba_base_url}}/billpay/extComplaints/track/xml?accessCode={{ba_access_code}}&requestId={{ba_request_id}}&encRequest={{ba_enc_request}}&ver={{ba_ver_active}}&instituteId={{ba_institute_id}}",
+          "host": ["{{ba_base_url}}"],
+          "path": ["billpay", "extComplaints", "track", "xml"],
+          "query": [
             { "key": "accessCode", "value": "{{ba_access_code}}", "type": "text" },
             { "key": "requestId", "value": "{{ba_request_id}}", "type": "text" },
             { "key": "encRequest", "value": "{{ba_enc_request}}", "type": "text" },
             { "key": "ver", "value": "{{ba_ver_active}}", "type": "text" },
             { "key": "instituteId", "value": "{{ba_institute_id}}", "type": "text" }
           ]
-        },
-        "url": {
-          "raw": "{{ba_base_url}}/billpay/extComplaints/track/json",
-          "host": ["{{ba_base_url}}"],
-          "path": ["billpay", "extComplaints", "track", "json"]
         }
       }
     },

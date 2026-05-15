@@ -327,3 +327,43 @@ class BillAvenueSnapshotXmlTests(SimpleTestCase):
         self.assertIn('<billAmount>100500</billAmount>', xml)
         self.assertIn('<customerName>FromXml</customerName>', xml)
         self.assertNotIn('Wrong', xml)
+
+
+class ComplaintOutcomeCodeTests(SimpleTestCase):
+    def test_extract_complaint_api_outcome_code_prefers_inner_over_outer_205(self):
+        from apps.integrations.billavenue.parsers import extract_complaint_api_outcome_code
+
+        body = {
+            'responseCode': '205',
+            'responseReason': 'FAILURE',
+            'complaintRegistrationResp': {
+                'complaintResponseCode': '001',
+                'complaintResponseReason': 'Ticket already open.',
+            },
+        }
+        self.assertEqual(extract_complaint_api_outcome_code(body), '001')
+
+
+class ComplaintRegisterXmlTests(SimpleTestCase):
+    def test_complaint_register_xml_matches_billavenue_shape(self):
+        from apps.integrations.billavenue.xml_request import build_complaint_register_plain_xml
+
+        xml = build_complaint_register_plain_xml(
+            {
+                'txnRefId': 'CC015349BAAG00038195',
+                'complaintDesc': 'Complaint initiated through API',
+                'complaintDisposition': 'Bill Paid but Amount not adjusted or still showing due amount',
+            }
+        )
+        self.assertIn('complaintRegistrationReq', xml)
+        self.assertIn('CC015349BAAG00038195', xml)
+        self.assertIn('standalone="yes"', xml)
+        self.assertIn('complaintDisposition', xml)
+        self.assertIn('Bill Paid but Amount not adjusted or still showing due amount', xml)
+
+    def test_complaint_track_xml_root(self):
+        from apps.integrations.billavenue.xml_request import build_complaint_track_plain_xml
+
+        xml = build_complaint_track_plain_xml({'complaintId': 'CMP123'})
+        self.assertIn('complaintTrackingReq', xml)
+        self.assertIn('CMP123', xml)

@@ -2,10 +2,10 @@
 Serializers for authentication app.
 """
 from rest_framework import serializers
-from django.contrib.auth import authenticate
 from django.utils import timezone
 from datetime import timedelta
 from apps.authentication.models import User, OTP, UserSession
+from apps.core.financial_access import user_may_login
 from apps.core.utils import generate_otp, validate_phone, validate_mpin
 from apps.core.exceptions import InvalidCredentials, InvalidMPIN, InvalidOTP
 from django.conf import settings
@@ -30,13 +30,13 @@ class LoginSerializer(serializers.Serializer):
         if not phone or not password:
             raise serializers.ValidationError("Phone and password are required.")
         
-        user = authenticate(username=phone, password=password)
-        if not user:
+        user = User.objects.filter(phone=phone).first()
+        if not user or not user.check_password(password):
             raise InvalidCredentials("Invalid phone number or password.")
-        
-        if not user.is_active:
+
+        if not user_may_login(user):
             raise serializers.ValidationError("User account is disabled.")
-        
+
         attrs['user'] = user
         return attrs
 
@@ -56,7 +56,7 @@ class MPINVerificationSerializer(serializers.Serializer):
         user = self.context['request'].user
         mpin = attrs.get('mpin')
 
-        if not user.is_active:
+        if not user_may_login(user):
             raise serializers.ValidationError('This account has been disabled. Contact support.')
 
         if not user.check_mpin(mpin):
@@ -167,9 +167,13 @@ class UserSerializer(serializers.ModelSerializer):
         model = User
         fields = [
             'id', 'user_id', 'phone', 'email', 'first_name', 'last_name',
-            'role', 'is_active', 'created_at', 'onboarding',
+            'role', 'is_active', 'is_restricted', 'payments_locked',
+            'pay_in_allowed_when_disabled', 'created_at', 'onboarding',
         ]
-        read_only_fields = ['id', 'user_id', 'created_at']
+        read_only_fields = [
+            'id', 'user_id', 'created_at', 'is_restricted', 'payments_locked',
+            'pay_in_allowed_when_disabled',
+        ]
 
     def get_onboarding(self, obj):
         from apps.users.models import KYC

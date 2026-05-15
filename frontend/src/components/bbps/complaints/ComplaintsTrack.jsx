@@ -33,7 +33,8 @@ const ComplaintsTrack = () => {
       setMessage(toUserMessage(res.message || 'Complaint status fetched.'));
     } else {
       setMessageTone('error');
-      setMessage(toUserMessage(res.message || 'Failed to track complaint'));
+      const hint = res.data?.hint ? `\n\n${res.data.hint}` : '';
+      setMessage(toUserMessage(res.message || 'Failed to track complaint') + hint);
     }
   };
 
