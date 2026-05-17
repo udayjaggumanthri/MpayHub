@@ -67,14 +67,28 @@ class MPINVerificationSerializer(serializers.Serializer):
 
 class SendOTPSerializer(serializers.Serializer):
     """Serializer for sending OTP."""
+    CHANNEL_CHOICES = [('sms', 'SMS'), ('email', 'Email')]
+
     phone = serializers.CharField(max_length=10)
     purpose = serializers.ChoiceField(choices=OTP.PURPOSE_CHOICES, default='password-reset')
-    
+    channel = serializers.ChoiceField(choices=CHANNEL_CHOICES, default='sms', required=False)
+
     def validate_phone(self, value):
         """Validate phone number."""
         if not validate_phone(value):
             raise serializers.ValidationError("Invalid phone number format.")
         return value
+
+    def validate(self, attrs):
+        attrs = super().validate(attrs)
+        purpose = attrs.get('purpose', 'password-reset')
+        channel = (attrs.get('channel') or 'sms').strip().lower()
+        if channel == 'email' and purpose != 'password-reset':
+            raise serializers.ValidationError(
+                {'channel': 'Email delivery is only supported for password reset.'}
+            )
+        attrs['channel'] = channel
+        return attrs
 
 
 class VerifyOTPSerializer(serializers.Serializer):

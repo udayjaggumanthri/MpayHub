@@ -45,6 +45,7 @@ export const roleMenus = {
       submenu: [
         { name: 'Payment gateways', path: '/admin/gateways' },
         { name: 'Pay-in packages', path: '/admin/pay-in-packages' },
+        { name: 'SMTP settings', path: '/admin/smtp-settings' },
       ],
     },
     {
@@ -104,12 +105,11 @@ export const roleMenus = {
       icon: 'dashboard',
     },
     {
-      name: 'Bill Payments',
+      name: 'Bill Payment',
       path: '/bill-payments',
-      icon: 'bills',
+      icon: 'bbps-mnemonic',
       submenu: [
-        { name: 'Pay Bills', path: '/bill-payments/pay' },
-        { name: 'Transaction Query', path: '/bill-payments/transaction-query' },
+        { name: 'Pay Bill', path: '/bill-payments/pay' },
         { name: 'Complaints', path: '/bill-payments/complaints' },
         { name: 'Fund BBPS wallet', path: '/bill-payments/fund-wallet' },
         { name: 'My Bills', path: '/bill-payments/my-bills' },
@@ -143,12 +143,11 @@ export const roleMenus = {
       icon: 'dashboard',
     },
     {
-      name: 'Bill Payments',
+      name: 'Bill Payment',
       path: '/bill-payments',
-      icon: 'bills',
+      icon: 'bbps-mnemonic',
       submenu: [
-        { name: 'Pay Bills', path: '/bill-payments/pay' },
-        { name: 'Transaction Query', path: '/bill-payments/transaction-query' },
+        { name: 'Pay Bill', path: '/bill-payments/pay' },
         { name: 'Complaints', path: '/bill-payments/complaints' },
         { name: 'Fund BBPS wallet', path: '/bill-payments/fund-wallet' },
         { name: 'My Bills', path: '/bill-payments/my-bills' },
@@ -182,12 +181,11 @@ export const roleMenus = {
       icon: 'dashboard',
     },
     {
-      name: 'Bill Payments',
+      name: 'Bill Payment',
       path: '/bill-payments',
-      icon: 'bills',
+      icon: 'bbps-mnemonic',
       submenu: [
-        { name: 'Pay Bills', path: '/bill-payments/pay' },
-        { name: 'Transaction Query', path: '/bill-payments/transaction-query' },
+        { name: 'Pay Bill', path: '/bill-payments/pay' },
         { name: 'Complaints', path: '/bill-payments/complaints' },
         { name: 'Fund BBPS wallet', path: '/bill-payments/fund-wallet' },
         { name: 'My Bills', path: '/bill-payments/my-bills' },

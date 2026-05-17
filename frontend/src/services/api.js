@@ -321,11 +321,12 @@ export const authAPI = {
    * Send OTP
    * POST /api/auth/send-otp/
    */
-  sendOTP: async (phone, purpose = 'password-reset') => {
+  sendOTP: async (phone, purpose = 'password-reset', channel = 'sms') => {
     try {
       const response = await apiClient.post('/auth/send-otp/', {
         phone: String(phone ?? '').trim(),
         purpose,
+        channel: channel === 'email' ? 'email' : 'sms',
       });
       return extractData(response);
     } catch (error) {
@@ -2135,6 +2136,44 @@ export const adminAPI = {
   updatePayoutSlabConfig: async (payload) => {
     try {
       const response = await apiClient.put('/admin/payout-slab-config/', payload);
+      return extractData(response);
+    } catch (error) {
+      return handleError(error);
+    }
+  },
+
+  getSmtpConfig: async () => {
+    try {
+      const response = await apiClient.get('/admin/smtp-config/');
+      return extractData(response);
+    } catch (error) {
+      return handleError(error);
+    }
+  },
+
+  saveSmtpConfig: async (payload) => {
+    try {
+      const response = await apiClient.post('/admin/smtp-config/', payload);
+      return extractData(response);
+    } catch (error) {
+      return handleError(error);
+    }
+  },
+
+  updateSmtpSecrets: async (payload) => {
+    try {
+      const response = await apiClient.post('/admin/smtp-config/secrets/', payload);
+      return extractData(response);
+    } catch (error) {
+      return handleError(error);
+    }
+  },
+
+  testSmtp: async (toEmail = '') => {
+    try {
+      const response = await apiClient.post('/admin/smtp-config/test/', {
+        to_email: toEmail || undefined,
+      });
       return extractData(response);
     } catch (error) {
       return handleError(error);

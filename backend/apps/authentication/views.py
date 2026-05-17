@@ -20,7 +20,14 @@ from apps.authentication.serializers import (
     OnboardingAadhaarVerifyOTPSerializer,
     SetupMPINSerializer,
 )
-from apps.authentication.services import create_jwt_tokens, send_otp, verify_otp, reset_password
+from apps.authentication.services import (
+    create_jwt_tokens,
+    send_otp,
+    verify_otp,
+    reset_password,
+    SmtpNotConfiguredError,
+)
+from apps.core.utils import mask_email, mask_phone
 from apps.users.services import (
     self_service_verify_pan,
     self_service_send_aadhaar_otp,
@@ -125,13 +132,27 @@ def send_otp_view(request):
                     'errors': []
                 }, status=status.HTTP_404_NOT_FOUND)
         
-        # Send OTP
-        send_otp(phone, purpose)
-        
+        channel = serializer.validated_data.get('channel', 'sms')
+        try:
+            send_otp(phone, purpose, channel=channel)
+        except SmtpNotConfiguredError as exc:
+            return Response({
+                'success': False,
+                'data': None,
+                'message': str(exc),
+                'errors': [],
+            }, status=status.HTTP_400_BAD_REQUEST)
+
+        if channel == 'email':
+            user = User.objects.get(phone=phone)
+            msg = f'OTP sent to your registered email ({mask_email(user.email)})'
+        else:
+            msg = f'OTP sent to {mask_phone(phone)}'
+
         return Response({
             'success': True,
             'data': None,
-            'message': f'OTP sent to {phone[:2]}****{phone[6:]}',
+            'message': msg,
             'errors': []
         }, status=status.HTTP_200_OK)
     

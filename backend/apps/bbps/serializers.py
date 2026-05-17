@@ -21,6 +21,7 @@ from apps.integrations.models import (
     BillAvenueConfig,
     BillAvenueModeChannelPolicy,
 )
+from apps.bbps.receipt_context import build_bill_payment_receipt_context
 
 
 class BillPaymentSerializer(serializers.ModelSerializer):
@@ -34,21 +35,27 @@ class BillPaymentSerializer(serializers.ModelSerializer):
     customer_details = serializers.SerializerMethodField()
     mobile = serializers.SerializerMethodField()
     card_last4 = serializers.SerializerMethodField()
+    biller_name = serializers.SerializerMethodField()
+    payment_mode = serializers.SerializerMethodField()
+    init_channel = serializers.SerializerMethodField()
+    receipt_details = serializers.SerializerMethodField()
 
     class Meta:
         model = BillPayment
         fields = [
-            'id', 'biller', 'biller_id', 'bill_type', 'amount', 'charge',
+            'id', 'biller', 'biller_id', 'biller_name', 'bill_type', 'amount', 'charge',
             'total_deducted', 'status', 'service_id', 'request_id',
             'failure_reason', 'created_at',
             'bconnect_txn_id', 'approval_ref_number', 'ccf_amount', 'status_history',
             'input_params', 'customer_details', 'mobile', 'card_last4',
+            'payment_mode', 'init_channel', 'receipt_details',
         ]
         read_only_fields = [
             'id', 'charge', 'total_deducted', 'status', 'service_id',
             'request_id', 'failure_reason', 'created_at',
             'bconnect_txn_id', 'approval_ref_number', 'ccf_amount', 'status_history',
             'input_params', 'customer_details', 'mobile', 'card_last4',
+            'biller_name', 'payment_mode', 'init_channel', 'receipt_details',
         ]
 
     def _latest_attempt(self, obj):
@@ -117,6 +124,28 @@ class BillPaymentSerializer(serializers.ModelSerializer):
             or payload.get('card_last4')
             or ''
         ).strip()
+
+    def _receipt_ctx(self, obj):
+        cache = getattr(self, '_receipt_ctx_by_pk', None)
+        if cache is None:
+            cache = {}
+            setattr(self, '_receipt_ctx_by_pk', cache)
+        key = obj.pk
+        if key not in cache:
+            cache[key] = build_bill_payment_receipt_context(obj)
+        return cache[key]
+
+    def get_biller_name(self, obj):
+        return str(self._receipt_ctx(obj).get('biller_name') or '').strip()
+
+    def get_payment_mode(self, obj):
+        return str(self._receipt_ctx(obj).get('payment_mode') or '').strip()
+
+    def get_init_channel(self, obj):
+        return str(self._receipt_ctx(obj).get('init_channel') or '').strip()
+
+    def get_receipt_details(self, obj):
+        return self._receipt_ctx(obj)
 
 
 class FetchBillSerializer(serializers.Serializer):
@@ -312,10 +341,17 @@ class TransactionQuerySerializer(serializers.Serializer):
     to_date = serializers.CharField(max_length=20, required=False, allow_blank=True)
 
     def validate(self, attrs):
+        from datetime import timedelta
+
+        from django.utils import timezone
+
         attrs = super().validate(attrs)
         if attrs.get('tracking_type') == 'MOBILE_NO':
-            if not attrs.get('from_date') or not attrs.get('to_date'):
-                raise serializers.ValidationError('from_date and to_date are required for MOBILE_NO query.')
+            today = timezone.localdate()
+            if not attrs.get('from_date'):
+                attrs['from_date'] = (today - timedelta(days=90)).isoformat()
+            if not attrs.get('to_date'):
+                attrs['to_date'] = today.isoformat()
         return attrs
 
 

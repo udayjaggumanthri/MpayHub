@@ -8,13 +8,16 @@ from rest_framework.decorators import action, api_view, permission_classes
 from rest_framework.parsers import FormParser, JSONParser, MultiPartParser
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
-from apps.admin_panel.models import Announcement, PaymentGateway, PayoutGateway, PayoutSlabConfig
+from apps.admin_panel.models import Announcement, PaymentGateway, PayoutGateway, PayoutSlabConfig, SmtpConfig
 from apps.admin_panel.serializers import (
     AnnouncementSerializer,
     PayInPackageAdminSerializer,
     PaymentGatewaySerializer,
     PayoutGatewaySerializer,
     PayoutSlabConfigSerializer,
+    SmtpConfigSerializer,
+    SmtpSecretUpdateSerializer,
+    SmtpTestEmailSerializer,
 )
 from apps.core.permissions import IsAdmin
 from apps.fund_management.models import PayInPackage
@@ -245,6 +248,145 @@ def payout_slab_config_view(request):
                 ),
             },
             'message': 'Payout slab config updated',
+            'errors': [],
+        },
+        status=status.HTTP_200_OK,
+    )
+
+
+def _get_smtp_config():
+    return (
+        SmtpConfig.objects.filter(is_deleted=False, is_active=True).order_by('-updated_at').first()
+        or SmtpConfig.objects.filter(is_deleted=False).order_by('-updated_at').first()
+    )
+
+
+@api_view(['GET', 'POST'])
+@permission_classes([IsAuthenticated, IsAdmin])
+def smtp_config_view(request):
+    """GET/POST admin SMTP configuration for transactional email."""
+    config = _get_smtp_config()
+    if request.method == 'GET':
+        return Response(
+            {
+                'success': True,
+                'data': {'config': SmtpConfigSerializer(config).data if config else None},
+                'message': 'SMTP config retrieved successfully',
+                'errors': [],
+            },
+            status=status.HTTP_200_OK,
+        )
+
+    data = dict(request.data)
+    if config:
+        ser = SmtpConfigSerializer(config, data=data, partial=True)
+    else:
+        ser = SmtpConfigSerializer(data=data)
+    if not ser.is_valid():
+        return Response(
+            {'success': False, 'data': None, 'message': 'Invalid config', 'errors': ser.errors},
+            status=status.HTTP_400_BAD_REQUEST,
+        )
+    cfg = ser.save()
+    if cfg.is_active:
+        SmtpConfig.objects.exclude(pk=cfg.pk).update(is_active=False)
+    return Response(
+        {
+            'success': True,
+            'data': {'config': SmtpConfigSerializer(cfg).data},
+            'message': 'SMTP config saved',
+            'errors': [],
+        },
+        status=status.HTTP_200_OK,
+    )
+
+
+@api_view(['POST'])
+@permission_classes([IsAuthenticated, IsAdmin])
+def smtp_config_secrets_view(request):
+    """Update SMTP password only (encrypted at rest)."""
+    config = _get_smtp_config()
+    if not config:
+        return Response(
+            {'success': False, 'data': None, 'message': 'Create SMTP config first', 'errors': []},
+            status=status.HTTP_400_BAD_REQUEST,
+        )
+    ser = SmtpSecretUpdateSerializer(data=request.data)
+    if not ser.is_valid():
+        return Response(
+            {'success': False, 'data': None, 'message': 'Invalid secrets', 'errors': ser.errors},
+            status=status.HTTP_400_BAD_REQUEST,
+        )
+    val = ser.validated_data
+    if 'password' in val and (val.get('password') or '').strip():
+        config.set_password((val.get('password') or '').strip())
+        config.save(update_fields=['password_encrypted', 'updated_at'])
+    return Response(
+        {
+            'success': True,
+            'data': {'config': SmtpConfigSerializer(config).data},
+            'message': 'SMTP password saved',
+            'errors': [],
+        },
+        status=status.HTTP_200_OK,
+    )
+
+
+@api_view(['POST'])
+@permission_classes([IsAuthenticated, IsAdmin])
+def smtp_config_test_view(request):
+    """Send a test email using the active SMTP config."""
+    from apps.integrations.email_service import EmailDeliveryError, send_email
+
+    config = _get_smtp_config()
+    if not config or not config.enabled:
+        return Response(
+            {
+                'success': False,
+                'data': None,
+                'message': 'SMTP is not enabled. Save and enable SMTP config first.',
+                'errors': [],
+            },
+            status=status.HTTP_400_BAD_REQUEST,
+        )
+    ser = SmtpTestEmailSerializer(data=request.data)
+    if not ser.is_valid():
+        return Response(
+            {'success': False, 'data': None, 'message': 'Invalid input', 'errors': ser.errors},
+            status=status.HTTP_400_BAD_REQUEST,
+        )
+    to_email = (ser.validated_data.get('to_email') or '').strip() or getattr(request.user, 'email', '') or ''
+    if not to_email:
+        return Response(
+            {
+                'success': False,
+                'data': None,
+                'message': 'Provide to_email or ensure your admin account has an email address.',
+                'errors': [],
+            },
+            status=status.HTTP_400_BAD_REQUEST,
+        )
+    try:
+        send_email(
+            to_email=to_email,
+            subject='mPayhub SMTP test',
+            body_plain='This is a test message from mPayhub SMTP settings.',
+            body_html='<p>This is a <strong>test message</strong> from mPayhub SMTP settings.</p>',
+            cfg=config,
+        )
+    except EmailDeliveryError as exc:
+        return Response(
+            {'success': False, 'data': None, 'message': str(exc), 'errors': []},
+            status=status.HTTP_400_BAD_REQUEST,
+        )
+    return Response(
+        {
+            'success': True,
+            'data': {'sent_to': to_email},
+            'message': (
+                f'Test email accepted by SMTP server for {to_email}. '
+                'Check inbox and spam; Zoho may take 1–2 minutes.'
+            ),
             'errors': [],
         },
         status=status.HTTP_200_OK,

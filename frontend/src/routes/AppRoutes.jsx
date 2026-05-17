@@ -47,6 +47,7 @@ import PaymentGatewaysAdmin from '../components/admin/PaymentGatewaysAdmin';
 import PayInPackagesAdmin from '../components/admin/PayInPackagesAdmin';
 import APIMasterManagement from '../components/admin/APIMasterManagement';
 import BillAvenueSettings from '../components/admin/BillAvenueSettings';
+import SmtpSettings from '../components/admin/SmtpSettings';
 import BbpsOpsConsole from '../components/admin/BbpsOpsConsole';
 import BbpsBillerDetails from '../components/admin/BbpsBillerDetails';
 import BbpsProviderGovernance from '../components/admin/BbpsProviderGovernance';
@@ -173,16 +174,6 @@ const AppRoutes = () => {
           <ProtectedRoute blockFinancialTransactions>
             <Layout>
               <MyBills />
-            </Layout>
-          </ProtectedRoute>
-        }
-      />
-      <Route
-        path="/bill-payments/transaction-query"
-        element={
-          <ProtectedRoute blockFinancialTransactions>
-            <Layout>
-              <BbpsTransactionQuery />
             </Layout>
           </ProtectedRoute>
         }
@@ -443,6 +434,19 @@ const AppRoutes = () => {
             <AdminRoute>
               <Layout>
                 <BillAvenueSettings />
+              </Layout>
+            </AdminRoute>
+          </ProtectedRoute>
+        }
+      />
+
+      <Route
+        path="/admin/smtp-settings"
+        element={
+          <ProtectedRoute>
+            <AdminRoute>
+              <Layout>
+                <SmtpSettings />
               </Layout>
             </AdminRoute>
           </ProtectedRoute>

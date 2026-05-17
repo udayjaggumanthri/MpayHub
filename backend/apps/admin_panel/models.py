@@ -5,7 +5,10 @@ import uuid
 
 from django.core.validators import FileExtensionValidator
 from django.db import models
+from django.db.models import Q
+
 from apps.core.models import BaseModel
+from apps.core.utils import decrypt_secret_payload, encrypt_secret_payload
 
 
 def announcement_image_upload_to(instance, filename):
@@ -109,3 +112,38 @@ class PayoutSlabConfig(BaseModel):
         return (
             f"{self.name} | <= {self.low_max_amount}: {self.low_charge} | > {self.low_max_amount}: {self.high_charge}"
         )
+
+
+class SmtpConfig(BaseModel):
+    """Admin-managed SMTP settings for transactional email (e.g. password-reset OTP)."""
+
+    name = models.CharField(max_length=100, default='default', unique=True, db_index=True)
+    host = models.CharField(max_length=255, blank=True, default='')
+    port = models.PositiveIntegerField(default=587)
+    use_tls = models.BooleanField(default=True, help_text='Use STARTTLS (typical for port 587).')
+    use_ssl = models.BooleanField(default=False, help_text='Use SSL (typical for port 465).')
+    username = models.CharField(max_length=255, blank=True, default='')
+    password_encrypted = models.TextField(blank=True, default='')
+    from_email = models.EmailField(max_length=254, blank=True, default='')
+    enabled = models.BooleanField(default=False, db_index=True)
+    is_active = models.BooleanField(default=False, db_index=True)
+
+    class Meta:
+        db_table = 'smtp_configs'
+        ordering = ['-is_active', '-updated_at']
+        constraints = [
+            models.UniqueConstraint(
+                fields=['is_active'],
+                condition=Q(is_active=True, is_deleted=False),
+                name='uniq_smtp_active_config',
+            ),
+        ]
+
+    def __str__(self):
+        return f"{self.name} ({self.host}:{self.port})"
+
+    def set_password(self, raw_value: str) -> None:
+        self.password_encrypted = encrypt_secret_payload({'v': raw_value or ''})
+
+    def get_password(self) -> str:
+        return str((decrypt_secret_payload(self.password_encrypted or '') or {}).get('v') or '')

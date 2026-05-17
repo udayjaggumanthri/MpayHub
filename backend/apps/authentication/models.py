@@ -109,9 +109,20 @@ class OTP(TimestampedModel):
         ('aadhaar-verification', 'Aadhaar Verification'),
     ]
     
+    DELIVERY_CHANNEL_CHOICES = [
+        ('sms', 'SMS'),
+        ('email', 'Email'),
+    ]
+
     phone = models.CharField(max_length=10, db_index=True)
     code = models.CharField(max_length=6)
     purpose = models.CharField(max_length=30, choices=PURPOSE_CHOICES, default='password-reset')
+    delivery_channel = models.CharField(
+        max_length=10,
+        choices=DELIVERY_CHANNEL_CHOICES,
+        default='sms',
+        blank=True,
+    )
     expires_at = models.DateTimeField(db_index=True)
     is_used = models.BooleanField(default=False)
     

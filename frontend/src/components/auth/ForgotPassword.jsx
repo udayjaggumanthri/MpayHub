@@ -2,7 +2,7 @@ import React, { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { authAPI } from '../../services/api';
 import { validatePhone } from '../../utils/validators';
-import { FaPhone, FaLock, FaCircleCheck, FaArrowLeft } from 'react-icons/fa6';
+import { FaPhone, FaLock, FaCircleCheck, FaArrowLeft, FaEnvelope } from 'react-icons/fa6';
 
 const LOGO_SRC = `${process.env.PUBLIC_URL || ''}/images/logo.svg`;
 
@@ -10,6 +10,7 @@ const ForgotPassword = () => {
   const navigate = useNavigate();
   const [step, setStep] = useState(1); // 1: Phone, 2: OTP, 3: New Password
   const [phone, setPhone] = useState('');
+  const [channel, setChannel] = useState('sms');
   const [otp, setOtp] = useState('');
   const [newPassword, setNewPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
@@ -29,9 +30,12 @@ const ForgotPassword = () => {
 
     setLoading(true);
     try {
-      const result = await authAPI.sendOTP(phone, 'password-reset');
+      const result = await authAPI.sendOTP(phone, 'password-reset', channel);
       if (result.success) {
         setStep(2);
+        if (result.message) {
+          setError('');
+        }
       } else {
         const errs = Array.isArray(result.errors) ? result.errors : [];
         setError(errs[0] || result.message || 'Failed to send OTP. Please try again.');
@@ -110,9 +114,11 @@ const ForgotPassword = () => {
     step === 1 ? 'Forgot Password?' : step === 2 ? 'Verify OTP' : 'Set New Password';
   const stepSubtitle =
     step === 1
-      ? 'Enter your phone number to receive OTP'
+      ? 'Enter your phone number and choose how to receive your verification code'
       : step === 2
-        ? 'Enter the 6-digit OTP sent to your phone'
+        ? channel === 'email'
+          ? 'Enter the 6-digit code sent to your registered email'
+          : 'Enter the 6-digit OTP sent to your mobile'
         : 'Create a new secure password';
 
   return (
@@ -276,6 +282,43 @@ const ForgotPassword = () => {
                   </div>
                 </div>
 
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">
+                    Receive code via
+                  </label>
+                  <div className="grid grid-cols-2 gap-3">
+                    <button
+                      type="button"
+                      onClick={() => setChannel('sms')}
+                      className={`flex items-center justify-center gap-2 px-4 py-3 rounded-xl border-2 transition-all ${
+                        channel === 'sms'
+                          ? 'border-blue-500 bg-blue-50 text-blue-700'
+                          : 'border-gray-200 bg-gray-50 text-gray-600 hover:border-gray-300'
+                      }`}
+                    >
+                      <FaPhone size={18} />
+                      <span className="font-medium">SMS</span>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setChannel('email')}
+                      className={`flex items-center justify-center gap-2 px-4 py-3 rounded-xl border-2 transition-all ${
+                        channel === 'email'
+                          ? 'border-blue-500 bg-blue-50 text-blue-700'
+                          : 'border-gray-200 bg-gray-50 text-gray-600 hover:border-gray-300'
+                      }`}
+                    >
+                      <FaEnvelope size={18} />
+                      <span className="font-medium">Email</span>
+                    </button>
+                  </div>
+                  <p className="mt-2 text-xs text-gray-500">
+                    {channel === 'email'
+                      ? 'We will send a code to the email registered on your account.'
+                      : 'We will send a code to this mobile number.'}
+                  </p>
+                </div>
+
                 <div className="flex space-x-3">
                   <button
                     type="button"
@@ -290,7 +333,7 @@ const ForgotPassword = () => {
                     disabled={loading || phone.length !== 10}
                     className="flex-1 bg-gradient-to-r from-blue-600 to-indigo-600 text-white font-bold py-3.5 px-6 rounded-xl hover:from-blue-700 hover:to-indigo-700 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 transition-all duration-200 disabled:opacity-50 disabled:cursor-not-allowed"
                   >
-                    {loading ? 'Sending OTP...' : 'Send OTP'}
+                    {loading ? 'Sending...' : 'Send code'}
                   </button>
                 </div>
               </form>
@@ -316,7 +359,9 @@ const ForgotPassword = () => {
                     className="w-full px-4 py-3.5 border-2 border-gray-200 rounded-xl focus:border-blue-500 focus:ring-2 focus:ring-blue-200 transition-all duration-200 text-base bg-gray-50 focus:bg-white text-center text-2xl font-bold tracking-widest"
                   />
                   <p className="mt-2 text-sm text-gray-500">
-                    OTP sent to {phone.substring(0, 2)}****{phone.substring(6)}.
+                    {channel === 'email'
+                      ? 'Check your registered email for the 6-digit code.'
+                      : `Code sent to ${phone.substring(0, 2)}****${phone.substring(6)}.`}
                   </p>
                 </div>
 

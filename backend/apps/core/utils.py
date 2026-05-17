@@ -282,3 +282,28 @@ def decrypt_secret_payload(encrypted_text):
         return data if isinstance(data, dict) else {}
     except (InvalidToken, ValueError, TypeError, json.JSONDecodeError):
         return {}
+
+
+def mask_phone(phone: str) -> str:
+    """Mask phone for API responses, e.g. 98****12."""
+    p = str(phone or '').strip()
+    if len(p) < 4:
+        return '****'
+    if len(p) <= 6:
+        return f"{p[:2]}****"
+    return f"{p[:2]}****{p[-2:]}"
+
+
+def mask_email(email: str) -> str:
+    """Mask email for API responses, e.g. j***@example.com."""
+    e = str(email or '').strip()
+    if '@' not in e:
+        return '***'
+    local, _, domain = e.partition('@')
+    if not local:
+        return f"***@{domain}"
+    if len(local) == 1:
+        masked_local = f"{local}***"
+    else:
+        masked_local = f"{local[0]}***"
+    return f"{masked_local}@{domain}"

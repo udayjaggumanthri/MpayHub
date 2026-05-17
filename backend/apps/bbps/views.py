@@ -710,7 +710,11 @@ def bill_payments_list_view(request):
     List bill payments (My Bills).
     GET /api/bbps/payments/
     """
-    payments = BillPayment.objects.filter(user=request.user).order_by('-created_at')
+    payments = (
+        BillPayment.objects.filter(user=request.user)
+        .prefetch_related('attempts')
+        .order_by('-created_at')
+    )
     
     # Filters
     status_filter = request.query_params.get('status')
@@ -758,7 +762,10 @@ def bill_payment_detail_view(request, payment_id):
     GET /api/bbps/payments/{id}/
     """
     try:
-        payment = BillPayment.objects.get(id=payment_id, user=request.user)
+        payment = (
+            BillPayment.objects.prefetch_related('attempts')
+            .get(id=payment_id, user=request.user)
+        )
         serializer = BillPaymentSerializer(payment)
         return Response({
             'success': True,
@@ -2433,6 +2440,9 @@ def transaction_query_view(request):
     except BillAvenueTransportError as exc:
         return Response({'success': False, 'data': None, 'message': str(exc), 'errors': []}, status=503)
     txns = data.get('txnList') or data.get('transactionStatusResp', {}).get('txnList') or []
+    from apps.bbps.transaction_query_enrich import enrich_transactions_for_query
+
+    txns = enrich_transactions_for_query(request.user, txns)
     return Response(
         {
             'success': True,

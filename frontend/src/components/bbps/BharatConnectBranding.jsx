@@ -7,6 +7,7 @@ import bharatConnectPrimary from '../../assets/bbps/bharat-connect-primary.svg';
 import bharatConnectReverse from '../../assets/bbps/bharat-connect-reverse.svg';
 import bAssuredPrimary from '../../assets/bbps/b-assured-primary.svg';
 import bAssuredReverse from '../../assets/bbps/b-assured-reverse.svg';
+import { bAssuredLogoClass, bharatConnectLogoClass } from './bbpsLogoSizes';
 
 const BharatConnectBranding = ({
   stage = 'stage2',
@@ -40,11 +41,6 @@ const BharatConnectBranding = ({
     : isLarge
       ? 'h-11 w-11 object-contain'
       : 'h-9 w-9 object-contain';
-  const logoClass = isLarge
-    ? 'h-12 w-auto max-w-[220px] object-contain'
-    : stage === 'stage2'
-      ? 'h-14 w-auto max-w-[240px] object-contain'
-      : 'h-9 w-auto max-w-[170px] object-contain';
 
   const mnemonicNode = <img src={assets.mnemonic} alt="Bharat Connect mnemonic logo" className={mnemonicClass} />;
   const subtitleText = String(subtitle || '').trim();
@@ -72,18 +68,14 @@ const BharatConnectBranding = ({
           className={
             shouldEmphasizeRightLogo
               ? 'ml-auto rounded-xl border border-blue-200 bg-gradient-to-br from-blue-50 via-indigo-50 to-sky-50 px-3.5 py-2.5 shadow-md'
-              : 'ml-auto'
+              : 'ml-auto shrink-0'
           }
         >
-          <img src={assets.bharatConnect} alt="Bharat Connect logo" className={logoClass} />
+          <img src={assets.bharatConnect} alt="Bharat Connect logo" className={bharatConnectLogoClass} />
         </div>
       )}
       {showBAssured && (
-        <img
-          src={assets.bAssured}
-          alt="B Assured logo"
-          className={logoClass}
-        />
+        <img src={assets.bAssured} alt="B Assured logo" className={`ml-auto shrink-0 ${bAssuredLogoClass}`} />
       )}
     </div>
   );

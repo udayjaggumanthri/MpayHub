@@ -2,11 +2,16 @@ import React, { useEffect, useState } from 'react';
 import { Link, useLocation } from 'react-router-dom';
 import { bbpsAPI } from '../../../services/api';
 import BharatConnectBranding from '../BharatConnectBranding';
-import { COMPLAINT_DISPOSITIONS, COMPLAINT_TYPES } from './complaintConstants';
+import { COMPLAINT_DISPOSITION_OPTIONS, COMPLAINT_TYPES } from './complaintConstants';
 import { toneClass, toUserMessage } from './complaintUiHelpers';
 
 const METHOD_BCONNECT = 'BCONNECT';
 const METHOD_MOBILE = 'MOBILE';
+
+const fieldInputClass =
+  'w-full rounded-lg border border-slate-200 bg-white px-3 py-2.5 text-sm text-slate-900 shadow-sm transition-colors placeholder:text-slate-400 focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500/20';
+const fieldLabelClass = 'block text-sm font-medium text-slate-700 mb-1.5';
+const sectionTitleClass = 'text-sm font-semibold text-slate-800 mb-2';
 
 const ComplaintsRegister = () => {
   const location = useLocation();
@@ -17,7 +22,7 @@ const ComplaintsRegister = () => {
   const [fromDate, setFromDate] = useState('');
   const [toDate, setToDate] = useState('');
   const [desc, setDesc] = useState('');
-  const [disposition, setDisposition] = useState(COMPLAINT_DISPOSITIONS[0]);
+  const [disposition, setDisposition] = useState(COMPLAINT_DISPOSITION_OPTIONS[0].value);
   const [lookupRows, setLookupRows] = useState([]);
   const [lookupLoading, setLookupLoading] = useState(false);
   const [lookupError, setLookupError] = useState('');
@@ -237,7 +242,7 @@ const ComplaintsRegister = () => {
   }
 
   return (
-    <div className="max-w-3xl mx-auto bg-white rounded-xl border border-violet-100 shadow-sm p-6 md:p-8">
+    <div className="max-w-3xl mx-auto bg-white rounded-xl border border-slate-200 shadow-sm p-6 md:p-8">
       <BharatConnectBranding stage="stage2" title="BHARAT CONNECT — RAISE COMPLAINT" />
       <Link
         to="/bill-payments/complaints"
@@ -248,7 +253,7 @@ const ComplaintsRegister = () => {
 
       <div className="space-y-6">
         <div>
-          <p className="text-sm font-medium text-gray-700 mb-2">Type Of Complaint</p>
+          <p className={sectionTitleClass}>Type Of Complaint</p>
           <div className="flex flex-wrap gap-4">
             {COMPLAINT_TYPES.map((t) => (
               <label key={t.value} className="inline-flex items-center gap-2 cursor-pointer">
@@ -265,7 +270,7 @@ const ComplaintsRegister = () => {
         </div>
 
         <div>
-          <p className="text-sm font-medium text-gray-700 mb-2">Transaction Method</p>
+          <p className={sectionTitleClass}>Transaction Method</p>
           <div className="flex flex-wrap gap-4">
             <label className="inline-flex items-center gap-2 cursor-pointer">
               <input
@@ -298,11 +303,11 @@ const ComplaintsRegister = () => {
         {method === METHOD_BCONNECT && (
           <>
             <div>
-              <label className="block text-sm text-gray-600 mb-1">
+              <label className={fieldLabelClass}>
                 B-Connect TXN ID <span className="text-red-600">*</span>
               </label>
               <input
-                className="w-full border rounded-lg px-3 py-2"
+                className={fieldInputClass}
                 value={txnRefId}
                 onChange={(e) => setTxnRefId(e.target.value)}
                 placeholder="Enter B-Connect TXN ID"
@@ -318,11 +323,11 @@ const ComplaintsRegister = () => {
         {method === METHOD_MOBILE && (
           <>
             <div>
-              <label className="block text-sm text-gray-600 mb-1">
+              <label className={fieldLabelClass}>
                 Mobile Number <span className="text-red-600">*</span>
               </label>
               <input
-                className="w-full border rounded-lg px-3 py-2"
+                className={fieldInputClass}
                 value={mobile}
                 onChange={(e) => setMobile(e.target.value)}
                 placeholder="Enter Mobile Number"
@@ -332,23 +337,23 @@ const ComplaintsRegister = () => {
             </div>
             <div className="grid sm:grid-cols-2 gap-4">
               <div>
-                <label className="block text-sm text-gray-600 mb-1">
+                <label className={fieldLabelClass}>
                   From Date <span className="text-red-600">*</span>
                 </label>
                 <input
                   type="date"
-                  className="w-full border rounded-lg px-3 py-2"
+                  className={fieldInputClass}
                   value={fromDate}
                   onChange={(e) => setFromDate(e.target.value)}
                 />
               </div>
               <div>
-                <label className="block text-sm text-gray-600 mb-1">
+                <label className={fieldLabelClass}>
                   To Date <span className="text-red-600">*</span>
                 </label>
                 <input
                   type="date"
-                  className="w-full border rounded-lg px-3 py-2"
+                  className={fieldInputClass}
                   value={toDate}
                   onChange={(e) => setToDate(e.target.value)}
                 />
@@ -400,29 +405,41 @@ const ComplaintsRegister = () => {
           </>
         )}
 
-        <div>
-          <label className="block text-sm text-gray-600 mb-1">
+        <div className="rounded-xl border border-slate-200 bg-slate-50/60 p-4 md:p-5">
+          <label htmlFor="complaint-disposition" className={fieldLabelClass}>
             Complaint Disposition <span className="text-red-600">*</span>
           </label>
+          <p className="text-xs text-slate-500 mb-3">
+            Choose the reason that best describes your complaint. Options follow Bharat Connect standard
+            dispositions.
+          </p>
           <select
-            className="w-full border rounded-lg px-3 py-2"
+            id="complaint-disposition"
+            className={`${fieldInputClass} cursor-pointer`}
             value={disposition}
             onChange={(e) => setDisposition(e.target.value)}
           >
-            {COMPLAINT_DISPOSITIONS.map((d) => (
-              <option key={d} value={d}>
-                {d}
+            {COMPLAINT_DISPOSITION_OPTIONS.map((item) => (
+              <option key={item.code} value={item.value}>
+                {item.value}
               </option>
             ))}
           </select>
+          {disposition ? (
+            <p className="mt-3 rounded-lg border border-slate-200 bg-white px-3 py-2.5 text-xs leading-relaxed text-slate-600">
+              <span className="font-medium text-slate-700">Selected disposition: </span>
+              {disposition}
+            </p>
+          ) : null}
         </div>
 
         <div>
-          <label className="block text-sm text-gray-600 mb-1">
+          <label htmlFor="complaint-description" className={fieldLabelClass}>
             Complaint Description <span className="text-red-600">*</span>
           </label>
           <textarea
-            className="w-full border rounded-lg px-3 py-2"
+            id="complaint-description"
+            className={`${fieldInputClass} min-h-[120px] resize-y`}
             rows={4}
             value={desc}
             onChange={(e) => setDesc(e.target.value)}
@@ -440,10 +457,10 @@ const ComplaintsRegister = () => {
           <div className={`text-sm rounded border p-3 whitespace-pre-wrap ${toneClass(messageTone)}`}>{message}</div>
         )}
 
-        <div className="flex justify-end pt-2">
+        <div className="flex justify-end pt-2 border-t border-slate-100">
           <button
             type="button"
-            className="bg-blue-600 text-white rounded-lg px-8 py-2.5 font-medium shadow-sm hover:bg-blue-700"
+            className="inline-flex items-center justify-center rounded-lg bg-blue-600 px-8 py-2.5 text-sm font-semibold text-white shadow-sm transition-colors hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500/30"
             onClick={registerComplaint}
           >
             Submit Complaint

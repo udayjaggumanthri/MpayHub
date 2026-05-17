@@ -131,7 +131,7 @@ const Dashboard = () => {
       },
       {
         id: 'pay-bills',
-        title: 'BBPS — Pay bills',
+        title: 'Pay Bill',
         description: 'Electricity, mobile, DTH & more',
         icon: FaMoneyBillWave,
         iconImage: bMnemonicPrimary,
@@ -239,9 +239,6 @@ const Dashboard = () => {
                     Role: <span className="font-semibold text-slate-900">{user?.role}</span>
                   </span>
                 </div>
-              </div>
-              <div className="rounded-xl border border-slate-100 bg-slate-50/80 px-4 py-2 text-xs text-slate-500">
-                Enterprise overview · balances first, then actions, then performance
               </div>
             </div>
           </Card>

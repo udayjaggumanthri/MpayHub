@@ -10,7 +10,7 @@ import MPINModal from '../common/MPINModal';
 import { FaCircleCheck, FaCircleExclamation, FaMagnifyingGlass } from 'react-icons/fa6';
 import BharatConnectBranding from './BharatConnectBranding';
 import BbpsDynamicFieldSet from './BbpsDynamicFieldSet';
-import bAssuredPrimary from '../../assets/bbps/b-assured-primary.svg';
+import BAssuredReceiptHeader from './BAssuredReceiptHeader';
 import { normalizeCategorySlug } from '../../constants/bbpsCanonicalCategories';
 import AccountAccessBanner from '../common/AccountAccessBanner';
 
@@ -19,7 +19,7 @@ const isFastagBillCategory = (raw) => {
   return n === 'fastag' || n === 'fast-tag' || n.includes('fastag');
 };
 
-const CreditCardBill = ({ category = 'credit-card', onPaymentSuccess }) => {
+const CreditCardBill = ({ category = 'credit-card', categoryLabel = '', onPaymentSuccess }) => {
   const { user } = useAuth();
   const paySubmitInFlight = useRef(false);
   const [biller, setBiller] = useState('');
@@ -51,7 +51,9 @@ const CreditCardBill = ({ category = 'credit-card', onPaymentSuccess }) => {
   const [planOptions, setPlanOptions] = useState([]);
   const [selectedPlanId, setSelectedPlanId] = useState('');
   const [schemaInputGuidance, setSchemaInputGuidance] = useState('');
-  const title = (category || 'bill-payment').replace(/-/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase());
+  const title =
+    String(categoryLabel || '').trim() ||
+    (category || 'bill-payment').replace(/-/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase());
 
   const getCanonicalValue = useCallback((canonicalKey, fallbackKeys = []) => {
     if (!canonicalKey) return '';
@@ -531,9 +533,7 @@ const CreditCardBill = ({ category = 'credit-card', onPaymentSuccess }) => {
       {showSuccessNotification && (
         <div className="fixed inset-0 z-[70] bg-black/35 backdrop-blur-[1px] flex items-center justify-center p-4">
           <div className="bg-white border border-emerald-200 rounded-2xl shadow-2xl p-6 max-w-lg w-full">
-            <div className="flex items-center justify-between gap-3">
-              <BharatConnectBranding stage="stage3" />
-              <img src={bAssuredPrimary} alt="B-Assured logo" className="h-12 w-auto object-contain" />
+            <div className="flex justify-end">
               <span className="inline-flex items-center gap-2 rounded-full border border-emerald-300 bg-emerald-50 px-3 py-1 text-xs font-semibold text-emerald-800">
                 <FaCircleCheck size={14} />
                 Payment Successful
@@ -555,7 +555,7 @@ const CreditCardBill = ({ category = 'credit-card', onPaymentSuccess }) => {
           <div className="fixed inset-0 z-[60] bg-black/45 backdrop-blur-[1px] flex items-center justify-center p-4">
             <div className="bg-white rounded-2xl shadow-2xl max-w-lg w-full p-6 border border-blue-100">
               <div className="flex items-center justify-between gap-3">
-                <BharatConnectBranding stage="stage2" title="Processing Payment" variant="compact" />
+                <h2 className="text-lg font-semibold text-gray-900">Processing Payment</h2>
                 <span className="inline-flex items-center rounded-full border border-blue-200 bg-blue-50 px-3 py-1 text-xs font-semibold text-blue-700">
                   In Progress
                 </span>
@@ -918,12 +918,7 @@ const CreditCardBill = ({ category = 'credit-card', onPaymentSuccess }) => {
 
         {lastReceipt && (
           <Card title="B-Connect Receipt" subtitle="Payment confirmation with enterprise receipt fields" padding="lg">
-            <div className="flex items-start justify-between gap-4 mb-3">
-              <BharatConnectBranding stage="stage3" />
-              <div className="rounded-xl border border-emerald-200 bg-emerald-50 px-3 py-2 shadow-sm">
-                <img src={bAssuredPrimary} alt="B-Assured logo" className="h-14 w-auto object-contain" />
-              </div>
-            </div>
+            <BAssuredReceiptHeader title="Payment receipt" className="mb-3" logoAlign="center" />
             <div className="grid md:grid-cols-2 gap-3 text-sm">
               <div className="border rounded p-2">B-Connect Transaction ID: <strong>{lastReceipt.bConnectTxnId}</strong></div>
               <div className="border rounded p-2">Transaction Ref ID: <strong>{lastReceipt.txnRefId}</strong></div>

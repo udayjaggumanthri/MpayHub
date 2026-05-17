@@ -1,7 +1,7 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { bbpsAPI } from '../../services/api';
-import { BBPS_CANONICAL_CATEGORIES, normalizeCategorySlug } from '../../constants/bbpsCanonicalCategories';
+import { buildCategoryCatalog } from '../../constants/bbpsCanonicalCategories';
 import {
   FaCreditCard,
   FaBolt,
@@ -19,6 +19,8 @@ import {
   FaHouse,
   FaCreditCard as FaLoan,
   FaRoad,
+  FaList,
+  FaGrip,
 } from 'react-icons/fa6';
 
 const CATEGORY_ICONS = {
@@ -52,121 +54,147 @@ const CATEGORY_ICONS = {
   water: FaDroplet,
 };
 
-function isCategoryAvailable(category, availableSlugSet) {
-  const primary = normalizeCategorySlug(category.primarySlug);
-  if (availableSlugSet.has(primary)) return true;
-  return (category.slugAliases || []).some((alias) => availableSlugSet.has(normalizeCategorySlug(alias)));
-}
-
-const BillCategorySelector = ({ selectedCategory }) => {
+const BillCategorySelector = ({ selectedCategory, viewMode: controlledViewMode, onViewModeChange }) => {
   const navigate = useNavigate();
-  const [availableSlugSet, setAvailableSlugSet] = useState(new Set());
+  const [apiCategories, setApiCategories] = useState([]);
   const [searchQuery, setSearchQuery] = useState('');
   const [statusFilter, setStatusFilter] = useState('all');
+  const [internalViewMode, setInternalViewMode] = useState('grid');
+  const viewMode = controlledViewMode || internalViewMode;
+  const setViewMode = onViewModeChange || setInternalViewMode;
 
   useEffect(() => {
     const loadCategories = async () => {
       const res = await bbpsAPI.getCategories();
       const rows = Array.isArray(res.data?.categories) ? res.data.categories : [];
-      const next = new Set(rows.map((r) => normalizeCategorySlug(r.id)));
-      setAvailableSlugSet(next);
+      setApiCategories(rows);
     };
     loadCategories();
   }, []);
 
-  const handleCategoryClick = (categoryId) => {
-    navigate(`/bill-payments/pay/${categoryId}`);
-  };
+  const catalog = useMemo(() => buildCategoryCatalog(apiCategories), [apiCategories]);
 
   const orderedCategories = useMemo(() => {
     const q = String(searchQuery || '').trim().toLowerCase();
-    const rows = BBPS_CANONICAL_CATEGORIES.map((category) => ({
-      ...category,
-      isAvailable: isCategoryAvailable(category, availableSlugSet),
-    }));
-    const filtered = rows.filter((row) => {
-      if (statusFilter === 'active' && !row.isAvailable) return false;
-      if (statusFilter === 'coming-soon' && row.isAvailable) return false;
+    const filtered = catalog.filter((row) => {
+      if (statusFilter === 'with-billers' && !row.hasBillers) return false;
+      if (statusFilter === 'no-billers' && row.hasBillers) return false;
       if (!q) return true;
-      return row.displayName.toLowerCase().includes(q);
+      return row.displayName.toLowerCase().includes(q) || row.primarySlug.toLowerCase().includes(q);
     });
     return filtered.sort((a, b) => {
-      if (a.isAvailable !== b.isAvailable) return a.isAvailable ? -1 : 1;
+      if (a.hasBillers !== b.hasBillers) return a.hasBillers ? -1 : 1;
       return a.displayName.localeCompare(b.displayName);
     });
-  }, [availableSlugSet, searchQuery, statusFilter]);
+  }, [catalog, searchQuery, statusFilter]);
+
+  const handleCategoryClick = (category) => {
+    navigate(`/bill-payments/pay/${category.primarySlug}`);
+  };
+
+  const renderCategoryCard = (category) => {
+    const Icon = CATEGORY_ICONS[category.primarySlug] || FaMoneyBillWave;
+    const isSelected = selectedCategory === category.primarySlug;
+    const isList = viewMode === 'list';
+
+    return (
+      <button
+        key={category.primarySlug}
+        type="button"
+        onClick={() => handleCategoryClick(category)}
+        className={`group relative overflow-hidden border-2 rounded-2xl transition-all text-left w-full ${
+          isList ? 'flex items-center gap-4 p-4' : 'p-6 flex flex-col items-center'
+        } ${
+          isSelected
+            ? 'border-transparent bg-gradient-to-br from-blue-500 to-indigo-600 shadow-xl shadow-blue-200'
+            : 'border-blue-200 bg-white hover:border-blue-300 hover:shadow-lg hover:bg-blue-50 hover:-translate-y-0.5'
+        }`}
+      >
+        <div
+          className={`shrink-0 p-3 rounded-xl ${
+            isList ? '' : 'mb-3'
+          } ${isSelected ? 'bg-white/20 backdrop-blur-sm' : 'bg-blue-100 group-hover:bg-blue-200 transition-colors'}`}
+        >
+          <Icon size={isList ? 28 : 32} className={isSelected ? 'text-white' : 'text-blue-600'} />
+        </div>
+        <div className={isList ? 'flex-1 min-w-0' : ''}>
+          <p
+            className={`font-bold leading-snug ${isList ? 'text-base' : 'text-sm text-center'} ${
+              isSelected ? 'text-white' : 'text-gray-800'
+            }`}
+          >
+            {category.displayName}
+          </p>
+          {category.fromApi && (
+            <p className={`text-[11px] mt-0.5 ${isSelected ? 'text-blue-100' : 'text-slate-400'}`}>
+              From biller catalog
+            </p>
+          )}
+        </div>
+      </button>
+    );
+  };
 
   return (
     <div className="space-y-4">
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
-        <input
-          type="text"
-          value={searchQuery}
-          onChange={(e) => setSearchQuery(e.target.value)}
-          placeholder="Search category"
-          className="border rounded-lg px-3 py-2 text-sm md:col-span-2"
-        />
-        <select
-          value={statusFilter}
-          onChange={(e) => setStatusFilter(e.target.value)}
-          className="border rounded-lg px-3 py-2 text-sm"
-        >
-          <option value="all">All categories</option>
-          <option value="active">Active categories</option>
-          <option value="coming-soon">Coming Soon</option>
-        </select>
+      <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-3 flex-1">
+          <input
+            type="text"
+            value={searchQuery}
+            onChange={(e) => setSearchQuery(e.target.value)}
+            placeholder="Search category"
+            className="border rounded-lg px-3 py-2 text-sm"
+          />
+          <select
+            value={statusFilter}
+            onChange={(e) => setStatusFilter(e.target.value)}
+            className="border rounded-lg px-3 py-2 text-sm"
+          >
+            <option value="all">All categories</option>
+            <option value="with-billers">With active billers</option>
+            <option value="no-billers">Awaiting billers</option>
+          </select>
+        </div>
+        <div className="inline-flex rounded-lg border border-gray-200 p-1 bg-gray-50 self-start">
+          <button
+            type="button"
+            onClick={() => setViewMode('grid')}
+            className={`inline-flex items-center gap-2 px-3 py-1.5 rounded-md text-sm font-medium transition-colors ${
+              viewMode === 'grid' ? 'bg-white text-blue-700 shadow-sm' : 'text-gray-600 hover:text-gray-900'
+            }`}
+            aria-pressed={viewMode === 'grid'}
+          >
+            <FaGrip size={14} />
+            Grid
+          </button>
+          <button
+            type="button"
+            onClick={() => setViewMode('list')}
+            className={`inline-flex items-center gap-2 px-3 py-1.5 rounded-md text-sm font-medium transition-colors ${
+              viewMode === 'list' ? 'bg-white text-blue-700 shadow-sm' : 'text-gray-600 hover:text-gray-900'
+            }`}
+            aria-pressed={viewMode === 'list'}
+          >
+            <FaList size={14} />
+            List
+          </button>
+        </div>
       </div>
 
-      <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
-        {orderedCategories.map((category) => {
-          const Icon = CATEGORY_ICONS[category.primarySlug] || FaMoneyBillWave;
-          const isSelected = selectedCategory === category.primarySlug;
-          const isAvailable = category.isAvailable;
-          return (
-            <button
-              key={category.primarySlug}
-              type="button"
-              onClick={() => handleCategoryClick(category.primarySlug)}
-              disabled={!isAvailable}
-              title={isAvailable ? '' : 'Coming soon: operators are not active for this category yet.'}
-              className={`group relative overflow-hidden p-6 border-2 rounded-2xl transition-all transform hover:scale-105 hover:-translate-y-1 ${
-                !isAvailable
-                  ? 'border-slate-200 bg-slate-50 cursor-not-allowed opacity-75'
-                  : isSelected
-                    ? 'border-transparent bg-gradient-to-br from-blue-500 to-indigo-600 shadow-xl shadow-blue-200'
-                    : 'border-blue-200 bg-white hover:border-blue-300 hover:shadow-lg hover:bg-blue-50'
-              }`}
-            >
-              {!isAvailable && (
-                <span className="absolute right-2 top-2 rounded-full bg-amber-100 px-2 py-0.5 text-[10px] font-semibold text-amber-800">
-                  Coming Soon
-                </span>
-              )}
-              <div className={`flex flex-col items-center ${isSelected ? 'text-white' : 'text-gray-700'}`}>
-                <div
-                  className={`p-3 rounded-xl mb-3 ${
-                    isSelected
-                      ? 'bg-white/20 backdrop-blur-sm'
-                      : isAvailable
-                        ? 'bg-blue-100 group-hover:bg-blue-200 transition-colors'
-                        : 'bg-slate-200'
-                  }`}
-                >
-                  <Icon size={32} className={isSelected ? 'text-white' : isAvailable ? 'text-blue-600' : 'text-slate-500'} />
-                </div>
-                <p className={`text-sm font-bold text-center leading-snug ${isSelected ? 'text-white' : 'text-gray-700'}`}>
-                  {category.displayName}
-                </p>
-                {!isAvailable && <p className="mt-1 text-[11px] text-slate-500">No operators active</p>}
-              </div>
-            </button>
-          );
-        })}
+      <div
+        className={
+          viewMode === 'grid'
+            ? 'grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4'
+            : 'flex flex-col gap-3'
+        }
+      >
+        {orderedCategories.map((category) => renderCategoryCard(category))}
       </div>
 
       {orderedCategories.length === 0 && (
         <div className="text-sm text-slate-600 border rounded-lg p-3 bg-slate-50">
-          No categories matched your current search/filter.
+          No categories matched your search. Try clearing filters or check biller sync in admin.
         </div>
       )}
     </div>

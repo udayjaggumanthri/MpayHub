@@ -11,31 +11,27 @@ import {
   FaFilter,
   FaEye,
   FaX,
-  FaDownload,
 } from 'react-icons/fa6';
 import Input from '../common/Input';
 import Button from '../common/Button';
-import BharatConnectBranding from './BharatConnectBranding';
-import bAssuredPrimary from '../../assets/bbps/b-assured-primary.svg';
-import bharatConnectPrimary from '../../assets/bbps/bharat-connect-primary.svg';
+import BbpsTransactionReceiptView from './BbpsTransactionReceiptView';
+import { mapApiPaymentToReceiptTransaction } from './bbpsReceiptFields';
+import { buildBbpsReceiptPrintHtml, openBbpsReceiptPrint } from './bbpsReceiptPrint';
 import { normalizeCategorySlug } from '../../constants/bbpsCanonicalCategories';
-
-const escapeHtml = (value) =>
-  String(value ?? '')
-    .replaceAll('&', '&amp;')
-    .replaceAll('<', '&lt;')
-    .replaceAll('>', '&gt;')
-    .replaceAll('"', '&quot;')
-    .replaceAll("'", '&#39;');
 
 const deriveCustomerId = (row) => {
   const r = row || {};
+  const rd = r.receipt_details && typeof r.receipt_details === 'object' ? r.receipt_details : {};
   const details = r.customer_details && typeof r.customer_details === 'object' ? r.customer_details : {};
-  const inputParams = Array.isArray(r.input_params) ? r.input_params : [];
+  const inputParams = Array.isArray(r.input_params) ? r.input_params : Array.isArray(r.inputParams) ? r.inputParams : [];
+  const paramPatterns = /customer.?id|customer.?number|consumer.?number|subscriber|mobile|msisdn|account.?id|consumer.?id/i;
   const fromInputParam =
-    inputParams.find((p) => /customer.?id|customer.?number|consumer.?number/i.test(String(p?.paramName || '')))
-      ?.paramValue || '';
+    inputParams.find((p) => paramPatterns.test(String(p?.paramName || p?.param_name || '')))?.paramValue ||
+    inputParams.find((p) => paramPatterns.test(String(p?.param_name || '')))?.param_value ||
+    '';
+  const fromDetails = Object.entries(details).find(([k]) => paramPatterns.test(String(k || '')))?.[1];
   return (
+    rd.bill_number ||
     r.customer_id ||
     r.customer_number ||
     details.customer_id ||
@@ -43,6 +39,9 @@ const deriveCustomerId = (row) => {
     details['Customer ID'] ||
     details['CustomerId'] ||
     details['Customer Number'] ||
+    details['Mobile Number'] ||
+    details['Subscriber ID'] ||
+    fromDetails ||
     fromInputParam ||
     r.mobile ||
     r.card_last4 ||
@@ -147,27 +146,8 @@ const MyBills = () => {
         const payments = result.data?.payments || result.data?.results || [];
         setTransactions(
           payments.map((p) => ({
-            id: p.id,
-            serviceId: p.service_id || p.id,
-            requestId: p.request_id || p.external_ref || null,
-            bConnectTxnId: p.bconnect_txn_id || p.request_id || p.service_id || null,
-            approvalRefNumber: p.approval_ref_number || null,
-            amount: parseFloat(p.amount || 0),
-            charge: parseFloat(p.charge || p.service_charge || 0),
-            ccfAmount: parseFloat(p.ccf_amount || p.charge || p.service_charge || 0),
-            totalDeducted: parseFloat(p.total_deducted || (parseFloat(p.amount || 0) + parseFloat(p.charge || p.service_charge || 0))),
-            billType: p.category || p.bill_type || 'Bill Payment',
-            biller: p.biller_name || p.biller || 'N/A',
-            billerId: p.biller_id || null,
+            ...mapApiPaymentToReceiptTransaction(p),
             customerId: deriveCustomerId(p) || null,
-            inputParams: Array.isArray(p.input_params) ? p.input_params : [],
-            customerDetails: p.customer_details && typeof p.customer_details === 'object' ? p.customer_details : {},
-            date: p.created_at || p.transaction_date,
-            status: (p.status || 'PENDING').toUpperCase(),
-            cardLast4: p.card_last4 || null,
-            mobile: p.mobile || null,
-            failureReason: p.failure_reason || '',
-            statusHistory: Array.isArray(p.status_history) ? p.status_history : [],
           }))
         );
       } else {
@@ -234,26 +214,11 @@ const MyBills = () => {
       const detail = await bbpsAPI.getBillPaymentDetail(transaction.id);
       const row = detail?.data?.payment;
       if (!detail?.success || !row) return;
-      setSelectedTransaction((prev) => ({
-        ...(prev || transaction),
-        serviceId: row.service_id || prev?.serviceId || transaction.serviceId,
-        requestId: row.request_id || prev?.requestId || transaction.requestId,
-        bConnectTxnId: row.bconnect_txn_id || row.request_id || row.service_id || prev?.bConnectTxnId || transaction.bConnectTxnId,
-        approvalRefNumber: row.approval_ref_number || prev?.approvalRefNumber || '',
-        amount: parseFloat(row.amount || prev?.amount || transaction.amount || 0),
-        charge: parseFloat(row.charge || prev?.charge || transaction.charge || 0),
-        ccfAmount: parseFloat(row.ccf_amount || row.charge || prev?.ccfAmount || transaction.ccfAmount || 0),
-        totalDeducted: parseFloat(row.total_deducted || (parseFloat(row.amount || 0) + parseFloat(row.charge || 0))),
-        status: String(row.status || prev?.status || transaction.status || 'PENDING').toUpperCase(),
-        failureReason: row.failure_reason || prev?.failureReason || '',
-        statusHistory: Array.isArray(row.status_history) ? row.status_history : (prev?.statusHistory || []),
-        customerId: deriveCustomerId(row) || prev?.customerId || transaction.customerId || '',
-        inputParams: Array.isArray(row.input_params) ? row.input_params : (prev?.inputParams || transaction.inputParams || []),
-        customerDetails:
-          row.customer_details && typeof row.customer_details === 'object'
-            ? row.customer_details
-            : (prev?.customerDetails || transaction.customerDetails || {}),
-      }));
+      const enriched = mapApiPaymentToReceiptTransaction(row);
+      setSelectedTransaction({
+        ...enriched,
+        customerId: deriveCustomerId(row) || enriched.customerId || transaction.customerId || '',
+      });
     } finally {
       setDetailsLoading(false);
     }
@@ -288,114 +253,11 @@ const MyBills = () => {
     navigate('/bill-payments/my-bills', { replace: true, state: null });
   }, [loading, transactions, location.state, navigate]);
 
-  const downloadReceipt = (txn) => {
+  const downloadReceipt = (txn, { mobile = false } = {}) => {
     if (!txn) return;
-    const txnDate = formatDateTime(txn.date) || 'N/A';
-    const totalDeducted = Number(txn.totalDeducted || (txn.amount + (txn.charge || 0)));
-    const ccf = Number(txn.ccfAmount || txn.charge || 0);
     const identity = deriveReceiptIdentity(txn);
-    const html = `
-      <html>
-        <head>
-          <title>BBPS Receipt - ${escapeHtml(txn.bConnectTxnId || txn.serviceId || txn.id)}</title>
-          <style>
-            body { font-family: Arial, sans-serif; padding: 28px; color: #111827; }
-            .header { display:flex; justify-content:space-between; align-items:center; margin-bottom:18px; }
-            .title { font-size: 28px; font-weight: 700; letter-spacing: 0.02em; }
-            .sub { color:#4b5563; margin-top:4px; }
-            .badge { display:inline-block; padding:6px 12px; border-radius:999px; font-weight:700; font-size:12px; background:#dcfce7; color:#166534; border:1px solid #86efac; }
-            table { width:100%; border-collapse: collapse; margin-top: 16px; }
-            th, td { border:1px solid #d1d5db; padding:10px; text-align:left; font-size:13px; }
-            th { background:#f9fafb; width:22%; color:#374151; text-transform: uppercase; font-size:11px; }
-            .section-title { margin-top:20px; font-weight:700; color:#1f2937; font-size:13px; text-transform:uppercase; }
-            .logo { height: 46px; width:auto; object-fit:contain; }
-            .mono { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
-            .row { display:flex; gap:12px; justify-content:space-between; align-items:center; margin-top:8px; }
-          </style>
-        </head>
-        <body>
-          <div class="header">
-            <div>
-              <div class="title">BILL PAY RECEIPT</div>
-              <div class="sub">Bharat Connect BBPS Payment Confirmation</div>
-            </div>
-            <img class="logo" src="${window.location.origin}${bAssuredPrimary}" alt="B Assured Logo" />
-          </div>
-          <div class="row">
-            <img class="logo" style="height:38px" src="${window.location.origin}${bharatConnectPrimary}" alt="Bharat Connect Logo" />
-          </div>
-
-          <span class="badge">${escapeHtml(txn.status || 'SUCCESS')}</span>
-
-          <div class="section-title">Transaction Identifiers</div>
-          <table>
-            <tr><th>B-Connect Txn ID</th><td class="mono">${escapeHtml(txn.bConnectTxnId || 'N/A')}</td><th>Request ID</th><td class="mono">${escapeHtml(txn.requestId || 'N/A')}</td></tr>
-            <tr><th>Transaction Ref ID</th><td class="mono">${escapeHtml(txn.serviceId || txn.id || 'N/A')}</td><th>Approved Number</th><td class="mono">${escapeHtml(txn.approvalRefNumber || 'N/A')}</td></tr>
-          </table>
-
-          <div class="section-title">Biller Information</div>
-          <table>
-            <tr><th>Biller Name</th><td>${escapeHtml(txn.biller || 'N/A')}</td><th>Biller ID</th><td>${escapeHtml(txn.billerId || 'N/A')}</td></tr>
-            <tr><th>${escapeHtml(identity.label || 'Customer ID')}</th><td>${escapeHtml(identity.value || 'N/A')}</td><th>Category</th><td>${escapeHtml(txn.billType || 'N/A')}</td></tr>
-            <tr><th>Transaction Date & Time</th><td>${escapeHtml(txnDate)}</td><th>Transaction Status</th><td>${escapeHtml(txn.status || 'N/A')}</td></tr>
-          </table>
-
-          <div class="section-title">Financial Breakdown</div>
-          <table>
-            <tr><th>Bill Amount</th><td>${formatCurrency(txn.amount || 0)}</td><th>CCF</th><td>${formatCurrency(ccf)}</td></tr>
-            <tr><th>Service Charges</th><td>${formatCurrency(txn.charge || 0)}</td><th>Total Amount</th><td><strong>${formatCurrency(totalDeducted)}</strong></td></tr>
-          </table>
-        </body>
-      </html>
-    `;
-    const script = `
-      <script>
-        window.addEventListener('load', function () {
-          setTimeout(function () {
-            try { window.focus(); window.print(); } catch (e) {}
-          }, 350);
-        });
-      <\/script>
-    `;
-    const htmlWithPrint = html.includes('</body>') ? html.replace('</body>', `${script}</body>`) : `${html}${script}`;
-
-    const printWindow = window.open('about:blank', '_blank', 'width=900,height=700');
-    if (!printWindow) {
-      // Popup blocked fallback: print in hidden iframe.
-      const iframe = document.createElement('iframe');
-      iframe.style.position = 'fixed';
-      iframe.style.right = '0';
-      iframe.style.bottom = '0';
-      iframe.style.width = '0';
-      iframe.style.height = '0';
-      iframe.style.border = '0';
-      document.body.appendChild(iframe);
-      const doc = iframe.contentWindow?.document;
-      if (!doc) return;
-      doc.open();
-      doc.write(htmlWithPrint);
-      doc.close();
-      setTimeout(() => {
-        iframe.contentWindow?.focus();
-        iframe.contentWindow?.print();
-        setTimeout(() => {
-          document.body.removeChild(iframe);
-        }, 800);
-      }, 300);
-      return;
-    }
-    try {
-      const blob = new Blob([htmlWithPrint], { type: 'text/html;charset=utf-8' });
-      const receiptUrl = URL.createObjectURL(blob);
-      printWindow.location.replace(receiptUrl);
-      // Release object URL after viewer has had time to load/print.
-      window.setTimeout(() => URL.revokeObjectURL(receiptUrl), 120000);
-    } catch {
-      // Final fallback when Blob URL creation fails.
-      printWindow.document.open();
-      printWindow.document.write(htmlWithPrint);
-      printWindow.document.close();
-    }
+    const html = buildBbpsReceiptPrintHtml(txn, identity, { mobile });
+    openBbpsReceiptPrint(html, { mobile });
   };
 
   if (loading) {
@@ -581,182 +443,29 @@ const MyBills = () => {
 
       {showDetailsModal && selectedTransaction && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black bg-opacity-50 overflow-y-auto">
-          <div className="bg-white rounded-xl shadow-2xl max-w-2xl w-full p-6 my-auto max-h-[90vh] overflow-y-auto">
-            <div className="flex items-center justify-between mb-6">
-              <h2 className="text-2xl font-bold text-gray-900">Transaction Details</h2>
+          <div className="bg-white rounded-xl shadow-2xl max-w-4xl w-full p-6 my-auto max-h-[95vh] overflow-y-auto">
+            <div className="flex items-center justify-end mb-2">
               <button
+                type="button"
                 onClick={closeDetailsModal}
                 className="text-gray-400 hover:text-gray-600 transition-colors"
+                aria-label="Close"
               >
-                <FaX size={24} />
+                <FaX size={22} />
               </button>
             </div>
 
-            <div className="space-y-6">
-              <BharatConnectBranding stage="stage3" title="BBPS Receipt View" logoSize="lg" />
-              <div className="flex justify-center">
-                <span
-                  className={`inline-flex items-center space-x-2 px-6 py-3 rounded-full text-sm font-semibold border ${getStatusColor(
-                    selectedTransaction.status
-                  )}`}
-                >
-                  {getStatusIcon(selectedTransaction.status)}
-                  <span className="text-lg">{selectedTransaction.status}</span>
-                </span>
-              </div>
-
-              <div className="bg-gray-50 rounded-lg p-4 border border-gray-200">
-                <h3 className="text-sm font-semibold text-gray-700 mb-3 uppercase tracking-wide">
-                  Transaction Identifiers
-                </h3>
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                  <div>
-                    <label className="text-xs text-gray-500 uppercase">B-Connect Transaction ID</label>
-                    <p className="text-sm font-medium text-gray-900 mt-1">
-                      {selectedTransaction.bConnectTxnId || selectedTransaction.serviceId || selectedTransaction.id}
-                    </p>
-                  </div>
-                  <div>
-                    <label className="text-xs text-gray-500 uppercase">Request ID</label>
-                    <p className="text-sm font-medium text-gray-900 mt-1">
-                      {selectedTransaction.requestId || 'N/A'}
-                    </p>
-                  </div>
-                  {selectedTransaction.id && (
-                    <div>
-                      <label className="text-xs text-gray-500 uppercase">Transaction Ref ID</label>
-                      <p className="text-sm font-medium text-gray-900 mt-1">{selectedTransaction.id}</p>
-                    </div>
-                  )}
-                  <div>
-                    <label className="text-xs text-gray-500 uppercase">Approved Number</label>
-                    <p className="text-sm font-medium text-gray-900 mt-1">
-                      {selectedTransaction.approvalRefNumber || 'N/A'}
-                    </p>
-                  </div>
-                </div>
-              </div>
-
-              <div className="bg-blue-50 rounded-lg p-4 border border-blue-200">
-                <h3 className="text-sm font-semibold text-gray-700 mb-3 uppercase tracking-wide">
-                  Financial Breakdown
-                </h3>
-                <div className="space-y-3">
-                  <div className="flex justify-between items-center">
-                    <span className="text-sm text-gray-600">Bill Amount:</span>
-                    <span className="text-lg font-semibold text-gray-900">
-                      {formatCurrency(selectedTransaction.amount)}
-                    </span>
-                  </div>
-                  <div className="flex justify-between items-center">
-                    <span className="text-sm text-gray-600">CCF:</span>
-                    <span className="text-lg font-semibold text-red-600">
-                      {formatCurrency(selectedTransaction.ccfAmount || 0)}
-                    </span>
-                  </div>
-                  <div className="flex justify-between items-center">
-                    <span className="text-sm text-gray-600">Service Charges:</span>
-                    <span className="text-lg font-semibold text-red-600">
-                      {formatCurrency(selectedTransaction.charge || 0)}
-                    </span>
-                  </div>
-                  <div className="flex justify-between items-center pt-2 border-t border-blue-200">
-                    <span className="text-base font-bold text-gray-900">Order Amount (Total Deducted):</span>
-                    <span className="text-xl font-bold text-blue-600">
-                      {formatCurrency(selectedTransaction.totalDeducted || (selectedTransaction.amount + (selectedTransaction.charge || 0)))}
-                    </span>
-                  </div>
-                </div>
-              </div>
-
-              <div className="bg-gray-50 rounded-lg p-4 border border-gray-200">
-                <h3 className="text-sm font-semibold text-gray-700 mb-3 uppercase tracking-wide">
-                  Biller Information
-                </h3>
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                  <div>
-                    <label className="text-xs text-gray-500 uppercase">Category</label>
-                    <p className="text-sm font-medium text-gray-900 mt-1">
-                      {selectedTransaction.billType || 'N/A'}
-                    </p>
-                  </div>
-                  <div>
-                    <label className="text-xs text-gray-500 uppercase">Biller Name</label>
-                    <p className="text-sm font-medium text-gray-900 mt-1">
-                      {selectedTransaction.biller || 'N/A'}
-                    </p>
-                  </div>
-                  {selectedTransaction.billerId && (
-                    <div>
-                      <label className="text-xs text-gray-500 uppercase">Biller ID</label>
-                      <p className="text-sm font-medium text-gray-900 mt-1">{selectedTransaction.billerId}</p>
-                    </div>
-                  )}
-                  <div>
-                    <label className="text-xs text-gray-500 uppercase">{selectedIdentity.label}</label>
-                    <p className="text-sm font-medium text-gray-900 mt-1">
-                      {selectedIdentity.value || 'N/A'}
-                    </p>
-                  </div>
-                </div>
-              </div>
-
-              {(selectedTransaction.billType === 'Credit Card' ||
-                selectedTransaction.cardLast4 ||
-                selectedTransaction.mobile) && (
-                <div className="bg-gray-50 rounded-lg p-4 border border-gray-200">
-                  <h3 className="text-sm font-semibold text-gray-700 mb-3 uppercase tracking-wide">
-                    Identity Markers
-                  </h3>
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                    {selectedTransaction.cardLast4 && (
-                      <div>
-                        <label className="text-xs text-gray-500 uppercase">Last 4 Digits of Card</label>
-                        <p className="text-sm font-medium text-gray-900 mt-1">
-                          **** {selectedTransaction.cardLast4}
-                        </p>
-                      </div>
-                    )}
-                    {selectedTransaction.mobile && (
-                      <div>
-                        <label className="text-xs text-gray-500 uppercase">Registered Mobile Number</label>
-                        <p className="text-sm font-medium text-gray-900 mt-1">{selectedTransaction.mobile}</p>
-                      </div>
-                    )}
-                  </div>
-                </div>
-              )}
-
-              <div className="bg-gray-50 rounded-lg p-4 border border-gray-200">
-                <h3 className="text-sm font-semibold text-gray-700 mb-3 uppercase tracking-wide">
-                  Transaction Information
-                </h3>
-                <div>
-                  <label className="text-xs text-gray-500 uppercase">Transaction Date & Time</label>
-                  <p className="text-sm font-medium text-gray-900 mt-1">
-                    {formatDateTime(selectedTransaction.date)}
-                  </p>
-                </div>
-              </div>
-            </div>
-
-            {detailsLoading ? (
-              <p className="text-sm text-gray-500">Refreshing receipt details...</p>
-            ) : null}
-
-            <div className="mt-6 flex justify-end gap-2">
-              <Button
-                onClick={() => downloadReceipt(selectedTransaction)}
-                variant="outline"
-                icon={FaDownload}
-                iconPosition="left"
-              >
-                Download Receipt
-              </Button>
-              <Button onClick={closeDetailsModal} variant="primary">
-                Close
-              </Button>
-            </div>
+            <BbpsTransactionReceiptView
+              transaction={selectedTransaction}
+              identity={selectedIdentity}
+              loading={detailsLoading}
+              onPrint={() => downloadReceipt(selectedTransaction)}
+              onMobilePrint={() => downloadReceipt(selectedTransaction, { mobile: true })}
+              onAnotherTransaction={() => {
+                closeDetailsModal();
+                navigate('/bill-payments/pay');
+              }}
+            />
           </div>
         </div>
       )}

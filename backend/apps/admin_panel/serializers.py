@@ -6,7 +6,7 @@ from decimal import Decimal
 from rest_framework import serializers
 from django.core.files.uploadedfile import UploadedFile
 from django.utils.text import slugify
-from apps.admin_panel.models import Announcement, PaymentGateway, PayoutGateway, PayoutSlabConfig
+from apps.admin_panel.models import Announcement, PaymentGateway, PayoutGateway, PayoutSlabConfig, SmtpConfig
 from apps.fund_management.models import PayInPackage, PayoutSlabTier
 
 MAX_IMAGE_BYTES = 5 * 1024 * 1024  # 5 MB
@@ -421,3 +421,62 @@ class PayoutSlabConfigSerializer(serializers.ModelSerializer):
         if high_c < 0:
             raise serializers.ValidationError({'high_charge': ['Must be zero or positive.']})
         return attrs
+
+
+class SmtpConfigSerializer(serializers.ModelSerializer):
+    """SMTP config for admin UI; password never returned."""
+
+    has_password = serializers.SerializerMethodField()
+
+    class Meta:
+        model = SmtpConfig
+        fields = [
+            'id',
+            'name',
+            'host',
+            'port',
+            'use_tls',
+            'use_ssl',
+            'username',
+            'from_email',
+            'enabled',
+            'is_active',
+            'created_at',
+            'updated_at',
+            'has_password',
+        ]
+        read_only_fields = ['id', 'created_at', 'updated_at', 'has_password']
+
+    def get_has_password(self, obj) -> bool:
+        return bool((getattr(obj, 'password_encrypted', None) or '').strip())
+
+    def validate(self, attrs):
+        attrs = super().validate(attrs)
+        use_tls = bool(attrs.get('use_tls', getattr(self.instance, 'use_tls', True)))
+        use_ssl = bool(attrs.get('use_ssl', getattr(self.instance, 'use_ssl', False)))
+        if use_tls and use_ssl:
+            raise serializers.ValidationError(
+                {'use_ssl': ['Enable either TLS (587) or SSL (465), not both.']}
+            )
+        port = int(attrs.get('port', getattr(self.instance, 'port', 587)) or 587)
+        if port == 465 and use_tls and not use_ssl:
+            raise serializers.ValidationError(
+                {'use_ssl': ['Port 465 typically requires SSL (use_ssl=true, use_tls=false).']}
+            )
+        if port == 587 and use_ssl and not use_tls:
+            raise serializers.ValidationError(
+                {'use_tls': ['Port 587 typically requires TLS (use_tls=true, use_ssl=false).']}
+            )
+        enabled = bool(attrs.get('enabled', getattr(self.instance, 'enabled', False)))
+        is_active = bool(attrs.get('is_active', getattr(self.instance, 'is_active', False)))
+        if (enabled or is_active) and not str(attrs.get('from_email', getattr(self.instance, 'from_email', '')) or '').strip():
+            raise serializers.ValidationError({'from_email': ['From email is required when SMTP is enabled.']})
+        return attrs
+
+
+class SmtpSecretUpdateSerializer(serializers.Serializer):
+    password = serializers.CharField(required=False, allow_blank=True)
+
+
+class SmtpTestEmailSerializer(serializers.Serializer):
+    to_email = serializers.EmailField(required=False, allow_blank=True)

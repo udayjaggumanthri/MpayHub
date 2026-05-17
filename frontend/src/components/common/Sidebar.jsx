@@ -11,13 +11,14 @@ import {
 } from 'react-icons/fi';
 import { 
   HiHomeModern, 
-  HiDocumentText, 
   HiUsers, 
   HiChartBar, 
   HiCog6Tooth 
 } from 'react-icons/hi2';
+import bMnemonicPrimary from '../../assets/bbps/b-mnemonic-primary.svg';
 
 const LOGO_SRC = `${process.env.PUBLIC_URL || ''}/images/logo.svg`;
+const BBPS_MENU_ICON = 'bbps-mnemonic';
 
 const Sidebar = () => {
   const { user } = useAuth();
@@ -60,12 +61,37 @@ const Sidebar = () => {
   const getIcon = (iconName) => {
     const icons = {
       dashboard: HiHomeModern,
-      bills: HiDocumentText,
       users: HiUsers,
       reports: HiChartBar,
       profile: HiCog6Tooth,
     };
     return icons[iconName] || HiHomeModern;
+  };
+
+  const isBbpsMenuIcon = (iconName) =>
+    iconName === BBPS_MENU_ICON || iconName === 'bills';
+
+  const MenuIcon = ({ iconName, active }) => {
+    if (isBbpsMenuIcon(iconName)) {
+      return (
+        <img
+          src={bMnemonicPrimary}
+          alt="Bill Payment"
+          className="flex-shrink-0 h-10 w-10 object-contain object-center"
+          draggable={false}
+        />
+      );
+    }
+    const Icon = getIcon(iconName);
+    return (
+      <div
+        className={`flex-shrink-0 p-1.5 rounded-lg ${
+          active ? 'bg-blue-100' : 'bg-gray-100'
+        } transition-colors`}
+      >
+        <Icon size={18} className={active ? 'text-blue-600' : 'text-gray-600'} />
+      </div>
+    );
   };
 
   const toggleMenu = (menuName) => {
@@ -100,7 +126,6 @@ const Sidebar = () => {
   }, [location.pathname, user?.role]);
 
   const MenuItem = ({ item, level = 0 }) => {
-    const Icon = getIcon(item.icon);
     const hasSubmenu = item.submenu && item.submenu.length > 0;
     const isExpanded = expandedMenus[item.name];
     const active = hasSubmenu
@@ -119,9 +144,7 @@ const Sidebar = () => {
             }`}
           >
             <div className="flex items-center space-x-2 sm:space-x-3 flex-1 min-w-0 overflow-hidden">
-              <div className={`flex-shrink-0 p-1.5 rounded-lg ${active ? 'bg-blue-100' : 'bg-gray-100'} transition-colors`}>
-                <Icon size={18} className={active ? 'text-blue-600' : 'text-gray-600'} />
-              </div>
+              <MenuIcon iconName={item.icon} active={active} />
               <span className={`text-sm sm:text-base whitespace-nowrap ${active ? 'font-semibold' : 'font-medium'}`}>{item.name}</span>
             </div>
             <div className={`flex-shrink-0 ${active ? 'text-blue-600' : 'text-gray-400'} transition-colors`}>
@@ -170,9 +193,7 @@ const Sidebar = () => {
             : 'text-gray-700 hover:bg-gray-50 hover:border-l-4 hover:border-gray-300 font-medium'
         }`}
       >
-        <div className={`flex-shrink-0 p-1.5 rounded-lg ${active ? 'bg-blue-100' : 'bg-gray-100'} transition-colors`}>
-          <Icon size={18} className={active ? 'text-blue-600' : 'text-gray-600'} />
-        </div>
+        <MenuIcon iconName={item.icon} active={active} />
         <span className={`text-sm sm:text-base whitespace-nowrap ${active ? 'font-semibold' : 'font-medium'}`}>{item.name}</span>
       </Link>
     );
