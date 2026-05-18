@@ -204,7 +204,7 @@ const Dashboard = () => {
     ? 'Gateways, commercial packages, announcements, and reports'
     : txBlocked
       ? 'Reports and team visibility (your role cannot initiate wallet movements)'
-      : 'Load money, withdraw, or pay bills via BBPS';
+      : '';
 
   return (
     <>
@@ -291,7 +291,11 @@ const Dashboard = () => {
 
           {/* 2 — Operational / admin quick actions */}
           <section aria-labelledby="dash-actions-heading">
-            <div className="mb-5 flex flex-col gap-1 border-b border-slate-100 pb-4">
+            <div
+              className={`flex flex-col border-b border-slate-100 pb-4 ${
+                quickSectionSubtitle ? 'mb-5 gap-1' : 'mb-4'
+              }`}
+            >
               <h2
                 id="dash-actions-heading"
                 className="flex items-center gap-2 text-lg font-semibold tracking-tight text-slate-900"
@@ -301,7 +305,9 @@ const Dashboard = () => {
                 </span>
                 {quickSectionTitle}
               </h2>
-              <p className="text-sm text-slate-500">{quickSectionSubtitle}</p>
+              {quickSectionSubtitle ? (
+                <p className="text-sm text-slate-500">{quickSectionSubtitle}</p>
+              ) : null}
             </div>
             <div
               className={`grid grid-cols-1 gap-4 sm:grid-cols-2 ${
