@@ -2955,6 +2955,9 @@ def billavenue_callback_view(request):
                 attempt.bill_payment.save(update_fields=['status', 'failure_reason'])
         attempt.settled_at = timezone.now()
         attempt.save(update_fields=['status', 'settled_at', 'updated_at'])
+        from apps.bbps.notifications import notify_payment_attempt_status
+
+        notify_payment_attempt_status(attempt, source='webhook_callback')
     evt.processed = True
     evt.processed_at = timezone.now()
     evt.save(update_fields=['processed', 'processed_at', 'updated_at'])

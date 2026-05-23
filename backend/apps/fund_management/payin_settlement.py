@@ -495,4 +495,22 @@ def finalize_payin_success(
 
     if package:
         _distribute_payin_commissions(lm, package, gross, ref)
+
+    try:
+        from apps.notifications.services.dispatch import SmsNotificationService
+
+        SmsNotificationService.dispatch(
+            'payin.success',
+            lm.user.phone,
+            {
+                'amount': str(gross),
+                'reference': ref or lm.transaction_id,
+                'transaction_id': lm.transaction_id,
+            },
+            user_id=lm.user_id,
+            idempotency_key=f'payin:{lm.transaction_id}:SUCCESS',
+        )
+    except Exception:
+        pass
+
     return lm

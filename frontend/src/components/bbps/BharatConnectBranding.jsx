@@ -3,11 +3,8 @@ import { Link } from 'react-router-dom';
 
 import bMnemonicPrimary from '../../assets/bbps/b-mnemonic-primary.svg';
 import bMnemonicReverse from '../../assets/bbps/b-mnemonic-reverse.svg';
-import bharatConnectPrimary from '../../assets/bbps/bharat-connect-primary.svg';
-import bharatConnectReverse from '../../assets/bbps/bharat-connect-reverse.svg';
-import bAssuredPrimary from '../../assets/bbps/b-assured-primary.svg';
-import bAssuredReverse from '../../assets/bbps/b-assured-reverse.svg';
-import { bAssuredLogoClass, bharatConnectLogoClass } from './bbpsLogoSizes';
+import { BharatConnectLogo, BAssuredLogo } from './BbpsPartnerLogos';
+import { bAssuredLogoSlotStyle, bharatConnectLogoSlotStyle } from './bbpsLogoSizes';
 
 const BharatConnectBranding = ({
   stage = 'stage2',
@@ -19,65 +16,69 @@ const BharatConnectBranding = ({
   logoSize = 'md',
   subtitle = 'Bill Pay · Pay Bill · Bill Payment',
   variant = 'default',
-  emphasizeRightLogo = false,
 }) => {
   const showBMnemonic = stage === 'stage1' && showMnemonic;
   const showBharatConnect = stage === 'stage1' || stage === 'stage2';
   const showBAssured = stage === 'stage3';
   const useReverse = String(surface || '').toLowerCase() === 'dark';
-  const assets = {
-    mnemonic: useReverse ? bMnemonicReverse : bMnemonicPrimary,
-    bharatConnect: useReverse ? bharatConnectReverse : bharatConnectPrimary,
-    bAssured: useReverse ? bAssuredReverse : bAssuredPrimary,
-  };
   const isLarge = String(logoSize || '').toLowerCase() === 'lg';
   const isCompact = String(variant || '').toLowerCase() === 'compact';
   const isStage1 = stage === 'stage1';
-  const shouldEmphasizeRightLogo = emphasizeRightLogo || stage === 'stage2';
+
+  const logoSlotStyle = showBAssured ? bAssuredLogoSlotStyle : bharatConnectLogoSlotStyle;
+  const gridColsClass = showBAssured
+    ? 'sm:grid-cols-[minmax(0,1fr)_130px]'
+    : 'sm:grid-cols-[minmax(0,1fr)_83px]';
+
   const mnemonicClass = isStage1
     ? isLarge
-      ? 'h-14 w-14 object-contain'
-      : 'h-12 w-12 object-contain'
+      ? 'h-14 w-14 shrink-0 object-contain'
+      : 'h-12 w-12 shrink-0 object-contain'
     : isLarge
-      ? 'h-11 w-11 object-contain'
-      : 'h-9 w-9 object-contain';
+      ? 'h-11 w-11 shrink-0 object-contain'
+      : 'h-9 w-9 shrink-0 object-contain';
 
-  const mnemonicNode = <img src={assets.mnemonic} alt="Bharat Connect mnemonic logo" className={mnemonicClass} />;
+  const mnemonicSrc = useReverse ? bMnemonicReverse : bMnemonicPrimary;
+  const mnemonicNode = (
+    <img src={mnemonicSrc} alt="" aria-hidden className={mnemonicClass} draggable={false} />
+  );
   const subtitleText = String(subtitle || '').trim();
 
+  const rightLogo = showBharatConnect ? (
+    <BharatConnectLogo reverse={useReverse} isolated />
+  ) : showBAssured ? (
+    <BAssuredLogo reverse={useReverse} isolated />
+  ) : null;
+
   return (
-    <div className={`mb-4 flex items-center justify-between gap-4 ${isCompact ? 'flex-wrap' : ''}`}>
-      <div className={`flex min-w-0 ${isStage1 ? 'items-start gap-3' : 'items-center gap-2'}`}>
+    <header
+      className={`mb-4 grid w-full gap-x-4 gap-y-3 grid-cols-1 ${
+        rightLogo ? `${gridColsClass} sm:items-center` : ''
+      } ${isCompact ? '' : ''}`}
+    >
+      <div className={`flex min-w-0 items-center gap-3 ${isStage1 ? 'items-start' : ''}`}>
         {showBMnemonic &&
           (mnemonicClickable ? (
-            <Link to={mnemonicHref} aria-label="Go to BBPS categories">
+            <Link to={mnemonicHref} aria-label="Go to BBPS categories" className="shrink-0">
               {mnemonicNode}
             </Link>
           ) : (
             mnemonicNode
           ))}
-        <div className="min-w-0">
-          {title && <h1 className="text-xl font-semibold text-gray-900">{title}</h1>}
-          {isStage1 && subtitleText && (
+        <div className="min-w-0 flex-1">
+          {title ? <h1 className="text-xl font-semibold text-gray-900 leading-tight">{title}</h1> : null}
+          {isStage1 && subtitleText ? (
             <p className="mt-1 text-xs font-medium tracking-wide text-slate-600 sm:text-sm">{subtitleText}</p>
-          )}
+          ) : null}
         </div>
       </div>
-      {showBharatConnect && (
-        <div
-          className={
-            shouldEmphasizeRightLogo
-              ? 'ml-auto rounded-xl border border-blue-200 bg-gradient-to-br from-blue-50 via-indigo-50 to-sky-50 px-3.5 py-2.5 shadow-md'
-              : 'ml-auto shrink-0'
-          }
-        >
-          <img src={assets.bharatConnect} alt="Bharat Connect logo" className={bharatConnectLogoClass} />
+
+      {rightLogo ? (
+        <div className="flex shrink-0 items-center justify-end sm:justify-self-end" style={logoSlotStyle}>
+          {rightLogo}
         </div>
-      )}
-      {showBAssured && (
-        <img src={assets.bAssured} alt="B Assured logo" className={`ml-auto shrink-0 ${bAssuredLogoClass}`} />
-      )}
-    </div>
+      ) : null}
+    </header>
   );
 };
 

@@ -1,8 +1,8 @@
 import React from 'react';
 import { FaCircleCheck } from 'react-icons/fa6';
 
-import bAssuredPrimary from '../../assets/bbps/b-assured-primary.svg';
-import { bAssuredLogoClass } from './bbpsLogoSizes';
+import { BAssuredLogo } from './BbpsPartnerLogos';
+import { bAssuredLogoSlotStyle } from './bbpsLogoSizes';
 import { MPAYHUB_LOGO_SRC, buildBbpsReceiptRows, buildBbpsReceiptSummary } from './bbpsReceiptFields';
 
 const ReceiptCell = ({ label, value, highlight, mono }) => {
@@ -29,6 +29,7 @@ const BbpsTransactionReceiptView = ({
   onPrint,
   onMobilePrint,
   onAnotherTransaction,
+  onRaiseComplaint,
   showActions = true,
   className = '',
 }) => {
@@ -42,13 +43,18 @@ const BbpsTransactionReceiptView = ({
 
   return (
     <div className={`space-y-4 ${className}`}>
-      <div className="flex flex-wrap items-center justify-between gap-4 border-b border-gray-200 pb-4">
-        <img
-          src={MPAYHUB_LOGO_SRC}
-          alt="mPayHub"
-          className="h-10 w-auto max-w-[160px] object-contain object-left"
-        />
-        <div className="flex-1 flex justify-center min-w-[140px]">
+      <div className="space-y-4 border-b border-gray-200 pb-4">
+        <div className="flex flex-wrap items-start justify-between gap-x-4 gap-y-3">
+          <img
+            src={MPAYHUB_LOGO_SRC}
+            alt="mPayHub"
+            className="h-10 w-auto max-w-[min(160px,40%)] shrink-0 object-contain object-left"
+          />
+          <div className="ml-auto flex shrink-0 items-center justify-end" style={bAssuredLogoSlotStyle}>
+            <BAssuredLogo isolated />
+          </div>
+        </div>
+        <div className="flex justify-center">
           {isSuccess ? (
             <span className="inline-flex items-center gap-2 rounded-full border border-emerald-300 bg-emerald-50 px-4 py-2 text-sm font-semibold text-emerald-800">
               <FaCircleCheck size={16} />
@@ -60,7 +66,6 @@ const BbpsTransactionReceiptView = ({
             </span>
           )}
         </div>
-        <img src={bAssuredPrimary} alt="B Assured logo" className={bAssuredLogoClass} />
       </div>
 
       {loading ? (
@@ -104,15 +109,26 @@ const BbpsTransactionReceiptView = ({
               Mobile Print
             </button>
           </div>
-          {onAnotherTransaction ? (
-            <button
-              type="button"
-              onClick={onAnotherTransaction}
-              className="px-4 py-2 text-sm font-medium text-rose-700 border border-rose-500 rounded hover:bg-rose-50 transition-colors"
-            >
-              Another Transaction
-            </button>
-          ) : null}
+          <div className="flex flex-wrap gap-2 ml-auto">
+            {isSuccess && onRaiseComplaint ? (
+              <button
+                type="button"
+                onClick={onRaiseComplaint}
+                className="px-4 py-2 text-sm font-medium text-white bg-blue-600 rounded hover:bg-blue-700 transition-colors"
+              >
+                Raise Complaint
+              </button>
+            ) : null}
+            {onAnotherTransaction ? (
+              <button
+                type="button"
+                onClick={onAnotherTransaction}
+                className="px-4 py-2 text-sm font-medium text-rose-700 border border-rose-500 rounded hover:bg-rose-50 transition-colors"
+              >
+                Another Transaction
+              </button>
+            ) : null}
+          </div>
         </div>
       ) : null}
     </div>

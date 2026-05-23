@@ -519,11 +519,44 @@ def process_load_money(user, amount, gateway_id):
             **transaction_agent_db_fields(user),
         )
 
+        try:
+            from apps.notifications.services.dispatch import SmsNotificationService
+
+            SmsNotificationService.dispatch(
+                'payin.success',
+                user.phone,
+                {
+                    'amount': str(amount),
+                    'reference': gateway_transaction_id,
+                    'transaction_id': load_money.transaction_id,
+                },
+                user_id=user.pk,
+                idempotency_key=f'payin:{load_money.transaction_id}:SUCCESS',
+            )
+        except Exception:
+            pass
+
         return load_money
     except Exception as e:
         load_money.status = 'FAILED'
         load_money.failure_reason = str(e)
         load_money.save(update_fields=['status', 'failure_reason'])
+        try:
+            from apps.notifications.services.dispatch import SmsNotificationService
+
+            SmsNotificationService.dispatch(
+                'payin.failed',
+                user.phone,
+                {
+                    'amount': str(amount),
+                    'reference': load_money.transaction_id,
+                    'reason': str(e)[:200],
+                },
+                user_id=user.pk,
+                idempotency_key=f'payin:{load_money.transaction_id}:FAILED',
+            )
+        except Exception:
+            pass
         raise TransactionFailed(f'Load money failed: {str(e)}') from e
 
 
@@ -627,6 +660,22 @@ def process_payout(user, bank_account_id, amount, gateway_id=None, transfer_mode
                 'status': payout.status,
             },
         )
+        try:
+            from apps.notifications.services.dispatch import SmsNotificationService
+
+            SmsNotificationService.dispatch(
+                'payout.success',
+                user.phone,
+                {
+                    'amount': str(amount),
+                    'reference': gateway_transaction_id,
+                    'transfer_mode': transfer_mode,
+                },
+                user_id=user.pk,
+                idempotency_key=f'payout:{payout.transaction_id}:SUCCESS',
+            )
+        except Exception:
+            pass
         return payout
     except Exception as e:
         logger.info(
@@ -643,6 +692,22 @@ def process_payout(user, bank_account_id, amount, gateway_id=None, transfer_mode
         payout.status = 'FAILED'
         payout.failure_reason = str(e)
         payout.save(update_fields=['status', 'failure_reason'])
+        try:
+            from apps.notifications.services.dispatch import SmsNotificationService
+
+            SmsNotificationService.dispatch(
+                'payout.failed',
+                user.phone,
+                {
+                    'amount': str(amount),
+                    'reference': getattr(payout, 'transaction_id', ''),
+                    'reason': str(e)[:200],
+                },
+                user_id=user.pk,
+                idempotency_key=f'payout:{getattr(payout, "transaction_id", "")}:FAILED',
+            )
+        except Exception:
+            pass
         raise TransactionFailed(f'Payout failed: {str(e)}') from e
 
 

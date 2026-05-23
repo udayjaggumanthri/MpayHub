@@ -2142,7 +2142,7 @@ export const adminAPI = {
     }
   },
 
-  getSmtpConfig: async () => {
+  listSmtpConfigs: async () => {
     try {
       const response = await apiClient.get('/admin/smtp-config/');
       return extractData(response);
@@ -2151,7 +2151,19 @@ export const adminAPI = {
     }
   },
 
-  saveSmtpConfig: async (payload) => {
+  /** @deprecated use listSmtpConfigs */
+  getSmtpConfig: async () => adminAPI.listSmtpConfigs(),
+
+  getSmtpConfigById: async (id) => {
+    try {
+      const response = await apiClient.get(`/admin/smtp-config/${id}/`);
+      return extractData(response);
+    } catch (error) {
+      return handleError(error);
+    }
+  },
+
+  createSmtpConfig: async (payload) => {
     try {
       const response = await apiClient.post('/admin/smtp-config/', payload);
       return extractData(response);
@@ -2160,20 +2172,169 @@ export const adminAPI = {
     }
   },
 
-  updateSmtpSecrets: async (payload) => {
+  updateSmtpConfig: async (id, payload) => {
     try {
-      const response = await apiClient.post('/admin/smtp-config/secrets/', payload);
+      const response = await apiClient.put(`/admin/smtp-config/${id}/`, payload);
       return extractData(response);
     } catch (error) {
       return handleError(error);
     }
   },
 
-  testSmtp: async (toEmail = '') => {
+  deleteSmtpConfig: async (id) => {
     try {
-      const response = await apiClient.post('/admin/smtp-config/test/', {
+      const response = await apiClient.delete(`/admin/smtp-config/${id}/`);
+      return extractData(response);
+    } catch (error) {
+      return handleError(error);
+    }
+  },
+
+  activateSmtpConfig: async (id) => {
+    try {
+      const response = await apiClient.post(`/admin/smtp-config/${id}/activate/`);
+      return extractData(response);
+    } catch (error) {
+      return handleError(error);
+    }
+  },
+
+  deactivateSmtpConfig: async (id) => {
+    try {
+      const response = await apiClient.post(`/admin/smtp-config/${id}/deactivate/`);
+      return extractData(response);
+    } catch (error) {
+      return handleError(error);
+    }
+  },
+
+  updateSmtpSecrets: async (id, payload) => {
+    try {
+      const response = await apiClient.post(`/admin/smtp-config/${id}/secrets/`, payload);
+      return extractData(response);
+    } catch (error) {
+      return handleError(error);
+    }
+  },
+
+  testSmtp: async (id, toEmail = '') => {
+    try {
+      const response = await apiClient.post(`/admin/smtp-config/${id}/test/`, {
         to_email: toEmail || undefined,
       });
+      return extractData(response);
+    } catch (error) {
+      return handleError(error);
+    }
+  },
+
+  listSmsConfigs: async () => {
+    try {
+      const response = await apiClient.get('/admin/sms-config/');
+      return extractData(response);
+    } catch (error) {
+      return handleError(error);
+    }
+  },
+
+  getSmsConfig: async () => adminAPI.listSmsConfigs(),
+
+  getSmsConfigById: async (id) => {
+    try {
+      const response = await apiClient.get(`/admin/sms-config/${id}/`);
+      return extractData(response);
+    } catch (error) {
+      return handleError(error);
+    }
+  },
+
+  createSmsConfig: async (payload) => {
+    try {
+      const response = await apiClient.post('/admin/sms-config/', payload);
+      return extractData(response);
+    } catch (error) {
+      return handleError(error);
+    }
+  },
+
+  updateSmsConfig: async (id, payload) => {
+    try {
+      const response = await apiClient.put(`/admin/sms-config/${id}/`, payload);
+      return extractData(response);
+    } catch (error) {
+      return handleError(error);
+    }
+  },
+
+  deleteSmsConfig: async (id) => {
+    try {
+      const response = await apiClient.delete(`/admin/sms-config/${id}/`);
+      return extractData(response);
+    } catch (error) {
+      return handleError(error);
+    }
+  },
+
+  activateSmsConfig: async (id) => {
+    try {
+      const response = await apiClient.post(`/admin/sms-config/${id}/activate/`);
+      return extractData(response);
+    } catch (error) {
+      return handleError(error);
+    }
+  },
+
+  deactivateSmsConfig: async (id) => {
+    try {
+      const response = await apiClient.post(`/admin/sms-config/${id}/deactivate/`);
+      return extractData(response);
+    } catch (error) {
+      return handleError(error);
+    }
+  },
+
+  updateSmsSecrets: async (id, payload) => {
+    try {
+      const response = await apiClient.post(`/admin/sms-config/${id}/secrets/`, payload);
+      return extractData(response);
+    } catch (error) {
+      return handleError(error);
+    }
+  },
+
+  testSms: async (id, payload) => {
+    try {
+      const response = await apiClient.post(`/admin/sms-config/${id}/test/`, payload);
+      return extractData(response);
+    } catch (error) {
+      return handleError(error);
+    }
+  },
+
+  listSmsTemplates: async () => {
+    try {
+      const response = await apiClient.get('/admin/sms-templates/');
+      return extractData(response);
+    } catch (error) {
+      return handleError(error);
+    }
+  },
+
+  updateSmsTemplate: async (eventKey, payload) => {
+    try {
+      const response = await apiClient.put(`/admin/sms-templates/${encodeURIComponent(eventKey)}/`, payload);
+      return extractData(response);
+    } catch (error) {
+      return handleError(error);
+    }
+  },
+
+  testSmsTemplate: async (eventKey, payload) => {
+    try {
+      const response = await apiClient.post(
+        `/admin/sms-templates/${encodeURIComponent(eventKey)}/test/`,
+        payload
+      );
       return extractData(response);
     } catch (error) {
       return handleError(error);

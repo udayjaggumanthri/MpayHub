@@ -450,6 +450,17 @@ class SmtpConfigSerializer(serializers.ModelSerializer):
     def get_has_password(self, obj) -> bool:
         return bool((getattr(obj, 'password_encrypted', None) or '').strip())
 
+    def validate_name(self, value):
+        name = (value or '').strip()
+        if not name:
+            raise serializers.ValidationError('Profile name is required.')
+        qs = SmtpConfig.objects.filter(is_deleted=False, name=name)
+        if self.instance:
+            qs = qs.exclude(pk=self.instance.pk)
+        if qs.exists():
+            raise serializers.ValidationError('A profile with this name already exists.')
+        return name
+
     def validate(self, attrs):
         attrs = super().validate(attrs)
         use_tls = bool(attrs.get('use_tls', getattr(self.instance, 'use_tls', True)))
@@ -480,3 +491,75 @@ class SmtpSecretUpdateSerializer(serializers.Serializer):
 
 class SmtpTestEmailSerializer(serializers.Serializer):
     to_email = serializers.EmailField(required=False, allow_blank=True)
+
+
+class SmsProviderConfigSerializer(serializers.ModelSerializer):
+    has_auth_key = serializers.SerializerMethodField()
+
+    class Meta:
+        from apps.notifications.models import SmsProviderConfig
+
+        model = SmsProviderConfig
+        fields = [
+            'id',
+            'name',
+            'provider',
+            'sender_id',
+            'enabled',
+            'is_active',
+            'api_base_url',
+            'route',
+            'country_code',
+            'last_test_at',
+            'last_test_status',
+            'last_test_error',
+            'created_at',
+            'updated_at',
+            'has_auth_key',
+        ]
+        read_only_fields = [
+            'id',
+            'created_at',
+            'updated_at',
+            'has_auth_key',
+            'last_test_at',
+            'last_test_status',
+            'last_test_error',
+        ]
+
+    def get_has_auth_key(self, obj) -> bool:
+        return bool((getattr(obj, 'auth_key_encrypted', None) or '').strip())
+
+    def validate_name(self, value):
+        from apps.notifications.models import SmsProviderConfig
+
+        name = (value or '').strip()
+        if not name:
+            raise serializers.ValidationError('Profile name is required.')
+        qs = SmsProviderConfig.objects.filter(is_deleted=False, name=name)
+        if self.instance:
+            qs = qs.exclude(pk=self.instance.pk)
+        if qs.exists():
+            raise serializers.ValidationError('A profile with this name already exists.')
+        return name
+
+
+class SmsSecretUpdateSerializer(serializers.Serializer):
+    auth_key = serializers.CharField(required=False, allow_blank=True)
+
+
+class SmsTestSerializer(serializers.Serializer):
+    phone = serializers.CharField(max_length=20)
+    template_id = serializers.CharField(required=False, allow_blank=True)
+    variables = serializers.JSONField(required=False)
+
+
+class SmsTemplateUpdateSerializer(serializers.Serializer):
+    is_enabled = serializers.BooleanField(required=False)
+    template_id = serializers.CharField(required=False, allow_blank=True)
+    sample_variables = serializers.JSONField(required=False)
+
+
+class SmsTemplateTestSerializer(serializers.Serializer):
+    phone = serializers.CharField(max_length=20)
+    variables = serializers.JSONField(required=False)

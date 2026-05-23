@@ -59,6 +59,7 @@ INSTALLED_APPS = [
     'apps.transactions',
     'apps.admin_panel',
     'apps.integrations',
+    'apps.notifications',
 ]
 
 MIDDLEWARE = [

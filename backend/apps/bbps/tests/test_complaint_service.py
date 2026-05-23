@@ -5,7 +5,11 @@ from django.test import SimpleTestCase, TestCase
 from apps.authentication.models import User
 from apps.bbps.models import BbpsComplaint, BbpsPaymentAttempt
 from apps.bbps.serializers import ComplaintRegisterSerializer
-from apps.bbps.service_flow.complaint_service import _canonical_billavenue_complaint_disposition, register_complaint
+from apps.bbps.service_flow.complaint_service import (
+    _canonical_billavenue_complaint_disposition,
+    _nearby_open_complaint_hints,
+    register_complaint,
+)
 from apps.core.exceptions import TransactionFailed
 from apps.integrations.billavenue.errors import BillAvenueClientError
 
@@ -28,11 +32,25 @@ class ComplaintServiceTests(TestCase):
             'complaint_desc': 'Service not received after successful payment',
             'complaint_disposition': 'Transaction Successful, Amount Debited but services not received',
         }
+        BbpsPaymentAttempt.objects.create(
+            user=self.user,
+            idempotency_key='complaint-test-base-attempt',
+            txn_ref_id=self.base_kwargs['txn_ref_id'],
+            request_id='0' * 35,
+            status='SUCCESS',
+            biller_id='TESTBILLER01',
+            request_payload={'agent_id': 'CC01TESTAGENT0001'},
+        )
+
+    def _mock_client_with_status(self, mock_client_cls, txn_ref_id):
+        client = mock_client_cls.return_value
+        client.transaction_status.return_value = [{'txnRefId': txn_ref_id}]
+        return client
 
     @patch('apps.bbps.service_flow.complaint_service.enforce_complaint_cooling')
     @patch('apps.bbps.service_flow.complaint_service.BBPSClient')
     def test_register_complaint_uses_complaint_desc_first(self, mock_client_cls, _mock_cooling):
-        client = mock_client_cls.return_value
+        client = self._mock_client_with_status(mock_client_cls, self.base_kwargs['txn_ref_id'])
         client.register_complaint.return_value = _reg_ok(
             {'complaintRegistrationResp': {'responseCode': '000', 'responseReason': 'SUCCESS', 'complaintId': 'CMP1'}}
         )
@@ -44,13 +62,12 @@ class ComplaintServiceTests(TestCase):
 
         sent_payload = client.register_complaint.call_args_list[0].args[0]
         self.assertEqual(sent_payload.get('complaintDesc'), self.base_kwargs['complaint_desc'])
-        self.assertNotIn('complainDesc', sent_payload)
-        self.assertEqual(sent_payload.get('complaintType'), 'Transaction')
+        self.assertNotIn('complaintType', sent_payload)
 
     @patch('apps.bbps.service_flow.complaint_service.enforce_complaint_cooling')
     @patch('apps.bbps.service_flow.complaint_service.BBPSClient')
     def test_register_complaint_falls_back_to_complain_desc(self, mock_client_cls, _mock_cooling):
-        client = mock_client_cls.return_value
+        client = self._mock_client_with_status(mock_client_cls, self.base_kwargs['txn_ref_id'])
         e1 = BillAvenueClientError(
             'BillAvenue API failed (complaint_register) code=205 {"errorCode":"V5004","errorMessage":"Description missing"}'
         )
@@ -71,7 +88,7 @@ class ComplaintServiceTests(TestCase):
     @patch('apps.bbps.service_flow.complaint_service.enforce_complaint_cooling')
     @patch('apps.bbps.service_flow.complaint_service.BBPSClient')
     def test_register_complaint_tries_combined_alias_payload(self, mock_client_cls, _mock_cooling):
-        client = mock_client_cls.return_value
+        client = self._mock_client_with_status(mock_client_cls, self.base_kwargs['txn_ref_id'])
         err = BillAvenueClientError('BillAvenue API failed (complaint_register) code=205 {"errorCode":"V5004","errorMessage":"Description missing"}')
         err.billavenue_request_id = 'M' * 35
         client.register_complaint.side_effect = [
@@ -93,7 +110,7 @@ class ComplaintServiceTests(TestCase):
     @patch('apps.bbps.service_flow.complaint_service.enforce_complaint_cooling')
     @patch('apps.bbps.service_flow.complaint_service.BBPSClient')
     def test_register_complaint_non_description_error_fails_fast(self, mock_client_cls, _mock_cooling):
-        client = mock_client_cls.return_value
+        client = self._mock_client_with_status(mock_client_cls, self.base_kwargs['txn_ref_id'])
         client.register_complaint.side_effect = BillAvenueClientError(
             'BillAvenue API failed (complaint_register) code=205 {"errorCode":"V5001","errorMessage":"Invalid txnRefId format"}'
         )
@@ -107,7 +124,7 @@ class ComplaintServiceTests(TestCase):
     @patch('apps.bbps.service_flow.complaint_service.BBPSClient')
     def test_register_complaint_maps_complaint_response_fields(self, mock_client_cls, _mock_cooling):
         """Provider may return complaintResponse* fields (BBPS 2.8.7 style) instead of responseCode/responseReason."""
-        client = mock_client_cls.return_value
+        client = self._mock_client_with_status(mock_client_cls, self.base_kwargs['txn_ref_id'])
         rid = 'P' * 35
         client.register_complaint.return_value = _reg_ok(
             {
@@ -204,7 +221,7 @@ class ComplaintServiceTests(TestCase):
                 'ExtBillPayResponse': {'billPayResponse': {'txnRefId': 'CC_FROM_PAYLOAD_0001'}}
             },
         )
-        client = mock_client_cls.return_value
+        client = self._mock_client_with_status(mock_client_cls, 'CC_FROM_PAYLOAD_0001')
         client.register_complaint.return_value = _reg_ok(
             {'complaintRegistrationResp': {'responseCode': '000', 'responseReason': 'SUCCESS', 'complaintId': 'CMP-P'}}
         )
@@ -254,7 +271,7 @@ class ComplaintServiceTests(TestCase):
             status='SUCCESS',
             response_payload={},
         )
-        client = mock_client_cls.return_value
+        client = self._mock_client_with_status(mock_client_cls, 'CC_VIA_REQUEST_ID_LOOKUP')
         client.register_complaint.return_value = _reg_ok(
             {'complaintRegistrationResp': {'responseCode': '000', 'responseReason': 'SUCCESS', 'complaintId': 'CMP-R'}}
         )
@@ -269,6 +286,25 @@ class ComplaintServiceTests(TestCase):
         sent = client.register_complaint.call_args_list[0].args[0]
         self.assertEqual(sent.get('txnRefId'), 'CC_VIA_REQUEST_ID_LOOKUP')
         self.assertEqual(sent.get('paymentRefId'), rid)
+
+
+class ComplaintNearbyHintTests(TestCase):
+    def test_nearby_open_complaint_hint_for_sibling_txn(self):
+        user = User.objects.create_user(phone='9222222222', email='nearby@example.com', password='secret123')
+        BbpsComplaint.objects.create(
+            user=user,
+            txn_ref_id='CC016137BAAG00059241',
+            complaint_id='CC0126141551851',
+            complaint_desc='Open',
+            complaint_disposition='Transaction Successful, Amount Debited but services not received',
+            complaint_status='ASSIGNED',
+            response_code='000',
+            response_reason='SUCCESS',
+            raw_payload={},
+        )
+        hint = _nearby_open_complaint_hints(user=user, upstream_txn_ref_id='CC016137BAAG00059242')
+        self.assertIn('59241', hint)
+        self.assertIn('CC0126141551851', hint)
 
 
 class ComplaintDispositionCanonicalTests(SimpleTestCase):

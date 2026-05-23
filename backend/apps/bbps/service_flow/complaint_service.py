@@ -1,6 +1,10 @@
 from __future__ import annotations
 
 import uuid
+from datetime import timedelta
+
+from django.conf import settings
+from django.utils import timezone
 
 from apps.bbps.models import BillPayment, BbpsComplaint, BbpsComplaintEvent, BbpsPaymentAttempt
 from apps.bbps.service_flow.compliance import enforce_complaint_cooling
@@ -89,6 +93,109 @@ def _is_description_missing_error(exc: Exception) -> bool:
 def _is_manual_escalation_error(exc: Exception) -> bool:
     low = str(exc or '').lower()
     return 'e051' in low or 'cms@billavenue.com' in low or 'code=257' in low
+
+
+def _is_complaint_existing_ticket_error(exc: Exception) -> bool:
+    low = str(exc or '').lower()
+    return 'code=001' in low and (
+        'unable to raise' in low
+        or 'already exist' in low
+        or 'in-process' in low
+        or 'in process' in low
+        or 'ticket is already' in low
+    )
+
+
+def _is_complaint_unable_to_process_error(exc: Exception) -> bool:
+    low = str(exc or '').lower()
+    return 'code=001' in low and 'unable to process' in low
+
+
+def _format_payment_anchor(attempt: BbpsPaymentAttempt | None) -> str:
+    if not attempt:
+        return ''
+    anchor = getattr(attempt, 'settled_at', None) or getattr(attempt, 'created_at', None)
+    if not anchor:
+        return ''
+    return timezone.localtime(anchor).strftime('%d %b %Y, %I:%M %p')
+
+
+def _nearby_open_complaint_hints(*, user, upstream_txn_ref_id: str) -> str:
+    """
+    BillAvenue often rejects one CC… while a sibling txn (typo / repeat pay) already has a ticket.
+    Suggest open complaints sharing the same txn prefix (last two chars differ).
+    """
+    base = str(upstream_txn_ref_id or '').strip()
+    if len(base) < 14 or not base.upper().startswith('CC'):
+        return ''
+    prefix = base[:-2]
+    hints: list[str] = []
+    for row in (
+        BbpsComplaint.objects.filter(
+            user=user,
+            is_deleted=False,
+            txn_ref_id__startswith=prefix,
+        )
+        .exclude(txn_ref_id=base)
+        .order_by('-created_at')[:4]
+    ):
+        if _is_terminal_complaint_status(row.complaint_status):
+            continue
+        hints.append(f'{row.txn_ref_id} → Complaint ID {row.complaint_id}')
+    if not hints:
+        return ''
+    return (
+        ' Nearby payment(s) on your account already have an open complaint: '
+        + '; '.join(hints)
+        + '. Use Complaint Management → Track complaint with that Complaint ID, or verify the CC… ID on your receipt.'
+    )
+
+
+def _raise_for_register_failure(
+    *,
+    user,
+    upstream_txn_ref_id: str,
+    attempt: BbpsPaymentAttempt | None,
+    last_error: BillAvenueClientError,
+) -> None:
+    """Convert BillAvenue register failures into actionable TransactionFailed messages."""
+    if _is_complaint_existing_ticket_error(last_error):
+        existing_any = _find_any_open_complaint_for_txn(user=user, upstream_txn_ref_id=upstream_txn_ref_id)
+        if existing_any:
+            raise TransactionFailed(
+                'BillAvenue reports this transaction already has an active complaint ticket. '
+                f'Your open case in this portal: Complaint ID {existing_any.complaint_id} '
+                f'(disposition: {existing_any.complaint_disposition}). '
+                'Use Complaint Management → Track complaint and enter that Complaint ID.'
+            ) from last_error
+        raise TransactionFailed(
+            'BillAvenue reports a complaint ticket may already exist for this transaction at the provider. '
+            'Use Complaint Management → Track complaint with your B-Connect transaction ID, or contact support '
+            'with the BillAvenue request ID from this screen.'
+        ) from last_error
+
+    if _is_complaint_unable_to_process_error(last_error):
+        paid = _format_payment_anchor(attempt)
+        paid_clause = f' Payment completed on {paid}.' if paid else ''
+        existing_any = _find_any_open_complaint_for_txn(user=user, upstream_txn_ref_id=upstream_txn_ref_id)
+        msg = (
+            f'BillAvenue declined complaint registration for {upstream_txn_ref_id}.{paid_clause} '
+            'The payment is successful in mPayHub, but the provider does not accept a new complaint for this '
+            'exact transaction reference right now.'
+        )
+        if existing_any:
+            msg += (
+                f' You already have Complaint ID {existing_any.complaint_id} saved for this txn in mPayHub — '
+                'use Track complaint with that ID.'
+            )
+        msg += _nearby_open_complaint_hints(user=user, upstream_txn_ref_id=upstream_txn_ref_id)
+        msg += (
+            ' If the CC… ID matches your receipt and this persists, email cms@billavenue.com with disposition, '
+            'description, and the BillAvenue request ID shown below.'
+        )
+        raise TransactionFailed(msg) from last_error
+
+    raise last_error
 
 
 # BillAvenue official disposition strings (NPCI wording). UI may send legacy phrasing — normalize before upstream.
@@ -257,9 +364,120 @@ def _resolve_complaint_txn_and_attempt(*, user, raw_ref: str) -> tuple[str, Bbps
                 return tid, att
 
     if raw.upper().startswith('CC'):
-        return raw, None
+        attempt = attempt or _find_attempt_for_upstream_txn(user=user, upstream_txn=raw)
+        return raw, attempt
 
     return raw, None
+
+
+def _find_attempt_for_upstream_txn(*, user, upstream_txn: str) -> BbpsPaymentAttempt | None:
+    """Resolve local payment row for a B-Connect txn ref (ORM field or nested pay response)."""
+    upstream_txn = str(upstream_txn or '').strip()
+    if not upstream_txn:
+        return None
+    row = (
+        BbpsPaymentAttempt.objects.filter(user=user, txn_ref_id=upstream_txn, is_deleted=False)
+        .select_related('bill_payment')
+        .order_by('-created_at')
+        .first()
+    )
+    if row:
+        return row
+    for row in (
+        BbpsPaymentAttempt.objects.filter(user=user, is_deleted=False, status='SUCCESS')
+        .select_related('bill_payment')
+        .order_by('-created_at')[:100]
+    ):
+        if _txn_ref_from_attempt_row(row) == upstream_txn:
+            return row
+    return None
+
+
+def _complaint_max_payment_age_days() -> int:
+    try:
+        return max(1, int(getattr(settings, 'BBPS_COMPLAINT_MAX_PAYMENT_AGE_DAYS', 90)))
+    except (TypeError, ValueError):
+        return 90
+
+
+def _validate_complaint_eligibility(*, attempt: BbpsPaymentAttempt | None, upstream_txn_ref_id: str) -> None:
+    if not attempt:
+        raise TransactionFailed(
+            'No matching successful payment was found for this B-Connect transaction ID on your account. '
+            'Open the payment under My Bills, copy the B-Connect transaction ID (CC…) from the receipt, then retry.'
+        )
+    st = str(getattr(attempt, 'status', '') or '').strip().upper()
+    if st != 'SUCCESS':
+        raise TransactionFailed(
+            f'Complaints can only be registered for successful payments. This payment status is {st or "unknown"}.'
+        )
+    anchor = getattr(attempt, 'settled_at', None) or getattr(attempt, 'updated_at', None) or getattr(attempt, 'created_at', None)
+    if anchor:
+        age = timezone.now() - anchor
+        max_days = _complaint_max_payment_age_days()
+        if age.days > max_days:
+            paid_on = timezone.localtime(anchor).strftime('%d-%b-%Y')
+            raise TransactionFailed(
+                f'This payment was completed on {paid_on} ({age.days} days ago). '
+                f'BillAvenue may no longer accept new complaints for {upstream_txn_ref_id}. '
+                'Use a recent payment from My Bills, or contact support with the BillAvenue request ID from your receipt.'
+            )
+
+
+def _preflight_billavenue_txn_visible(*, attempt: BbpsPaymentAttempt, upstream_txn_ref_id: str) -> None:
+    """
+    When BillAvenue cannot see the txn in transaction status, complaint register usually returns 001.
+    Best-effort check only — does not block if the status API errors.
+    """
+    client = BBPSClient()
+    anchor = getattr(attempt, 'settled_at', None) or getattr(attempt, 'created_at', None)
+    from_d = ''
+    to_d = ''
+    if anchor:
+        local = timezone.localtime(anchor)
+        from_d = (local - timedelta(days=2)).strftime('%d/%m/%Y')
+        to_d = (local + timedelta(days=2)).strftime('%d/%m/%Y')
+    try:
+        data = client.transaction_status(
+            track_type='TRANS_REF_ID',
+            track_value=upstream_txn_ref_id,
+            from_date=from_d,
+            to_date=to_d,
+        )
+    except Exception:
+        return
+    rows: list = []
+    if isinstance(data, list):
+        rows = data
+    elif isinstance(data, dict):
+        inner = data.get('transactions') or data.get('txnList') or data.get('txnDetails')
+        if isinstance(inner, list):
+            rows = inner
+        elif data.get('txnRefId') or data.get('txnReferenceId'):
+            rows = [data]
+    if not rows:
+        raise TransactionFailed(
+            f'BillAvenue could not find transaction {upstream_txn_ref_id} for complaint registration. '
+            'Confirm the CC… ID from your latest My Bills receipt, ensure the payment shows as successful, '
+            'and retry after a few minutes if you just paid.'
+        )
+    needle = upstream_txn_ref_id.strip().upper()
+    for row in rows:
+        if not isinstance(row, dict):
+            continue
+        ref = str(
+            row.get('txnRefId')
+            or row.get('txnReferenceId')
+            or row.get('txn_ref_id')
+            or row.get('txnReferenceID')
+            or ''
+        ).strip().upper()
+        if ref == needle:
+            return
+    raise TransactionFailed(
+        f'BillAvenue could not match transaction {upstream_txn_ref_id} in their records. '
+        'Use the B-Connect transaction ID from the receipt of the payment you want to dispute.'
+    )
 
 
 def _billavenue_complaint_correlation_extras(attempt: BbpsPaymentAttempt | None) -> dict:
@@ -339,6 +557,9 @@ def register_complaint(*, user, txn_ref_id: str, complaint_desc: str, complaint_
             'querying the transaction. Internal service IDs (PMBBPS…) cannot be sent to BillAvenue until the '
             'CC reference is available on the payment record.'
         )
+    _validate_complaint_eligibility(attempt=attempt, upstream_txn_ref_id=upstream_txn_ref_id)
+    if attempt:
+        _preflight_billavenue_txn_visible(attempt=attempt, upstream_txn_ref_id=upstream_txn_ref_id)
     duplicate = _find_open_duplicate_complaint(
         user=user,
         upstream_txn_ref_id=upstream_txn_ref_id,
@@ -358,31 +579,26 @@ def register_complaint(*, user, txn_ref_id: str, complaint_desc: str, complaint_
             'Use Complaint Management → Track complaint and enter that Complaint ID.'
         )
     enforce_complaint_cooling(attempt=attempt)
-    # Bharat Bill Payment System 2.8.7 / BillAvenue UAT: minimal JSON is txnRefId + complaintDesc + complaintDisposition
-    # (see postman_billavenue_uat_collection "Complaint Register (ver 2.0)"). Do not send disposition codes (D11, …).
+    # BillAvenue XML samples: txnRefId + complaintDesc + complaintDisposition (minimal). Try minimal first;
+    # enriched agent/biller/paymentRefId helps some stacks but triggers 001 on others.
     core = {
         'txnRefId': upstream_txn_ref_id,
         'complaintDisposition': disposition,
     }
     extras = _billavenue_complaint_correlation_extras(attempt)
-    # complaintType is mandatory on several BBPS complaint stacks; try enriched payloads first so BillAvenue
-    # can tie the complaint to the same agent/biller/paymentRefId as bill pay.
     payload_attempts = [
-        {**core, 'complaintType': 'Transaction', 'complaintDesc': desc, **extras},
-        {**core, 'complaintDesc': desc, **extras},
         {**core, 'complaintDesc': desc},
-        # BillAvenue v2.8.7 JSON sample uses complainDesc (without "t").
+        *([{**core, 'complaintDesc': desc, **extras}] if extras else []),
         {**core, 'complainDesc': desc},
-        # Some partner stacks accept one or more aliases.
         {
             **core,
             'complaintDesc': desc,
             'complainDesc': desc,
             'complaintDescription': desc,
-            **extras,
         },
-        # Last resort: complaintType without correlation extras (older Postman-only shape).
-        {**core, 'complaintDesc': desc, 'complaintType': 'Transaction'},
+        {**core, 'complaintType': 'Transaction', 'complaintDesc': desc},
+        {**core, 'complaintType': 'Transaction', 'complaintDesc': desc, **extras},
+        {**core, 'complaintDesc': desc, **extras},
     ]
     resp = None
     last_error = None
@@ -414,9 +630,13 @@ def register_complaint(*, user, txn_ref_id: str, complaint_desc: str, complaint_
                     billavenue_request_id=last_billavenue_request_id,
                     raw_payload={'provider_error': str(exc)},
                 )
-            if not _is_description_missing_error(exc):
+            if not _is_description_missing_error(exc) and not (
+                _is_complaint_existing_ticket_error(exc) or _is_complaint_unable_to_process_error(exc)
+            ):
                 raise
-            if idx == len(payload_attempts) - 1:
+            if idx == len(payload_attempts) - 1 and not (
+                _is_complaint_existing_ticket_error(exc) or _is_complaint_unable_to_process_error(exc)
+            ):
                 raise
     if resp is None and last_error:
         # Ensure support can correlate with BillAvenue logs even when the last raised error
@@ -424,16 +644,16 @@ def register_complaint(*, user, txn_ref_id: str, complaint_desc: str, complaint_
         br = str(last_billavenue_request_id or '').strip()
         if br and not str(getattr(last_error, 'billavenue_request_id', '') or '').strip():
             setattr(last_error, 'billavenue_request_id', br)
-        raw_l = str(last_error).lower()
-        if 'code=001' in raw_l and ('already exist' in raw_l or 'in-process' in raw_l or 'in process' in raw_l):
-            existing_any = _find_any_open_complaint_for_txn(user=user, upstream_txn_ref_id=upstream_txn_ref_id)
-            if existing_any:
-                raise TransactionFailed(
-                    'BillAvenue reports this transaction already has an active complaint ticket. '
-                    f'Your open case in this portal: Complaint ID {existing_any.complaint_id} '
-                    f'(disposition: {existing_any.complaint_disposition}). '
-                    'Use Complaint Management → Track complaint and enter that Complaint ID.'
-                ) from last_error
+        if last_error and (
+            _is_complaint_existing_ticket_error(last_error)
+            or _is_complaint_unable_to_process_error(last_error)
+        ):
+            _raise_for_register_failure(
+                user=user,
+                upstream_txn_ref_id=upstream_txn_ref_id,
+                attempt=attempt,
+                last_error=last_error,
+            )
         raise last_error
     body = _registration_row_from_response(resp)
     c = BbpsComplaint.objects.create(

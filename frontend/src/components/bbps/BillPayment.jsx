@@ -72,7 +72,6 @@ const BillPayment = () => {
             title="Bill Payment"
             subtitle=""
             showMnemonic={false}
-            emphasizeRightLogo
             logoSize="lg"
           />
 

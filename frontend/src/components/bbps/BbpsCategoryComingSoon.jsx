@@ -23,7 +23,6 @@ const BbpsCategoryComingSoon = ({ categoryName, onBack }) => {
             title={title}
             subtitle="Bill payment"
             showMnemonic={false}
-            emphasizeRightLogo
             logoSize="md"
           />
         </div>

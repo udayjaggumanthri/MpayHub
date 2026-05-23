@@ -48,6 +48,7 @@ import PayInPackagesAdmin from '../components/admin/PayInPackagesAdmin';
 import APIMasterManagement from '../components/admin/APIMasterManagement';
 import BillAvenueSettings from '../components/admin/BillAvenueSettings';
 import SmtpSettings from '../components/admin/SmtpSettings';
+import SmsSettings from '../components/admin/SmsSettings';
 import BbpsOpsConsole from '../components/admin/BbpsOpsConsole';
 import BbpsBillerDetails from '../components/admin/BbpsBillerDetails';
 import BbpsProviderGovernance from '../components/admin/BbpsProviderGovernance';
@@ -441,12 +442,25 @@ const AppRoutes = () => {
       />
 
       <Route
-        path="/admin/smtp-settings"
+        path="/admin/smtp-settings/*"
         element={
           <ProtectedRoute>
             <AdminRoute>
               <Layout>
                 <SmtpSettings />
+              </Layout>
+            </AdminRoute>
+          </ProtectedRoute>
+        }
+      />
+
+      <Route
+        path="/admin/sms-settings/*"
+        element={
+          <ProtectedRoute>
+            <AdminRoute>
+              <Layout>
+                <SmsSettings />
               </Layout>
             </AdminRoute>
           </ProtectedRoute>

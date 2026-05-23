@@ -8,8 +8,9 @@ from rest_framework_simplejwt.tokens import RefreshToken
 from apps.authentication.models import User, OTP, UserSession
 from apps.core.utils import generate_otp
 from apps.core.exceptions import InvalidCredentials, InvalidOTP
-from apps.integrations.sms_service import SMSService
 from apps.integrations.email_service import EmailDeliveryError, send_password_reset_otp_email
+from apps.notifications.catalog import AUTH_OTP_PURPOSE_TO_EVENT
+from apps.notifications.services.dispatch import SmsNotificationService
 
 
 class SmtpNotConfiguredError(Exception):
@@ -62,13 +63,24 @@ def send_otp(phone, purpose='password-reset', channel='sms'):
             raise SmtpNotConfiguredError(str(exc)) from exc
         return otp
 
-    try:
-        sms_service = SMSService()
-        sms_service.send_otp(phone, otp_code, purpose)
-    except Exception as e:
-        print(f"Failed to send SMS: {e}")
-        if settings.DEBUG:
-            print(f"OTP for {phone}: {otp_code}")
+    event_key = AUTH_OTP_PURPOSE_TO_EVENT.get(purpose)
+    if event_key:
+        try:
+            SmsNotificationService.dispatch(
+                event_key,
+                phone,
+                {
+                    'otp': otp_code,
+                    'expiry_minutes': str(settings.OTP_EXPIRY_MINUTES),
+                },
+                idempotency_key=f'otp:{purpose}:{phone}:{otp.pk}',
+            )
+        except Exception as e:
+            print(f'Failed to send SMS: {e}')
+            if settings.DEBUG:
+                print(f'OTP for {phone}: {otp_code}')
+    elif settings.DEBUG:
+        print(f'OTP for {phone}: {otp_code} (no SMS event for purpose={purpose})')
 
     return otp
 

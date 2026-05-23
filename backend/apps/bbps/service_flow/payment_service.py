@@ -390,6 +390,9 @@ def process_bill_payment_flow(*, user, bill_data: dict) -> dict:
         attempt.response_payload = _json_safe(payment_result.get('response_payload') or {})
         attempt.settled_at = timezone.now()
         attempt.save(update_fields=['status', 'txn_ref_id', 'approval_ref_number', 'response_payload', 'settled_at', 'updated_at'])
+        from apps.bbps.notifications import notify_payment_attempt_status
+
+        notify_payment_attempt_status(attempt, source='payment_service')
         return {'attempt': attempt, 'bill_payment': bill_payment, 'idempotent': False}
 
     if status == 'AWAITED':
@@ -408,6 +411,9 @@ def process_bill_payment_flow(*, user, bill_data: dict) -> dict:
             txn_status='AWAITED',
             response_payload=_json_safe(payment_result.get('response_payload') or {}),
         )
+        from apps.bbps.notifications import notify_payment_attempt_status
+
+        notify_payment_attempt_status(attempt, source='payment_service')
         return {'attempt': attempt, 'bill_payment': bill_payment, 'idempotent': False}
 
     failure_message = payment_result.get('message') or 'Payment failed'
@@ -421,6 +427,9 @@ def process_bill_payment_flow(*, user, bill_data: dict) -> dict:
     attempt.last_error_message = failure_message
     attempt.response_payload = _json_safe(payment_result.get('response_payload') or {})
     attempt.save(update_fields=['status', 'last_error_message', 'response_payload', 'updated_at'])
+    from apps.bbps.notifications import notify_payment_attempt_status
+
+    notify_payment_attempt_status(attempt, source='payment_service')
     bill_payment.status = 'FAILED'
     bill_payment.failure_reason = failure_message
     bill_payment.save(update_fields=['status', 'failure_reason'])

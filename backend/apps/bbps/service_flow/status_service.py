@@ -61,4 +61,7 @@ def poll_attempt_status(attempt: BbpsPaymentAttempt) -> BbpsPaymentAttempt:
                 if mapped in ('REFUNDED', 'REVERSED'):
                     attempt.bill_payment.failure_reason = f'Status changed to {mapped}'
                 attempt.bill_payment.save(update_fields=['status', 'failure_reason'])
+        from apps.bbps.notifications import notify_payment_attempt_status
+
+        notify_payment_attempt_status(attempt, source='status_poll')
     return attempt

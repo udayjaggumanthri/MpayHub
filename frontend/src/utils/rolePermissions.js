@@ -46,6 +46,7 @@ export const roleMenus = {
         { name: 'Payment gateways', path: '/admin/gateways' },
         { name: 'Pay-in packages', path: '/admin/pay-in-packages' },
         { name: 'SMTP settings', path: '/admin/smtp-settings' },
+        { name: 'SMS settings', path: '/admin/sms-settings' },
       ],
     },
     {

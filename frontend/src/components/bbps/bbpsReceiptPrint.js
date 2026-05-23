@@ -1,6 +1,6 @@
+import { bbpsLogoAssets } from './bbpsLogoAssets';
 import { BBPS_B_ASSURED_LOGO } from './bbpsLogoSizes';
 import { MPAYHUB_LOGO_SRC, buildBbpsReceiptPrintContext } from './bbpsReceiptFields';
-import bAssuredPrimary from '../../assets/bbps/b-assured-primary.svg';
 
 const escapeHtml = (value) =>
   String(value ?? '')
@@ -40,6 +40,7 @@ export const buildBbpsReceiptPrintHtml = (txn, identity, { mobile = false } = {}
           }
           .brand-row {
             display: flex;
+            flex-wrap: wrap;
             align-items: flex-start;
             justify-content: space-between;
             gap: 16px;
@@ -52,11 +53,33 @@ export const buildBbpsReceiptPrintHtml = (txn, identity, { mobile = false } = {}
             object-fit: contain;
             object-position: left center;
           }
-          .logo-b-assured {
+          .logo-frame-b-assured {
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
             width: ${BBPS_B_ASSURED_LOGO.width}px;
             height: ${BBPS_B_ASSURED_LOGO.height}px;
-            object-fit: contain;
+            min-width: ${BBPS_B_ASSURED_LOGO.width}px;
+            min-height: ${BBPS_B_ASSURED_LOGO.height}px;
+            max-width: ${BBPS_B_ASSURED_LOGO.width}px;
+            max-height: ${BBPS_B_ASSURED_LOGO.height}px;
+            background: transparent;
             flex-shrink: 0;
+            overflow: hidden;
+            box-sizing: border-box;
+            isolation: isolate;
+            position: relative;
+            z-index: 2;
+            padding: 0;
+            margin: 0;
+            line-height: 0;
+          }
+          .logo-b-assured {
+            width: 100%;
+            height: 100%;
+            object-fit: contain;
+            object-position: center;
+            display: block;
           }
           .doc-title {
             margin: 0 0 6px;
@@ -213,7 +236,9 @@ export const buildBbpsReceiptPrintHtml = (txn, identity, { mobile = false } = {}
         <div class="receipt">
           <div class="brand-row">
             <img class="logo-mpay" src="${origin}${MPAYHUB_LOGO_SRC}" alt="mPayHub" />
-            <img class="logo-b-assured" src="${origin}${bAssuredPrimary}" alt="B Assured" />
+            <span class="logo-frame-b-assured">
+              <img class="logo-b-assured" src="${origin}${bbpsLogoAssets.bAssuredPrimary}" alt="B Assured" width="${BBPS_B_ASSURED_LOGO.width}" height="${BBPS_B_ASSURED_LOGO.height}" />
+            </span>
           </div>
 
           <h1 class="doc-title">Payment Receipt</h1>

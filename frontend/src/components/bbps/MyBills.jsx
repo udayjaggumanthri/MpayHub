@@ -461,6 +461,17 @@ const MyBills = () => {
               loading={detailsLoading}
               onPrint={() => downloadReceipt(selectedTransaction)}
               onMobilePrint={() => downloadReceipt(selectedTransaction, { mobile: true })}
+              onRaiseComplaint={
+                String(selectedTransaction?.status || '').toUpperCase() === 'SUCCESS'
+                  ? () => {
+                      const ref = String(selectedTransaction?.bConnectTxnId || '').trim();
+                      closeDetailsModal();
+                      navigate('/bill-payments/complaints/register', {
+                        state: { txnRefId: ref || undefined },
+                      });
+                    }
+                  : undefined
+              }
               onAnotherTransaction={() => {
                 closeDetailsModal();
                 navigate('/bill-payments/pay');
