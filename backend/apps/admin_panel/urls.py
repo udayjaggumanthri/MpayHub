@@ -34,4 +34,5 @@ urlpatterns = [
     path('email-templates/', views.email_templates_list_view, name='email-templates'),
     path('email-templates/<str:event_key>/', views.email_template_detail_view, name='email-template-detail'),
     path('email-templates/<str:event_key>/test/', views.email_template_test_view, name='email-template-test'),
+    path('maintenance/', views.maintenance_config_view, name='maintenance-config'),
 ]

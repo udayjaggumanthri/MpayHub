@@ -9,6 +9,14 @@ from typing import Any
 
 from rest_framework.exceptions import PermissionDenied
 
+from apps.core.access_catalog import (
+    ACCESS_CODE_ROLE_FINANCIAL_BLOCKED,
+    ACCESS_CODE_USER_DISABLED,
+    ACCESS_CODE_USER_PAYMENTS_LOCKED,
+    ACCESS_CODE_USER_RESTRICTED,
+    access_error_detail,
+)
+
 # Roles that may onboard and earn commission but must not initiate wallet movements.
 FINANCIAL_TX_BLOCKED_ROLES = frozenset(
     {
@@ -16,11 +24,6 @@ FINANCIAL_TX_BLOCKED_ROLES = frozenset(
         'Super Distributor',
     }
 )
-
-ACCESS_CODE_ROLE_FINANCIAL_BLOCKED = 'ROLE_FINANCIAL_BLOCKED'
-ACCESS_CODE_USER_DISABLED = 'USER_DISABLED'
-ACCESS_CODE_USER_RESTRICTED = 'USER_RESTRICTED'
-ACCESS_CODE_USER_PAYMENTS_LOCKED = 'USER_PAYMENTS_LOCKED'
 
 
 def _role_may_use_financial_apis(user) -> bool:
@@ -68,8 +71,8 @@ def user_may_perform_financial_txn(user) -> bool:
     return user_may_pay_in(user) and user_may_pay_out(user)
 
 
-def _permission_denied(code: str, message: str) -> PermissionDenied:
-    return PermissionDenied(detail={'code': code, 'message': message})
+def _permission_denied(code: str, message: str | None = None) -> PermissionDenied:
+    return PermissionDenied(detail=access_error_detail(code, message))
 
 
 def assert_can_login(user) -> None:
@@ -126,6 +129,25 @@ def assert_can_perform_financial_txn(user) -> None:
     """Raise if user cannot perform both pay-in and pay-out (legacy entry point)."""
     assert_can_pay_in(user)
     assert_can_pay_out(user)
+
+
+# Re-export stable codes for tests and legacy imports.
+__all__ = [
+    'ACCESS_CODE_ROLE_FINANCIAL_BLOCKED',
+    'ACCESS_CODE_USER_DISABLED',
+    'ACCESS_CODE_USER_RESTRICTED',
+    'ACCESS_CODE_USER_PAYMENTS_LOCKED',
+    'FINANCIAL_TX_BLOCKED_ROLES',
+    'assert_can_login',
+    'assert_can_pay_in',
+    'assert_can_pay_out',
+    'assert_can_perform_financial_txn',
+    'user_access_flags_snapshot',
+    'user_may_login',
+    'user_may_pay_in',
+    'user_may_pay_out',
+    'user_may_perform_financial_txn',
+]
 
 
 def user_access_flags_snapshot(user) -> dict[str, Any]:

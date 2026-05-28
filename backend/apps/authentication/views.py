@@ -70,23 +70,41 @@ def login_view(request):
 
         # Serialize user data (includes onboarding for post-login routing)
         user_data = UserSerializer(user).data
-        
+        from apps.core.maintenance_mode import get_status
+
         return Response({
             'success': True,
             'data': {
                 'user': user_data,
-                'tokens': tokens
+                'tokens': tokens,
+                'maintenance': get_status(include_internal=False),
             },
             'message': 'Login successful',
             'errors': []
         }, status=status.HTTP_200_OK)
     
-    return Response({
-        'success': False,
-        'data': None,
-        'message': 'Login failed',
-        'errors': serializer.errors
-    }, status=status.HTTP_400_BAD_REQUEST)
+    errors = serializer.errors
+    message = 'Invalid phone number or password.'
+    error_meta = None
+    non_field = errors.get('non_field_errors') if isinstance(errors, dict) else None
+    if non_field:
+        first = non_field[0] if isinstance(non_field, list) else str(non_field)
+        text = str(first)
+        if getattr(first, 'code', None) == 'USER_DISABLED' or 'disabled' in text.lower():
+            message = text
+            error_meta = {'code': 'USER_DISABLED'}
+        elif text and 'invalid' not in text.lower():
+            message = text
+    return Response(
+        {
+            'success': False,
+            'data': None,
+            'message': message,
+            'errors': errors,
+            'error': error_meta,
+        },
+        status=status.HTTP_400_BAD_REQUEST,
+    )
 
 
 @api_view(['POST'])
@@ -440,11 +458,13 @@ def refresh_token_view(request):
         }, status=status.HTTP_400_BAD_REQUEST)
 
     try:
+        from apps.core.financial_access import user_may_login
+
         refresh = RefreshToken(refresh_token)
         uid = refresh.payload.get('user_id')
         if uid is not None:
             u = User.objects.filter(pk=uid).first()
-            if not u or not u.is_active:
+            if not u or not user_may_login(u):
                 return Response({
                     'success': False,
                     'data': None,
@@ -496,9 +516,14 @@ def current_user_view(request):
     """
     user = User.objects.select_related('kyc').get(pk=request.user.pk)
     user_data = UserSerializer(user).data
+    from apps.core.maintenance_mode import get_status
+
     return Response({
         'success': True,
-        'data': {'user': user_data},
+        'data': {
+            'user': user_data,
+            'maintenance': get_status(include_internal=False),
+        },
         'message': 'User retrieved successfully',
         'errors': []
     }, status=status.HTTP_200_OK)

@@ -12,6 +12,12 @@ from rest_framework.response import Response
 
 from apps.core.exceptions import InsufficientBalance, TransactionFailed
 from apps.core.financial_access import assert_can_pay_in, assert_can_pay_out
+from apps.core.maintenance_mode import (
+    MODULE_PAY_IN,
+    MODULE_PAYOUT,
+    assert_module_available,
+    assert_pay_in_available,
+)
 from apps.core.permissions import IsAdmin
 from apps.fund_management.models import LoadMoney, PayInPackage, Payout
 from apps.fund_management.serializers import (
@@ -52,6 +58,7 @@ logger = logging.getLogger(__name__)
 def pay_in_package_gateways_view(request, package_id):
     """GET /api/fund-management/pay-in/packages/<id>/gateways/ — checkout rails for a package."""
     assert_can_pay_in(request.user)
+    assert_module_available(MODULE_PAY_IN)
     accessible = get_user_accessible_packages(request.user)
     pkg = accessible.filter(pk=package_id).first()
     if not pkg:
@@ -78,6 +85,7 @@ def pay_in_package_gateways_view(request, package_id):
 def pay_in_quote_view(request):
     """POST /api/fund-management/pay-in/quote/ — fee breakdown for a package + amount."""
     assert_can_pay_in(request.user)
+    assert_module_available(MODULE_PAY_IN)
     ser = PayInQuoteSerializer(data=request.data)
     if not ser.is_valid():
         return Response(
@@ -115,6 +123,7 @@ def pay_in_quote_view(request):
 def pay_in_create_order_view(request):
     """POST /api/fund-management/pay-in/create-order/"""
     assert_can_pay_in(request.user)
+    assert_module_available(MODULE_PAY_IN)
     ser = PayInCreateOrderSerializer(data=request.data)
     if not ser.is_valid():
         return Response(
@@ -151,6 +160,7 @@ def pay_in_create_order_view(request):
 def pay_in_complete_mock_view(request):
     """POST /api/fund-management/pay-in/complete-mock/ — dev/mock provider only."""
     assert_can_pay_in(request.user)
+    assert_module_available(MODULE_PAY_IN)
     ser = PayInMockCompleteSerializer(data=request.data)
     if not ser.is_valid():
         return Response(
@@ -192,6 +202,7 @@ def pay_in_verify_razorpay_view(request):
             status=status.HTTP_400_BAD_REQUEST,
         )
     d = ser.validated_data
+    assert_pay_in_available(user=request.user, transaction_id=d.get('transaction_id'))
     try:
         lm = verify_and_finalize_razorpay_payin(
             request.user,
@@ -278,6 +289,7 @@ def pay_in_packages_view(request):
 def payout_quote_view(request):
     """GET /api/fund-management/payout/quote/?amount= optional — max eligible + slab preview."""
     assert_can_pay_out(request.user)
+    assert_module_available(MODULE_PAYOUT)
     from django.conf import settings
     from apps.wallets.models import Wallet
 
@@ -323,6 +335,8 @@ def load_money_view(request):
     Initiate load money transaction (legacy immediate success).
     POST /api/fund-management/load-money/
     """
+    assert_can_pay_in(request.user)
+    assert_module_available(MODULE_PAY_IN)
     serializer = LegacyLoadMoneyCreateSerializer(data=request.data)
     if serializer.is_valid():
         try:
@@ -432,6 +446,7 @@ def payout_view(request):
     POST /api/fund-management/payout/
     """
     assert_can_pay_out(request.user)
+    assert_module_available(MODULE_PAYOUT)
     serializer = PayoutSerializer(data=request.data)
     if serializer.is_valid():
         vd = serializer.validated_data

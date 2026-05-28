@@ -35,6 +35,7 @@ urlpatterns = [
     path('api/passbook/', include('apps.transactions.urls_passbook')),
     path('api/reports/', include('apps.transactions.urls_reports')),
     path('api/admin/', include('apps.admin_panel.urls')),
+    path('api/system/', include('apps.core.urls')),
 ]
 
 if settings.DEBUG:

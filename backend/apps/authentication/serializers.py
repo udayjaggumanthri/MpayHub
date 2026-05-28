@@ -5,6 +5,7 @@ from rest_framework import serializers
 from django.utils import timezone
 from datetime import timedelta
 from apps.authentication.models import User, OTP, UserSession
+from apps.core.access_catalog import ACCESS_CODE_USER_DISABLED, user_message_for_code
 from apps.core.financial_access import user_may_login
 from apps.core.utils import generate_otp, validate_phone, validate_mpin
 from apps.core.exceptions import InvalidCredentials, InvalidMPIN, InvalidOTP
@@ -36,7 +37,10 @@ class LoginSerializer(serializers.Serializer):
             raise InvalidCredentials("Invalid phone number or password.")
 
         if not user_may_login(user):
-            raise serializers.ValidationError("User account is disabled.")
+            raise serializers.ValidationError(
+                user_message_for_code(ACCESS_CODE_USER_DISABLED),
+                code=ACCESS_CODE_USER_DISABLED,
+            )
 
         attrs['user'] = user
         return attrs
@@ -175,18 +179,24 @@ class UserSerializer(serializers.ModelSerializer):
     """Serializer for User model (login /me). Includes onboarding gate for hierarchy-created users."""
 
     onboarding = serializers.SerializerMethodField()
+    access = serializers.SerializerMethodField()
 
     class Meta:
         model = User
         fields = [
             'id', 'user_id', 'phone', 'email', 'first_name', 'last_name',
             'role', 'is_active', 'is_restricted', 'payments_locked',
-            'pay_in_allowed_when_disabled', 'created_at', 'onboarding',
+            'pay_in_allowed_when_disabled', 'access', 'created_at', 'onboarding',
         ]
         read_only_fields = [
             'id', 'user_id', 'created_at', 'is_restricted', 'payments_locked',
-            'pay_in_allowed_when_disabled',
+            'pay_in_allowed_when_disabled', 'access',
         ]
+
+    def get_access(self, obj):
+        from apps.core.financial_access import user_access_flags_snapshot
+
+        return user_access_flags_snapshot(obj)
 
     def get_onboarding(self, obj):
         from apps.users.models import KYC

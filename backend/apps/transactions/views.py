@@ -36,7 +36,9 @@ from apps.transactions.report_api import (
     stream_csv,
     txn_status_financial_summary,
 )
-from apps.fund_management.models import LoadMoney
+from apps.core.permissions import IsAdmin
+from apps.transactions.analytics_summary import get_gateway_analytics_summary
+from apps.transactions.dashboard_stats import get_dashboard_transaction_status
 
 
 @api_view(['GET'])
@@ -235,117 +237,58 @@ def _report_page_params(request):
 
 
 @api_view(['GET'])
-@permission_classes([IsAuthenticated])
-def analytics_summary_view(request):
+@permission_classes([IsAuthenticated, IsAdmin])
+def dashboard_transaction_status_counts_view(request):
     """
-    Gateway-wise sales/profit analytics grouped by daily or monthly buckets.
-    GET /api/reports/analytics/summary/?interval=daily|monthly&date_from=YYYY-MM-DD&date_to=YYYY-MM-DD&gateway=...
-
-    Optional ``date_from`` / ``date_to`` bound ``created_at`` (inclusive); when omitted, all matching pay-ins apply.
+    Platform-wide Pending/Success/Failed counts for admin dashboard.
+    GET /api/reports/dashboard/transaction-status-counts/
+    Query: module=all|payin|payout|bbps, interval=daily|monthly|yearly, date_from, date_to
     """
-    try:
-        uq = transaction_user_q(request)
-    except PermissionDenied as e:
-        return Response(
-            {'success': False, 'data': None, 'message': str(e.detail if hasattr(e, 'detail') else e), 'errors': []},
-            status=status.HTTP_403_FORBIDDEN,
-        )
-
+    module = (request.query_params.get('module') or 'all').strip().lower()
     interval = (request.query_params.get('interval') or 'daily').strip().lower()
-    if interval not in ('daily', 'monthly'):
-        interval = 'daily'
-    gateway_filter = (request.query_params.get('gateway') or '').strip().lower()
+    date_from = (request.query_params.get('date_from') or '').strip() or None
+    date_to = (request.query_params.get('date_to') or '').strip() or None
 
-    tx_qs = (
-        Transaction.objects.filter(uq, transaction_type='payin', status='SUCCESS')
-        .select_related('user')
-        .order_by('-created_at')
+    data = get_dashboard_transaction_status(
+        module=module,
+        interval=interval,
+        date_from_raw=date_from,
+        date_to_raw=date_to,
     )
-    tx_qs = apply_transaction_report_filters(tx_qs, request, include_customer_mobile=False)
-
-    service_ids = list(tx_qs.values_list('service_id', flat=True))
-    lm_qs = LoadMoney.objects.filter(transaction_id__in=service_ids).select_related('package__payment_gateway')
-    lm_map = {}
-    for lm in lm_qs:
-        pg_name = ''
-        pkg = lm.package
-        if pkg and pkg.payment_gateway and pkg.payment_gateway.name:
-            pg_name = str(pkg.payment_gateway.name).strip()
-        if not pg_name:
-            pg_name = str(lm.gateway or 'unknown').replace('_', ' ').strip().title() or 'Unknown'
-        lm_map[lm.transaction_id] = pg_name
-
-    # Platform profit entries (new source='profit') grouped by service_id.
-    profit_by_service = {}
-    for row in (
-        CommissionLedger.objects.filter(source='profit', reference_service_id__in=service_ids)
-        .values('reference_service_id')
-        .annotate(total=Sum('amount'))
-    ):
-        profit_by_service[row['reference_service_id']] = row['total'] or Decimal('0')
-
-    buckets = {}
-    for t in tx_qs:
-        period = t.created_at.date().isoformat()
-        if interval == 'monthly':
-            period = t.created_at.strftime('%Y-%m')
-        gateway = lm_map.get(t.service_id, 'Unknown')
-        if gateway_filter and gateway_filter != gateway.lower():
-            continue
-        key = (period, gateway)
-        if key not in buckets:
-            buckets[key] = {
-                'period': period,
-                'gateway': gateway,
-                'payin_sales': Decimal('0'),
-                'payin_charges': Decimal('0'),
-                'platform_profit': Decimal('0'),
-                'transactions_count': 0,
-            }
-        buckets[key]['payin_sales'] += t.amount or Decimal('0')
-        buckets[key]['payin_charges'] += t.charge or Decimal('0')
-        buckets[key]['platform_profit'] += profit_by_service.get(t.service_id, Decimal('0'))
-        buckets[key]['transactions_count'] += 1
-
-    rows = []
-    grand = {
-        'payin_sales': Decimal('0'),
-        'payin_charges': Decimal('0'),
-        'platform_profit': Decimal('0'),
-        'transactions_count': 0,
-    }
-    for key in sorted(buckets.keys()):
-        row = buckets[key]
-        rows.append(
-            {
-                'period': row['period'],
-                'gateway': row['gateway'],
-                'payin_sales': str(row['payin_sales']),
-                'payin_charges': str(row['payin_charges']),
-                'platform_profit': str(row['platform_profit']),
-                'transactions_count': row['transactions_count'],
-            }
-        )
-        grand['payin_sales'] += row['payin_sales']
-        grand['payin_charges'] += row['payin_charges']
-        grand['platform_profit'] += row['platform_profit']
-        grand['transactions_count'] += row['transactions_count']
-
-    gateways = sorted({r['gateway'] for r in rows})
     return Response(
         {
             'success': True,
-            'data': {
-                'interval': interval,
-                'rows': rows,
-                'available_gateways': gateways,
-                'totals': {
-                    'payin_sales': str(grand['payin_sales']),
-                    'payin_charges': str(grand['payin_charges']),
-                    'platform_profit': str(grand['platform_profit']),
-                    'transactions_count': grand['transactions_count'],
-                },
-            },
+            'data': data,
+            'message': 'OK',
+            'errors': [],
+        },
+        status=status.HTTP_200_OK,
+    )
+
+
+@api_view(['GET'])
+@permission_classes([IsAuthenticated, IsAdmin])
+def analytics_summary_view(request):
+    """
+    Gateway-wise sales/profit analytics grouped by daily or monthly buckets.
+    Admin-only; platform-wide SUCCESS pay-ins for all users (LoadMoney, not scope=self).
+    GET /api/reports/analytics/summary/?interval=daily|monthly&date_from=YYYY-MM-DD&date_to=YYYY-MM-DD&gateway=...
+    """
+    interval = (request.query_params.get('interval') or 'daily').strip().lower()
+    date_from = (request.query_params.get('date_from') or '').strip() or None
+    date_to = (request.query_params.get('date_to') or '').strip() or None
+    gateway_filter = (request.query_params.get('gateway') or '').strip()
+
+    data = get_gateway_analytics_summary(
+        interval=interval,
+        date_from_raw=date_from,
+        date_to_raw=date_to,
+        gateway_filter=gateway_filter,
+    )
+    return Response(
+        {
+            'success': True,
+            'data': data,
             'message': 'Analytics summary retrieved successfully',
             'errors': [],
         },

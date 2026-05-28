@@ -7,6 +7,11 @@ from apps.transactions import views
 app_name = 'reports'
 
 urlpatterns = [
+    path(
+        'dashboard/transaction-status-counts/',
+        views.dashboard_transaction_status_counts_view,
+        name='dashboard-transaction-status-counts',
+    ),
     path('analytics/summary/', views.analytics_summary_view, name='analytics-summary'),
     path('payin/', views.payin_report_view, name='payin-report'),
     path('payin/export.csv', views.payin_report_export_csv, name='payin-report-export'),

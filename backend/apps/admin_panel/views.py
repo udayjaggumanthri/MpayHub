@@ -1237,3 +1237,47 @@ def email_template_test_view(request, event_key):
         },
         status=status.HTTP_400_BAD_REQUEST,
     )
+
+
+@api_view(['GET', 'PATCH'])
+@permission_classes([IsAuthenticated, IsAdmin])
+def maintenance_config_view(request):
+    """
+    Admin maintenance mode configuration.
+    GET/PATCH /api/admin/maintenance/
+    """
+    from apps.core.maintenance_mode import get_status, update_config
+    from apps.core.serializers import SystemMaintenanceUpdateSerializer
+
+    if request.method == 'GET':
+        return Response(
+            {
+                'success': True,
+                'data': {'maintenance': get_status(include_internal=True)},
+                'message': 'OK',
+                'errors': [],
+            },
+            status=status.HTTP_200_OK,
+        )
+
+    ser = SystemMaintenanceUpdateSerializer(data=request.data, partial=True)
+    if not ser.is_valid():
+        return Response(
+            {
+                'success': False,
+                'data': None,
+                'message': 'Invalid input',
+                'errors': ser.errors,
+            },
+            status=status.HTTP_400_BAD_REQUEST,
+        )
+    maintenance = update_config(changed_by=request.user, patch=ser.validated_data)
+    return Response(
+        {
+            'success': True,
+            'data': {'maintenance': maintenance},
+            'message': 'Maintenance settings updated',
+            'errors': [],
+        },
+        status=status.HTTP_200_OK,
+    )

@@ -99,6 +99,7 @@ from apps.bbps.service_flow.compliance import (
 )
 from apps.core.exceptions import InsufficientBalance, TransactionFailed
 from apps.core.financial_access import assert_can_pay_out
+from apps.core.maintenance_mode import MODULE_BBPS, assert_module_available
 from apps.core.permissions import IsAdmin
 from apps.integrations.billavenue.crypto import decrypt_payload
 from apps.integrations.billavenue.errors import (
@@ -381,6 +382,8 @@ def biller_schema_view(request, biller_id):
 @api_view(['POST'])
 @permission_classes([IsAuthenticated])
 def quote_view(request):
+    assert_can_pay_out(request.user)
+    assert_module_available(MODULE_BBPS)
     payload = request.data or {}
     amount = payload.get('amount')
     biller_id = str(payload.get('biller_id') or '').strip()
@@ -606,6 +609,7 @@ def pay_bill_view(request):
     POST /api/bbps/pay/
     """
     assert_can_pay_out(request.user)
+    assert_module_available(MODULE_BBPS)
     serializer = BillPaymentCreateSerializer(data=request.data)
     if serializer.is_valid():
         try:

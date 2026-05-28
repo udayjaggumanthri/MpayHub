@@ -1,19 +1,49 @@
 """
 JWT / session auth that rejects users who may not log in (disabled without pay-in exception).
 """
-from apps.core.financial_access import user_may_login
+from django.utils.translation import gettext_lazy as _
 from rest_framework.authentication import SessionAuthentication
 from rest_framework.exceptions import AuthenticationFailed
 from rest_framework_simplejwt.authentication import JWTAuthentication
+from rest_framework_simplejwt.exceptions import InvalidToken
+from rest_framework_simplejwt.settings import api_settings
+from rest_framework_simplejwt.utils import get_md5_hash_password
+
+from apps.core.financial_access import user_may_login
 
 
 class ActiveUserJWTAuthentication(JWTAuthentication):
-    """Invalidate API access when account is disabled and pay-in-only exception does not apply."""
+    """
+    Authenticate JWT users who may log in (active, or disabled with pay-in-only exception).
+
+    Does not call ``JWTAuthentication.get_user`` directly — the parent rejects any
+    ``is_active=False`` user before pay-in exception can apply.
+    """
 
     def get_user(self, validated_token):
-        user = super().get_user(validated_token)
-        if user is not None and not user_may_login(user):
-            raise AuthenticationFailed('User account is disabled.')
+        try:
+            user_id = validated_token[api_settings.USER_ID_CLAIM]
+        except KeyError as e:
+            raise InvalidToken(
+                _('Token contained no recognizable user identification')
+            ) from e
+
+        try:
+            user = self.user_model.objects.get(**{api_settings.USER_ID_FIELD: user_id})
+        except self.user_model.DoesNotExist as e:
+            raise AuthenticationFailed(_('User not found'), code='user_not_found') from e
+
+        if not user_may_login(user):
+            raise AuthenticationFailed(_('User account is disabled.'), code='user_inactive')
+
+        if api_settings.CHECK_REVOKE_TOKEN:
+            if validated_token.get(api_settings.REVOKE_TOKEN_CLAIM) != get_md5_hash_password(
+                user.password
+            ):
+                raise AuthenticationFailed(
+                    _("The user's password has been changed."), code='password_changed'
+                )
+
         return user
 
 

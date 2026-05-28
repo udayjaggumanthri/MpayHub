@@ -15,6 +15,7 @@ from apps.wallets.serializers import (
 )
 from apps.wallets.services import transfer_main_to_bbps
 from apps.core.financial_access import assert_can_pay_out
+from apps.core.maintenance_mode import MODULE_BBPS, assert_module_available
 from apps.core.exceptions import InsufficientBalance
 
 
@@ -76,6 +77,7 @@ def transfer_main_to_bbps_view(request):
     Body: { "amount": "100.00", "mpin": "123456" }
     """
     assert_can_pay_out(request.user)
+    assert_module_available(MODULE_BBPS)
     serializer = MainToBbpsTransferSerializer(data=request.data)
     if not serializer.is_valid():
         return Response(

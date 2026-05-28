@@ -78,6 +78,27 @@ def custom_exception_handler(exc, context):
     """
     response = exception_handler(exc, context)
 
+    if response is not None and response.status_code == status.HTTP_403_FORBIDDEN:
+        detail = getattr(exc, 'detail', None)
+        if isinstance(detail, dict) and detail.get('code') == 'MODULE_MAINTENANCE':
+            return _api_error_response(
+                message=str(detail.get('message') or 'Service temporarily unavailable.'),
+                errors=[],
+                code='MODULE_MAINTENANCE',
+                http_status=status.HTTP_403_FORBIDDEN,
+            )
+        from apps.core.access_catalog import is_access_error_detail
+
+        if is_access_error_detail(detail):
+            code = str(detail.get('code'))
+            message = str(detail.get('message') or 'Access denied.')
+            return _api_error_response(
+                message=message,
+                errors=[{'code': code, 'message': message}],
+                code=code,
+                http_status=status.HTTP_403_FORBIDDEN,
+            )
+
     if response is None:
         if isinstance(exc, InsufficientBalance):
             return _api_error_response(

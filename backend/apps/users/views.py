@@ -520,13 +520,14 @@ class UserViewSet(viewsets.ModelViewSet):
                 {'success': False, 'data': None, 'message': str(e), 'errors': []},
                 status=status.HTTP_400_BAD_REQUEST,
             )
+        from apps.users.access_messages import message_for_access_controls_update
+
         user_data = UserDetailSerializer(instance, context=self.get_serializer_context()).data
-        state = 'enabled' if instance.is_active else 'disabled'
         return Response(
             {
                 'success': True,
                 'data': {'user': user_data},
-                'message': f'User account {state} successfully.',
+                'message': message_for_access_controls_update(instance, patch),
                 'errors': [],
             },
             status=status.HTTP_200_OK,
@@ -571,12 +572,14 @@ class UserViewSet(viewsets.ModelViewSet):
                 {'success': False, 'data': None, 'message': str(e), 'errors': []},
                 status=status.HTTP_400_BAD_REQUEST,
             )
+        from apps.users.access_messages import message_for_access_controls_update
+
         user_data = UserDetailSerializer(instance, context=self.get_serializer_context()).data
         return Response(
             {
                 'success': True,
                 'data': {'user': user_data},
-                'message': 'User access controls updated successfully.',
+                'message': message_for_access_controls_update(instance, serializer.validated_data),
                 'errors': [],
             },
             status=status.HTTP_200_OK,
