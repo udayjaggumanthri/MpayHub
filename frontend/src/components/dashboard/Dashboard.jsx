@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useLocation } from 'react-router-dom';
 import { useAuth } from '../../context/AuthContext';
 import { useWallet } from '../../context/WalletContext';
 import {
@@ -13,6 +13,7 @@ import WalletCard from './WalletCard';
 import AnnouncementBanner from './AnnouncementBanner';
 import Card from '../common/Card';
 import DashboardAnalyticsCharts from './DashboardAnalyticsCharts';
+import DashboardTransactionStatus from './DashboardTransactionStatus';
 import { FiUser, FiChevronRight } from 'react-icons/fi';
 import bMnemonicPrimary from '../../assets/bbps/b-mnemonic-primary.svg';
 import {
@@ -23,19 +24,34 @@ import {
   FaBoxOpen,
   FaBullhorn,
   FaChartLine,
-  FaWallet,
-  FaBolt,
-  FaChartPie,
 } from 'react-icons/fa6';
 
 function todayIsoDate() {
   return new Date().toISOString().slice(0, 10);
 }
 
+function periodDatesForInterval(interval) {
+  const today = todayIsoDate();
+  if (interval === 'monthly') {
+    const [y, m] = today.split('-');
+    return { dateFrom: `${y}-${m}-01`, dateTo: today };
+  }
+  return { dateFrom: today, dateTo: today };
+}
+
 const Dashboard = () => {
   const { user } = useAuth();
   const { wallets, loading, loadWallets } = useWallet();
   const navigate = useNavigate();
+  const location = useLocation();
+  const [accessNotice, setAccessNotice] = useState('');
+
+  useEffect(() => {
+    if (location.state?.accessBlocked && location.state?.message) {
+      setAccessNotice(location.state.message);
+      navigate(location.pathname, { replace: true, state: {} });
+    }
+  }, [location.state, location.pathname, navigate]);
 
   useEffect(() => {
     loadWallets();
@@ -163,6 +179,7 @@ const Dashboard = () => {
   }, [adminOps, txBlocked, navigate]);
 
   useEffect(() => {
+    if (!adminOps) return undefined;
     let mounted = true;
     const loadAnalytics = async () => {
       setAnalyticsLoading(true);
@@ -193,22 +210,22 @@ const Dashboard = () => {
     return () => {
       mounted = false;
     };
-  }, [analyticsFilters]);
-
-  const gatewayCardSubtitle = adminOps
-    ? 'Compare gateways, switch daily/monthly, and drill into the table below. Defaults to today.'
-    : 'Track pay-in sales, fees, and platform profit. Defaults to today’s activity.';
+  }, [adminOps, analyticsFilters]);
 
   const quickSectionTitle = adminOps ? 'Administration' : 'Payments & services';
-  const quickSectionSubtitle = adminOps
-    ? 'Gateways, commercial packages, announcements, and reports'
-    : txBlocked
-      ? 'Reports and team visibility (your role cannot initiate wallet movements)'
-      : '';
 
   return (
     <>
       <AnnouncementBanner />
+      {accessNotice ? (
+        <div
+          className="mx-auto max-w-7xl mb-4 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-950"
+          role="alert"
+        >
+          <p className="font-semibold">Action not available</p>
+          <p className="mt-0.5">{accessNotice}</p>
+        </div>
+      ) : null}
       {loading ? (
         <div className="flex min-h-[400px] items-center justify-center">
           <div className="text-center">
@@ -219,48 +236,46 @@ const Dashboard = () => {
       ) : (
         <div className="mx-auto max-w-7xl space-y-10 pb-10">
           <Card className="border border-slate-200/90 shadow-sm" padding="lg">
-            <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
-              <div>
+            <div
+              className={
+                adminOps
+                  ? 'flex flex-col gap-5 xl:flex-row xl:items-start xl:justify-between xl:gap-8'
+                  : 'flex flex-col gap-4'
+              }
+            >
+              <div className="min-w-0 shrink-0">
                 <h1 className="text-2xl font-bold tracking-tight text-slate-900 sm:text-3xl">
                   Welcome back, {user?.name || 'there'}!
                 </h1>
-                <div className="mt-3 flex flex-wrap items-center gap-x-4 gap-y-1 text-sm text-slate-600">
+                <div className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1 text-sm text-slate-600">
                   <span className="inline-flex items-center gap-1.5">
-                    <FiUser className="text-slate-400" size={16} />
-                    <span>
-                      ID{' '}
-                      <span className="font-semibold text-slate-900">
-                        {user?.userId || user?.user_id || '—'}
-                      </span>
+                    <FiUser className="text-slate-400" size={15} aria-hidden />
+                    <span className="font-semibold text-slate-900">
+                      {user?.userId || user?.user_id || '—'}
                     </span>
                   </span>
-                  <span className="hidden text-slate-300 sm:inline">|</span>
-                  <span>
-                    Role: <span className="font-semibold text-slate-900">{user?.role}</span>
+                  <span className="text-slate-300" aria-hidden>
+                    ·
                   </span>
+                  <span className="text-slate-600">{user?.role}</span>
                 </div>
               </div>
+              {adminOps ? (
+                <div className="w-full min-w-0 xl:max-w-[min(100%,32rem)] xl:flex-1">
+                  <DashboardTransactionStatus variant="compact" />
+                </div>
+              ) : null}
             </div>
           </Card>
 
           {/* 1 — Wallets & commission */}
           <section aria-labelledby="dash-wallets-heading">
-            <div className="mb-5 flex flex-col gap-1 border-b border-slate-100 pb-4 sm:flex-row sm:items-end sm:justify-between">
-              <div>
-                <h2
-                  id="dash-wallets-heading"
-                  className="flex items-center gap-2 text-lg font-semibold tracking-tight text-slate-900"
-                >
-                  <span className="flex h-9 w-9 items-center justify-center rounded-lg bg-blue-50 text-blue-700">
-                    <FaWallet className="h-5 w-5" />
-                  </span>
-                  Wallets &amp; commission
-                </h2>
-                <p className="mt-1 max-w-2xl text-sm text-slate-500">
-                  Balances across your wallets. Open ledger history for any card.
-                </p>
-              </div>
-            </div>
+            <h2
+              id="dash-wallets-heading"
+              className="mb-4 text-base font-semibold tracking-tight text-slate-900"
+            >
+              Wallets
+            </h2>
             <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
               <WalletCard
                 type="main"
@@ -291,24 +306,12 @@ const Dashboard = () => {
 
           {/* 2 — Operational / admin quick actions */}
           <section aria-labelledby="dash-actions-heading">
-            <div
-              className={`flex flex-col border-b border-slate-100 pb-4 ${
-                quickSectionSubtitle ? 'mb-5 gap-1' : 'mb-4'
-              }`}
+            <h2
+              id="dash-actions-heading"
+              className="mb-4 text-base font-semibold tracking-tight text-slate-900"
             >
-              <h2
-                id="dash-actions-heading"
-                className="flex items-center gap-2 text-lg font-semibold tracking-tight text-slate-900"
-              >
-                <span className="flex h-9 w-9 items-center justify-center rounded-lg bg-amber-50 text-amber-700">
-                  <FaBolt className="h-5 w-5" />
-                </span>
-                {quickSectionTitle}
-              </h2>
-              {quickSectionSubtitle ? (
-                <p className="text-sm text-slate-500">{quickSectionSubtitle}</p>
-              ) : null}
-            </div>
+              {quickSectionTitle}
+            </h2>
             <div
               className={`grid grid-cols-1 gap-4 sm:grid-cols-2 ${
                 adminOps ? 'lg:grid-cols-4' : 'lg:grid-cols-3'
@@ -353,20 +356,15 @@ const Dashboard = () => {
             </div>
           </section>
 
-          {/* 3 — Analytics & gateway performance */}
+          {adminOps ? (
+          /* 3 — Analytics & gateway performance (Admin only) */
           <section aria-labelledby="dash-analytics-heading" className="space-y-4">
-            <div className="flex flex-col gap-1 border-b border-slate-100 pb-4">
-              <h2
-                id="dash-analytics-heading"
-                className="flex items-center gap-2 text-lg font-semibold tracking-tight text-slate-900"
-              >
-                <span className="flex h-9 w-9 items-center justify-center rounded-lg bg-emerald-50 text-emerald-700">
-                  <FaChartPie className="h-5 w-5" />
-                </span>
-                Gateway sales &amp; profit
-              </h2>
-              <p className="text-sm text-slate-500">{gatewayCardSubtitle}</p>
-            </div>
+            <h2
+              id="dash-analytics-heading"
+              className="text-base font-semibold tracking-tight text-slate-900"
+            >
+              Gateway sales &amp; profit
+            </h2>
 
             <Card className="border border-slate-200/90 shadow-sm" padding="lg">
               <div className="mb-6 grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4">
@@ -399,7 +397,11 @@ const Dashboard = () => {
               <div className="mb-8 flex flex-wrap gap-3 rounded-xl border border-slate-100 bg-slate-50/50 p-4">
                 <select
                   value={analyticsFilters.interval}
-                  onChange={(e) => setAnalyticsFilters((f) => ({ ...f, interval: e.target.value }))}
+                  onChange={(e) => {
+                    const interval = e.target.value;
+                    const { dateFrom, dateTo } = periodDatesForInterval(interval);
+                    setAnalyticsFilters((f) => ({ ...f, interval, dateFrom, dateTo }));
+                  }}
                   className="min-w-[140px] rounded-lg border border-slate-200 bg-white px-3 py-2.5 text-sm font-medium text-slate-800 shadow-sm"
                 >
                   <option value="daily">Daily buckets</option>
@@ -433,7 +435,11 @@ const Dashboard = () => {
                 </select>
               </div>
 
-              <DashboardAnalyticsCharts rows={analyticsRows} loading={analyticsLoading} />
+              <DashboardAnalyticsCharts
+                rows={analyticsRows}
+                loading={analyticsLoading}
+                gatewayNames={analyticsGateways}
+              />
 
               <div className="mt-8 border-t border-slate-100 pt-6">
                 <h3 className="mb-3 text-sm font-semibold text-slate-800">Detailed breakdown</h3>
@@ -480,6 +486,7 @@ const Dashboard = () => {
               </div>
             </Card>
           </section>
+          ) : null}
         </div>
       )}
     </>

@@ -2,7 +2,12 @@ import React from 'react';
 import { Navigate, useLocation } from 'react-router-dom';
 import { useAuth } from '../../context/AuthContext';
 import { isOperationalFundBlockedRole } from '../../utils/rolePermissions';
-import { shouldBlockPathForUser, userMayLogin } from '../../utils/userAccess';
+import {
+  getAccessRedirectMessage,
+  isPayInOnlySession,
+  shouldBlockPathForUser,
+  userMayLogin,
+} from '../../utils/accessControl';
 
 const ProtectedRoute = ({ children, requireMPIN = true, blockFinancialTransactions = false }) => {
   const { isAuthenticated, mpinVerified, loading, user } = useAuth();
@@ -31,12 +36,11 @@ const ProtectedRoute = ({ children, requireMPIN = true, blockFinancialTransactio
   if (user && shouldBlockPathForUser(user, path)) {
     return (
       <Navigate
-        to="/dashboard"
+        to={isPayInOnlySession(user) ? '/fund-management/load-money' : '/dashboard'}
         replace
         state={{
           accessBlocked: true,
-          message:
-            'This area is not available for your account status. Use Load Money if pay-in is enabled, or contact your administrator.',
+          message: getAccessRedirectMessage(user, path),
         }}
       />
     );

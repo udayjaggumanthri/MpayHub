@@ -1,7 +1,9 @@
 import React, { createContext, useState, useContext, useEffect, useCallback } from 'react';
-import { authAPI } from '../services/api';
+import { authAPI, systemAPI } from '../services/api';
 import { normalizeAuthUser } from '../utils/authUser';
+import { DEFAULT_MAINTENANCE, normalizeMaintenance } from '../utils/maintenanceMode';
 import { userMayLogin } from '../utils/userAccess';
+import { parseLoginFailure } from '../utils/loginErrors';
 import { SESSION_POST_MPIN_ANNOUNCE } from '../utils/announcements';
 
 const AuthContext = createContext();
@@ -16,9 +18,16 @@ export const useAuth = () => {
 
 export const AuthProvider = ({ children }) => {
   const [user, setUser] = useState(null);
+  const [maintenance, setMaintenance] = useState(DEFAULT_MAINTENANCE);
   const [isAuthenticated, setIsAuthenticated] = useState(false);
   const [mpinVerified, setMpinVerified] = useState(false);
   const [loading, setLoading] = useState(true);
+
+  const applyMaintenanceFromPayload = useCallback((payload) => {
+    if (payload?.maintenance) {
+      setMaintenance(normalizeMaintenance(payload.maintenance));
+    }
+  }, []);
 
   // Check for existing session on mount
   useEffect(() => {
@@ -38,9 +47,11 @@ export const AuthProvider = ({ children }) => {
           const result = await authAPI.getCurrentUser();
           if (result.success && result.data?.user) {
             const u = normalizeAuthUser(result.data.user);
+            applyMaintenanceFromPayload(result.data);
             if (u && !userMayLogin(u)) {
               await authAPI.logout();
               setUser(null);
+              setMaintenance(DEFAULT_MAINTENANCE);
               setIsAuthenticated(false);
               setMpinVerified(false);
             } else {
@@ -71,13 +82,20 @@ export const AuthProvider = ({ children }) => {
       if (result.success && result.data?.user) {
         const u = normalizeAuthUser(result.data.user);
         if (u && !userMayLogin(u)) {
+          const disabled = parseLoginFailure({
+            success: false,
+            errorCode: 'USER_DISABLED',
+          });
           return {
             success: false,
-            message: 'This account has been disabled. Contact your administrator.',
+            message: disabled?.message || 'Your account is disabled. Contact your administrator.',
+            errorTitle: disabled?.title,
+            errorVariant: disabled?.variant || 'disabled',
             errors: [],
           };
         }
         setUser(u);
+        applyMaintenanceFromPayload(result.data);
         sessionStorage.setItem('mpayhub_user', JSON.stringify(u));
         setIsAuthenticated(true);
         setMpinVerified(false); // Session MPIN gate after account is fully ready
@@ -85,13 +103,13 @@ export const AuthProvider = ({ children }) => {
         sessionStorage.removeItem(SESSION_POST_MPIN_ANNOUNCE);
         return { success: true, user: u };
       }
-      const errs = Array.isArray(result.errors) ? result.errors : [];
-      const message =
-        errs.length > 0 ? errs[0] : result.message || 'Login failed';
+      const parsed = parseLoginFailure({ success: false, ...result });
       return {
         success: false,
-        message,
-        errors: errs,
+        message: parsed?.message || 'Login failed',
+        errorTitle: parsed?.title,
+        errorVariant: parsed?.variant,
+        errors: result.errors,
       };
     } catch (error) {
       return {
@@ -148,6 +166,7 @@ export const AuthProvider = ({ children }) => {
           return null;
         }
         setUser(u);
+        applyMaintenanceFromPayload(result.data);
         sessionStorage.setItem('mpayhub_user', JSON.stringify(u));
         return u;
       }
@@ -155,6 +174,17 @@ export const AuthProvider = ({ children }) => {
       /* ignore */
     }
     return null;
+  }, [applyMaintenanceFromPayload]);
+
+  const refreshMaintenance = useCallback(async () => {
+    try {
+      const result = await systemAPI.getMaintenanceStatus();
+      if (result.success && result.data?.maintenance) {
+        setMaintenance(normalizeMaintenance(result.data.maintenance));
+      }
+    } catch {
+      /* ignore */
+    }
   }, []);
 
   const markMpinSessionVerified = () => {
@@ -171,6 +201,7 @@ export const AuthProvider = ({ children }) => {
     } finally {
       sessionStorage.removeItem(SESSION_POST_MPIN_ANNOUNCE);
       setUser(null);
+      setMaintenance(DEFAULT_MAINTENANCE);
       setIsAuthenticated(false);
       setMpinVerified(false);
     }
@@ -178,12 +209,14 @@ export const AuthProvider = ({ children }) => {
 
   const value = {
     user,
+    maintenance,
     isAuthenticated,
     mpinVerified,
     loading,
     login,
     verifyMPIN,
     refreshUser,
+    refreshMaintenance,
     markMpinSessionVerified,
     logout,
   };

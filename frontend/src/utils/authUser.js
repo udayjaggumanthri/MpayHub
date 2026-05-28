@@ -26,5 +26,6 @@ export function normalizeAuthUser(raw) {
     is_restricted: Boolean(raw.is_restricted),
     payments_locked: Boolean(raw.payments_locked),
     pay_in_allowed_when_disabled: Boolean(raw.pay_in_allowed_when_disabled),
+    access: raw.access && typeof raw.access === 'object' ? raw.access : null,
   };
 }

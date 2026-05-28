@@ -55,6 +55,7 @@ import SmsSettings from '../components/admin/SmsSettings';
 import BbpsOpsConsole from '../components/admin/BbpsOpsConsole';
 import BbpsBillerDetails from '../components/admin/BbpsBillerDetails';
 import BbpsProviderGovernance from '../components/admin/BbpsProviderGovernance';
+import MaintenanceMode from '../components/admin/MaintenanceMode';
 import WalletHistoryPage from '../components/wallets/WalletHistoryPage';
 
 /** Old URL `/admin/users/:id` → canonical user profile (all roles that may view a profile). */
@@ -394,6 +395,20 @@ const AppRoutes = () => {
             <AdminRoute>
               <Layout>
                 <AnnouncementManagement />
+              </Layout>
+            </AdminRoute>
+          </ProtectedRoute>
+        }
+      />
+
+      {/* Admin - Maintenance mode */}
+      <Route
+        path="/admin/maintenance"
+        element={
+          <ProtectedRoute>
+            <AdminRoute>
+              <Layout>
+                <MaintenanceMode />
               </Layout>
             </AdminRoute>
           </ProtectedRoute>

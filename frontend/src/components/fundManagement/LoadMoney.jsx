@@ -11,6 +11,8 @@ import { formatCurrency } from '../../utils/formatters';
 import { validateAmount } from '../../utils/validators';
 import { useWallet } from '../../context/WalletContext';
 import { useAuth } from '../../context/AuthContext';
+import MaintenanceModuleLock from '../common/MaintenanceModuleLock';
+import { isModuleEnabled } from '../../utils/maintenanceMode';
 import { FiSearch, FiMail, FiX, FiInfo } from 'react-icons/fi';
 import { FaPhone, FaUser, FaDollarSign, FaCircleCheck, FaCircleExclamation } from 'react-icons/fa6';
 import { isAdminUser } from '../../utils/rolePermissions';
@@ -39,7 +41,8 @@ function loadRazorpayScript() {
 
 const LoadMoney = () => {
   const navigate = useNavigate();
-  const { user } = useAuth();
+  const { user, maintenance, refreshMaintenance } = useAuth();
+  const payInMaintenance = !isModuleEnabled(maintenance, 'pay_in');
   const { refreshWallets } = useWallet();
   const [customerSearch, setCustomerSearch] = useState('');
   const [customerDetails, setCustomerDetails] = useState(null);
@@ -72,6 +75,12 @@ const LoadMoney = () => {
     description: '',
     primaryAction: null,
   });
+
+  useEffect(() => {
+    refreshMaintenance?.();
+    const id = setInterval(() => refreshMaintenance?.(), 60000);
+    return () => clearInterval(id);
+  }, [refreshMaintenance]);
 
   useEffect(() => {
     let cancelled = false;
@@ -439,6 +448,7 @@ const LoadMoney = () => {
         </div>
       </div>
 
+      <MaintenanceModuleLock maintenance={maintenance} moduleKey="pay_in">
       <Card
         title="Customer Search"
         subtitle="Type a name or phone — suggestions appear as you type; tap a row to select, or use Search for an exact match"
@@ -702,6 +712,7 @@ const LoadMoney = () => {
               <Button
                 onClick={handleAmountSubmit}
                 disabled={
+                  payInMaintenance ||
                   !amount ||
                   parseFloat(amount) <= 0 ||
                   !selectedPackageId ||
@@ -723,8 +734,9 @@ const LoadMoney = () => {
           </Card>
         </>
       )}
+      </MaintenanceModuleLock>
 
-      {showPaymentModal && quote && (
+      {showPaymentModal && quote && !payInMaintenance && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black bg-opacity-50 overflow-y-auto">
           <Card className="max-w-md w-full border-2 border-blue-200 my-auto" padding="lg" shadow="xl">
             <h2 className="text-xl sm:text-2xl font-bold text-gray-900 mb-4 sm:mb-6">Payment confirmation</h2>
@@ -776,6 +788,7 @@ const LoadMoney = () => {
                 size="lg"
                 fullWidth
                 loading={loading}
+                disabled={payInMaintenance}
               >
                 Proceed to payment
               </Button>
@@ -784,7 +797,7 @@ const LoadMoney = () => {
         </div>
       )}
 
-      {showGatewayInterface && orderPayload && (
+      {showGatewayInterface && orderPayload && !payInMaintenance && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black bg-opacity-50 overflow-y-auto">
           <div className="bg-white rounded-2xl shadow-2xl max-w-lg w-full max-h-[90vh] overflow-y-auto">
             <div className="p-6">

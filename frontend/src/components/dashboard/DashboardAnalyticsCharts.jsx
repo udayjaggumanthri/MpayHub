@@ -34,9 +34,13 @@ const RupeeTooltip = ({ active, payload, label }) => {
 /**
  * Aggregate analytics API rows into chart-friendly series.
  */
-export function DashboardAnalyticsCharts({ rows, loading = false }) {
+export function DashboardAnalyticsCharts({ rows, loading = false, gatewayNames = [] }) {
   const byGateway = useMemo(() => {
     const m = {};
+    (gatewayNames || []).forEach((g) => {
+      const name = String(g || '').trim();
+      if (name) m[name] = 0;
+    });
     rows.forEach((r) => {
       const g = (r.gateway || 'Unknown').trim() || 'Unknown';
       m[g] = (m[g] || 0) + parseFloat(r.payin_sales || 0);
@@ -49,7 +53,7 @@ export function DashboardAnalyticsCharts({ rows, loading = false }) {
       }))
       .sort((a, b) => b.sales - a.sales)
       .slice(0, 14);
-  }, [rows]);
+  }, [rows, gatewayNames]);
 
   const trendData = useMemo(() => {
     const m = {};

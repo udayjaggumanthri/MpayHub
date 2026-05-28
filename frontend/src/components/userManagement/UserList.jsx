@@ -19,6 +19,7 @@ import {
 } from 'react-icons/fa6';
 import Button from '../common/Button';
 import FeedbackModal from '../common/FeedbackModal';
+import AccessControlConfirmModal from '../common/AccessControlConfirmModal';
 import AccessStatusBadges from './AccessStatusBadges';
 
 const accountIsActive = (u) => u && u.is_active !== false;
@@ -126,7 +127,7 @@ const UserList = ({ role, onCreateNew, currentUserId, isAdmin = false }) => {
     setAccountConfirm({ user: userRow, nextActive });
   };
 
-  const confirmLabel = accountConfirm
+  const confirmUserName = accountConfirm
     ? `${accountConfirm.user.first_name || ''} ${accountConfirm.user.last_name || ''} (${formatUserId(
         accountConfirm.user.user_id || accountConfirm.user.id,
       )})`.trim()
@@ -356,90 +357,16 @@ const UserList = ({ role, onCreateNew, currentUserId, isAdmin = false }) => {
         </div>
       )}
 
-      {/* Confirm enable / disable — replaces window.confirm */}
       {accountConfirm ? (
-        <div
-          className="fixed inset-0 z-[70] flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-[2px]"
-          role="presentation"
-          onClick={() => !activeStatusSaving && setAccountConfirm(null)}
-        >
-          <div
-            className="w-full max-w-md rounded-2xl bg-white p-6 shadow-2xl ring-1 ring-slate-900/10"
-            role="dialog"
-            aria-modal="true"
-            aria-labelledby="account-confirm-title"
-            onClick={(e) => e.stopPropagation()}
-          >
-            <div className="flex items-start justify-between gap-3">
-              <div
-                className={`flex h-12 w-12 shrink-0 items-center justify-center rounded-xl ${
-                  accountConfirm.nextActive ? 'bg-emerald-100 text-emerald-700' : 'bg-amber-100 text-amber-800'
-                }`}
-              >
-                {accountConfirm.nextActive ? <FaUserCheck size={22} /> : <FaUserSlash size={22} />}
-              </div>
-              <button
-                type="button"
-                disabled={activeStatusSaving}
-                onClick={() => setAccountConfirm(null)}
-                className="rounded-lg p-2 text-slate-400 transition-colors hover:bg-slate-100 hover:text-slate-600 disabled:opacity-50"
-                aria-label="Close"
-              >
-                <FaXmark size={22} />
-              </button>
-            </div>
-            <h2 id="account-confirm-title" className="mt-2 text-lg font-bold text-slate-900">
-              {accountConfirm.nextActive ? 'Enable account access?' : 'Disable account access?'}
-            </h2>
-            <p className="mt-3 text-sm leading-relaxed text-slate-600">
-              {accountConfirm.nextActive ? (
-                <>
-                  <span className="font-medium text-slate-800">{confirmLabel}</span> will be able to sign in and use the
-                  API again.
-                </>
-              ) : (
-                <>
-                  <span className="font-medium text-slate-800">{confirmLabel}</span> will be signed out and cannot use the
-                  platform normally until you re-enable them. Existing sessions stop working on the next request.
-                </>
-              )}
-            </p>
-            {!accountConfirm.nextActive && (
-              <label className="mt-4 flex items-start gap-3 rounded-xl border border-slate-200 bg-slate-50/80 px-4 py-3 text-sm text-slate-700 cursor-pointer">
-                <input
-                  type="checkbox"
-                  className="mt-0.5 h-4 w-4 rounded border-slate-300 text-indigo-600 focus:ring-indigo-500"
-                  checked={allowPayInWhenDisabled}
-                  onChange={(e) => setAllowPayInWhenDisabled(e.target.checked)}
-                  disabled={activeStatusSaving}
-                />
-                <span>Allow Pay-In (load money) while account is disabled</span>
-              </label>
-            )}
-            <div className="mt-6 flex flex-col-reverse gap-3 sm:flex-row sm:justify-end">
-              <Button
-                type="button"
-                variant="outline"
-                size="lg"
-                disabled={activeStatusSaving}
-                onClick={() => setAccountConfirm(null)}
-                className="sm:min-w-[100px]"
-              >
-                Cancel
-              </Button>
-              <Button
-                type="button"
-                variant={accountConfirm.nextActive ? 'success' : 'danger'}
-                size="lg"
-                loading={activeStatusSaving}
-                onClick={() => performActiveToggle(accountConfirm.user, accountConfirm.nextActive)}
-                className="sm:min-w-[128px]"
-              >
-                {accountConfirm.nextActive ? 'Enable user' : 'Disable user'}
-              </Button>
-            </div>
-          </div>
-        </div>
+        <AccessControlConfirmModal
+          actionKey={accountConfirm.nextActive ? 'enable_account' : 'disable_account'}
+          userName={confirmUserName}
+          loading={activeStatusSaving}
+          allowPayInWhenDisabled={allowPayInWhenDisabled}
+          onAllowPayInChange={!accountConfirm.nextActive ? setAllowPayInWhenDisabled : undefined}
+          onConfirm={() => performActiveToggle(accountConfirm.user, accountConfirm.nextActive)}
+          onCancel={() => !activeStatusSaving && setAccountConfirm(null)}
+        />
       ) : null}
 
       <FeedbackModal

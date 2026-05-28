@@ -29,7 +29,10 @@ import {
 import Button from '../common/Button';
 import Card from '../common/Card';
 import FeedbackModal from '../common/FeedbackModal';
+import AccessControlConfirmModal from '../common/AccessControlConfirmModal';
 import AccessStatusBadges from './AccessStatusBadges';
+import AccountAccessSummary from './AccountAccessSummary';
+import { formatAdminAccessSuccessMessage } from '../../utils/accessControl';
 import HierarchyCard from './HierarchyCard';
 import PointOfContactCard from './PointOfContactCard';
 
@@ -80,7 +83,7 @@ const UserDetail = () => {
   const [activeStatusMessage, setActiveStatusMessage] = useState('');
   const [accessControlsSaving, setAccessControlsSaving] = useState(false);
   const [accessControlsMessage, setAccessControlsMessage] = useState('');
-  const [accountConfirm, setAccountConfirm] = useState(null);
+  const [accessConfirm, setAccessConfirm] = useState(null);
   const [allowPayInWhenDisabled, setAllowPayInWhenDisabled] = useState(false);
   const [selfBlockOpen, setSelfBlockOpen] = useState(false);
 
@@ -323,16 +326,16 @@ const UserDetail = () => {
       const u = res.data?.user ?? res.data;
       if (res.success && u && u.id != null) {
         setUser(u);
-        setActiveStatusMessage(res.message || (nextActive ? 'Account enabled.' : 'Account disabled.'));
+        setActiveStatusMessage(formatAdminAccessSuccessMessage(res.message));
       } else {
         const msg = res.message || res.errors?.[0] || 'Update failed.';
         setActiveStatusMessage(typeof msg === 'string' ? msg : 'Update failed.');
       }
     } catch {
-      setActiveStatusMessage('Update failed.');
+      setActiveStatusMessage('Update failed. Please try again.');
     } finally {
       setActiveStatusSaving(false);
-      setAccountConfirm(null);
+      setAccessConfirm(null);
       setAllowPayInWhenDisabled(false);
     }
   };
@@ -346,24 +349,58 @@ const UserDetail = () => {
       const u = res.data?.user ?? res.data;
       if (res.success && u?.id != null) {
         setUser(u);
-        setAccessControlsMessage('Access settings updated.');
+        setAccessControlsMessage(formatAdminAccessSuccessMessage(res.message));
       } else {
-        setAccessControlsMessage(res.message || 'Update failed.');
+        setAccessControlsMessage(res.message || res.accessError?.message || 'Update failed.');
       }
     } catch {
-      setAccessControlsMessage('Update failed.');
+      setAccessControlsMessage('Update failed. Please try again.');
     } finally {
       setAccessControlsSaving(false);
+      setAccessConfirm(null);
     }
   };
 
-  const requestToggleAccountActive = (nextActive) => {
+  const requestAccessChange = (actionKey, patch) => {
     if (!isAdmin || !user?.id) return;
     if (String(user.id) === String(currentUserId)) {
       setSelfBlockOpen(true);
       return;
     }
-    setAccountConfirm({ nextActive });
+    setAccessConfirm({ actionKey, patch });
+  };
+
+  const requestToggleAccountActive = (nextActive) => {
+    requestAccessChange(nextActive ? 'enable_account' : 'disable_account', {
+      is_active: nextActive,
+      ...(nextActive ? {} : { pay_in_allowed_when_disabled: Boolean(allowPayInWhenDisabled) }),
+    });
+  };
+
+  const handleAccessConfirm = () => {
+    if (!accessConfirm) return;
+    const { actionKey, patch } = accessConfirm;
+    if (actionKey === 'disable_account' || actionKey === 'enable_account') {
+      performActiveToggle(Boolean(patch.is_active));
+      return;
+    }
+    applyAccessFlag(patch);
+  };
+
+  const requestRestrictToggle = (checked) => {
+    if (!checked) {
+      applyAccessFlag({ is_restricted: false });
+      return;
+    }
+    requestAccessChange('restrict_on', { is_restricted: true });
+  };
+
+  const requestPaymentsLockToggle = (checked) => {
+    if (!checked) {
+      applyAccessFlag({ payments_locked: false });
+      return;
+    }
+    requestAccessChange('payments_lock_on', { payments_locked: true });
   };
 
   if (loading) {
@@ -776,7 +813,8 @@ const UserDetail = () => {
                   <div className="pt-4 border-t border-slate-100">
                     <p className="text-xs font-semibold uppercase tracking-wide text-slate-600 mb-3">Account Access</p>
                     <AccessStatusBadges user={user} className="mb-3" />
-                    <div className="flex gap-2">
+                    <AccountAccessSummary user={user} />
+                    <div className="mt-4 flex gap-2">
                       <Button
                         onClick={() => requestToggleAccountActive(false)}
                         disabled={activeStatusSaving || accessControlsSaving || !accountIsActive(user)}
@@ -819,7 +857,7 @@ const UserDetail = () => {
                         className="mt-0.5 h-4 w-4 rounded border-slate-300 text-indigo-600 focus:ring-indigo-500"
                         checked={Boolean(user.is_restricted)}
                         disabled={accessControlsSaving || activeStatusSaving}
-                        onChange={(e) => applyAccessFlag({ is_restricted: e.target.checked })}
+                        onChange={(e) => requestRestrictToggle(e.target.checked)}
                       />
                       <span>
                         <span className="font-medium text-slate-900">Restrict user</span>
@@ -834,7 +872,7 @@ const UserDetail = () => {
                         className="mt-0.5 h-4 w-4 rounded border-slate-300 text-indigo-600 focus:ring-indigo-500"
                         checked={Boolean(user.payments_locked)}
                         disabled={accessControlsSaving || activeStatusSaving || !accountIsActive(user)}
-                        onChange={(e) => applyAccessFlag({ payments_locked: e.target.checked })}
+                        onChange={(e) => requestPaymentsLockToggle(e.target.checked)}
                       />
                       <span>
                         <span className="font-medium text-slate-900">Lock payments</span>
@@ -999,68 +1037,24 @@ const UserDetail = () => {
         </div>
       </div>
 
-      {/* Account Confirm Dialog */}
-      {accountConfirm && (
-        <div
-          className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-sm"
-          onClick={() => !activeStatusSaving && setAccountConfirm(null)}
-        >
-          <div
-            className="w-full max-w-md rounded-2xl bg-white p-6 shadow-2xl"
-            onClick={(e) => e.stopPropagation()}
-          >
-            <div className="flex items-start gap-4">
-              <div
-                className={`flex h-12 w-12 shrink-0 items-center justify-center rounded-xl ${
-                  accountConfirm.nextActive ? 'bg-emerald-100 text-emerald-700' : 'bg-amber-100 text-amber-800'
-                }`}
-              >
-                {accountConfirm.nextActive ? <FaUserCheck size={22} /> : <FaUserSlash size={22} />}
-              </div>
-              <div className="flex-1">
-                <h3 className="text-lg font-bold text-slate-900">
-                  {accountConfirm.nextActive ? 'Enable account?' : 'Disable account?'}
-                </h3>
-                <p className="mt-2 text-sm text-slate-600">
-                  {accountConfirm.nextActive
-                    ? `${fullName} will be able to sign in and use the platform.`
-                    : `${fullName} will be signed out and cannot use the platform normally until re-enabled.`}
-                </p>
-              </div>
-            </div>
-            {!accountConfirm.nextActive && (
-              <label className="mt-4 flex items-start gap-3 rounded-xl border border-slate-200 bg-slate-50/80 px-4 py-3 text-sm text-slate-700 cursor-pointer">
-                <input
-                  type="checkbox"
-                  className="mt-0.5 h-4 w-4 rounded border-slate-300 text-indigo-600 focus:ring-indigo-500"
-                  checked={allowPayInWhenDisabled}
-                  onChange={(e) => setAllowPayInWhenDisabled(e.target.checked)}
-                  disabled={activeStatusSaving}
-                />
-                <span>Allow Pay-In (load money) while account is disabled</span>
-              </label>
-            )}
-            <div className="mt-6 flex gap-3 justify-end">
-              <Button
-                onClick={() => setAccountConfirm(null)}
-                disabled={activeStatusSaving}
-                variant="outline"
-                size="lg"
-              >
-                Cancel
-              </Button>
-              <Button
-                onClick={() => performActiveToggle(accountConfirm.nextActive)}
-                loading={activeStatusSaving}
-                variant={accountConfirm.nextActive ? 'success' : 'danger'}
-                size="lg"
-              >
-                {accountConfirm.nextActive ? 'Enable' : 'Disable'}
-              </Button>
-            </div>
-          </div>
-        </div>
-      )}
+      {accessConfirm ? (
+        <AccessControlConfirmModal
+          actionKey={accessConfirm.actionKey}
+          userName={fullName}
+          loading={activeStatusSaving || accessControlsSaving}
+          allowPayInWhenDisabled={allowPayInWhenDisabled}
+          onAllowPayInChange={
+            accessConfirm.actionKey === 'disable_account' ? setAllowPayInWhenDisabled : undefined
+          }
+          onConfirm={handleAccessConfirm}
+          onCancel={() => {
+            if (!activeStatusSaving && !accessControlsSaving) {
+              setAccessConfirm(null);
+              setAllowPayInWhenDisabled(false);
+            }
+          }}
+        />
+      ) : null}
 
       <FeedbackModal
         open={selfBlockOpen}

@@ -39,6 +39,11 @@ export const roleMenus = {
       icon: 'profile',
     },
     {
+      name: 'Maintenance mode',
+      path: '/admin/maintenance',
+      icon: 'profile',
+    },
+    {
       name: 'Gateways & pay-in',
       path: '/admin/gateways',
       icon: 'profile',

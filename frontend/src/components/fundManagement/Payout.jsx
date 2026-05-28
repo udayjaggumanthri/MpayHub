@@ -12,6 +12,8 @@ import ContactSearchTypeahead from './ContactSearchTypeahead';
 import { formatCurrency } from '../../utils/formatters';
 import { validateAmount } from '../../utils/validators';
 import AccountAccessBanner from '../common/AccountAccessBanner';
+import MaintenanceModuleLock from '../common/MaintenanceModuleLock';
+import { isModuleEnabled } from '../../utils/maintenanceMode';
 import { formatAccountNumber } from '../../utils/formatters';
 import {
   FaPhone,
@@ -47,7 +49,8 @@ function mapBankAccountRow(a) {
 
 const Payout = () => {
   const navigate = useNavigate();
-  const { user } = useAuth();
+  const { user, maintenance, refreshMaintenance } = useAuth();
+  const payoutMaintenance = !isModuleEnabled(maintenance, 'payout');
   const [bankAccounts, setBankAccounts] = useState([]);
   const [beneficiarySearch, setBeneficiarySearch] = useState('');
   const [beneficiaryDetails, setBeneficiaryDetails] = useState(null);
@@ -127,6 +130,12 @@ const Payout = () => {
     const raw = bankAccountsFromListResult(bRes);
     setBankAccounts(raw.map(mapBankAccountRow).filter(Boolean));
   }, [user]);
+
+  useEffect(() => {
+    refreshMaintenance?.();
+    const id = setInterval(() => refreshMaintenance?.(), 60000);
+    return () => clearInterval(id);
+  }, [refreshMaintenance]);
 
   useEffect(() => {
     refreshCore();
@@ -373,6 +382,7 @@ const Payout = () => {
           </div>
         </div>
 
+        <MaintenanceModuleLock maintenance={maintenance} moduleKey="payout">
         <Card padding="lg">
           <div className="p-4 sm:p-6 bg-gradient-to-r from-blue-50 to-indigo-50 border-2 border-blue-200 rounded-xl space-y-3">
             <p className="text-sm font-medium text-gray-600">Maximum eligible payout (main wallet)</p>
@@ -688,7 +698,7 @@ const Payout = () => {
 
                   <Button
                     onClick={handlePayoutSubmit}
-                    disabled={!amount || parseFloat(amount) <= 0}
+                    disabled={payoutMaintenance || !amount || parseFloat(amount) <= 0}
                     variant="primary"
                     size="lg"
                     fullWidth
@@ -700,8 +710,9 @@ const Payout = () => {
             )}
           </div>
         )}
+        </MaintenanceModuleLock>
 
-        {showValidationModal && validatedBeneficiary && (
+        {showValidationModal && validatedBeneficiary && !payoutMaintenance && (
           <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black bg-opacity-50 overflow-y-auto">
             <Card className="max-w-md w-full border-2 border-blue-200 my-auto" padding="lg" shadow="xl">
               <h2 className="text-xl sm:text-2xl font-bold text-gray-900 mb-4 sm:mb-6">Confirm Beneficiary</h2>
@@ -737,7 +748,7 @@ const Payout = () => {
         )}
 
         <MPINModal
-          isOpen={showMPINModal}
+          isOpen={showMPINModal && !payoutMaintenance}
           onClose={() => {
             setShowMPINModal(false);
             setMpinError('');

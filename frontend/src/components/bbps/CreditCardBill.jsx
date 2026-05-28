@@ -13,6 +13,8 @@ import BbpsDynamicFieldSet from './BbpsDynamicFieldSet';
 import BAssuredReceiptHeader from './BAssuredReceiptHeader';
 import { normalizeCategorySlug } from '../../constants/bbpsCanonicalCategories';
 import AccountAccessBanner from '../common/AccountAccessBanner';
+import MaintenanceModuleLock from '../common/MaintenanceModuleLock';
+import { getModuleMessage, isModuleEnabled } from '../../utils/maintenanceMode';
 
 const isFastagBillCategory = (raw) => {
   const n = normalizeCategorySlug(raw);
@@ -20,7 +22,8 @@ const isFastagBillCategory = (raw) => {
 };
 
 const CreditCardBill = ({ category = 'credit-card', categoryLabel = '', onPaymentSuccess }) => {
-  const { user } = useAuth();
+  const { user, maintenance, refreshMaintenance } = useAuth();
+  const bbpsMaintenance = !isModuleEnabled(maintenance, 'bbps');
   const paySubmitInFlight = useRef(false);
   const [biller, setBiller] = useState('');
   const [billDetails, setBillDetails] = useState(null);
@@ -97,6 +100,12 @@ const CreditCardBill = ({ category = 'credit-card', categoryLabel = '', onPaymen
   useEffect(() => {
     if (user) loadWallets();
   }, [user, loadWallets]);
+
+  useEffect(() => {
+    refreshMaintenance?.();
+    const id = setInterval(() => refreshMaintenance?.(), 60000);
+    return () => clearInterval(id);
+  }, [refreshMaintenance]);
 
   useEffect(() => {
     const loadBillers = async () => {
@@ -368,6 +377,10 @@ const CreditCardBill = ({ category = 'credit-card', categoryLabel = '', onPaymen
   };
 
   const handlePayment = () => {
+    if (bbpsMaintenance) {
+      setError(getModuleMessage(maintenance, 'bbps'));
+      return;
+    }
     if (!billDetails) return;
     if (String(planMdmRequirement || '').toUpperCase() === 'MANDATORY' && !String(selectedPlanId || '').trim()) {
       setError('Please select a plan for this biller before paying.');
@@ -574,6 +587,7 @@ const CreditCardBill = ({ category = 'credit-card', categoryLabel = '', onPaymen
             </div>
           </div>
         )}
+        <MaintenanceModuleLock maintenance={maintenance} moduleKey="bbps">
         <Card padding="lg">
           <div className="p-4 sm:p-6 bg-gradient-to-r from-blue-50 to-indigo-50 border-2 border-blue-200 rounded-xl">
             <p className="text-sm font-medium text-gray-600 mb-2">Your BBPS Wallet Balance:</p>
@@ -900,6 +914,7 @@ const CreditCardBill = ({ category = 'credit-card', categoryLabel = '', onPaymen
             <Button
               onClick={handlePayment}
               disabled={
+                bbpsMaintenance ||
                 (paymentAmountType === 'custom' && (!customAmount || parseFloat(customAmount) <= 0)) ||
                 bbpsWallet < totalDeducted ||
                 !quote ||
@@ -954,10 +969,11 @@ const CreditCardBill = ({ category = 'credit-card', categoryLabel = '', onPaymen
             ) : null}
           </Card>
         )}
+        </MaintenanceModuleLock>
       </div>
 
       <MPINModal
-        isOpen={showPaymentModal && billDetails !== null}
+        isOpen={showPaymentModal && billDetails !== null && !bbpsMaintenance}
         onClose={() => {
           setShowPaymentModal(false);
           setError('');
@@ -968,7 +984,7 @@ const CreditCardBill = ({ category = 'credit-card', categoryLabel = '', onPaymen
         loading={loading}
       />
 
-      {showConfirmPayModal && billDetails && (() => {
+      {showConfirmPayModal && billDetails && !bbpsMaintenance && (() => {
         const summaryIdentity = getPaymentSummaryIdentity();
         return (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black bg-opacity-50 overflow-y-auto">

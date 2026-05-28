@@ -2,6 +2,7 @@ import React, { useState, useRef, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../../context/AuthContext';
 import { SESSION_POST_MPIN_ANNOUNCE } from '../../utils/announcements';
+import { isPayInOnlySession } from '../../utils/userAccess';
 
 const MPINVerification = () => {
   const navigate = useNavigate();
@@ -80,7 +81,7 @@ const MPINVerification = () => {
       const result = await verifyMPIN(mpinValue);
       if (result.success) {
         sessionStorage.setItem(SESSION_POST_MPIN_ANNOUNCE, '1');
-        navigate('/dashboard');
+        navigate(isPayInOnlySession(user) ? '/fund-management/load-money' : '/dashboard');
       } else {
         setError(result.message || 'Invalid MPIN');
         setMpin(['', '', '', '', '', '']);
@@ -106,6 +107,11 @@ const MPINVerification = () => {
           <p className="text-gray-600">
             Please enter your 6-digit MPIN to continue
           </p>
+          {user && isPayInOnlySession(user) ? (
+            <p className="mt-2 text-sm font-medium text-amber-800">
+              Pay-in only: you can load money after verification. Other services stay unavailable.
+            </p>
+          ) : null}
           {user && (
             <p className="text-sm text-gray-500 mt-2">
               Logged in as: {user.name} ({user.userId || user.user_id})

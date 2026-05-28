@@ -9,7 +9,7 @@
 
 import axios from 'axios';
 import { normalizeAuthUser } from '../utils/authUser';
-import { messageForAccessDetail } from '../utils/userAccess';
+import { messageForAccessDetail, parseApiAccessError } from '../utils/accessControl';
 
 const normalizeApiBaseUrl = (rawBaseUrl) => {
   const fallback = '/api';
@@ -154,13 +154,40 @@ const extractData = (response) => {
 /**
  * Flatten DRF / app error payloads into a string array for UI.
  */
+/** Pull first human-readable string from DRF-style error objects (no "non_field_errors:" prefix). */
+const extractPrimaryErrorMessage = (errors) => {
+  if (errors == null) return '';
+  if (typeof errors === 'string') return errors;
+  if (Array.isArray(errors)) {
+    const first = errors[0];
+    if (first && typeof first === 'object' && first.message) return String(first.message);
+    return first != null ? String(first) : '';
+  }
+  if (typeof errors === 'object') {
+    const nf = errors.non_field_errors;
+    if (nf != null) {
+      const first = Array.isArray(nf) ? nf[0] : nf;
+      if (first && typeof first === 'object' && first.message) return String(first.message);
+      return first != null ? String(first) : '';
+    }
+    for (const val of Object.values(errors)) {
+      const text = extractPrimaryErrorMessage(val);
+      if (text) return text;
+    }
+  }
+  return '';
+};
+
 const normalizeErrorsList = (errors) => {
   if (errors == null) return [];
   if (Array.isArray(errors)) return errors.map((e) => String(e));
   if (typeof errors === 'object') {
     return Object.entries(errors).flatMap(([key, val]) => {
-      if (Array.isArray(val)) return val.map((item) => `${key}: ${item}`);
-      return [`${key}: ${val}`];
+      const items = Array.isArray(val) ? val : [val];
+      if (key === 'non_field_errors' || key === 'detail') {
+        return items.map((item) => String(item));
+      }
+      return items.map((item) => `${key}: ${item}`);
     });
   }
   return [String(errors)];
@@ -208,7 +235,20 @@ const handleError = (error) => {
     const detailObj =
       detail && typeof detail === 'object' && !Array.isArray(detail) ? detail : null;
     const accessMessage = detailObj ? messageForAccessDetail(detailObj) : null;
-    const baseMessage = accessMessage || apiError.message || detailMessage || nonJsonMessage;
+    let accessCode =
+      (detailObj && detailObj.code) ||
+      (errMeta && errMeta.code && String(errMeta.code)) ||
+      null;
+    if (!accessCode && Array.isArray(apiError.errors) && apiError.errors[0]?.code) {
+      accessCode = apiError.errors[0].code;
+    }
+    const fieldMessage = extractPrimaryErrorMessage(apiError.errors);
+    const baseMessage =
+      accessMessage ||
+      apiError.message ||
+      fieldMessage ||
+      detailMessage ||
+      nonJsonMessage;
     const isRetryable = Boolean(errMeta?.retryable);
     const isTimeoutish =
       error.response.status === 503 ||
@@ -221,7 +261,7 @@ const handleError = (error) => {
     } else if (isRetryable && !isTimeoutish && !lower.includes('retry')) {
       message = `${baseMessage} You may try again.`;
     }
-    return {
+    const result = {
       success: false,
       message,
       errors: normalizedErrors,
@@ -229,9 +269,16 @@ const handleError = (error) => {
       data: apiError.data != null ? apiError.data : null,
       error: errMeta,
       traceId: errMeta?.trace_id || null,
-      errorCode: errMeta?.code || null,
+      errorCode: accessCode || errMeta?.code || null,
       retryable: isRetryable,
     };
+    const accessParsed = parseApiAccessError(result);
+    if (accessParsed) {
+      result.message = accessParsed.message;
+      result.errorCode = accessParsed.code;
+      result.accessError = accessParsed;
+    }
+    return result;
   } else if (error.request) {
     // Request made but no response
     return {
@@ -1955,6 +2002,21 @@ export const reportsAPI = {
   },
 
   /**
+   * Admin dashboard transaction status counts
+   * GET /api/reports/dashboard/transaction-status-counts/
+   */
+  getDashboardTransactionStatusCounts: async (params = {}) => {
+    try {
+      const response = await apiClient.get('/reports/dashboard/transaction-status-counts/', {
+        params,
+      });
+      return extractData(response);
+    } catch (error) {
+      return handleError(error);
+    }
+  },
+
+  /**
    * Analytics summary grouped by gateway + interval
    * GET /api/reports/analytics/summary/
    */
@@ -2575,6 +2637,30 @@ export const adminAPI = {
     }
   },
 
+  /**
+   * GET /api/admin/maintenance/
+   */
+  getMaintenanceConfig: async () => {
+    try {
+      const response = await apiClient.get('/admin/maintenance/');
+      return extractData(response);
+    } catch (error) {
+      return handleError(error);
+    }
+  },
+
+  /**
+   * PATCH /api/admin/maintenance/
+   */
+  updateMaintenanceConfig: async (payload) => {
+    try {
+      const response = await apiClient.patch('/admin/maintenance/', payload);
+      return extractData(response);
+    } catch (error) {
+      return handleError(error);
+    }
+  },
+
   // ─────────────────────────────────────────────────────────────────────────
   // Package Assignment (Admin)
   // ─────────────────────────────────────────────────────────────────────────
@@ -2601,6 +2687,20 @@ export const adminAPI = {
   clearDefaultPackage: async () => {
     try {
       const response = await apiClient.post('/fund-management/packages/clear-default/');
+      return extractData(response);
+    } catch (error) {
+      return handleError(error);
+    }
+  },
+};
+
+export const systemAPI = {
+  /**
+   * GET /api/system/maintenance-status/
+   */
+  getMaintenanceStatus: async () => {
+    try {
+      const response = await apiClient.get('/system/maintenance-status/');
       return extractData(response);
     } catch (error) {
       return handleError(error);

@@ -2,8 +2,9 @@ import React, { useState } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { useAuth } from '../../context/AuthContext';
 import { getPostLoginPath } from '../../utils/onboardingPaths';
-import { FaEye, FaEyeSlash } from 'react-icons/fa6';
+import { FaEye, FaEyeSlash, FaCircleExclamation, FaUserSlash } from 'react-icons/fa6';
 import { FaPhone, FaLock } from 'react-icons/fa6';
+import { parseLoginFailure, stripErrorFieldPrefix } from '../../utils/loginErrors';
 
 const LOGO_SRC = `${process.env.PUBLIC_URL || ''}/images/logo.svg`;
 
@@ -15,24 +16,49 @@ const Login = () => {
   const [password, setPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
   const [rememberMe, setRememberMe] = useState(false);
-  const [error, setError] = useState('');
+  const [error, setError] = useState(null);
   const [loading, setLoading] = useState(false);
+
+  const showLoginError = (payload) => {
+    if (!payload) {
+      setError(null);
+      return;
+    }
+    if (typeof payload === 'string') {
+      setError(parseLoginFailure({ success: false, message: payload }) || {
+        title: 'Unable to sign in',
+        message: payload,
+        variant: 'generic',
+      });
+      return;
+    }
+    const parsed =
+      parseLoginFailure({ success: false, ...payload }) ||
+      (payload.message
+        ? {
+            title: payload.errorTitle || 'Unable to sign in',
+            message: stripErrorFieldPrefix(payload.message),
+            variant: payload.errorVariant || 'generic',
+          }
+        : null);
+    setError(parsed);
+  };
 
   const handleSubmit = async (e) => {
     e.preventDefault();
-    setError('');
+    setError(null);
     setLoading(true);
 
     // Validate phone number (10 digits)
     if (!phone || phone.length !== 10 || !/^\d+$/.test(phone)) {
-      setError('Please enter a valid 10-digit phone number');
+      showLoginError('Please enter a valid 10-digit phone number');
       setLoading(false);
       return;
     }
 
     // Validate password (backend authenticates any stored hash; do not block short passwords here)
     if (!password) {
-      setError('Please enter your password');
+      showLoginError('Please enter your password');
       setLoading(false);
       return;
     }
@@ -50,10 +76,10 @@ const Login = () => {
         const next = getPostLoginPath(result.user);
         navigate(next, { replace: true });
       } else {
-        setError(result.message || 'Invalid phone number or password');
+        showLoginError(result);
       }
-    } catch (err) {
-      setError('An error occurred. Please try again.');
+    } catch {
+      showLoginError('An error occurred. Please try again.');
     } finally {
       setLoading(false);
     }
@@ -70,7 +96,11 @@ const Login = () => {
 
   React.useEffect(() => {
     if (location.state?.disabledAccount) {
-      setError('Your account has been disabled. Contact your administrator if you need access again.');
+      showLoginError({
+        success: false,
+        message: 'Your account is disabled. Contact your administrator.',
+        errorCode: 'USER_DISABLED',
+      });
       navigate(location.pathname, { replace: true, state: {} });
     }
   }, [location.state, location.pathname, navigate]);
@@ -203,16 +233,51 @@ const Login = () => {
             </div>
 
             <form onSubmit={handleSubmit} className="space-y-6">
-              {error && (
-                <div className="bg-red-50 border-l-4 border-red-500 text-red-700 p-4 rounded-lg flex items-start animate-fadeIn">
-                  <div className="flex-shrink-0">
-                    <svg className="h-5 w-5 text-red-400" viewBox="0 0 20 20" fill="currentColor">
-                      <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zM8.707 7.293a1 1 0 00-1.414 1.414L8.586 10l-1.293 1.293a1 1 0 101.414 1.414L10 11.414l1.293 1.293a1 1 0 001.414-1.414L11.414 10l1.293-1.293a1 1 0 00-1.414-1.414L10 8.586 8.707 7.293z" clipRule="evenodd" />
-                    </svg>
+              {error ? (
+                <div
+                  role="alert"
+                  className={`rounded-xl border p-4 shadow-sm animate-fadeIn ${
+                    error.variant === 'disabled'
+                      ? 'border-amber-300 bg-amber-50 ring-1 ring-amber-200/80'
+                      : 'border-red-300 bg-red-50 ring-1 ring-red-200/80'
+                  }`}
+                >
+                  <div className="flex gap-3">
+                    <div
+                      className={`flex h-11 w-11 shrink-0 items-center justify-center rounded-full ${
+                        error.variant === 'disabled' ? 'bg-amber-100 text-amber-800' : 'bg-red-100 text-red-700'
+                      }`}
+                    >
+                      {error.variant === 'disabled' ? (
+                        <FaUserSlash size={20} aria-hidden />
+                      ) : (
+                        <FaCircleExclamation size={20} aria-hidden />
+                      )}
+                    </div>
+                    <div className="min-w-0 pt-0.5">
+                      <p
+                        className={`text-base font-semibold leading-snug ${
+                          error.variant === 'disabled' ? 'text-amber-950' : 'text-red-950'
+                        }`}
+                      >
+                        {error.title}
+                      </p>
+                      <p
+                        className={`mt-1.5 text-sm leading-relaxed ${
+                          error.variant === 'disabled' ? 'text-amber-900' : 'text-red-800'
+                        }`}
+                      >
+                        {error.message}
+                      </p>
+                      {error.variant === 'disabled' ? (
+                        <p className="mt-2 text-xs font-medium text-amber-800/90">
+                          Only your administrator can restore access to this account.
+                        </p>
+                      ) : null}
+                    </div>
                   </div>
-                  <p className="ml-3 text-sm font-medium">{error}</p>
                 </div>
-              )}
+              ) : null}
 
               {/* Phone Number Input */}
               <div>
