@@ -1,9 +1,11 @@
 import React, { useEffect, useMemo, useState } from 'react';
+import { Link } from 'react-router-dom';
 import Card from '../common/Card';
 import Input from '../common/Input';
 import Button from '../common/Button';
 import { adminAPI } from '../../services/api';
-import { FaPlus, FaPenToSquare, FaTrash, FaXmark, FaPlug, FaPowerOff } from 'react-icons/fa6';
+import { FaPlus, FaPenToSquare, FaTrash, FaXmark, FaPlug, FaPowerOff, FaArrowRight } from 'react-icons/fa6';
+import GatewayFlowStepper from './GatewayFlowStepper';
 
 const parseList = (result) => {
   const d = result?.data;
@@ -197,8 +199,10 @@ const APIMasterManagement = () => {
       : await adminAPI.createApiMaster(payload);
     setLoading(false);
     if (!result.success) {
+      const errList = Array.isArray(result.errors) ? result.errors : [];
+      const detailed = errList.length > 0 ? errList[0] : '';
       setFeedbackType('err');
-      setFeedback(result.message || 'Save failed');
+      setFeedback(detailed || result.message || 'Save failed');
       return;
     }
     setShowModal(false);
@@ -271,6 +275,10 @@ const APIMasterManagement = () => {
 
   return (
     <div className="max-w-7xl mx-auto space-y-6 px-4 sm:px-0">
+      <GatewayFlowStepper
+        currentStep="api-master"
+        subtitle="Step 1/3: Configure payment API credentials before creating gateways and packages."
+      />
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between">
         <div>
           <h1 className="text-2xl sm:text-3xl font-bold text-gray-900">API Master Management</h1>
@@ -278,6 +286,16 @@ const APIMasterManagement = () => {
             Two enterprise modules: KYC APIs (Aadhaar, PAN) and Payment Gateway APIs.
           </p>
         </div>
+      </div>
+
+      <div className="flex justify-end">
+        <Link
+          to="/admin/gateways"
+          className="inline-flex items-center gap-2 rounded-lg border border-slate-200 bg-white px-4 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-50"
+        >
+          Next: Payment Gateways
+          <FaArrowRight size={12} className="text-slate-400" />
+        </Link>
       </div>
 
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
@@ -442,6 +460,16 @@ const APIMasterManagement = () => {
                     label="Provider Code *"
                     value={form.provider_code}
                     onChange={(e) => setForm((p) => ({ ...p, provider_code: e.target.value }))}
+                    onBlur={(e) =>
+                      setForm((p) => ({
+                        ...p,
+                        provider_code: String(e.target.value || '')
+                          .trim()
+                          .toLowerCase()
+                          .replace(/[^a-z0-9\s_-]/g, '')
+                          .replace(/\s+/g, '-'),
+                      }))
+                    }
                     required
                   />
                 )}

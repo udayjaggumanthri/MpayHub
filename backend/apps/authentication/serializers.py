@@ -8,6 +8,7 @@ from apps.authentication.models import User, OTP, UserSession
 from apps.core.financial_access import user_may_login
 from apps.core.utils import generate_otp, validate_phone, validate_mpin
 from apps.core.exceptions import InvalidCredentials, InvalidMPIN, InvalidOTP
+from apps.authentication.services import get_valid_otp
 from django.conf import settings
 
 
@@ -83,9 +84,11 @@ class SendOTPSerializer(serializers.Serializer):
         attrs = super().validate(attrs)
         purpose = attrs.get('purpose', 'password-reset')
         channel = (attrs.get('channel') or 'sms').strip().lower()
-        if channel == 'email' and purpose != 'password-reset':
+        from apps.authentication.constants import AUTH_OTP_EMAIL_PURPOSES
+
+        if channel == 'email' and purpose not in AUTH_OTP_EMAIL_PURPOSES:
             raise serializers.ValidationError(
-                {'channel': 'Email delivery is only supported for password reset.'}
+                {'channel': 'Email delivery is only supported for password reset and MPIN reset.'}
             )
         attrs['channel'] = channel
         return attrs
@@ -104,28 +107,12 @@ class VerifyOTPSerializer(serializers.Serializer):
         return value
     
     def validate(self, attrs):
-        """Verify OTP."""
+        """Verify OTP (does not consume — reset step marks it used)."""
         phone = attrs.get('phone')
         code = attrs.get('code')
         purpose = attrs.get('purpose')
-        
-        try:
-            otp = OTP.objects.filter(
-                phone=phone,
-                purpose=purpose,
-                is_used=False
-            ).latest('created_at')
-            
-            if not otp.is_valid():
-                raise InvalidOTP("OTP has expired or already used.")
-            
-            if otp.code != code:
-                raise InvalidOTP("Invalid OTP code.")
-            
-            attrs['otp'] = otp
-            return attrs
-        except OTP.DoesNotExist:
-            raise InvalidOTP("OTP not found or already used.")
+        attrs['otp_record'] = get_valid_otp(phone, code, purpose)
+        return attrs
 
 
 class ResetPasswordSerializer(serializers.Serializer):
@@ -149,27 +136,39 @@ class ResetPasswordSerializer(serializers.Serializer):
         if new_password != confirm_password:
             raise serializers.ValidationError("Passwords do not match.")
         
-        # Verify OTP
         phone = attrs.get('phone')
         otp_code = attrs.get('otp')
-        
-        try:
-            otp = OTP.objects.filter(
-                phone=phone,
-                purpose='password-reset',
-                is_used=False
-            ).latest('created_at')
-            
-            if not otp.is_valid():
-                raise InvalidOTP("OTP has expired or already used.")
-            
-            if otp.code != otp_code:
-                raise InvalidOTP("Invalid OTP code.")
-            
-            attrs['otp'] = otp
-            return attrs
-        except OTP.DoesNotExist:
-            raise InvalidOTP("OTP not found or already used.")
+        attrs['otp_record'] = get_valid_otp(phone, otp_code, 'password-reset')
+        return attrs
+
+
+class ResetMPINSerializer(serializers.Serializer):
+    """Serializer for MPIN reset after OTP verification."""
+    phone = serializers.CharField(max_length=10)
+    otp = serializers.CharField(max_length=6)
+    new_mpin = serializers.CharField(write_only=True, min_length=6, max_length=6)
+    confirm_mpin = serializers.CharField(write_only=True, min_length=6, max_length=6)
+
+    def validate_phone(self, value):
+        if not validate_phone(value):
+            raise serializers.ValidationError("Invalid phone number format.")
+        return value
+
+    def validate_new_mpin(self, value):
+        if not validate_mpin(value):
+            raise serializers.ValidationError("MPIN must be 6 digits.")
+        return value
+
+    def validate(self, attrs):
+        new_mpin = attrs.get('new_mpin')
+        confirm_mpin = attrs.get('confirm_mpin')
+        if new_mpin != confirm_mpin:
+            raise serializers.ValidationError("MPINs do not match.")
+
+        phone = attrs.get('phone')
+        otp_code = attrs.get('otp')
+        attrs['otp_record'] = get_valid_otp(phone, otp_code, 'mpin-reset')
+        return attrs
 
 
 class UserSerializer(serializers.ModelSerializer):
@@ -210,7 +209,27 @@ class UserSerializer(serializers.ModelSerializer):
             'aadhaar_verified': ad_ok,
             'mpin_set': has_mpin,
             'account_ready': kyc_complete and has_mpin,
+            'must_change_password': bool(getattr(obj, 'must_change_password', False)),
         }
+
+
+class ForcedPasswordResetSendOTPSerializer(serializers.Serializer):
+    """Authenticated first-login OTP channel selection."""
+    channel = serializers.ChoiceField(choices=['sms', 'email'], default='sms')
+
+
+class ForcedPasswordResetCompleteSerializer(serializers.Serializer):
+    """Authenticated first-login password reset after OTP."""
+    otp = serializers.CharField(max_length=6)
+    new_password = serializers.CharField(write_only=True, min_length=8)
+    confirm_password = serializers.CharField(write_only=True, min_length=8)
+
+    def validate(self, attrs):
+        new_password = attrs.get('new_password')
+        confirm_password = attrs.get('confirm_password')
+        if new_password != confirm_password:
+            raise serializers.ValidationError('Passwords do not match.')
+        return attrs
 
 
 class OnboardingPANSerializer(serializers.Serializer):

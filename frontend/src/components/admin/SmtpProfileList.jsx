@@ -98,13 +98,21 @@ const SmtpProfileList = () => {
             Manage multiple SMTP profiles. Only one profile can be active for password-reset OTP email.
           </p>
         </div>
-        <Link
-          to="/admin/smtp-settings/new"
-          className="inline-flex items-center justify-center gap-2 px-4 py-2.5 rounded-lg bg-blue-600 text-white text-sm font-medium hover:bg-blue-700 shadow-sm"
-        >
-          <FaPlus className="w-4 h-4" />
-          New SMTP
-        </Link>
+        <div className="flex flex-wrap gap-2">
+          <Link
+            to="/admin/email-notifications"
+            className="inline-flex items-center justify-center gap-2 px-4 py-2.5 rounded-lg border border-gray-300 text-sm font-medium hover:bg-gray-50"
+          >
+            Email notifications
+          </Link>
+          <Link
+            to="/admin/smtp-settings/new"
+            className="inline-flex items-center justify-center gap-2 px-4 py-2.5 rounded-lg bg-blue-600 text-white text-sm font-medium hover:bg-blue-700 shadow-sm"
+          >
+            <FaPlus className="w-4 h-4" />
+            New SMTP
+          </Link>
+        </div>
       </div>
 
       {msg.text && (

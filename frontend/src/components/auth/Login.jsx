@@ -282,13 +282,22 @@ const Login = () => {
                     Remember me
                   </span>
                 </label>
-                <button
-                  type="button"
-                  onClick={() => navigate('/forgot-password')}
-                  className="text-sm font-medium text-blue-600 hover:text-blue-700 transition-colors"
-                >
-                  Forgot your Password?
-                </button>
+                <div className="flex flex-col items-end gap-1">
+                  <button
+                    type="button"
+                    onClick={() => navigate('/forgot-password')}
+                    className="text-sm font-medium text-blue-600 hover:text-blue-700 transition-colors"
+                  >
+                    Forgot your Password?
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => navigate('/forgot-mpin')}
+                    className="text-sm font-medium text-indigo-600 hover:text-indigo-700 transition-colors"
+                  >
+                    Reset MPIN
+                  </button>
+                </div>
               </div>
 
               {/* Submit Button */}

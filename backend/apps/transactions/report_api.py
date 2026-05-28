@@ -65,9 +65,41 @@ def payin_rows_for_transactions(
     lm_map = {
         lm.transaction_id: lm
         for lm in LoadMoney.objects.filter(transaction_id__in=ids).select_related(
-            'user', 'package', 'package__payment_gateway'
+            'user', 'package', 'package__payment_gateway', 'payment_gateway'
         )
     }
+    # Opening/closing balance around pay-in credit (payer's main wallet passbook row).
+    passbook_map: dict[tuple[str, int], PassbookEntry] = {}
+    passbook_qs = (
+        PassbookEntry.objects.filter(
+            service_id__in=ids,
+            wallet_type='main',
+            service__in=['LOAD MONEY', 'LOAD_MONEY'],
+            credit_amount__gt=Decimal('0'),
+        )
+        .only('service_id', 'user_id', 'opening_balance', 'closing_balance', 'created_at')
+        .order_by('-created_at')
+    )
+    for pe in passbook_qs:
+        key = (str(pe.service_id or ''), int(pe.user_id))
+        if key not in passbook_map:
+            passbook_map[key] = pe
+    # Legacy safety: if any entry was not found by service name, fallback by service_id + main wallet credit row.
+    missing_ids = {str(tx.service_id or '') for tx in transactions} - {k[0] for k in passbook_map.keys()}
+    if missing_ids:
+        fallback_qs = (
+            PassbookEntry.objects.filter(
+                service_id__in=list(missing_ids),
+                wallet_type='main',
+                credit_amount__gt=Decimal('0'),
+            )
+            .only('service_id', 'user_id', 'opening_balance', 'closing_balance', 'created_at')
+            .order_by('-created_at')
+        )
+        for pe in fallback_qs:
+            key = (str(pe.service_id or ''), int(pe.user_id))
+            if key not in passbook_map:
+                passbook_map[key] = pe
     out = []
     for t in transactions:
         lm = lm_map.get(t.service_id)
@@ -85,6 +117,8 @@ def payin_rows_for_transactions(
         gateway_transaction_id = ''
         fee_breakdown_snapshot: dict | None = None
         mode = ''
+        opening_balance = ''
+        closing_balance = ''
         if lm:
             gateway_meta = lm.payment_meta if isinstance(lm.payment_meta, dict) else {}
             mode = (lm.payment_method or '').replace('_', ' ') or '—'
@@ -100,11 +134,20 @@ def payin_rows_for_transactions(
             if pkg:
                 package_code = str(getattr(pkg, 'code', '') or '').strip()
                 package_display_name = str(getattr(pkg, 'display_name', '') or '').strip()
+            selected_pg = getattr(lm, 'payment_gateway', None)
+            if selected_pg is not None and getattr(selected_pg, 'name', None):
+                payment_gateway_name = str(selected_pg.name).strip()
+            if not payment_gateway_name and pkg:
                 pg = getattr(pkg, 'payment_gateway', None)
                 if pg is not None and getattr(pg, 'name', None):
                     payment_gateway_name = str(pg.name).strip()
             if not payment_gateway_name and (lm.gateway or '').strip():
                 payment_gateway_name = str(lm.gateway).replace('_', ' ').strip().title()
+
+        pe = passbook_map.get((str(t.service_id or ''), int(getattr(t, 'user_id', 0) or 0)))
+        if pe is not None:
+            opening_balance = money_str(pe.opening_balance)
+            closing_balance = money_str(pe.closing_balance)
 
         if not customer_email:
             customer_email = (gateway_meta.get('rzp_email') or '').strip()
@@ -174,6 +217,8 @@ def payin_rows_for_transactions(
                 'package_code': package_code,
                 'package_display_name': package_display_name,
                 'payment_gateway_name': payment_gateway_name,
+                'opening_balance': opening_balance,
+                'closing_balance': closing_balance,
                 'fee_breakdown_snapshot': fee_breakdown_snapshot,
                 'agent_details': agent_row_from_user(actor),
                 'direct_subordinate': is_direct_subordinate(viewer, row_user)

@@ -115,6 +115,18 @@ def transfer_main_to_bbps_view(request):
     )
 
 
+def build_wallet_summary(user):
+    """Return wallet balances keyed by type (main, commission, bbps, profit)."""
+    wallets = Wallet.objects.filter(user=user)
+    wallet_dict = {wallet.wallet_type: WalletSerializer(wallet).data for wallet in wallets}
+    return {
+        'main': wallet_dict.get('main', {'balance': '0.00'}),
+        'commission': wallet_dict.get('commission', {'balance': '0.00'}),
+        'bbps': wallet_dict.get('bbps', {'balance': '0.00'}),
+        'profit': wallet_dict.get('profit', {'balance': '0.00'}),
+    }
+
+
 @api_view(['GET'])
 @permission_classes([IsAuthenticated])
 def get_wallets_view(request):
@@ -122,21 +134,7 @@ def get_wallets_view(request):
     Get all wallets for the authenticated user.
     GET /api/wallets/
     """
-    wallets = Wallet.objects.filter(user=request.user)
-    
-    # Organize wallets by type
-    wallet_dict = {}
-    for wallet in wallets:
-        wallet_dict[wallet.wallet_type] = WalletSerializer(wallet).data
-    
-    # Ensure all wallet types are present
-    wallet_data = {
-        'main': wallet_dict.get('main', {'balance': '0.00'}),
-        'commission': wallet_dict.get('commission', {'balance': '0.00'}),
-        'bbps': wallet_dict.get('bbps', {'balance': '0.00'}),
-        'profit': wallet_dict.get('profit', {'balance': '0.00'}),
-    }
-    
+    wallet_data = build_wallet_summary(request.user)
     return Response({
         'success': True,
         'data': {'wallets': wallet_data},

@@ -43,16 +43,13 @@ export const roleMenus = {
       path: '/admin/gateways',
       icon: 'profile',
       submenu: [
+        { name: 'API Master', path: '/admin/api-master' },
         { name: 'Payment gateways', path: '/admin/gateways' },
         { name: 'Pay-in packages', path: '/admin/pay-in-packages' },
         { name: 'SMTP settings', path: '/admin/smtp-settings' },
+        { name: 'Email notifications', path: '/admin/email-notifications' },
         { name: 'SMS settings', path: '/admin/sms-settings' },
       ],
-    },
-    {
-      name: 'API Master',
-      path: '/admin/api-master',
-      icon: 'profile',
     },
     {
       name: 'BBPS Configuration',

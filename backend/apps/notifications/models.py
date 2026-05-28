@@ -107,3 +107,57 @@ class SmsDeliveryLog(BaseModel):
 
     def __str__(self):
         return f'{self.event_key} {self.status} ({self.idempotency_key[:40]})'
+
+
+class EmailNotificationTemplate(BaseModel):
+    """Per-event email templates; seeded from catalog, updated via admin API."""
+
+    event_key = models.CharField(max_length=80, unique=True, db_index=True)
+    module = models.CharField(max_length=40, db_index=True)
+    label = models.CharField(max_length=120)
+    description = models.TextField(blank=True, default='')
+    is_enabled = models.BooleanField(default=False, db_index=True)
+    subject_template = models.CharField(max_length=255, blank=True, default='')
+    body_html_template = models.TextField(blank=True, default='')
+    body_plain_template = models.TextField(blank=True, default='')
+    variable_schema = models.JSONField(default=list, blank=True)
+    sample_variables = models.JSONField(default=dict, blank=True)
+
+    class Meta:
+        db_table = 'email_notification_templates'
+        ordering = ['module', 'event_key']
+
+    def __str__(self):
+        return f'{self.event_key} ({self.module})'
+
+
+class EmailDeliveryLog(BaseModel):
+    """Audit trail for email dispatch attempts."""
+
+    STATUS_CHOICES = [
+        ('sent', 'Sent'),
+        ('failed', 'Failed'),
+        ('skipped', 'Skipped'),
+    ]
+
+    event_key = models.CharField(max_length=80, db_index=True)
+    idempotency_key = models.CharField(max_length=200, unique=True, db_index=True)
+    user = models.ForeignKey(
+        'authentication.User',
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        related_name='email_delivery_logs',
+    )
+    to_email_masked = models.CharField(max_length=120, blank=True, default='')
+    status = models.CharField(max_length=16, choices=STATUS_CHOICES, db_index=True)
+    skip_reason = models.CharField(max_length=64, blank=True, default='')
+    error_message = models.TextField(blank=True, default='')
+    context_json = models.JSONField(default=dict, blank=True)
+
+    class Meta:
+        db_table = 'email_delivery_logs'
+        ordering = ['-created_at']
+
+    def __str__(self):
+        return f'{self.event_key} {self.status} ({self.idempotency_key[:40]})'

@@ -178,18 +178,18 @@ def payin_quote_api_payload_for_user(user, q: dict) -> dict:
     }
 
 
-def _api_master_for_payin_razorpay(package: PayInPackage):
+def _api_master_for_payin_razorpay(package: PayInPackage, payment_gateway=None):
     """
     Resolve which ApiMaster supplies Razorpay keys for this pay-in package.
 
-    1) Payment gateway's linked API Master (payments) — preferred for multi-provider setups.
+    1) Selected payment gateway's linked API Master (payments) — preferred for multi-provider setups.
     2) Else, first payments-type row with a Razorpay-like provider_code (is_default / priority order).
        This matches ops who configure credentials only in API Master without re-linking the gateway row.
     """
     from apps.integrations.models import ApiMaster
     from apps.integrations.razorpay_orders import is_razorpay_like_provider_code
 
-    pg = getattr(package, 'payment_gateway', None)
+    pg = payment_gateway or getattr(package, 'payment_gateway', None)
     if pg and getattr(pg, 'api_master_id', None):
         am = pg.api_master
         if (
@@ -210,7 +210,7 @@ def _api_master_for_payin_razorpay(package: PayInPackage):
     return None
 
 
-def _razorpay_keypair_for_payin_package(package: PayInPackage):
+def _razorpay_keypair_for_payin_package(package: PayInPackage, payment_gateway=None):
     """Resolved Razorpay key_id + key_secret from API Master (live read); optional .env fallback if unset."""
     from apps.integrations.razorpay_orders import (
         extract_razorpay_key_pair_from_secrets,
@@ -219,7 +219,7 @@ def _razorpay_keypair_for_payin_package(package: PayInPackage):
 
     key_id = None
     key_secret = None
-    api_master = _api_master_for_payin_razorpay(package)
+    api_master = _api_master_for_payin_razorpay(package, payment_gateway=payment_gateway)
     if api_master:
         secrets = decrypt_secret_payload(api_master.secrets_encrypted or '')
         key_id, key_secret = extract_razorpay_key_pair_from_secrets(secrets)
@@ -233,8 +233,17 @@ def _razorpay_keypair_for_payin_package(package: PayInPackage):
     return resolve_razorpay_credentials(key_id, key_secret)
 
 
-def create_payin_order(user, *, package_id: int, gross: Decimal, contact_id: int):
+def create_payin_order(
+    user,
+    *,
+    package_id: int,
+    gross: Decimal,
+    contact_id: int,
+    gateway_id: int | None = None,
+):
     """Create pending LoadMoney; call Razorpay outside DB transaction when needed."""
+    from apps.fund_management.package_gateways import resolve_payment_gateway_for_order
+
     package = (
         PayInPackage.objects.filter(id=package_id, is_active=True, is_deleted=False)
         .select_related('payment_gateway', 'payment_gateway__api_master')
@@ -244,6 +253,11 @@ def create_payin_order(user, *, package_id: int, gross: Decimal, contact_id: int
         raise ValueError('Invalid or inactive package')
     if package.provider == 'payu':
         raise TransactionFailed('PayU checkout is not enabled yet. Use a mock or Razorpay package.')
+
+    try:
+        selected_gateway = resolve_payment_gateway_for_order(package, gateway_id)
+    except ValueError as exc:
+        raise TransactionFailed(str(exc)) from exc
 
     contact = Contact.objects.filter(id=contact_id, user=user).first()
     if not contact:
@@ -260,8 +274,9 @@ def create_payin_order(user, *, package_id: int, gross: Decimal, contact_id: int
                 lm = LoadMoney.objects.create(
                     user=user,
                     package=package,
+                    payment_gateway=selected_gateway,
                     amount=money_q(gross),
-                    gateway=str(package.code),
+                    gateway=selected_gateway.name or str(package.code),
                     charge=q['total_deduction'],
                     net_credit=q['net_credit'],
                     fee_breakdown_snapshot=q['snapshot'],
@@ -284,6 +299,8 @@ def create_payin_order(user, *, package_id: int, gross: Decimal, contact_id: int
         'load_money_id': lm.id,
         'transaction_id': lm.transaction_id,
         'provider': package.provider,
+        'payment_gateway_id': selected_gateway.id,
+        'payment_gateway_name': selected_gateway.name,
         'amount': str(lm.amount),
         'currency': 'INR',
         'customer_name': contact.name,
@@ -295,7 +312,9 @@ def create_payin_order(user, *, package_id: int, gross: Decimal, contact_id: int
     if package.provider == 'razorpay':
         from apps.integrations.razorpay_orders import create_order as rz_order
 
-        checkout_key_id, checkout_key_secret = _razorpay_keypair_for_payin_package(package)
+        checkout_key_id, checkout_key_secret = _razorpay_keypair_for_payin_package(
+            package, payment_gateway=selected_gateway
+        )
 
         order, err = rz_order(
             amount_inr=lm.amount,
@@ -398,7 +417,10 @@ def verify_and_finalize_razorpay_payin(
     if (lm.provider_order_id or '') != str(razorpay_order_id).strip():
         raise ValueError('Razorpay order id does not match this transaction.')
 
-    key_id, key_secret = _razorpay_keypair_for_payin_package(lm.package)
+    verify_gateway = lm.payment_gateway
+    if verify_gateway is None and lm.package:
+        verify_gateway = lm.package.payment_gateway
+    key_id, key_secret = _razorpay_keypair_for_payin_package(lm.package, payment_gateway=verify_gateway)
     if not key_id or not key_secret:
         raise TransactionFailed('Razorpay credentials are not configured.')
 
@@ -520,18 +542,12 @@ def process_load_money(user, amount, gateway_id):
         )
 
         try:
-            from apps.notifications.services.dispatch import SmsNotificationService
+            from apps.fund_management.payin_settlement import _notify_payin_success
 
-            SmsNotificationService.dispatch(
-                'payin.success',
-                user.phone,
-                {
-                    'amount': str(amount),
-                    'reference': gateway_transaction_id,
-                    'transaction_id': load_money.transaction_id,
-                },
-                user_id=user.pk,
-                idempotency_key=f'payin:{load_money.transaction_id}:SUCCESS',
+            _notify_payin_success(
+                load_money,
+                reference=gateway_transaction_id,
+                gross=amount,
             )
         except Exception:
             pass
@@ -543,16 +559,24 @@ def process_load_money(user, amount, gateway_id):
         load_money.save(update_fields=['status', 'failure_reason'])
         try:
             from apps.notifications.services.dispatch import SmsNotificationService
+            from apps.notifications.email_helpers import dispatch_user_email
 
+            ctx = {
+                'amount': str(amount),
+                'reference': load_money.transaction_id,
+                'reason': str(e)[:200],
+            }
             SmsNotificationService.dispatch(
                 'payin.failed',
                 user.phone,
-                {
-                    'amount': str(amount),
-                    'reference': load_money.transaction_id,
-                    'reason': str(e)[:200],
-                },
+                ctx,
                 user_id=user.pk,
+                idempotency_key=f'payin:{load_money.transaction_id}:FAILED',
+            )
+            dispatch_user_email(
+                'payin.failed',
+                user,
+                ctx,
                 idempotency_key=f'payin:{load_money.transaction_id}:FAILED',
             )
         except Exception:
@@ -662,16 +686,24 @@ def process_payout(user, bank_account_id, amount, gateway_id=None, transfer_mode
         )
         try:
             from apps.notifications.services.dispatch import SmsNotificationService
+            from apps.notifications.email_helpers import dispatch_user_email
 
+            ctx = {
+                'amount': str(amount),
+                'reference': gateway_transaction_id,
+                'transfer_mode': transfer_mode,
+            }
             SmsNotificationService.dispatch(
                 'payout.success',
                 user.phone,
-                {
-                    'amount': str(amount),
-                    'reference': gateway_transaction_id,
-                    'transfer_mode': transfer_mode,
-                },
+                ctx,
                 user_id=user.pk,
+                idempotency_key=f'payout:{payout.transaction_id}:SUCCESS',
+            )
+            dispatch_user_email(
+                'payout.success',
+                user,
+                ctx,
                 idempotency_key=f'payout:{payout.transaction_id}:SUCCESS',
             )
         except Exception:
@@ -694,16 +726,24 @@ def process_payout(user, bank_account_id, amount, gateway_id=None, transfer_mode
         payout.save(update_fields=['status', 'failure_reason'])
         try:
             from apps.notifications.services.dispatch import SmsNotificationService
+            from apps.notifications.email_helpers import dispatch_user_email
 
+            ctx = {
+                'amount': str(amount),
+                'reference': getattr(payout, 'transaction_id', ''),
+                'reason': str(e)[:200],
+            }
             SmsNotificationService.dispatch(
                 'payout.failed',
                 user.phone,
-                {
-                    'amount': str(amount),
-                    'reference': getattr(payout, 'transaction_id', ''),
-                    'reason': str(e)[:200],
-                },
+                ctx,
                 user_id=user.pk,
+                idempotency_key=f'payout:{getattr(payout, "transaction_id", "")}:FAILED',
+            )
+            dispatch_user_email(
+                'payout.failed',
+                user,
+                ctx,
                 idempotency_key=f'payout:{getattr(payout, "transaction_id", "")}:FAILED',
             )
         except Exception:
@@ -742,7 +782,9 @@ def get_user_accessible_packages(user: User):
     # Admin users can access all packages
     user_role = (getattr(user, 'role', None) or '').strip()
     if user_role == 'Admin':
-        return PayInPackage.objects.filter(is_active=True, is_deleted=False).order_by('sort_order', 'display_name')
+        return PayInPackage.objects.filter(is_active=True, is_deleted=False).order_by(
+            '-is_default', 'sort_order', 'display_name'
+        )
 
     # Check explicit assignments
     assigned_pkg_ids = UserPackageAssignment.objects.filter(
@@ -754,14 +796,14 @@ def get_user_accessible_packages(user: User):
             id__in=assigned_pkg_ids,
             is_active=True,
             is_deleted=False,
-        ).order_by('sort_order', 'display_name')
+        ).order_by('-is_default', 'sort_order', 'display_name')
 
     # Fallback to default package
     return PayInPackage.objects.filter(
         is_default=True,
         is_active=True,
         is_deleted=False,
-    ).order_by('sort_order', 'display_name')
+    ).order_by('-is_default', 'sort_order', 'display_name')
 
 
 def resolve_payout_package(user: User) -> Optional[PayInPackage]:

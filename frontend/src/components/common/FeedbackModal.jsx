@@ -12,6 +12,8 @@ const FeedbackModal = ({
   description,
   /** If set, shown as main button; its onClick runs then modal closes. */
   primaryAction,
+  /** Optional middle button (outline); onClick runs then modal closes. */
+  alternateAction,
   /** Optional second button (default label: Close). Only used when primaryAction is set. */
   secondaryLabel = 'Close',
 }) => {
@@ -53,12 +55,26 @@ const FeedbackModal = ({
         </h2>
         <p className="mt-3 whitespace-pre-line text-sm leading-relaxed text-gray-600">{description}</p>
 
-        <div className="mt-6 flex flex-col-reverse gap-3 sm:flex-row sm:justify-end">
+        <div className="mt-6 flex flex-col-reverse gap-3 sm:flex-row sm:flex-wrap sm:justify-end">
           {primaryAction ? (
             <>
               <Button type="button" variant="outline" size="lg" onClick={onClose} className="sm:w-auto">
                 {secondaryLabel}
               </Button>
+              {alternateAction ? (
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="lg"
+                  className="sm:w-auto"
+                  onClick={() => {
+                    alternateAction.onClick?.();
+                    onClose();
+                  }}
+                >
+                  {alternateAction.label}
+                </Button>
+              ) : null}
               <Button
                 type="button"
                 variant="primary"

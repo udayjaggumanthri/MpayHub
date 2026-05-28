@@ -66,6 +66,44 @@ class PayInPackage(BaseModel):
         super().save(*args, **kwargs)
 
 
+class PayInPackageGateway(BaseModel):
+    """
+    Many-to-many link: which payment gateways may execute pay-in for a package.
+    Fee/commission rules remain on PayInPackage; this only selects the collection rail.
+    """
+
+    package = models.ForeignKey(
+        PayInPackage,
+        on_delete=models.CASCADE,
+        related_name='package_gateways',
+        db_index=True,
+    )
+    payment_gateway = models.ForeignKey(
+        'admin_panel.PaymentGateway',
+        on_delete=models.CASCADE,
+        related_name='package_links',
+        db_index=True,
+    )
+    is_active = models.BooleanField(default=True, db_index=True)
+    is_default = models.BooleanField(
+        default=False,
+        db_index=True,
+        help_text='Suggested gateway when user does not choose one explicitly.',
+    )
+    sort_order = models.PositiveIntegerField(default=0)
+
+    class Meta:
+        db_table = 'pay_in_package_gateways'
+        ordering = ['package_id', 'sort_order', 'id']
+        unique_together = [['package', 'payment_gateway']]
+        indexes = [
+            models.Index(fields=['package', 'is_active', 'sort_order']),
+        ]
+
+    def __str__(self):
+        return f'{self.package_id} -> {self.payment_gateway_id}'
+
+
 class PayoutSlabTier(BaseModel):
     """
     Per-package payout slab: flat charge for withdrawal amount in [min_amount, max_amount].
@@ -125,6 +163,14 @@ class LoadMoney(BaseModel):
         null=True,
         blank=True,
         related_name='load_money_transactions',
+    )
+    payment_gateway = models.ForeignKey(
+        'admin_panel.PaymentGateway',
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name='load_money_transactions',
+        help_text='Gateway rail used for this pay-in attempt (credentials for verify).',
     )
     amount = models.DecimalField(
         max_digits=18,

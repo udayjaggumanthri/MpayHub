@@ -221,6 +221,22 @@ const ReportTransactionDetailModal = ({ open, onClose, variant, record }) => {
                       <dd className="font-semibold text-gray-900">{record.detail?.paymentGatewayName || '—'}</dd>
                     </div>
                     <div>
+                      <dt className="text-gray-500">Opening balance (before pay-in)</dt>
+                      <dd className="font-semibold text-gray-900">
+                        {record.detail?.openingBalance != null && record.detail?.openingBalance !== ''
+                          ? formatCurrency(parseFloat(record.detail.openingBalance) || 0)
+                          : '—'}
+                      </dd>
+                    </div>
+                    <div>
+                      <dt className="text-gray-500">Closing balance (after pay-in)</dt>
+                      <dd className="font-semibold text-gray-900">
+                        {record.detail?.closingBalance != null && record.detail?.closingBalance !== ''
+                          ? formatCurrency(parseFloat(record.detail.closingBalance) || 0)
+                          : '—'}
+                      </dd>
+                    </div>
+                    <div>
                       <dt className="text-gray-500">Package code</dt>
                       <dd className="font-semibold text-gray-900">{record.detail?.packageCode || '—'}</dd>
                     </div>

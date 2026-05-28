@@ -58,7 +58,8 @@ const isPublicAuthApiUrl = (config) => {
     url.includes('/auth/login') ||
     url.includes('/auth/send-otp') ||
     url.includes('/auth/verify-otp') ||
-    url.includes('/auth/reset-password')
+    url.includes('/auth/reset-password') ||
+    url.includes('/auth/reset-mpin')
   );
 };
 
@@ -352,6 +353,45 @@ export const authAPI = {
   },
 
   /**
+   * Send OTP for mandatory first-login password reset (authenticated).
+   * POST /api/auth/me/send-password-reset-otp/
+   */
+  sendForcedPasswordResetOtp: async (channel = 'sms') => {
+    try {
+      const response = await apiClient.post('/auth/me/send-password-reset-otp/', {
+        channel: channel === 'email' ? 'email' : 'sms',
+      });
+      return extractData(response);
+    } catch (error) {
+      return handleError(error);
+    }
+  },
+
+  /**
+   * Complete mandatory first-login password reset (authenticated).
+   * POST /api/auth/me/complete-password-reset/
+   */
+  completeForcedPasswordReset: async ({ otp, new_password, confirm_password }) => {
+    try {
+      const response = await apiClient.post('/auth/me/complete-password-reset/', {
+        otp: String(otp ?? '').trim(),
+        new_password,
+        confirm_password,
+      });
+      const result = extractData(response);
+      if (result.success && result.data?.user) {
+        sessionStorage.setItem(
+          'mpayhub_user',
+          JSON.stringify(normalizeAuthUser(result.data.user))
+        );
+      }
+      return result;
+    } catch (error) {
+      return handleError(error);
+    }
+  },
+
+  /**
    * Reset Password
    * POST /api/auth/reset-password/
    */
@@ -362,6 +402,24 @@ export const authAPI = {
         otp: String(otp ?? '').trim(),
         new_password: newPassword,
         confirm_password: confirmPassword,
+      });
+      return extractData(response);
+    } catch (error) {
+      return handleError(error);
+    }
+  },
+
+  /**
+   * Reset MPIN (forgot MPIN flow)
+   * POST /api/auth/reset-mpin/
+   */
+  resetMPIN: async (phone, otp, newMpin, confirmMpin) => {
+    try {
+      const response = await apiClient.post('/auth/reset-mpin/', {
+        phone: String(phone ?? '').trim(),
+        otp: String(otp ?? '').trim(),
+        new_mpin: newMpin,
+        confirm_mpin: confirmMpin,
       });
       return extractData(response);
     } catch (error) {
@@ -622,6 +680,30 @@ export const usersAPI = {
   },
 
   /**
+   * GET /api/users/{id}/wallets/ — Admin only; read wallet balances for a user.
+   */
+  getUserWallets: async (userId) => {
+    try {
+      const response = await apiClient.get(`/users/${userId}/wallets/`);
+      return extractData(response);
+    } catch (error) {
+      return handleError(error);
+    }
+  },
+
+  /**
+   * PATCH /api/users/{id}/contact/ — Admin only; update another user's email and mobile.
+   */
+  updateUserContact: async (userId, { email, phone }) => {
+    try {
+      const response = await apiClient.patch(`/users/${userId}/contact/`, { email, phone });
+      return extractData(response);
+    } catch (error) {
+      return handleError(error);
+    }
+  },
+
+  /**
    * PATCH /api/users/{id}/role/ — Admin only; hierarchy-validated role change.
    */
   updateUserRole: async (userId, role) => {
@@ -802,6 +884,19 @@ export const fundManagementAPI = {
   },
 
   /**
+   * Gateways linked to a pay-in package (checkout rails).
+   * GET /api/fund-management/pay-in/packages/{packageId}/gateways/
+   */
+  listPayInPackageGateways: async (packageId) => {
+    try {
+      const response = await apiClient.get(`/fund-management/pay-in/packages/${packageId}/gateways/`);
+      return extractData(response);
+    } catch (error) {
+      return handleError(error);
+    }
+  },
+
+  /**
    * Pay-in fee quote
    * POST /api/fund-management/pay-in/quote/
    */
@@ -821,13 +916,17 @@ export const fundManagementAPI = {
    * Create pay-in order (Razorpay or mock)
    * POST /api/fund-management/pay-in/create-order/
    */
-  payInCreateOrder: async ({ packageId, amount, contactId }) => {
+  payInCreateOrder: async ({ packageId, amount, contactId, gatewayId }) => {
     try {
-      const response = await apiClient.post('/fund-management/pay-in/create-order/', {
+      const body = {
         package_id: packageId,
         amount,
         contact_id: contactId,
-      });
+      };
+      if (gatewayId != null && gatewayId !== '') {
+        body.gateway_id = gatewayId;
+      }
+      const response = await apiClient.post('/fund-management/pay-in/create-order/', body);
       return extractData(response);
     } catch (error) {
       return handleError(error);
@@ -2065,6 +2164,19 @@ export const adminAPI = {
   },
 
   /**
+   * Get one Pay-in Package (Admin) — includes package_gateways for edit modal.
+   * GET /api/admin/pay-in-packages/{id}/
+   */
+  getPayInPackage: async (packageId) => {
+    try {
+      const response = await apiClient.get(`/admin/pay-in-packages/${packageId}/`);
+      return extractData(response);
+    } catch (error) {
+      return handleError(error);
+    }
+  },
+
+  /**
    * Create Pay-in Package (Admin)
    * POST /api/admin/pay-in-packages/
    */
@@ -2333,6 +2445,50 @@ export const adminAPI = {
     try {
       const response = await apiClient.post(
         `/admin/sms-templates/${encodeURIComponent(eventKey)}/test/`,
+        payload
+      );
+      return extractData(response);
+    } catch (error) {
+      return handleError(error);
+    }
+  },
+
+  listEmailTemplates: async () => {
+    try {
+      const response = await apiClient.get('/admin/email-templates/');
+      return extractData(response);
+    } catch (error) {
+      return handleError(error);
+    }
+  },
+
+  getEmailTemplate: async (eventKey) => {
+    try {
+      const response = await apiClient.get(
+        `/admin/email-templates/${encodeURIComponent(eventKey)}/`
+      );
+      return extractData(response);
+    } catch (error) {
+      return handleError(error);
+    }
+  },
+
+  updateEmailTemplate: async (eventKey, payload) => {
+    try {
+      const response = await apiClient.put(
+        `/admin/email-templates/${encodeURIComponent(eventKey)}/`,
+        payload
+      );
+      return extractData(response);
+    } catch (error) {
+      return handleError(error);
+    }
+  },
+
+  testEmailTemplate: async (eventKey, payload) => {
+    try {
+      const response = await apiClient.post(
+        `/admin/email-templates/${encodeURIComponent(eventKey)}/test/`,
         payload
       );
       return extractData(response);

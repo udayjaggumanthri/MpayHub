@@ -16,6 +16,28 @@ code {
     monospace;
 }
 
+/* Gmail-style HTML email editor */
+.gmail-editor-body:empty::before {
+  content: attr(data-placeholder);
+  color: #9ca3af;
+  pointer-events: none;
+}
+
+.gmail-editor-body:focus {
+  outline: none;
+}
+
+.gmail-editor-body ul,
+.gmail-editor-body ol {
+  margin: 0.5em 0;
+  padding-left: 1.5em;
+}
+
+.gmail-editor-body a {
+  color: #2563eb;
+  text-decoration: underline;
+}
+
 /* Smooth scrolling */
 * {
   scroll-behavior: smooth;

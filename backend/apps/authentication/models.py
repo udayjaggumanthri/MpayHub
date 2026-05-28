@@ -70,6 +70,11 @@ class User(AbstractUser, TimestampedModel):
         default=False,
         help_text='When is_active=False, user may still log in for pay-in (load money) only.',
     )
+    must_change_password = models.BooleanField(
+        default=False,
+        db_index=True,
+        help_text='User must complete OTP password reset before using the portal (onboarding).',
+    )
     last_login = models.DateTimeField(null=True, blank=True)
     
     USERNAME_FIELD = 'phone'
@@ -106,6 +111,7 @@ class OTP(TimestampedModel):
     """
     PURPOSE_CHOICES = [
         ('password-reset', 'Password Reset'),
+        ('mpin-reset', 'MPIN Reset'),
         ('aadhaar-verification', 'Aadhaar Verification'),
     ]
     

@@ -669,6 +669,9 @@ def register_complaint(*, user, txn_ref_id: str, complaint_desc: str, complaint_
         billavenue_request_id=last_billavenue_request_id,
         raw_payload=resp,
     )
+    from apps.bbps.notifications import notify_complaint_registered
+
+    notify_complaint_registered(c)
     return c
 
 

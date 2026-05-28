@@ -40,7 +40,7 @@ SMS_EVENT_CATALOG = [
         'event_key': 'auth.otp.mpin_reset',
         'module': 'auth',
         'label': 'MPIN reset OTP',
-        'description': 'Future: MPIN reset OTP via SMS.',
+        'description': 'OTP sent via SMS when user resets MPIN (forgot MPIN flow).',
         'variable_schema': [
             {'name': 'otp', 'required': True, 'description': 'OTP code'},
             {'name': 'expiry_minutes', 'required': True, 'description': 'OTP validity in minutes'},

@@ -1,18 +1,19 @@
 """
-Transactional email via admin-managed SMTP (SmtpConfig).
+Transactional email via admin-managed SMTP (SmtpConfig) and template dispatch.
 """
 from __future__ import annotations
 
 import logging
+import uuid
 
 from django.conf import settings
 from django.core.mail import EmailMultiAlternatives, get_connection
+from django.utils.html import strip_tags
 
 from apps.admin_panel.models import SmtpConfig
 
 logger = logging.getLogger(__name__)
 
-# Always use real SMTP for admin-managed config (ignore settings.EMAIL_BACKEND, e.g. console in development).
 SMTP_BACKEND = 'django.core.mail.backends.smtp.EmailBackend'
 SMTP_TIMEOUT_SECONDS = 30
 
@@ -68,24 +69,35 @@ def send_email(
 
     try:
         connection = _connection_from_config(config)
+        from_addr = config.from_email.strip()
+        from_name = getattr(settings, 'EMAIL_NOTIFICATION_FROM_NAME', 'mPayHub')
+        from_header = f'{from_name} <{from_addr}>' if from_name else from_addr
+        plain = body_plain or strip_tags(body_html or '') or subject
         msg = EmailMultiAlternatives(
             subject=subject,
-            body=body_plain,
-            from_email=config.from_email.strip(),
+            body=plain,
+            from_email=from_header,
             to=[to],
             connection=connection,
+            reply_to=[from_addr],
+            headers={
+                'X-Mailer': 'mPayHub',
+                'Message-ID': f'<mpayhub.{uuid.uuid4().hex}@mpayhub.in>',
+            },
         )
         if body_html:
             msg.attach_alternative(body_html, 'text/html')
         sent_count = msg.send(fail_silently=False)
         if not sent_count:
             raise EmailDeliveryError('SMTP server did not accept the message.')
+        domain = to.split('@')[-1] if '@' in to else '?'
         logger.info(
-            'SMTP sent host=%s port=%s from=%s to=%s',
+            'SMTP sent host=%s port=%s from=%s to=%s***@%s',
             config.host,
             config.port,
             config.from_email,
-            to[:3] + '***',
+            to[:3],
+            domain,
         )
     except EmailDeliveryError:
         raise
@@ -126,17 +138,69 @@ def _smtp_error_hint(exc: Exception, config: SmtpConfig) -> str:
     return ''
 
 
-def send_password_reset_otp_email(*, to_email: str, otp_code: str) -> None:
+def _legacy_auth_otp_email(*, purpose: str, to_email: str, otp_code: str) -> None:
     expiry = getattr(settings, 'OTP_EXPIRY_MINUTES', 5)
-    subject = 'mPayhub password reset verification code'
+    if purpose == 'mpin-reset':
+        subject = 'mPayhub MPIN reset verification code'
+        label = 'MPIN reset'
+    else:
+        subject = 'mPayhub password reset verification code'
+        label = 'password reset'
     body_plain = (
-        f'Your password reset verification code is: {otp_code}\n\n'
+        f'Your {label} verification code is: {otp_code}\n\n'
         f'This code expires in {expiry} minutes.\n\n'
         'If you did not request this, ignore this email.'
     )
     body_html = (
-        f'<p>Your password reset verification code is: <strong>{otp_code}</strong></p>'
+        f'<p>Your {label} verification code is: <strong>{otp_code}</strong></p>'
         f'<p>This code expires in {expiry} minutes.</p>'
         '<p>If you did not request this, ignore this email.</p>'
     )
     send_email(to_email=to_email, subject=subject, body_plain=body_plain, body_html=body_html)
+
+
+def send_auth_otp_email(*, purpose: str, to_email: str, otp_code: str) -> None:
+    """Dispatch admin-configurable auth OTP email (password or MPIN reset)."""
+    from apps.authentication.constants import AUTH_OTP_PURPOSE_TO_EMAIL_EVENT
+    from apps.notifications.services.email_dispatch import EmailNotificationService
+
+    event_key = AUTH_OTP_PURPOSE_TO_EMAIL_EVENT.get(purpose)
+    if not event_key:
+        raise EmailDeliveryError(f'Email OTP is not supported for purpose: {purpose}')
+
+    expiry = getattr(settings, 'OTP_EXPIRY_MINUTES', 5)
+    result = EmailNotificationService.dispatch(
+        event_key,
+        to_email,
+        {'otp': otp_code, 'expiry_minutes': str(expiry)},
+        idempotency_key=f'{event_key}:{to_email}:{otp_code}',
+        raise_on_failure=False,
+    )
+    if result.get('status') == 'sent':
+        return
+    if result.get('skip_reason') in (
+        'event_disabled',
+        'template_not_seeded',
+        'empty_template',
+    ):
+        _legacy_auth_otp_email(purpose=purpose, to_email=to_email, otp_code=otp_code)
+        return
+    if result.get('status') == 'failed':
+        raise EmailDeliveryError(result.get('error') or 'Failed to send verification email')
+    if result.get('skip_reason') == 'smtp_disabled':
+        raise EmailDeliveryError(
+            'Email is not configured. Ask an administrator to set up SMTP in Admin settings.'
+        )
+    if result.get('skip_reason') == 'duplicate':
+        return
+    if result.get('skip_reason') in ('no_email', 'invalid_email'):
+        raise EmailDeliveryError('Recipient email is required.')
+    _legacy_auth_otp_email(purpose=purpose, to_email=to_email, otp_code=otp_code)
+
+
+def send_password_reset_otp_email(*, to_email: str, otp_code: str) -> None:
+    send_auth_otp_email(purpose='password-reset', to_email=to_email, otp_code=otp_code)
+
+
+def send_mpin_reset_otp_email(*, to_email: str, otp_code: str) -> None:
+    send_auth_otp_email(purpose='mpin-reset', to_email=to_email, otp_code=otp_code)

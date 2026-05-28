@@ -394,7 +394,7 @@ def finalize_payin_success(
     """
     Idempotent: credit main + commissions after payment confirmed (webhook or mock).
     """
-    lm = LoadMoney.objects.select_for_update().get(pk=load_money.pk)
+    lm = LoadMoney.objects.select_for_update().select_related('user').get(pk=load_money.pk)
     if lm.status == 'SUCCESS':
         logger.info(
             'payin finalize duplicate skip (already SUCCESS)',
@@ -407,6 +407,7 @@ def finalize_payin_success(
                 'status': lm.status,
             },
         )
+        _notify_payin_success(lm)
         return lm
 
     if provider_payment_id:
@@ -496,21 +497,68 @@ def finalize_payin_success(
     if package:
         _distribute_payin_commissions(lm, package, gross, ref)
 
+    _notify_payin_success(lm, reference=ref, gross=gross)
+
+    return lm
+
+
+def _payin_success_context(lm, *, reference: str, gross) -> dict:
+    """Build notification context with a display-friendly amount."""
+    from decimal import Decimal
+
+    amount_val = gross if gross is not None else lm.amount
     try:
+        amount_display = f'{Decimal(str(amount_val)):.2f}'
+    except Exception:
+        amount_display = str(amount_val)
+    ref = reference or lm.gateway_transaction_id or lm.provider_order_id or lm.transaction_id
+    return {
+        'amount': amount_display,
+        'reference': ref or lm.transaction_id,
+        'transaction_id': lm.transaction_id,
+    }
+
+
+def _notify_payin_success(lm, *, reference: str | None = None, gross=None) -> None:
+    """SMS + email for successful pay-in. Safe to call again if email was skipped earlier."""
+    try:
+        from apps.notifications.email_helpers import dispatch_to_email, payin_success_recipient_email
         from apps.notifications.services.dispatch import SmsNotificationService
 
+        ref = reference or lm.gateway_transaction_id or lm.provider_order_id or lm.transaction_id
+        gross_val = gross if gross is not None else lm.amount
+        ctx = _payin_success_context(lm, reference=ref, gross=gross_val)
+        idem = f'payin:{lm.transaction_id}:SUCCESS'
         SmsNotificationService.dispatch(
             'payin.success',
             lm.user.phone,
-            {
-                'amount': str(gross),
-                'reference': ref or lm.transaction_id,
-                'transaction_id': lm.transaction_id,
-            },
+            ctx,
             user_id=lm.user_id,
-            idempotency_key=f'payin:{lm.transaction_id}:SUCCESS',
+            idempotency_key=idem,
         )
+        to_email = payin_success_recipient_email(lm)
+        if not to_email:
+            logger.info(
+                '[EMAIL] payin.success skipped (no profile email) txn=%s user_id=%s',
+                lm.transaction_id,
+                lm.user_id,
+            )
+        else:
+            logger.info(
+                '[EMAIL] payin.success recipient txn=%s user_id=%s to_domain=%s',
+                lm.transaction_id,
+                lm.user_id,
+                to_email.split('@')[-1] if '@' in to_email else '?',
+            )
+            dispatch_to_email(
+                'payin.success',
+                to_email,
+                ctx,
+                user_id=lm.user_id,
+                idempotency_key=f'{idem}:{to_email.lower()}',
+            )
     except Exception:
-        pass
-
-    return lm
+        logger.exception(
+            'payin success notification failed txn=%s',
+            getattr(lm, 'transaction_id', ''),
+        )

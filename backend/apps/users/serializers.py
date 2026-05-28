@@ -6,7 +6,7 @@ from rest_framework import serializers
 from apps.authentication.models import User
 from apps.users.services import assert_admin_may_deactivate_user
 from apps.users.models import UserProfile, KYC, UserHierarchy
-from apps.users.services import build_user_lineage
+from apps.users.services import build_user_lineage, build_point_of_contact
 from apps.core.utils import (
     validate_phone, validate_email, validate_pan, validate_aadhaar,
 )
@@ -265,7 +265,7 @@ class UserUpdateSerializer(serializers.ModelSerializer):
         request = self.context.get('request')
         user = getattr(request, 'user', None) if request else None
         if user and user.is_authenticated and getattr(user, 'role', None) != 'Admin':
-            for field in ('password', 'mpin', 'is_active'):
+            for field in ('password', 'mpin', 'is_active', 'email'):
                 if field in attrs:
                     raise serializers.ValidationError(
                         {field: 'Only administrators may change this field.'}
@@ -314,6 +314,36 @@ class UserUpdateSerializer(serializers.ModelSerializer):
         if mpin:
             instance.set_mpin(mpin)
         
+        return instance
+
+
+class AdminUserContactSerializer(serializers.ModelSerializer):
+    """Admin-only: update login mobile and email on an existing user."""
+
+    class Meta:
+        model = User
+        fields = ['email', 'phone']
+
+    def validate_phone(self, value):
+        phone = str(value).strip()
+        if not validate_phone(phone):
+            raise serializers.ValidationError('Invalid phone number format.')
+        if User.objects.filter(phone=phone).exclude(pk=self.instance.pk).exists():
+            raise serializers.ValidationError('Phone number already registered.')
+        return phone
+
+    def validate_email(self, value):
+        email = str(value).strip()
+        if not validate_email(email):
+            raise serializers.ValidationError('Invalid email format.')
+        if User.objects.filter(email=email).exclude(pk=self.instance.pk).exists():
+            raise serializers.ValidationError('Email already registered.')
+        return email
+
+    def update(self, instance, validated_data):
+        instance.email = validated_data['email']
+        instance.phone = validated_data['phone']
+        instance.save(update_fields=['email', 'phone', 'updated_at'])
         return instance
 
 
@@ -399,6 +429,7 @@ class UserDetailSerializer(serializers.ModelSerializer):
     profile = serializers.SerializerMethodField()
     kyc = serializers.SerializerMethodField()
     hierarchy_lineage = serializers.SerializerMethodField()
+    point_of_contact = serializers.SerializerMethodField()
     mpin_configured = serializers.SerializerMethodField()
 
     class Meta:
@@ -407,9 +438,20 @@ class UserDetailSerializer(serializers.ModelSerializer):
             'id', 'user_id', 'phone', 'email', 'first_name', 'last_name',
             'role', 'is_active', 'is_restricted', 'payments_locked',
             'pay_in_allowed_when_disabled', 'profile', 'kyc', 'hierarchy_lineage',
-            'mpin_configured', 'created_at', 'updated_at',
+            'point_of_contact', 'mpin_configured', 'created_at', 'updated_at',
         ]
-        read_only_fields = ['id', 'user_id', 'created_at', 'updated_at', 'hierarchy_lineage']
+        read_only_fields = [
+            'id', 'user_id', 'created_at', 'updated_at',
+            'hierarchy_lineage', 'point_of_contact',
+        ]
+
+    def _viewer_is_admin(self):
+        request = self.context.get('request')
+        return (
+            request
+            and getattr(request.user, 'is_authenticated', False)
+            and getattr(request.user, 'role', None) == 'Admin'
+        )
 
     def get_mpin_configured(self, obj):
         return bool(obj.mpin_hash)
@@ -433,7 +475,14 @@ class UserDetailSerializer(serializers.ModelSerializer):
         return KYCMaskedSerializer(kyc).data
 
     def get_hierarchy_lineage(self, obj):
+        if not self._viewer_is_admin():
+            return None
         return build_user_lineage(obj)
+
+    def get_point_of_contact(self, obj):
+        if self._viewer_is_admin():
+            return None
+        return build_point_of_contact(obj)
 
 
 class PANVerificationSerializer(serializers.Serializer):

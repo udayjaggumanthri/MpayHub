@@ -15,6 +15,7 @@ from apps.users.serializers import (
     UserRoleChangeSerializer,
     UserActiveStatusSerializer,
     UserAccessControlsSerializer,
+    AdminUserContactSerializer,
     PANVerificationSerializer,
     AadhaarOTPSerializer,
     AadhaarOTPVerificationSerializer,
@@ -27,8 +28,10 @@ from apps.users.services import (
     send_aadhaar_otp,
     verify_aadhaar_otp,
     get_subordinates,
+    get_viewable_user_ids,
 )
 from apps.core.exceptions import InvalidUserRole
+from apps.wallets.views import build_wallet_summary
 
 
 class UserViewSet(viewsets.ModelViewSet):
@@ -57,9 +60,7 @@ class UserViewSet(viewsets.ModelViewSet):
         if user.role == 'Admin':
             queryset = User.objects.all()
         else:
-            # Get subordinates
-            subordinates = get_subordinates(user)
-            queryset = User.objects.filter(id__in=[u.id for u in subordinates])
+            queryset = User.objects.filter(id__in=get_viewable_user_ids(user))
         
         # Filter by role if provided
         role = self.request.query_params.get('role')
@@ -123,6 +124,29 @@ class UserViewSet(viewsets.ModelViewSet):
         if serializer.is_valid():
             try:
                 user, temporary_password = create_user(serializer.validated_data, request.user)
+                try:
+                    from apps.notifications.email_helpers import login_url_default, user_display_name
+                    from apps.notifications.services.email_dispatch import EmailNotificationService
+
+                    to_email = (user.email or '').strip()
+                    if to_email:
+                        EmailNotificationService.dispatch(
+                            'onboarding.user_created',
+                            to_email,
+                            {
+                                'name': user_display_name(user),
+                                'user_id': user.user_id or '',
+                                'phone': user.phone or '',
+                                'email': to_email,
+                                'temporary_password': temporary_password or '',
+                                'role': user.role or '',
+                                'login_url': login_url_default(),
+                            },
+                            user_id=user.pk,
+                            idempotency_key=f'onboarding:{user.pk}',
+                        )
+                except Exception:
+                    pass
                 user_data = UserDetailSerializer(user, context=self.get_serializer_context()).data
                 data = {'user': user_data}
                 if temporary_password:
@@ -130,8 +154,9 @@ class UserViewSet(viewsets.ModelViewSet):
                 msg = 'User created successfully. The user must complete KYC and MPIN after first login.'
                 if temporary_password:
                     msg = (
-                        'User created successfully. Share the temporary password securely; '
-                        'the user must complete KYC and MPIN after first login.'
+                        'User created successfully. A unique temporary password was generated '
+                        '(emailed when configured). The user must reset their password via OTP on '
+                        'first login, then complete KYC and MPIN.'
                     )
                 return Response({
                     'success': True,
@@ -323,6 +348,82 @@ class UserViewSet(viewsets.ModelViewSet):
             'message': 'Subordinates retrieved successfully',
             'errors': []
         }, status=status.HTTP_200_OK)
+
+    @action(detail=True, methods=['get'], url_path='wallets')
+    def user_wallets(self, request, pk=None):
+        """Admin-only: read wallet balances for any user."""
+        if getattr(request.user, 'role', None) != 'Admin':
+            return Response(
+                {
+                    'success': False,
+                    'data': None,
+                    'message': 'Only administrators may view user wallet balances.',
+                    'errors': [],
+                },
+                status=status.HTTP_403_FORBIDDEN,
+            )
+        instance = self.get_object()
+        return Response(
+            {
+                'success': True,
+                'data': {'wallets': build_wallet_summary(instance)},
+                'message': 'User wallets retrieved successfully',
+                'errors': [],
+            },
+            status=status.HTTP_200_OK,
+        )
+
+    @action(detail=True, methods=['patch'], url_path='contact')
+    def update_contact(self, request, pk=None):
+        """Admin-only: update another user's mobile (login) and email."""
+        if getattr(request.user, 'role', None) != 'Admin':
+            return Response(
+                {
+                    'success': False,
+                    'data': None,
+                    'message': 'Only administrators may update user contact details.',
+                    'errors': [],
+                },
+                status=status.HTTP_403_FORBIDDEN,
+            )
+        instance = self.get_object()
+        if instance.pk == request.user.pk:
+            return Response(
+                {
+                    'success': False,
+                    'data': None,
+                    'message': 'You cannot change your own contact details here. Ask another administrator.',
+                    'errors': [],
+                },
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        serializer = AdminUserContactSerializer(
+            instance,
+            data=request.data,
+            partial=False,
+            context=self.get_serializer_context(),
+        )
+        if not serializer.is_valid():
+            return Response(
+                {
+                    'success': False,
+                    'data': None,
+                    'message': 'Invalid contact details',
+                    'errors': serializer.errors,
+                },
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        user = serializer.save()
+        user_data = UserDetailSerializer(user, context=self.get_serializer_context()).data
+        return Response(
+            {
+                'success': True,
+                'data': {'user': user_data},
+                'message': 'Contact details updated successfully',
+                'errors': [],
+            },
+            status=status.HTTP_200_OK,
+        )
 
     @action(detail=True, methods=['patch'], url_path='role')
     def change_role(self, request, pk=None):

@@ -47,6 +47,32 @@ from apps.fund_management.services import (
 logger = logging.getLogger(__name__)
 
 
+@api_view(['GET'])
+@permission_classes([IsAuthenticated])
+def pay_in_package_gateways_view(request, package_id):
+    """GET /api/fund-management/pay-in/packages/<id>/gateways/ — checkout rails for a package."""
+    assert_can_pay_in(request.user)
+    accessible = get_user_accessible_packages(request.user)
+    pkg = accessible.filter(pk=package_id).first()
+    if not pkg:
+        return Response(
+            {'success': False, 'data': None, 'message': 'Package not found', 'errors': []},
+            status=status.HTTP_404_NOT_FOUND,
+        )
+    from apps.fund_management.package_gateways import serialize_package_gateways
+
+    gateways = serialize_package_gateways(pkg)
+    return Response(
+        {
+            'success': True,
+            'data': {'package_id': pkg.pk, 'gateways': gateways},
+            'message': 'OK',
+            'errors': [],
+        },
+        status=status.HTTP_200_OK,
+    )
+
+
 @api_view(['POST'])
 @permission_classes([IsAuthenticated])
 def pay_in_quote_view(request):
@@ -101,6 +127,7 @@ def pay_in_create_order_view(request):
             package_id=ser.validated_data['package_id'],
             gross=ser.validated_data['amount'],
             contact_id=ser.validated_data['contact_id'],
+            gateway_id=ser.validated_data.get('gateway_id'),
         )
     except ValueError as e:
         return Response(
@@ -342,7 +369,7 @@ def load_money_list_view(request):
 
     transactions = (
         LoadMoney.objects.filter(user=request.user)
-        .select_related('package', 'package__payment_gateway')
+        .select_related('package', 'package__payment_gateway', 'payment_gateway')
         .order_by('-created_at')
     )
 
@@ -559,10 +586,9 @@ def user_packages_view(request, user_id):
     GET /api/fund-management/packages/user/<user_id>/
     
     Returns packages assigned to a specific user.
-    Only Admin or the user's upline can view this.
+    Admin only (user profile package management).
     """
     from apps.authentication.models import User
-    from apps.fund_management.services import is_user_in_downline
 
     try:
         target_user = User.objects.get(pk=user_id, is_active=True)
@@ -573,16 +599,9 @@ def user_packages_view(request, user_id):
         )
 
     try:
-        requester = request.user
-        requester_role = (getattr(requester, 'role', None) or '').strip()
+        requester_role = (getattr(request.user, 'role', None) or '').strip()
 
-        # Permission check: Admin, self, or upline
-        can_view = (
-            requester_role == 'Admin'
-            or requester.pk == target_user.pk
-            or is_user_in_downline(requester, target_user)
-        )
-        if not can_view:
+        if requester_role != 'Admin':
             return Response(
                 {'success': False, 'data': None, 'message': 'Permission denied.', 'errors': []},
                 status=status.HTTP_403_FORBIDDEN,

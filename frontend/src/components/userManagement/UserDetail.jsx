@@ -1,7 +1,8 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { useParams, useNavigate, Link } from 'react-router-dom';
 import { usersAPI, fundManagementAPI } from '../../services/api';
-import { formatUserId } from '../../utils/formatters';
+import { formatUserId, formatCurrency } from '../../utils/formatters';
+import { validateEmail, validatePhone } from '../../utils/validators';
 import { useAuth } from '../../context/AuthContext';
 import {
   FaArrowLeft,
@@ -9,8 +10,6 @@ import {
   FaBuilding,
   FaPhone,
   FaEnvelope,
-  FaChevronRight,
-  FaSitemap,
   FaUserCheck,
   FaUserSlash,
   FaCircleCheck,
@@ -24,11 +23,15 @@ import {
   FaIdCard,
   FaCalendar,
   FaPenToSquare,
+  FaWallet,
+  FaArrowsRotate,
 } from 'react-icons/fa6';
 import Button from '../common/Button';
 import Card from '../common/Card';
 import FeedbackModal from '../common/FeedbackModal';
 import AccessStatusBadges from './AccessStatusBadges';
+import HierarchyCard from './HierarchyCard';
+import PointOfContactCard from './PointOfContactCard';
 
 const ADMIN_ASSIGNABLE_ROLES = [
   'Admin',
@@ -67,6 +70,12 @@ const UserDetail = () => {
   const [roleSaving, setRoleSaving] = useState(false);
   const [roleMessage, setRoleMessage] = useState('');
 
+  const [contactEditing, setContactEditing] = useState(false);
+  const [contactDraft, setContactDraft] = useState({ email: '', phone: '' });
+  const [contactErrors, setContactErrors] = useState({});
+  const [contactSaving, setContactSaving] = useState(false);
+  const [contactMessage, setContactMessage] = useState('');
+
   const [activeStatusSaving, setActiveStatusSaving] = useState(false);
   const [activeStatusMessage, setActiveStatusMessage] = useState('');
   const [accessControlsSaving, setAccessControlsSaving] = useState(false);
@@ -81,6 +90,10 @@ const UserDetail = () => {
   const [packageAssigning, setPackageAssigning] = useState(null);
   const [packageMessage, setPackageMessage] = useState('');
 
+  const [userWallets, setUserWallets] = useState({ main: 0, commission: 0, bbps: 0, profit: 0 });
+  const [walletsLoading, setWalletsLoading] = useState(false);
+  const [walletsError, setWalletsError] = useState('');
+
   const loadUser = useCallback(async () => {
     setLoading(true);
     setError('');
@@ -91,7 +104,14 @@ const UserDetail = () => {
         setUser(u);
         setRoleDraft(u.role || '');
       } else {
-        setError(res.message || 'User not found.');
+        const notFound =
+          res.status === 404 ||
+          /not found/i.test(res.message || '');
+        setError(
+          notFound
+            ? 'This profile is not available. You can view your team members and their points of contact only.'
+            : res.message || 'User not found.',
+        );
       }
     } catch (err) {
       setError('Failed to load user details.');
@@ -101,8 +121,33 @@ const UserDetail = () => {
     }
   }, [userId]);
 
+  const loadUserWallets = useCallback(async () => {
+    if (!userId || !isAdmin) return;
+    setWalletsLoading(true);
+    setWalletsError('');
+    try {
+      const res = await usersAPI.getUserWallets(userId);
+      if (res.success && res.data?.wallets) {
+        const w = res.data.wallets;
+        setUserWallets({
+          main: parseFloat(w.main?.balance || w.main || 0) || 0,
+          commission: parseFloat(w.commission?.balance || w.commission || 0) || 0,
+          bbps: parseFloat(w.bbps?.balance || w.bbps || 0) || 0,
+          profit: parseFloat(w.profit?.balance || w.profit || 0) || 0,
+        });
+      } else {
+        setWalletsError(res.message || 'Failed to load wallet balances.');
+      }
+    } catch (err) {
+      setWalletsError('Failed to load wallet balances.');
+      console.error(err);
+    } finally {
+      setWalletsLoading(false);
+    }
+  }, [userId, isAdmin]);
+
   const loadUserPackages = useCallback(async () => {
-    if (!userId) return;
+    if (!userId || !isAdmin) return;
     setPackagesLoading(true);
     setPackageMessage('');
     try {
@@ -137,10 +182,16 @@ const UserDetail = () => {
   }, [loadUser]);
 
   useEffect(() => {
-    if (user) {
+    if (user && isAdmin) {
       loadUserPackages();
     }
-  }, [user, loadUserPackages]);
+  }, [user, loadUserPackages, isAdmin]);
+
+  useEffect(() => {
+    if (isAdmin && userId) {
+      loadUserWallets();
+    }
+  }, [isAdmin, userId, loadUserWallets]);
 
   const handleAssignPackage = async (packageId) => {
     setPackageAssigning(packageId);
@@ -196,6 +247,66 @@ const UserDetail = () => {
       setRoleMessage('Role update failed.');
     } finally {
       setRoleSaving(false);
+    }
+  };
+
+  const startContactEdit = () => {
+    setContactDraft({ email: user.email || '', phone: user.phone || '' });
+    setContactErrors({});
+    setContactMessage('');
+    setContactEditing(true);
+  };
+
+  const cancelContactEdit = () => {
+    setContactDraft({ email: user.email || '', phone: user.phone || '' });
+    setContactErrors({});
+    setContactMessage('');
+    setContactEditing(false);
+  };
+
+  const handleSaveContact = async () => {
+    if (!user?.id) return;
+    const errors = {};
+    const emailValidation = validateEmail(contactDraft.email);
+    if (!emailValidation.valid) {
+      errors.email = emailValidation.message;
+    }
+    const phoneValidation = validatePhone(contactDraft.phone);
+    if (!phoneValidation.valid) {
+      errors.phone = phoneValidation.message;
+    }
+    if (Object.keys(errors).length > 0) {
+      setContactErrors(errors);
+      return;
+    }
+    setContactSaving(true);
+    setContactErrors({});
+    setContactMessage('');
+    try {
+      const res = await usersAPI.updateUserContact(user.id, {
+        email: contactDraft.email.trim(),
+        phone: contactDraft.phone.trim(),
+      });
+      const u = res.data?.user ?? res.data;
+      if (res.success && u && u.id != null) {
+        setUser(u);
+        setContactDraft({ email: u.email || '', phone: u.phone || '' });
+        setContactMessage('Contact details updated successfully.');
+        setContactEditing(false);
+      } else {
+        setContactMessage(res.message || 'Failed to update contact details.');
+        if (res.errors && typeof res.errors === 'object') {
+          const apiErrors = {};
+          Object.entries(res.errors).forEach(([key, val]) => {
+            apiErrors[key] = Array.isArray(val) ? val[0] : String(val);
+          });
+          setContactErrors(apiErrors);
+        }
+      }
+    } catch {
+      setContactMessage('Failed to update contact details.');
+    } finally {
+      setContactSaving(false);
     }
   };
 
@@ -289,6 +400,8 @@ const UserDetail = () => {
   const kycRejected = kycStatus === 'rejected';
   const mpinOk = user.mpin_configured === true;
   const isSelf = String(user.id) === String(currentUserId);
+  const showCommissionWallet = user.role && user.role !== 'Retailer';
+  const showProfitWallet = user.role === 'Admin';
 
   return (
     <div className="min-h-[calc(100vh-6rem)] bg-gradient-to-b from-slate-50 via-white to-slate-50/80">
@@ -335,6 +448,34 @@ const UserDetail = () => {
                 </div>
               </div>
               <div className="p-6">
+                {isAdmin && !isSelf && (
+                  <div className="mb-6 flex flex-wrap items-center justify-between gap-3 rounded-xl border border-indigo-100 bg-indigo-50/50 px-4 py-3">
+                    <p className="text-sm text-indigo-900">
+                      {contactEditing
+                        ? 'Updating mobile changes how this user signs in. They will use the new number with their existing password or MPIN.'
+                        : 'Administrators can update this user\'s email and mobile number.'}
+                    </p>
+                    {!contactEditing ? (
+                      <Button variant="outline" size="sm" onClick={startContactEdit} icon={FaPenToSquare} iconPosition="left">
+                        Edit contact
+                      </Button>
+                    ) : (
+                      <div className="flex gap-2">
+                        <Button variant="outline" size="sm" onClick={cancelContactEdit} disabled={contactSaving}>
+                          Cancel
+                        </Button>
+                        <Button variant="primary" size="sm" onClick={handleSaveContact} disabled={contactSaving}>
+                          {contactSaving ? 'Saving...' : 'Save'}
+                        </Button>
+                      </div>
+                    )}
+                  </div>
+                )}
+                {contactMessage && (
+                  <p className={`mb-4 text-sm ${contactMessage.includes('success') ? 'text-emerald-700' : 'text-red-600'}`}>
+                    {contactMessage}
+                  </p>
+                )}
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-6">
                   <div>
                     <div className="flex items-center gap-2 text-slate-500 text-xs font-semibold uppercase tracking-wide mb-2">
@@ -348,14 +489,52 @@ const UserDetail = () => {
                       <FaEnvelope size={12} />
                       Email
                     </div>
-                    <p className="text-slate-900 break-all">{user.email || 'N/A'}</p>
+                    {contactEditing && isAdmin && !isSelf ? (
+                      <div>
+                        <input
+                          type="email"
+                          value={contactDraft.email}
+                          onChange={(e) => {
+                            setContactDraft((d) => ({ ...d, email: e.target.value }));
+                            setContactErrors((err) => ({ ...err, email: undefined }));
+                          }}
+                          className="w-full rounded-xl border border-slate-200 px-3 py-2 text-sm focus:border-indigo-300 focus:ring-2 focus:ring-indigo-500/20"
+                          autoComplete="off"
+                        />
+                        {contactErrors.email && (
+                          <p className="mt-1 text-xs text-red-600">{contactErrors.email}</p>
+                        )}
+                      </div>
+                    ) : (
+                      <p className="text-slate-900 break-all">{user.email || 'N/A'}</p>
+                    )}
                   </div>
                   <div>
                     <div className="flex items-center gap-2 text-slate-500 text-xs font-semibold uppercase tracking-wide mb-2">
                       <FaPhone size={12} />
                       Phone
                     </div>
-                    <p className="text-slate-900 font-mono tabular-nums">{user.phone || 'N/A'}</p>
+                    {contactEditing && isAdmin && !isSelf ? (
+                      <div>
+                        <input
+                          type="tel"
+                          inputMode="numeric"
+                          maxLength={10}
+                          value={contactDraft.phone}
+                          onChange={(e) => {
+                            setContactDraft((d) => ({ ...d, phone: e.target.value.replace(/\D/g, '').slice(0, 10) }));
+                            setContactErrors((err) => ({ ...err, phone: undefined }));
+                          }}
+                          className="w-full rounded-xl border border-slate-200 px-3 py-2 font-mono text-sm tabular-nums focus:border-indigo-300 focus:ring-2 focus:ring-indigo-500/20"
+                          autoComplete="off"
+                        />
+                        {contactErrors.phone && (
+                          <p className="mt-1 text-xs text-red-600">{contactErrors.phone}</p>
+                        )}
+                      </div>
+                    ) : (
+                      <p className="text-slate-900 font-mono tabular-nums">{user.phone || 'N/A'}</p>
+                    )}
                   </div>
                   {user.profile?.alternate_phone && (
                     <div>
@@ -369,6 +548,63 @@ const UserDetail = () => {
                 </div>
               </div>
             </Card>
+
+            {isAdmin && (
+              <Card>
+                <div className="px-6 py-4 border-b border-slate-100 flex items-center justify-between gap-3">
+                  <div className="flex items-center gap-3">
+                    <div className="h-10 w-10 rounded-xl bg-emerald-100 flex items-center justify-center">
+                      <FaWallet className="text-emerald-600" size={18} />
+                    </div>
+                    <h2 className="text-lg font-bold text-slate-900">Wallet Balances</h2>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={loadUserWallets}
+                    disabled={walletsLoading}
+                    className="flex items-center gap-1.5 text-sm font-medium text-indigo-600 hover:text-indigo-800 disabled:opacity-50"
+                  >
+                    <FaArrowsRotate className={walletsLoading ? 'animate-spin' : ''} size={14} />
+                    Refresh
+                  </button>
+                </div>
+                <div className="p-6">
+                  {walletsError && (
+                    <p className="mb-4 text-sm text-red-600">{walletsError}</p>
+                  )}
+                  <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+                    <div className="rounded-xl border border-blue-100 bg-blue-50/80 p-4 text-center">
+                      <p className="text-xs font-semibold uppercase tracking-wide text-slate-600 mb-1">Main Wallet</p>
+                      <p className="text-xl font-bold text-blue-700 tabular-nums">
+                        {walletsLoading ? '...' : formatCurrency(userWallets.main)}
+                      </p>
+                    </div>
+                    {showCommissionWallet && (
+                      <div className="rounded-xl border border-emerald-100 bg-emerald-50/80 p-4 text-center">
+                        <p className="text-xs font-semibold uppercase tracking-wide text-slate-600 mb-1">Commission Wallet</p>
+                        <p className="text-xl font-bold text-emerald-700 tabular-nums">
+                          {walletsLoading ? '...' : formatCurrency(userWallets.commission)}
+                        </p>
+                      </div>
+                    )}
+                    <div className="rounded-xl border border-amber-100 bg-amber-50/80 p-4 text-center">
+                      <p className="text-xs font-semibold uppercase tracking-wide text-slate-600 mb-1">BBPS Wallet</p>
+                      <p className="text-xl font-bold text-amber-700 tabular-nums">
+                        {walletsLoading ? '...' : formatCurrency(userWallets.bbps)}
+                      </p>
+                    </div>
+                    {showProfitWallet && (
+                      <div className="rounded-xl border border-violet-100 bg-violet-50/80 p-4 text-center">
+                        <p className="text-xs font-semibold uppercase tracking-wide text-slate-600 mb-1">Profit Wallet</p>
+                        <p className="text-xl font-bold text-violet-700 tabular-nums">
+                          {walletsLoading ? '...' : formatCurrency(userWallets.profit)}
+                        </p>
+                      </div>
+                    )}
+                  </div>
+                </div>
+              </Card>
+            )}
 
             {/* Business Information */}
             <Card>
@@ -396,101 +632,11 @@ const UserDetail = () => {
               </div>
             </Card>
 
-            {/* Hierarchy Section */}
-            {user.hierarchy_lineage && (
-              <Card>
-                <div className="px-6 py-4 border-b border-slate-100">
-                  <div className="flex items-center gap-3">
-                    <div className="h-10 w-10 rounded-xl bg-cyan-100 flex items-center justify-center">
-                      <FaSitemap className="text-cyan-600" size={18} />
-                    </div>
-                    <div>
-                      <h2 className="text-lg font-bold text-slate-900">Hierarchy</h2>
-                      <p className="text-sm text-slate-500">
-                        Path: <code className="font-mono text-indigo-600">{user.hierarchy_lineage.map_path || '—'}</code>
-                      </p>
-                    </div>
-                  </div>
-                </div>
-                <div className="p-6 space-y-6">
-                  {/* Hierarchy Chain */}
-                  <div className="flex flex-wrap items-center gap-2">
-                    {(user.hierarchy_lineage.upline || []).map((node, idx) => (
-                      <React.Fragment key={`${node.user_id}-${idx}`}>
-                        {idx > 0 && <FaChevronRight className="text-slate-300" size={12} />}
-                        <div className="inline-flex flex-col items-center rounded-xl border border-slate-200 bg-slate-50 px-3 py-2">
-                          <span className="font-mono text-sm font-bold text-indigo-700">{formatUserId(node.user_id)}</span>
-                          <span className="text-[10px] uppercase text-slate-500 mt-0.5">{node.role}</span>
-                        </div>
-                      </React.Fragment>
-                    ))}
-                    {(user.hierarchy_lineage.upline || []).length > 0 && (
-                      <FaChevronRight className="text-slate-300" size={12} />
-                    )}
-                    <div className="inline-flex flex-col items-center rounded-xl border-2 border-indigo-400 bg-indigo-50 px-3 py-2">
-                      <span className="font-mono text-sm font-bold text-indigo-800">
-                        {formatUserId(user.user_id || user.id)}
-                      </span>
-                      <span className="text-[10px] uppercase text-indigo-600 mt-0.5">{user.role}</span>
-                    </div>
-                  </div>
-
-                  {/* Direct Parent */}
-                  {(user.hierarchy_lineage.direct_parents || []).length > 0 && (
-                    <div>
-                      <p className="text-xs font-semibold uppercase tracking-wide text-slate-600 mb-3">Direct Parent</p>
-                      <div className="overflow-hidden rounded-xl border border-slate-200">
-                        <table className="w-full text-sm">
-                          <thead className="bg-slate-50">
-                            <tr>
-                              <th className="px-4 py-2.5 text-left text-xs font-semibold uppercase text-slate-500">User ID</th>
-                              <th className="px-4 py-2.5 text-left text-xs font-semibold uppercase text-slate-500">Role</th>
-                              <th className="px-4 py-2.5 text-left text-xs font-semibold uppercase text-slate-500">Name</th>
-                              <th className="px-4 py-2.5 text-left text-xs font-semibold uppercase text-slate-500">Linked</th>
-                            </tr>
-                          </thead>
-                          <tbody className="divide-y divide-slate-100">
-                            {user.hierarchy_lineage.direct_parents.map((p) => (
-                              <tr key={p.user_id} className="bg-white">
-                                <td className="px-4 py-3 font-mono text-indigo-700 font-medium">{formatUserId(p.user_id)}</td>
-                                <td className="px-4 py-3 text-slate-700">{p.role}</td>
-                                <td className="px-4 py-3 text-slate-900">{p.name}</td>
-                                <td className="px-4 py-3 text-slate-500 text-xs">
-                                  {p.linked_at ? new Date(p.linked_at).toLocaleDateString() : '—'}
-                                </td>
-                              </tr>
-                            ))}
-                          </tbody>
-                        </table>
-                      </div>
-                    </div>
-                  )}
-
-                  {/* Direct Reports */}
-                  {user.hierarchy_lineage.direct_reports_total > 0 && (
-                    <div>
-                      <p className="text-xs font-semibold uppercase tracking-wide text-slate-600 mb-3">
-                        Direct Reports ({user.hierarchy_lineage.direct_reports_total})
-                      </p>
-                      <div className="max-h-48 overflow-y-auto rounded-xl border border-slate-200 bg-white">
-                        <div className="divide-y divide-slate-100">
-                          {(user.hierarchy_lineage.direct_reports || []).map((c) => (
-                            <Link
-                              key={c.user_id}
-                              to={`/user-management/users/${c.id ?? c.user_id}`}
-                              className="flex items-center gap-4 px-4 py-3 hover:bg-slate-50 transition-colors"
-                            >
-                              <span className="font-mono text-sm font-semibold text-indigo-700">{formatUserId(c.user_id)}</span>
-                              <span className={`text-xs font-medium px-2 py-0.5 rounded-md ${roleBadgeClass(c.role)}`}>{c.role}</span>
-                              <span className="text-slate-700 text-sm">{c.name}</span>
-                            </Link>
-                          ))}
-                        </div>
-                      </div>
-                    </div>
-                  )}
-                </div>
-              </Card>
+            {isAdmin && user.hierarchy_lineage && (
+              <HierarchyCard lineage={user.hierarchy_lineage} user={user} />
+            )}
+            {!isAdmin && user.point_of_contact != null && (
+              <PointOfContactCard pointOfContact={user.point_of_contact} />
             )}
 
             {/* KYC Information */}
@@ -707,7 +853,7 @@ const UserDetail = () => {
               </Card>
             )}
 
-            {/* Pay-in Packages */}
+            {isAdmin && (
             <Card>
               <div className="px-6 py-4 border-b border-slate-100">
                 <div className="flex items-center gap-3">
@@ -822,6 +968,7 @@ const UserDetail = () => {
                 )}
               </div>
             </Card>
+            )}
 
             {/* Account Info */}
             <Card>

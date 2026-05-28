@@ -3,7 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../../context/AuthContext';
 import { walletsAPI, authAPI } from '../../services/api';
 import { formatUserId, formatCurrency } from '../../utils/formatters';
-import { validatePhone, validateEmail, validateMPIN } from '../../utils/validators';
+import { validateMPIN } from '../../utils/validators';
 import { FiUser, FiMail, FiPhone, FiLock, FiKey, FiEdit2, FiSave, FiX, FiShield, FiRefreshCw } from 'react-icons/fi';
 
 const ProfileSettings = () => {
@@ -83,16 +83,6 @@ const ProfileSettings = () => {
 
   const handleProfileSave = async () => {
     const newErrors = {};
-
-    const emailValidation = validateEmail(profileData.email);
-    if (!emailValidation.valid) {
-      newErrors.email = emailValidation.message;
-    }
-
-    const phoneValidation = validatePhone(profileData.phone);
-    if (!phoneValidation.valid) {
-      newErrors.phone = phoneValidation.message;
-    }
 
     if (!profileData.name || profileData.name.length < 3) {
       newErrors.name = 'Name must be at least 3 characters';
@@ -506,21 +496,12 @@ const ProfileSettings = () => {
                     <FiMail className="inline mr-2" />
                     Email Address
                   </label>
-                  {isEditing ? (
-                    <>
-                      <input
-                        type="email"
-                        value={profileData.email}
-                        onChange={(e) => handleProfileChange('email', e.target.value)}
-                        className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                      />
-                      {errors.email && <p className="mt-1 text-sm text-red-600">{errors.email}</p>}
-                    </>
-                  ) : (
-                    <div className="px-4 py-3 bg-gray-50 border border-gray-300 rounded-lg">
-                      <p className="text-gray-900">{profileData.email}</p>
-                    </div>
-                  )}
+                  <div className="px-4 py-3 bg-gray-50 border border-gray-300 rounded-lg">
+                    <p className="text-gray-900 break-all">{profileData.email || '—'}</p>
+                  </div>
+                  <p className="mt-1 text-xs text-gray-500">
+                    Email cannot be changed here. Contact your administrator if an update is required.
+                  </p>
                 </div>
 
                 <div>
@@ -528,25 +509,12 @@ const ProfileSettings = () => {
                     <FiPhone className="inline mr-2" />
                     Phone Number
                   </label>
-                  {isEditing ? (
-                    <>
-                      <input
-                        type="tel"
-                        value={profileData.phone}
-                        onChange={(e) => {
-                          const value = e.target.value.replace(/\D/g, '').slice(0, 10);
-                          handleProfileChange('phone', value);
-                        }}
-                        maxLength={10}
-                        className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                      />
-                      {errors.phone && <p className="mt-1 text-sm text-red-600">{errors.phone}</p>}
-                    </>
-                  ) : (
-                    <div className="px-4 py-3 bg-gray-50 border border-gray-300 rounded-lg">
-                      <p className="text-gray-900">{profileData.phone}</p>
-                    </div>
-                  )}
+                  <div className="px-4 py-3 bg-gray-50 border border-gray-300 rounded-lg">
+                    <p className="text-gray-900 font-mono tabular-nums">{profileData.phone || '—'}</p>
+                  </div>
+                  <p className="mt-1 text-xs text-gray-500">
+                    Mobile number is used to sign in and cannot be changed here. Contact your administrator if an update is required.
+                  </p>
                 </div>
               </div>
             </div>
@@ -604,7 +572,16 @@ const ProfileSettings = () => {
 
           {activeTab === 'mpin' && (
             <div className="space-y-6">
-              <h3 className="text-xl font-bold text-gray-900 mb-6">Change MPIN</h3>
+              <div className="flex flex-wrap items-center justify-between gap-3 mb-6">
+                <h3 className="text-xl font-bold text-gray-900">Change MPIN</h3>
+                <button
+                  type="button"
+                  onClick={() => navigate('/forgot-mpin')}
+                  className="text-sm font-medium text-indigo-600 hover:text-indigo-800"
+                >
+                  Forgot MPIN? Reset via OTP
+                </button>
+              </div>
 
               <div className="space-y-4">
                 <div>

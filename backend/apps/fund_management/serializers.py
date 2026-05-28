@@ -47,6 +47,9 @@ def payin_payment_mode_display(obj: LoadMoney) -> str:
 
 def payin_payment_gateway_name(obj: LoadMoney) -> str:
     """Configured PaymentGateway name, else provider / package label."""
+    pg = getattr(obj, 'payment_gateway', None)
+    if pg and getattr(pg, 'name', None):
+        return pg.name
     pkg = getattr(obj, 'package', None)
     if not pkg:
         return '—'
@@ -165,6 +168,7 @@ class PayInCreateOrderSerializer(serializers.Serializer):
     package_id = serializers.IntegerField(min_value=1)
     amount = serializers.DecimalField(max_digits=12, decimal_places=2, min_value=Decimal('0.01'))
     contact_id = serializers.IntegerField(min_value=1)
+    gateway_id = serializers.IntegerField(required=False, allow_null=True, min_value=1)
 
 
 class PayInMockCompleteSerializer(serializers.Serializer):

@@ -46,6 +46,13 @@ const ProtectedRoute = ({ children, requireMPIN = true, blockFinancialTransactio
   const onOnboardingRoute = path.startsWith('/onboarding');
   const onProfileDuringOnboarding = path === '/profile';
 
+  if (ob?.must_change_password) {
+    const onSetPassword = path === '/onboarding/set-password';
+    if (!onSetPassword && !onProfileDuringOnboarding) {
+      return <Navigate to="/onboarding/set-password" replace />;
+    }
+  }
+
   if (ob && !ob.account_ready) {
     if (!onOnboardingRoute && !onProfileDuringOnboarding) {
       const next = !ob.kyc_complete ? '/onboarding/kyc' : '/onboarding/mpin-setup';

@@ -8,6 +8,7 @@ import Layout from '../components/common/Layout';
 import Login from '../components/auth/Login';
 import MPINVerification from '../components/auth/MPINVerification';
 import ForgotPassword from '../components/auth/ForgotPassword';
+import ForgotMPIN from '../components/auth/ForgotMPIN';
 
 // Dashboard
 import Dashboard from '../components/dashboard/Dashboard';
@@ -40,6 +41,7 @@ import BankAccounts from '../components/bankManagement/BankAccounts';
 import ProfileSettings from '../components/profile/ProfileSettings';
 import OnboardingKYC from '../components/onboarding/OnboardingKYC';
 import OnboardingMPINSetup from '../components/onboarding/OnboardingMPINSetup';
+import SetPasswordOnboarding from '../components/onboarding/SetPasswordOnboarding';
 
 // Admin
 import AnnouncementManagement from '../components/admin/AnnouncementManagement';
@@ -48,6 +50,7 @@ import PayInPackagesAdmin from '../components/admin/PayInPackagesAdmin';
 import APIMasterManagement from '../components/admin/APIMasterManagement';
 import BillAvenueSettings from '../components/admin/BillAvenueSettings';
 import SmtpSettings from '../components/admin/SmtpSettings';
+import EmailNotifications from '../components/admin/EmailNotifications';
 import SmsSettings from '../components/admin/SmsSettings';
 import BbpsOpsConsole from '../components/admin/BbpsOpsConsole';
 import BbpsBillerDetails from '../components/admin/BbpsBillerDetails';
@@ -66,8 +69,19 @@ const AppRoutes = () => {
       {/* Public Routes */}
       <Route path="/login" element={<Login />} />
       <Route path="/forgot-password" element={<ForgotPassword />} />
+      <Route path="/forgot-mpin" element={<ForgotMPIN />} />
       <Route path="/mpin-verification" element={<MPINVerification />} />
 
+      <Route
+        path="/onboarding/set-password"
+        element={
+          <ProtectedRoute requireMPIN={false}>
+            <Layout>
+              <SetPasswordOnboarding />
+            </Layout>
+          </ProtectedRoute>
+        }
+      />
       <Route
         path="/onboarding/kyc"
         element={
@@ -461,6 +475,19 @@ const AppRoutes = () => {
             <AdminRoute>
               <Layout>
                 <SmsSettings />
+              </Layout>
+            </AdminRoute>
+          </ProtectedRoute>
+        }
+      />
+
+      <Route
+        path="/admin/email-notifications/*"
+        element={
+          <ProtectedRoute>
+            <AdminRoute>
+              <Layout>
+                <EmailNotifications />
               </Layout>
             </AdminRoute>
           </ProtectedRoute>

@@ -10,6 +10,11 @@ app_name = 'fund_management'
 urlpatterns = [
     # Pay-in endpoints
     path('pay-in/packages/', views.pay_in_packages_view, name='pay-in-packages'),
+    path(
+        'pay-in/packages/<int:package_id>/gateways/',
+        views.pay_in_package_gateways_view,
+        name='pay-in-package-gateways',
+    ),
     path('pay-in/quote/', views.pay_in_quote_view, name='pay-in-quote'),
     path('pay-in/create-order/', views.pay_in_create_order_view, name='pay-in-create-order'),
     path('pay-in/verify-razorpay/', views.pay_in_verify_razorpay_view, name='pay-in-verify-razorpay'),

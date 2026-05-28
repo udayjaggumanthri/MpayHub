@@ -5,6 +5,7 @@ export function getPostLoginPath(user) {
   const ob = user?.onboarding;
   // Older cached sessions without `onboarding`: keep previous behaviour (MPIN gate only).
   if (ob == null) return '/mpin-verification';
+  if (ob.must_change_password) return '/onboarding/set-password';
   if (!ob.account_ready) {
     if (!ob.kyc_complete) return '/onboarding/kyc';
     if (!ob.mpin_set) return '/onboarding/mpin-setup';

@@ -21,7 +21,9 @@ import {
   parseList,
   categoryShortLabel,
   GATEWAY_CATEGORIES,
+  firstErrorMessage,
 } from './gatewayAdminShared';
+import GatewayFlowStepper from './GatewayFlowStepper';
 
 const PaymentGatewaysAdmin = () => {
   const [gateways, setGateways] = useState([]);
@@ -56,6 +58,10 @@ const PaymentGatewaysAdmin = () => {
   };
 
   const handleAddGateway = () => {
+    if (paymentApiMasters.length === 0) {
+      alert('Add at least one Payment API Master first.');
+      return;
+    }
     setFormData({
       name: '',
       chargeRate: '',
@@ -66,12 +72,16 @@ const PaymentGatewaysAdmin = () => {
   };
 
   const handleEditGateway = (gateway) => {
+    const apiMasterId =
+      gateway.api_master && typeof gateway.api_master === 'object'
+        ? gateway.api_master.id
+        : gateway.api_master;
     setEditingGateway(gateway);
     setFormData({
       name: gateway.name,
       chargeRate: gateway.charge_rate?.toString?.() || '',
       category: gateway.category || 'third-party',
-      apiMasterId: gateway.api_master?.id ? String(gateway.api_master.id) : '',
+      apiMasterId: apiMasterId ? String(apiMasterId) : '',
     });
     setShowEditModal(true);
   };
@@ -125,7 +135,7 @@ const PaymentGatewaysAdmin = () => {
       setEditingGateway(null);
       loadData();
     } else {
-      alert(result.message || 'Failed to save gateway');
+      alert(firstErrorMessage(result, 'Failed to save gateway'));
     }
   };
 
@@ -198,6 +208,10 @@ const PaymentGatewaysAdmin = () => {
   return (
     <div className="min-h-[calc(100vh-6rem)] bg-gradient-to-b from-slate-50 via-white to-slate-50/80">
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8 space-y-8">
+        <GatewayFlowStepper
+          currentStep="payment-gateways"
+          subtitle="Step 2/3: Create payment gateways and link each gateway to a payment API master."
+        />
         <header className="relative overflow-hidden rounded-2xl border border-slate-200/80 bg-white shadow-sm">
           <div className="absolute inset-0 bg-gradient-to-br from-indigo-500/[0.07] via-transparent to-violet-500/[0.06] pointer-events-none" />
           <div className="relative px-6 py-8 sm:px-8 sm:py-9 flex flex-col lg:flex-row lg:items-center lg:justify-between gap-6">
@@ -216,6 +230,13 @@ const PaymentGatewaysAdmin = () => {
             >
               <FaChartPie className="text-indigo-600" size={18} />
               Pay-in packages &amp; fees
+              <FaArrowRight size={14} className="text-slate-400" />
+            </Link>
+            <Link
+              to="/admin/api-master"
+              className="inline-flex items-center gap-2 self-start rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm font-semibold text-slate-700 shadow-sm hover:border-indigo-200 hover:bg-indigo-50/50 hover:text-indigo-800 transition-colors"
+            >
+              API Master
               <FaArrowRight size={14} className="text-slate-400" />
             </Link>
           </div>
@@ -241,6 +262,15 @@ const PaymentGatewaysAdmin = () => {
               </Button>
             </div>
           </div>
+          {paymentApiMasters.length === 0 ? (
+            <div className="mx-6 mt-5 rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800">
+              No payment API master found. Create one in{' '}
+              <Link to="/admin/api-master" className="font-semibold underline">
+                API Master
+              </Link>{' '}
+              before adding gateways.
+            </div>
+          ) : null}
 
           <div className="overflow-x-auto">
             {gateways.length === 0 ? (

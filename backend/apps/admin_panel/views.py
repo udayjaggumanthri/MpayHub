@@ -147,7 +147,10 @@ class PayInPackageViewSet(viewsets.ModelViewSet):
     queryset = (
         PayInPackage.objects.filter(is_deleted=False)
         .select_related('payment_gateway')
-        .prefetch_related('payout_slabs')
+        .prefetch_related(
+            'payout_slabs',
+            'package_gateways__payment_gateway',
+        )
         .order_by('sort_order', 'display_name')
     )
     serializer_class = PayInPackageAdminSerializer
@@ -1032,6 +1035,204 @@ def sms_template_test_view(request, event_key):
             'success': False,
             'data': {'sent': False, 'error': result.get('error')},
             'message': result.get('error') or 'Test SMS failed',
+            'errors': [],
+        },
+        status=status.HTTP_400_BAD_REQUEST,
+    )
+
+
+def _email_template_payload(entry, row):
+    from apps.admin_panel.serializers import EmailNotificationTemplateSerializer
+
+    if row:
+        data = EmailNotificationTemplateSerializer(row).data
+        data['variable_schema'] = entry.get('variable_schema', row.variable_schema)
+        data['description'] = entry.get('description', row.description)
+        return data
+    return {
+        'event_key': entry['event_key'],
+        'module': entry['module'],
+        'label': entry['label'],
+        'description': entry.get('description', ''),
+        'variable_schema': entry.get('variable_schema', []),
+        'is_enabled': False,
+        'subject_template': entry.get('default_subject', ''),
+        'body_html_template': entry.get('default_body_html', ''),
+        'body_plain_template': entry.get('default_body_plain', ''),
+        'sample_variables': entry.get('sample_variables', {}),
+    }
+
+
+@api_view(['GET'])
+@permission_classes([IsAuthenticated, IsAdmin])
+def email_templates_list_view(request):
+    from apps.notifications.email_catalog import EMAIL_EVENT_CATALOG
+    from apps.notifications.models import EmailNotificationTemplate
+
+    db_rows = {t.event_key: t for t in EmailNotificationTemplate.objects.filter(is_deleted=False)}
+    templates = [_email_template_payload(entry, db_rows.get(entry['event_key'])) for entry in EMAIL_EVENT_CATALOG]
+    return Response(
+        {
+            'success': True,
+            'data': {'templates': templates},
+            'message': 'Email templates retrieved',
+            'errors': [],
+        },
+        status=status.HTTP_200_OK,
+    )
+
+
+@api_view(['GET', 'PUT'])
+@permission_classes([IsAuthenticated, IsAdmin])
+def email_template_detail_view(request, event_key):
+    from apps.notifications.email_catalog import EMAIL_CATALOG_EVENT_KEYS, EMAIL_EVENT_CATALOG
+    from apps.notifications.models import EmailNotificationTemplate
+
+    if event_key not in EMAIL_CATALOG_EVENT_KEYS:
+        return Response(
+            {'success': False, 'data': None, 'message': 'Unknown event_key', 'errors': []},
+            status=status.HTTP_404_NOT_FOUND,
+        )
+    entry = next((e for e in EMAIL_EVENT_CATALOG if e['event_key'] == event_key), None)
+    try:
+        template = EmailNotificationTemplate.objects.get(event_key=event_key, is_deleted=False)
+    except EmailNotificationTemplate.DoesNotExist:
+        return Response(
+            {'success': False, 'data': None, 'message': 'Template not seeded', 'errors': []},
+            status=status.HTTP_404_NOT_FOUND,
+        )
+
+    if request.method == 'GET':
+        return Response(
+            {
+                'success': True,
+                'data': {'template': _email_template_payload(entry, template)},
+                'message': 'Email template retrieved',
+                'errors': [],
+            },
+            status=status.HTTP_200_OK,
+        )
+
+    from apps.admin_panel.serializers import EmailNotificationTemplateSerializer, EmailTemplateUpdateSerializer
+
+    ser = EmailTemplateUpdateSerializer(data=request.data)
+    if not ser.is_valid():
+        return Response(
+            {'success': False, 'data': None, 'message': 'Invalid input', 'errors': ser.errors},
+            status=status.HTTP_400_BAD_REQUEST,
+        )
+    val = ser.validated_data
+    update_fields = ['updated_at']
+    for field in ('is_enabled', 'subject_template', 'body_html_template', 'body_plain_template', 'sample_variables'):
+        if field in val:
+            setattr(template, field, val[field])
+            update_fields.append(field)
+    template.save(update_fields=update_fields)
+    return Response(
+        {
+            'success': True,
+            'data': {'template': EmailNotificationTemplateSerializer(template).data},
+            'message': 'Email template updated',
+            'errors': [],
+        },
+        status=status.HTTP_200_OK,
+    )
+
+
+@api_view(['POST'])
+@permission_classes([IsAuthenticated, IsAdmin])
+def email_template_test_view(request, event_key):
+    from apps.admin_panel.serializers import EmailTemplateTestSerializer
+    from apps.integrations.email_service import EmailDeliveryError, get_active_smtp_config
+    from apps.notifications.email_catalog import EMAIL_CATALOG_EVENT_KEYS
+    from apps.notifications.models import EmailNotificationTemplate
+    from apps.notifications.services.email_dispatch import EmailNotificationService
+
+    if event_key not in EMAIL_CATALOG_EVENT_KEYS:
+        return Response(
+            {'success': False, 'data': None, 'message': 'Unknown event_key', 'errors': []},
+            status=status.HTTP_404_NOT_FOUND,
+        )
+    if not get_active_smtp_config():
+        return Response(
+            {
+                'success': False,
+                'data': None,
+                'message': 'No active enabled SMTP profile. Configure SMTP first.',
+                'errors': [],
+            },
+            status=status.HTTP_400_BAD_REQUEST,
+        )
+    try:
+        template = EmailNotificationTemplate.objects.get(event_key=event_key, is_deleted=False)
+    except EmailNotificationTemplate.DoesNotExist:
+        return Response(
+            {'success': False, 'data': None, 'message': 'Template not seeded', 'errors': []},
+            status=status.HTTP_404_NOT_FOUND,
+        )
+    ser = EmailTemplateTestSerializer(data=request.data)
+    if not ser.is_valid():
+        return Response(
+            {'success': False, 'data': None, 'message': 'Invalid input', 'errors': ser.errors},
+            status=status.HTTP_400_BAD_REQUEST,
+        )
+    to_email = (ser.validated_data.get('to_email') or '').strip() or getattr(request.user, 'email', '') or ''
+    if not to_email:
+        return Response(
+            {
+                'success': False,
+                'data': None,
+                'message': 'Provide to_email or ensure your admin account has an email.',
+                'errors': [],
+            },
+            status=status.HTTP_400_BAD_REQUEST,
+        )
+    from apps.notifications.email_catalog import EMAIL_EVENT_CATALOG
+    import uuid
+
+    catalog_entry = next((e for e in EMAIL_EVENT_CATALOG if e['event_key'] == event_key), None)
+    catalog_samples = (catalog_entry or {}).get('sample_variables') or {}
+    db_samples = template.sample_variables if isinstance(template.sample_variables, dict) else {}
+    request_vars = ser.validated_data.get('variables') if isinstance(ser.validated_data.get('variables'), dict) else {}
+    variables = {**catalog_samples, **db_samples, **request_vars}
+
+    try:
+        result = EmailNotificationService.dispatch(
+            event_key,
+            to_email,
+            variables,
+            idempotency_key=f'email-test:{event_key}:{uuid.uuid4().hex}',
+            raise_on_failure=True,
+            for_test=True,
+        )
+    except EmailDeliveryError as exc:
+        return Response(
+            {'success': False, 'data': None, 'message': str(exc), 'errors': []},
+            status=status.HTTP_400_BAD_REQUEST,
+        )
+    if result.get('status') == 'sent':
+        return Response(
+            {
+                'success': True,
+                'data': {'sent': True, 'to_email': to_email},
+                'message': f'Test email sent for {event_key}',
+                'errors': [],
+            },
+            status=status.HTTP_200_OK,
+        )
+    skip = result.get('skip_reason') or ''
+    friendly = {
+        'event_disabled': 'Enable the template or use test send (should not occur).',
+        'empty_template': 'Add subject and HTML body before testing.',
+        'invalid_context': 'Missing required template variables. Check sample data in the editor.',
+        'smtp_disabled': 'No active SMTP profile.',
+        'template_not_seeded': 'Run seed_email_event_templates on the server.',
+    }.get(skip, skip)
+    return Response(
+        {
+            'success': False,
+            'data': result,
+            'message': result.get('error') or friendly or 'Test email failed',
             'errors': [],
         },
         status=status.HTTP_400_BAD_REQUEST,

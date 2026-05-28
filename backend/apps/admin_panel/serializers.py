@@ -258,6 +258,16 @@ class PayInPackageAdminSerializer(serializers.ModelSerializer):
     payment_gateway_id = serializers.IntegerField(
         write_only=True, required=False, allow_null=True
     )
+    payment_gateway_ids = serializers.ListField(
+        child=serializers.IntegerField(min_value=1),
+        write_only=True,
+        required=False,
+        allow_empty=False,
+    )
+    default_payment_gateway_id = serializers.IntegerField(
+        write_only=True, required=False, allow_null=True,
+    )
+    package_gateways = serializers.SerializerMethodField(read_only=True)
     total_deduction_pct = serializers.SerializerMethodField(read_only=True)
     payout_slabs = serializers.SerializerMethodField(read_only=True)
 
@@ -270,6 +280,9 @@ class PayInPackageAdminSerializer(serializers.ModelSerializer):
             'provider',
             'payment_gateway',
             'payment_gateway_id',
+            'payment_gateway_ids',
+            'default_payment_gateway_id',
+            'package_gateways',
             'min_amount',
             'max_amount_per_txn',
             'gateway_fee_pct',
@@ -291,6 +304,11 @@ class PayInPackageAdminSerializer(serializers.ModelSerializer):
     def get_payout_slabs(self, obj):
         qs = obj.payout_slabs.filter(is_deleted=False).order_by('sort_order', 'min_amount')
         return PayoutSlabTierSerializer(qs, many=True).data
+
+    def get_package_gateways(self, obj):
+        from apps.fund_management.package_gateways import serialize_package_gateways
+
+        return serialize_package_gateways(obj)
 
     def get_total_deduction_pct(self, obj):
         return (
@@ -317,10 +335,19 @@ class PayInPackageAdminSerializer(serializers.ModelSerializer):
         if payment_gateway_id is not None:
             payment_gateway = PaymentGateway.objects.filter(id=payment_gateway_id).first()
             attrs['payment_gateway'] = payment_gateway
-        if provider in ('razorpay', 'payu') and not payment_gateway:
-            raise serializers.ValidationError(
-                {'payment_gateway_id': ['Payment gateway is required for non-mock providers.']}
-            )
+        gateway_ids = attrs.get('payment_gateway_ids')
+        initial = getattr(self, 'initial_data', None) or {}
+        if gateway_ids is None and isinstance(initial, dict) and 'payment_gateway_ids' in initial:
+            gateway_ids = initial.get('payment_gateway_ids')
+        if provider in ('razorpay', 'payu'):
+            if gateway_ids is not None and len(gateway_ids) == 0:
+                raise serializers.ValidationError(
+                    {'payment_gateway_ids': ['At least one payment gateway is required.']}
+                )
+            if not gateway_ids and not payment_gateway:
+                raise serializers.ValidationError(
+                    {'payment_gateway_id': ['Payment gateway is required for non-mock providers.']}
+                )
 
         min_amount = attrs.get('min_amount', getattr(instance, 'min_amount', Decimal('0')))
         max_amount = attrs.get('max_amount_per_txn', getattr(instance, 'max_amount_per_txn', Decimal('0')))
@@ -371,20 +398,51 @@ class PayInPackageAdminSerializer(serializers.ModelSerializer):
         return attrs
 
     def create(self, validated_data):
+        from apps.fund_management.package_gateways import sync_package_gateway_links
+
+        gateway_ids = validated_data.pop('payment_gateway_ids', None)
+        default_gateway_id = validated_data.pop('default_payment_gateway_id', None)
         payment_gateway_id = validated_data.pop('payment_gateway_id', None)
-        if payment_gateway_id:
+        if gateway_ids:
+            primary_id = default_gateway_id or gateway_ids[0]
+            validated_data['payment_gateway'] = PaymentGateway.objects.filter(id=primary_id).first()
+        elif payment_gateway_id:
             validated_data['payment_gateway'] = PaymentGateway.objects.filter(id=payment_gateway_id).first()
         instance = super().create(validated_data)
+        if gateway_ids is not None:
+            sync_package_gateway_links(
+                instance, gateway_ids, default_gateway_id=default_gateway_id
+            )
+        elif instance.payment_gateway_id:
+            sync_package_gateway_links(
+                instance,
+                [instance.payment_gateway_id],
+                default_gateway_id=default_gateway_id or instance.payment_gateway_id,
+            )
         initial = getattr(self, 'initial_data', None) or {}
         if isinstance(initial, dict) and 'payout_slabs' in initial:
             _sync_payout_slabs(instance, initial.get('payout_slabs') or [])
         return instance
 
     def update(self, instance, validated_data):
+        from apps.fund_management.package_gateways import sync_package_gateway_links
+
+        gateway_ids = validated_data.pop('payment_gateway_ids', None)
+        default_gateway_id = validated_data.pop('default_payment_gateway_id', None)
         if 'payment_gateway_id' in validated_data:
             pg_id = validated_data.pop('payment_gateway_id')
-            instance.payment_gateway = PaymentGateway.objects.filter(id=pg_id).first() if pg_id else None
+            validated_data['payment_gateway'] = (
+                PaymentGateway.objects.filter(id=pg_id).first() if pg_id else None
+            )
+        if gateway_ids is not None:
+            primary_id = default_gateway_id or (gateway_ids[0] if gateway_ids else None)
+            if primary_id:
+                validated_data['payment_gateway'] = PaymentGateway.objects.filter(id=primary_id).first()
         instance = super().update(instance, validated_data)
+        if gateway_ids is not None:
+            sync_package_gateway_links(
+                instance, gateway_ids, default_gateway_id=default_gateway_id
+            )
         initial = getattr(self, 'initial_data', None) or {}
         if isinstance(initial, dict) and 'payout_slabs' in initial:
             _sync_payout_slabs(instance, initial.get('payout_slabs') or [])
@@ -562,4 +620,40 @@ class SmsTemplateUpdateSerializer(serializers.Serializer):
 
 class SmsTemplateTestSerializer(serializers.Serializer):
     phone = serializers.CharField(max_length=20)
+    variables = serializers.JSONField(required=False)
+
+
+class EmailNotificationTemplateSerializer(serializers.ModelSerializer):
+    class Meta:
+        from apps.notifications.models import EmailNotificationTemplate
+
+        model = EmailNotificationTemplate
+        fields = [
+            'id',
+            'event_key',
+            'module',
+            'label',
+            'description',
+            'is_enabled',
+            'subject_template',
+            'body_html_template',
+            'body_plain_template',
+            'variable_schema',
+            'sample_variables',
+            'created_at',
+            'updated_at',
+        ]
+        read_only_fields = ['id', 'event_key', 'module', 'label', 'description', 'variable_schema', 'created_at', 'updated_at']
+
+
+class EmailTemplateUpdateSerializer(serializers.Serializer):
+    is_enabled = serializers.BooleanField(required=False)
+    subject_template = serializers.CharField(required=False, allow_blank=True, max_length=255)
+    body_html_template = serializers.CharField(required=False, allow_blank=True)
+    body_plain_template = serializers.CharField(required=False, allow_blank=True)
+    sample_variables = serializers.JSONField(required=False)
+
+
+class EmailTemplateTestSerializer(serializers.Serializer):
+    to_email = serializers.EmailField(required=False, allow_blank=True)
     variables = serializers.JSONField(required=False)

@@ -126,6 +126,8 @@ const TransactionReport = ({ type = 'all' }) => {
               packageCode: r.package_code,
               packageDisplayName: r.package_display_name,
               paymentGatewayName: r.payment_gateway_name,
+              openingBalance: r.opening_balance,
+              closingBalance: r.closing_balance,
               paymentModeDisplay: r.mode,
               providerOrderId: r.provider_order_id,
               providerPaymentId: r.provider_payment_id,

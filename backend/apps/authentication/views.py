@@ -14,17 +14,23 @@ from apps.authentication.serializers import (
     SendOTPSerializer,
     VerifyOTPSerializer,
     ResetPasswordSerializer,
+    ResetMPINSerializer,
+    ForcedPasswordResetSendOTPSerializer,
+    ForcedPasswordResetCompleteSerializer,
     UserSerializer,
     OnboardingPANSerializer,
     OnboardingAadhaarSerializer,
     OnboardingAadhaarVerifyOTPSerializer,
     SetupMPINSerializer,
 )
+from apps.authentication.password_onboarding import clear_must_change_password
 from apps.authentication.services import (
     create_jwt_tokens,
     send_otp,
     verify_otp,
     reset_password,
+    reset_mpin,
+    get_valid_otp,
     SmtpNotConfiguredError,
 )
 from apps.core.utils import mask_email, mask_phone
@@ -120,10 +126,9 @@ def send_otp_view(request):
         phone = serializer.validated_data['phone']
         purpose = serializer.validated_data.get('purpose', 'password-reset')
         
-        # Check if user exists (for password reset)
-        if purpose == 'password-reset':
+        if purpose in ('password-reset', 'mpin-reset'):
             try:
-                User.objects.get(phone=phone)
+                target = User.objects.get(phone=phone)
             except User.DoesNotExist:
                 return Response({
                     'success': False,
@@ -131,6 +136,15 @@ def send_otp_view(request):
                     'message': 'Phone number not registered',
                     'errors': []
                 }, status=status.HTTP_404_NOT_FOUND)
+            if purpose == 'mpin-reset' and not target.mpin_hash:
+                return Response({
+                    'success': False,
+                    'data': None,
+                    'message': (
+                        'MPIN is not set on this account. Complete onboarding first or contact support.'
+                    ),
+                    'errors': [],
+                }, status=status.HTTP_400_BAD_REQUEST)
         
         channel = serializer.validated_data.get('channel', 'sms')
         try:
@@ -204,7 +218,12 @@ def reset_password_view(request):
         new_password = serializer.validated_data['new_password']
         
         try:
-            reset_password(phone, otp_code, new_password)
+            reset_password(
+                phone,
+                otp_code,
+                new_password,
+                otp_record=serializer.validated_data['otp_record'],
+            )
             return Response({
                 'success': True,
                 'data': None,
@@ -225,6 +244,178 @@ def reset_password_view(request):
         'message': 'Password reset failed',
         'errors': serializer.errors
     }, status=status.HTTP_400_BAD_REQUEST)
+
+
+@api_view(['POST'])
+@permission_classes([AllowAny])
+@ratelimit(key='ip', rate='5/m', method='POST')
+def reset_mpin_view(request):
+    """
+    Reset MPIN endpoint (forgot MPIN).
+    POST /api/auth/reset-mpin/
+    """
+    serializer = ResetMPINSerializer(data=request.data)
+    if serializer.is_valid():
+        phone = serializer.validated_data['phone']
+        otp_code = serializer.validated_data['otp']
+        new_mpin = serializer.validated_data['new_mpin']
+
+        try:
+            reset_mpin(
+                phone,
+                otp_code,
+                new_mpin,
+                otp_record=serializer.validated_data['otp_record'],
+            )
+            return Response({
+                'success': True,
+                'data': None,
+                'message': 'MPIN reset successfully',
+                'errors': [],
+            }, status=status.HTTP_200_OK)
+        except (InvalidOTP, InvalidCredentials) as e:
+            return Response({
+                'success': False,
+                'data': None,
+                'message': str(e),
+                'errors': [],
+            }, status=status.HTTP_400_BAD_REQUEST)
+
+    return Response({
+        'success': False,
+        'data': None,
+        'message': 'MPIN reset failed',
+        'errors': serializer.errors,
+    }, status=status.HTTP_400_BAD_REQUEST)
+
+
+@api_view(['POST'])
+@permission_classes([IsAuthenticated])
+@ratelimit(key='user', rate='3/m', method='POST')
+def send_forced_password_reset_otp_view(request):
+    """
+    Send OTP for mandatory first-login password reset.
+    POST /api/auth/me/send-password-reset-otp/
+    """
+    user = request.user
+    if not getattr(user, 'must_change_password', False):
+        return Response(
+            {
+                'success': False,
+                'data': None,
+                'message': 'Password reset is not required for this account.',
+                'errors': [],
+            },
+            status=status.HTTP_403_FORBIDDEN,
+        )
+
+    serializer = ForcedPasswordResetSendOTPSerializer(data=request.data)
+    if not serializer.is_valid():
+        return Response(
+            {
+                'success': False,
+                'data': None,
+                'message': 'Failed to send OTP',
+                'errors': serializer.errors,
+            },
+            status=status.HTTP_400_BAD_REQUEST,
+        )
+
+    channel = serializer.validated_data.get('channel', 'sms')
+    try:
+        send_otp(user.phone, 'password-reset', channel=channel)
+    except SmtpNotConfiguredError as exc:
+        return Response(
+            {
+                'success': False,
+                'data': None,
+                'message': str(exc),
+                'errors': [],
+            },
+            status=status.HTTP_400_BAD_REQUEST,
+        )
+
+    if channel == 'email':
+        msg = f'OTP sent to your registered email ({mask_email(user.email)})'
+    else:
+        msg = f'OTP sent to {mask_phone(user.phone)}'
+
+    return Response(
+        {
+            'success': True,
+            'data': None,
+            'message': msg,
+            'errors': [],
+        },
+        status=status.HTTP_200_OK,
+    )
+
+
+@api_view(['POST'])
+@permission_classes([IsAuthenticated])
+@ratelimit(key='user', rate='5/m', method='POST')
+def complete_forced_password_reset_view(request):
+    """
+    Complete mandatory first-login password reset with OTP.
+    POST /api/auth/me/complete-password-reset/
+    """
+    user = request.user
+    if not getattr(user, 'must_change_password', False):
+        return Response(
+            {
+                'success': False,
+                'data': None,
+                'message': 'Password reset is not required for this account.',
+                'errors': [],
+            },
+            status=status.HTTP_403_FORBIDDEN,
+        )
+
+    serializer = ForcedPasswordResetCompleteSerializer(data=request.data)
+    if not serializer.is_valid():
+        return Response(
+            {
+                'success': False,
+                'data': None,
+                'message': 'Password reset failed',
+                'errors': serializer.errors,
+            },
+            status=status.HTTP_400_BAD_REQUEST,
+        )
+
+    otp_code = serializer.validated_data['otp']
+    new_password = serializer.validated_data['new_password']
+
+    try:
+        otp_record = get_valid_otp(user.phone, otp_code, 'password-reset')
+        reset_password(
+            user.phone,
+            otp_code,
+            new_password,
+            otp_record=otp_record,
+        )
+        clear_must_change_password(user)
+        user = User.objects.select_related('kyc').get(pk=user.pk)
+        user_data = UserSerializer(user).data
+        return Response(
+            {
+                'success': True,
+                'data': {'user': user_data},
+                'message': 'Password updated successfully',
+                'errors': [],
+            },
+            status=status.HTTP_200_OK,
+        )
+    except (InvalidOTP, InvalidCredentials) as exc:
+        return Response(
+            {
+                'success': False,
+                'data': None,
+                'message': str(exc),
+                'errors': [],
+            },
+            status=status.HTTP_400_BAD_REQUEST,
+        )
 
 
 @api_view(['POST'])

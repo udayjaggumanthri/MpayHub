@@ -23,11 +23,41 @@ import {
   packageCommissionStrip,
   packageTotalDeductionDisplay,
 } from './gatewayAdminShared';
+import GatewayFlowStepper from './GatewayFlowStepper';
+
+/** API may return payment_gateway as nested object or bare id. */
+const normalizeGatewayId = (value) => {
+  if (value == null || value === '') return null;
+  if (typeof value === 'object' && value.id != null) return String(value.id);
+  return String(value);
+};
+
+const linkedGatewaysFromPackage = (pkg, allGateways = []) => {
+  if (!pkg) return [];
+  if (Array.isArray(pkg.package_gateways) && pkg.package_gateways.length > 0) {
+    return pkg.package_gateways.map((g) => ({
+      id: String(g.id),
+      name: g.name || allGateways.find((x) => String(x.id) === String(g.id))?.name || `Gateway #${g.id}`,
+      is_default: Boolean(g.is_default),
+      status: g.status || 'active',
+    }));
+  }
+  const legacyId = normalizeGatewayId(pkg.payment_gateway) || normalizeGatewayId(pkg.payment_gateway_id);
+  if (legacyId) {
+    const fromObj = typeof pkg.payment_gateway === 'object' ? pkg.payment_gateway : null;
+    const name =
+      fromObj?.name || allGateways.find((x) => String(x.id) === legacyId)?.name || `Gateway #${legacyId}`;
+    return [{ id: legacyId, name, is_default: true, status: fromObj?.status || 'active' }];
+  }
+  return [];
+};
 
 const PayInPackagesAdmin = () => {
   const [gateways, setGateways] = useState([]);
   const [packages, setPackages] = useState([]);
   const [loading, setLoading] = useState(false);
+  const [packageDetailLoading, setPackageDetailLoading] = useState(false);
+  const [gatewayPickerId, setGatewayPickerId] = useState('');
   const [showPackageModal, setShowPackageModal] = useState(false);
   const [editingPackage, setEditingPackage] = useState(null);
   const [showPreviewModal, setShowPreviewModal] = useState(false);
@@ -48,7 +78,8 @@ const PayInPackagesAdmin = () => {
     code: '',
     display_name: '',
     provider: 'razorpay',
-    payment_gateway_id: '',
+    payment_gateway_ids: [],
+    default_payment_gateway_id: '',
     min_amount: '1',
     max_amount_per_txn: '200000',
     gateway_fee_pct: '1',
@@ -122,35 +153,23 @@ const PayInPackagesAdmin = () => {
     await loadData();
   };
 
-  const openAddPackage = () => {
-    const defaultGatewayId = gateways.length > 0 ? String(gateways[0].id) : '';
-    setEditingPackage(null);
-    setPackageForm({
-      code: '',
-      display_name: '',
-      provider: 'razorpay',
-      payment_gateway_id: defaultGatewayId,
-      min_amount: '1',
-      max_amount_per_txn: '200000',
-      gateway_fee_pct: '1',
-      admin_pct: '0.24',
-      super_distributor_pct: '0.01',
-      master_distributor_pct: '0.02',
-      distributor_pct: '0.03',
-      is_active: true,
-      sort_order: '0',
-    });
-    setPackagePayoutSlabs(buildDefaultPayoutSlabsFromGlobal());
-    setShowPackageModal(true);
+  const gatewayIdsFromPackage = (pkg) => linkedGatewaysFromPackage(pkg, gateways).map((g) => g.id);
+
+  const defaultGatewayIdFromPackage = (pkg, ids) => {
+    const linked = linkedGatewaysFromPackage(pkg, gateways);
+    const def = linked.find((g) => g.is_default);
+    if (def) return def.id;
+    return ids[0] || '';
   };
 
-  const openEditPackage = (pkg) => {
-    setEditingPackage(pkg);
+  const applyPackageFormFromPkg = (pkg) => {
+    const gwIds = gatewayIdsFromPackage(pkg);
     setPackageForm({
       code: pkg.code || '',
       display_name: pkg.display_name || '',
       provider: pkg.provider || 'razorpay',
-      payment_gateway_id: pkg.payment_gateway?.id ? String(pkg.payment_gateway.id) : '',
+      payment_gateway_ids: gwIds,
+      default_payment_gateway_id: defaultGatewayIdFromPackage(pkg, gwIds),
       min_amount: pkg.min_amount?.toString?.() || '1',
       max_amount_per_txn: pkg.max_amount_per_txn?.toString?.() || '200000',
       gateway_fee_pct: pkg.gateway_fee_pct?.toString?.() || '0',
@@ -162,7 +181,93 @@ const PayInPackagesAdmin = () => {
       sort_order: pkg.sort_order?.toString?.() || '0',
     });
     setPackagePayoutSlabs(slabsFromPackage(pkg) || buildDefaultPayoutSlabsFromGlobal());
+    setGatewayPickerId('');
+  };
+
+  const selectedGatewayRows = packageForm.payment_gateway_ids.map((id) => {
+    const fromCatalog = gateways.find((g) => String(g.id) === String(id));
+    const fromPkg = editingPackage ? linkedGatewaysFromPackage(editingPackage, gateways) : [];
+    const fromPkgRow = fromPkg.find((g) => g.id === String(id));
+    return {
+      id: String(id),
+      name: fromCatalog?.name || fromPkgRow?.name || `Gateway #${id}`,
+      status: fromCatalog?.status || fromPkgRow?.status || 'active',
+    };
+  });
+
+  const availableGatewaysToAdd = gateways.filter(
+    (g) => !packageForm.payment_gateway_ids.includes(String(g.id))
+  );
+
+  const addGatewayFromPicker = () => {
+    if (!gatewayPickerId) return;
+    const gid = String(gatewayPickerId);
+    setPackageForm((prev) => {
+      if (prev.payment_gateway_ids.includes(gid)) return prev;
+      const nextIds = [...prev.payment_gateway_ids, gid];
+      return {
+        ...prev,
+        payment_gateway_ids: nextIds,
+        default_payment_gateway_id: prev.default_payment_gateway_id || gid,
+      };
+    });
+    setGatewayPickerId('');
+  };
+
+  const removePackageGateway = (gatewayId) => {
+    const gid = String(gatewayId);
+    setPackageForm((prev) => {
+      const nextIds = prev.payment_gateway_ids.filter((id) => id !== gid);
+      let nextDefault = prev.default_payment_gateway_id;
+      if (nextDefault === gid) {
+        nextDefault = nextIds[0] || '';
+      }
+      return {
+        ...prev,
+        payment_gateway_ids: nextIds,
+        default_payment_gateway_id: nextDefault,
+      };
+    });
+  };
+
+  const openAddPackage = () => {
+    const defaultGatewayId = gateways.length > 0 ? String(gateways[0].id) : '';
+    setEditingPackage(null);
+    setPackageForm({
+      code: '',
+      display_name: '',
+      provider: 'razorpay',
+      payment_gateway_ids: defaultGatewayId ? [defaultGatewayId] : [],
+      default_payment_gateway_id: defaultGatewayId,
+      min_amount: '1',
+      max_amount_per_txn: '200000',
+      gateway_fee_pct: '1',
+      admin_pct: '0.24',
+      super_distributor_pct: '0.01',
+      master_distributor_pct: '0.02',
+      distributor_pct: '0.03',
+      is_active: true,
+      sort_order: '0',
+    });
+    setPackagePayoutSlabs(buildDefaultPayoutSlabsFromGlobal());
+    setGatewayPickerId('');
     setShowPackageModal(true);
+  };
+
+  const openEditPackage = async (pkg) => {
+    setEditingPackage(pkg);
+    applyPackageFormFromPkg(pkg);
+    setShowPackageModal(true);
+    setPackageDetailLoading(true);
+    try {
+      const res = await adminAPI.getPayInPackage(pkg.id);
+      if (res.success && res.data && res.data.id) {
+        setEditingPackage(res.data);
+        applyPackageFormFromPkg(res.data);
+      }
+    } finally {
+      setPackageDetailLoading(false);
+    }
   };
 
   const addPayoutSlabRow = () => {
@@ -201,10 +306,12 @@ const PayInPackagesAdmin = () => {
       alert('Code and Display Name are required');
       return;
     }
-    if (!packageForm.payment_gateway_id) {
-      alert('Please select a Payment Gateway.');
+    if (!packageForm.payment_gateway_ids?.length) {
+      alert('Select at least one payment gateway for this package.');
       return;
     }
+    const defaultGw =
+      packageForm.default_payment_gateway_id || packageForm.payment_gateway_ids[0];
     setLoading(true);
     const payout_slabs = packagePayoutSlabs.map((row, i) => ({
       sort_order: i,
@@ -217,7 +324,9 @@ const PayInPackagesAdmin = () => {
       code: packageForm.code.trim(),
       display_name: packageForm.display_name.trim(),
       provider: packageForm.provider,
-      payment_gateway_id: packageForm.payment_gateway_id ? Number(packageForm.payment_gateway_id) : null,
+      payment_gateway_ids: packageForm.payment_gateway_ids.map((id) => Number(id)),
+      default_payment_gateway_id: Number(defaultGw),
+      payment_gateway_id: Number(defaultGw),
       min_amount: packageForm.min_amount,
       max_amount_per_txn: packageForm.max_amount_per_txn,
       gateway_fee_pct: packageForm.gateway_fee_pct,
@@ -309,6 +418,10 @@ const PayInPackagesAdmin = () => {
   return (
     <div className="min-h-[calc(100vh-6rem)] bg-gradient-to-b from-slate-50 via-white to-slate-50/80">
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8 space-y-8">
+        <GatewayFlowStepper
+          currentStep="payin-packages"
+          subtitle="Step 3/3: Attach multiple gateways per package and set a default execution rail."
+        />
         <header className="relative overflow-hidden rounded-2xl border border-slate-200/80 bg-white shadow-sm">
           <div className="absolute inset-0 bg-gradient-to-br from-violet-500/[0.07] via-transparent to-indigo-500/[0.06] pointer-events-none" />
           <div className="relative px-6 py-8 sm:px-8 sm:py-9 flex flex-col lg:flex-row lg:items-center lg:justify-between gap-6">
@@ -322,14 +435,23 @@ const PayInPackagesAdmin = () => {
                 Preview to sanity-check amounts.
               </p>
             </div>
-            <Link
-              to="/admin/gateways"
-              className="inline-flex items-center gap-2 self-start rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm font-semibold text-slate-700 shadow-sm hover:border-indigo-200 hover:bg-indigo-50/50 hover:text-indigo-800 transition-colors"
-            >
-              <FaCreditCard className="text-indigo-600" size={18} />
-              Payment gateways
-              <FaArrowRight size={14} className="text-slate-400" />
-            </Link>
+            <div className="flex flex-wrap gap-2">
+              <Link
+                to="/admin/gateways"
+                className="inline-flex items-center gap-2 self-start rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm font-semibold text-slate-700 shadow-sm hover:border-indigo-200 hover:bg-indigo-50/50 hover:text-indigo-800 transition-colors"
+              >
+                <FaCreditCard className="text-indigo-600" size={18} />
+                Payment gateways
+                <FaArrowRight size={14} className="text-slate-400" />
+              </Link>
+              <Link
+                to="/admin/api-master"
+                className="inline-flex items-center gap-2 self-start rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm font-semibold text-slate-700 shadow-sm hover:border-indigo-200 hover:bg-indigo-50/50 hover:text-indigo-800 transition-colors"
+              >
+                API Master
+                <FaArrowRight size={14} className="text-slate-400" />
+              </Link>
+            </div>
           </div>
         </header>
 
@@ -442,6 +564,33 @@ const PayInPackagesAdmin = () => {
                           ₹{pkg.min_amount} – ₹{pkg.max_amount_per_txn}
                         </span>
                       </div>
+
+                      {linkedGatewaysFromPackage(pkg, gateways).length > 0 ? (
+                        <div className="mt-3">
+                          <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-500 mb-1.5">
+                            Payment gateways
+                          </p>
+                          <div className="flex flex-wrap gap-1.5">
+                            {linkedGatewaysFromPackage(pkg, gateways).map((g) => (
+                              <span
+                                key={g.id}
+                                className={`inline-flex items-center gap-1 rounded-full px-2.5 py-1 text-xs font-medium ring-1 ${
+                                  g.is_default
+                                    ? 'bg-indigo-50 text-indigo-800 ring-indigo-200'
+                                    : 'bg-slate-100 text-slate-700 ring-slate-200'
+                                }`}
+                                title={g.status !== 'active' ? `Status: ${g.status}` : undefined}
+                              >
+                                {g.is_default ? <FaStar size={10} className="text-amber-500" /> : null}
+                                {g.name}
+                                {g.status && g.status !== 'active' ? (
+                                  <span className="text-amber-700">({g.status})</span>
+                                ) : null}
+                              </span>
+                            ))}
+                          </div>
+                        </div>
+                      ) : null}
 
                       <div className="mt-4">
                         <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-500 mb-2">
@@ -579,48 +728,17 @@ const PayInPackagesAdmin = () => {
                 />
               </div>
 
-              <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-2">Provider</label>
                   <select
                     value={packageForm.provider}
-                    onChange={(e) =>
-                      setPackageForm((p) => {
-                        const nextProvider = e.target.value;
-                        const nextGateway = p.payment_gateway_id || (gateways.length ? String(gateways[0].id) : '');
-                        return {
-                          ...p,
-                          provider: nextProvider,
-                          payment_gateway_id: nextGateway,
-                        };
-                      })
-                    }
+                    onChange={(e) => setPackageForm((p) => ({ ...p, provider: e.target.value }))}
                     className="w-full px-4 py-3 border border-gray-300 rounded-lg"
                   >
                     <option value="razorpay">Razorpay</option>
                     <option value="payu">PayU</option>
                   </select>
-                </div>
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-2">
-                    Linked Payment Gateway <span className="text-red-500">*</span>
-                  </label>
-                  <select
-                    value={packageForm.payment_gateway_id}
-                    onChange={(e) => setPackageForm((p) => ({ ...p, payment_gateway_id: e.target.value }))}
-                    className="w-full px-4 py-3 border border-gray-300 rounded-lg"
-                    required
-                  >
-                    <option value="">-- Select Gateway --</option>
-                    {gateways.map((g) => (
-                      <option key={g.id} value={g.id}>
-                        {g.name}
-                      </option>
-                    ))}
-                  </select>
-                  {!packageForm.payment_gateway_id && (
-                    <p className="mt-1 text-xs text-red-600">Please select a payment gateway.</p>
-                  )}
                 </div>
                 <div className="flex items-end">
                   <label className="inline-flex items-center gap-2 cursor-pointer">
@@ -632,6 +750,142 @@ const PayInPackagesAdmin = () => {
                     <span className="text-sm text-gray-700">Active package</span>
                   </label>
                 </div>
+              </div>
+
+              <div className="rounded-xl border border-indigo-200 bg-indigo-50/40 p-4 space-y-4">
+                <div className="flex flex-wrap items-start justify-between gap-2">
+                  <div>
+                    <h4 className="text-sm font-semibold text-gray-900 flex items-center gap-2">
+                      <FaCreditCard className="text-indigo-600" size={16} />
+                      Payment gateways for this package
+                      <span className="text-red-500">*</span>
+                    </h4>
+                    <p className="text-xs text-gray-600 mt-1 max-w-xl">
+                      Checkout users pick one of these rails. Fees stay on this package — gateways only control
+                      which provider credentials are used. You can add more gateways anytime without removing
+                      existing ones.
+                    </p>
+                  </div>
+                  {packageDetailLoading ? (
+                    <span className="text-xs font-medium text-indigo-700 bg-white px-2 py-1 rounded-md ring-1 ring-indigo-200">
+                      Refreshing linked gateways…
+                    </span>
+                  ) : null}
+                </div>
+
+                <div>
+                  <p className="text-xs font-semibold uppercase tracking-wide text-gray-600 mb-2">
+                    Linked gateways ({selectedGatewayRows.length})
+                  </p>
+                  {selectedGatewayRows.length === 0 ? (
+                    <p className="text-sm text-amber-800 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2">
+                      No gateway linked yet. Add at least one below — users cannot pay in without a gateway.
+                    </p>
+                  ) : (
+                    <ul className="space-y-2">
+                      {selectedGatewayRows.map((g) => {
+                        const isDefault = packageForm.default_payment_gateway_id === g.id;
+                        return (
+                          <li
+                            key={g.id}
+                            className="flex flex-wrap items-center gap-2 sm:gap-3 rounded-lg border border-white bg-white px-3 py-2.5 shadow-sm ring-1 ring-slate-200/80"
+                          >
+                            <span className="font-medium text-gray-900 text-sm flex-1 min-w-[120px]">{g.name}</span>
+                            {g.status && g.status !== 'active' ? (
+                              <span className="text-xs rounded-full bg-amber-100 text-amber-800 px-2 py-0.5 font-medium">
+                                {g.status}
+                              </span>
+                            ) : (
+                              <span className="text-xs rounded-full bg-emerald-100 text-emerald-800 px-2 py-0.5 font-medium">
+                                active
+                              </span>
+                            )}
+                            <label className="inline-flex items-center gap-1.5 text-xs text-gray-700 cursor-pointer shrink-0">
+                              <input
+                                type="radio"
+                                name="default_payin_gateway"
+                                checked={isDefault}
+                                onChange={() =>
+                                  setPackageForm((p) => ({
+                                    ...p,
+                                    default_payment_gateway_id: g.id,
+                                  }))
+                                }
+                              />
+                              <FaStar className={isDefault ? 'text-amber-500' : 'text-gray-300'} size={12} />
+                              {isDefault ? 'Default' : 'Set default'}
+                            </label>
+                            <button
+                              type="button"
+                              onClick={() => removePackageGateway(g.id)}
+                              disabled={selectedGatewayRows.length <= 1}
+                              className="inline-flex items-center gap-1 rounded-md px-2 py-1 text-xs font-semibold text-red-700 hover:bg-red-50 disabled:opacity-40 disabled:cursor-not-allowed"
+                              title={
+                                selectedGatewayRows.length <= 1
+                                  ? 'At least one gateway is required'
+                                  : 'Remove from package'
+                              }
+                            >
+                              <FaXmark size={12} />
+                              Remove
+                            </button>
+                          </li>
+                        );
+                      })}
+                    </ul>
+                  )}
+                </div>
+
+                <div className="border-t border-indigo-200/80 pt-4">
+                  <p className="text-xs font-semibold uppercase tracking-wide text-gray-600 mb-2">
+                    Add another gateway
+                  </p>
+                  {gateways.length === 0 ? (
+                    <p className="text-sm text-gray-600">
+                      Create payment gateways under{' '}
+                      <Link to="/admin/gateways" className="text-indigo-700 font-medium hover:underline">
+                        Payment gateways
+                      </Link>{' '}
+                      first.
+                    </p>
+                  ) : availableGatewaysToAdd.length === 0 ? (
+                    <p className="text-sm text-gray-600">
+                      All configured gateways are already linked to this package.
+                    </p>
+                  ) : (
+                    <div className="flex flex-col sm:flex-row gap-2">
+                      <select
+                        value={gatewayPickerId}
+                        onChange={(e) => setGatewayPickerId(e.target.value)}
+                        className="flex-1 px-4 py-2.5 border border-gray-300 rounded-lg bg-white text-sm"
+                      >
+                        <option value="">Choose gateway to add…</option>
+                        {availableGatewaysToAdd.map((g) => (
+                          <option key={g.id} value={g.id}>
+                            {g.name}
+                            {g.status && g.status !== 'active' ? ` (${g.status})` : ''}
+                          </option>
+                        ))}
+                      </select>
+                      <Button
+                        type="button"
+                        variant="primary"
+                        size="md"
+                        icon={FaPlus}
+                        iconPosition="left"
+                        onClick={addGatewayFromPicker}
+                        disabled={!gatewayPickerId}
+                        className="sm:shrink-0"
+                      >
+                        Add gateway
+                      </Button>
+                    </div>
+                  )}
+                </div>
+
+                {!packageForm.payment_gateway_ids?.length && (
+                  <p className="text-xs text-red-600">Select at least one payment gateway before saving.</p>
+                )}
               </div>
 
               <div className="grid grid-cols-1 md:grid-cols-3 gap-4">

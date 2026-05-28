@@ -153,8 +153,16 @@ const MPINVerification = () => {
           </button>
         </form>
 
-        <div className="mt-6 text-center">
+        <div className="mt-6 text-center space-y-2">
           <button
+            type="button"
+            onClick={() => navigate('/forgot-mpin')}
+            className="block w-full text-sm font-medium text-indigo-600 hover:text-indigo-800"
+          >
+            Forgot MPIN? Reset via OTP
+          </button>
+          <button
+            type="button"
             onClick={() => navigate('/login')}
             className="text-sm text-blue-600 hover:text-blue-800"
           >

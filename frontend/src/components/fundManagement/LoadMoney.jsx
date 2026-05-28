@@ -46,6 +46,10 @@ const LoadMoney = () => {
   const [packages, setPackages] = useState([]);
   const [packagesLoading, setPackagesLoading] = useState(true);
   const [selectedPackageId, setSelectedPackageId] = useState('');
+  const [packageGateways, setPackageGateways] = useState([]);
+  const [gatewaysLoading, setGatewaysLoading] = useState(false);
+  const [selectedGatewayId, setSelectedGatewayId] = useState('');
+  const [gatewayRetryMode, setGatewayRetryMode] = useState(false);
   const [amount, setAmount] = useState('');
   const [quote, setQuote] = useState(null);
   const [quoteLoading, setQuoteLoading] = useState(false);
@@ -89,6 +93,38 @@ const LoadMoney = () => {
   }, []);
 
   const selectedPackage = packages.find((p) => String(p.id) === String(selectedPackageId)) || null;
+  const selectedGateway =
+    packageGateways.find((g) => String(g.id) === String(selectedGatewayId)) || null;
+
+  const pickDefaultGatewayId = (list) => {
+    if (!list?.length) return '';
+    const def = list.find((g) => g.is_default) || list[0];
+    return String(def.id);
+  };
+
+  useEffect(() => {
+    if (!selectedPackageId) {
+      setPackageGateways([]);
+      setSelectedGatewayId('');
+      return undefined;
+    }
+    let cancelled = false;
+    (async () => {
+      setGatewaysLoading(true);
+      const res = await fundManagementAPI.listPayInPackageGateways(Number(selectedPackageId));
+      if (cancelled) return;
+      const list = res.success && res.data?.gateways ? res.data.gateways : [];
+      setPackageGateways(list);
+      setSelectedGatewayId((prev) => {
+        if (prev && list.some((g) => String(g.id) === String(prev))) return prev;
+        return pickDefaultGatewayId(list);
+      });
+      setGatewaysLoading(false);
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [selectedPackageId]);
 
   useEffect(() => {
     if (!selectedPackageId || !amount) {
@@ -214,24 +250,45 @@ const LoadMoney = () => {
       alert(quoteError || 'Wait for a valid price quote, or adjust the amount.');
       return;
     }
+    if (packageGateways.length > 0 && !selectedGatewayId) {
+      alert('Please select a payment gateway');
+      return;
+    }
     setShowPaymentModal(true);
+  };
+
+  const openGatewayRetry = () => {
+    setGatewayRetryMode(true);
+    setShowPaymentModal(false);
+    setShowGatewayInterface(false);
+    setOrderPayload(null);
+    setPayFeedbackModal((m) => ({ ...m, open: false }));
   };
 
   const handleProceedToPayment = async () => {
     if (!customerDetails?.id || !selectedPackageId) return;
+    if (packageGateways.length > 0 && !selectedGatewayId) {
+      alert('Please select a payment gateway');
+      return;
+    }
     setLoading(true);
+    setGatewayRetryMode(false);
     try {
       const res = await fundManagementAPI.payInCreateOrder({
         packageId: Number(selectedPackageId),
         amount: String(amount),
         contactId: customerDetails.id,
+        gatewayId: selectedGatewayId ? Number(selectedGatewayId) : undefined,
       });
       if (!res.success) {
         setPayFeedbackModal({
           open: true,
           title: 'Could not start payment',
           description: res.message || 'Order creation failed. Try again or contact support.',
-          primaryAction: null,
+          primaryAction: {
+            label: 'Try another gateway',
+            onClick: openGatewayRetry,
+          },
         });
         return;
       }
@@ -322,6 +379,10 @@ const LoadMoney = () => {
                   res.message ||
                   'Verification failed. If Razorpay shows success, check Reports → Pay In in a moment, or configure a public webhook URL for production.',
                 primaryAction: {
+                  label: 'Try another gateway',
+                  onClick: openGatewayRetry,
+                },
+                alternateAction: {
                   label: 'Open Pay In report',
                   onClick: () => navigate('/reports/payin'),
                 },
@@ -468,7 +529,10 @@ const LoadMoney = () => {
                 <>
                   <select
                     value={selectedPackageId}
-                    onChange={(e) => setSelectedPackageId(e.target.value)}
+                    onChange={(e) => {
+                      setSelectedPackageId(e.target.value);
+                      setGatewayRetryMode(false);
+                    }}
                     className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 text-gray-900 bg-white"
                   >
                     {packages.map((p) => (
@@ -483,6 +547,43 @@ const LoadMoney = () => {
                       {formatCurrency(parseFloat(selectedPackage.max_amount_per_txn))} per transaction
                     </p>
                   )}
+                  {gatewayRetryMode && (
+                    <div className="mt-3 p-3 rounded-lg border border-amber-300 bg-amber-50 text-sm text-amber-900">
+                      The previous gateway did not complete payment. Choose another gateway below and tap{' '}
+                      <strong>PAY NOW</strong> to try again with the same package and amount.
+                    </div>
+                  )}
+                  {gatewaysLoading ? (
+                    <p className="text-sm text-gray-600 mt-3">Loading payment gateways…</p>
+                  ) : packageGateways.length > 0 ? (
+                    <div className="mt-4 space-y-2">
+                      <label className="block text-sm font-medium text-gray-700">
+                        Payment gateway <span className="text-red-500">*</span>
+                      </label>
+                      <select
+                        value={selectedGatewayId}
+                        onChange={(e) => setSelectedGatewayId(e.target.value)}
+                        className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 text-gray-900 bg-white"
+                      >
+                        {packageGateways.map((g) => (
+                          <option key={g.id} value={g.id} disabled={g.status && g.status !== 'active'}>
+                            {g.name}
+                            {g.is_default ? ' (default)' : ''}
+                            {g.status && g.status !== 'active' ? ` — ${g.status}` : ''}
+                          </option>
+                        ))}
+                      </select>
+                      {selectedGateway?.status && selectedGateway.status !== 'active' ? (
+                        <p className="text-xs text-amber-700">
+                          This gateway may be unavailable. Consider choosing another option.
+                        </p>
+                      ) : null}
+                    </div>
+                  ) : selectedPackageId && !gatewaysLoading ? (
+                    <p className="text-sm text-amber-800 mt-3">
+                      No active payment gateways are linked to this package. Contact your administrator.
+                    </p>
+                  ) : null}
                 </>
               )}
             </div>
@@ -604,6 +705,8 @@ const LoadMoney = () => {
                   !amount ||
                   parseFloat(amount) <= 0 ||
                   !selectedPackageId ||
+                  (packageGateways.length > 0 && !selectedGatewayId) ||
+                  gatewaysLoading ||
                   !quote ||
                   !!quoteError ||
                   quoteLoading
@@ -638,6 +741,12 @@ const LoadMoney = () => {
                     {selectedPackage?.display_name}
                   </span>
                 </div>
+                {selectedGateway ? (
+                  <div className="flex justify-between">
+                    <span className="text-gray-600">Gateway</span>
+                    <span className="font-semibold text-gray-900 text-right max-w-[60%]">{selectedGateway.name}</span>
+                  </div>
+                ) : null}
                 <div className="flex justify-between">
                   <span className="text-gray-600">Gross</span>
                   <span className="font-semibold text-gray-900">{formatCurrency(grossNum)}</span>
@@ -709,6 +818,12 @@ const LoadMoney = () => {
                   <span>Reference</span>
                   <span className="font-mono text-xs">{orderPayload.transaction_id}</span>
                 </div>
+                {orderPayload.payment_gateway_name ? (
+                  <div className="flex justify-between text-gray-600">
+                    <span>Gateway</span>
+                    <span className="font-medium text-gray-800">{orderPayload.payment_gateway_name}</span>
+                  </div>
+                ) : null}
               </div>
 
               {orderPayload.provider === 'razorpay' && orderPayload.razorpay && (
@@ -753,6 +868,7 @@ const LoadMoney = () => {
         title={payFeedbackModal.title}
         description={payFeedbackModal.description}
         primaryAction={payFeedbackModal.primaryAction}
+        alternateAction={payFeedbackModal.alternateAction}
       />
     </div>
   );

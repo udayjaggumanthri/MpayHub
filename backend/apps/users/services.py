@@ -21,10 +21,8 @@ from apps.users.models import UserProfile, KYC, UserHierarchy
 from apps.core.utils import generate_user_id, validate_pan, validate_aadhaar
 from apps.core.exceptions import InvalidUserRole
 from apps.wallets.models import Wallet
+from apps.authentication.password_onboarding import issue_temporary_password
 from apps.authentication.services import send_otp, verify_otp
-
-# Fixed first-login password when hierarchy creates a user without supplying one.
-DEFAULT_ONBOARDING_PASSWORD = 'default123'
 
 
 def _access_controls_snapshot(user: User) -> dict:
@@ -116,6 +114,27 @@ def sync_kyc_verification_status(kyc):
     if kyc.pan_verified and kyc.aadhaar_verified and kyc.verification_status != 'verified':
         kyc.verification_status = 'verified'
         kyc.save(update_fields=['verification_status'])
+        try:
+            from apps.notifications.email_helpers import login_url_default, mask_pan, user_display_name
+            from apps.notifications.services.email_dispatch import EmailNotificationService
+
+            user = kyc.user
+            to_email = (getattr(user, 'email', None) or '').strip()
+            if to_email:
+                EmailNotificationService.dispatch(
+                    'kyc.verification.complete',
+                    to_email,
+                    {
+                        'name': user_display_name(user),
+                        'user_id': getattr(user, 'user_id', '') or '',
+                        'pan_masked': mask_pan(getattr(kyc, 'pan', '') or ''),
+                        'verification_status': 'verified',
+                    },
+                    user_id=user.pk,
+                    idempotency_key=f'kyc:verified:{user.pk}',
+                )
+        except Exception:
+            pass
 
 
 @transaction.atomic
@@ -143,20 +162,19 @@ def create_user(user_data, created_by):
 
     raw_password = (user_data.get('password') or '').strip()
     temporary_plain_password = None
-    if not raw_password:
-        temporary_plain_password = DEFAULT_ONBOARDING_PASSWORD
-        raw_password = DEFAULT_ONBOARDING_PASSWORD
-    
-    # Create user
+
+    # Create user (placeholder password replaced when issuing unique temp credentials)
     user = User.objects.create_user(
         phone=user_data['phone'],
         email=user_data['email'],
-        password=raw_password,
+        password=raw_password if raw_password else None,
         role=target_role,
         user_id=user_id,
         first_name=user_data.get('first_name', ''),
-        last_name=user_data.get('last_name', '')
+        last_name=user_data.get('last_name', ''),
     )
+    if not raw_password:
+        temporary_plain_password = issue_temporary_password(user)
     
     # MPIN: optional at creation — user sets after self-service KYC
     mpin = user_data.get('mpin')
@@ -408,6 +426,23 @@ def get_subordinates(user, role=None):
     return subordinates
 
 
+def get_viewable_user_ids(user) -> set:
+    """
+    User IDs a non-admin may list/retrieve: all subordinates, direct parents of
+    those subordinates (point of contact from profile links), and self.
+    """
+    subordinates = UserHierarchy.get_subordinates(user)
+    subordinate_ids = {u.id for u in subordinates}
+    parent_ids = set()
+    if subordinate_ids:
+        parent_ids = set(
+            UserHierarchy.objects.filter(child_user_id__in=subordinate_ids).values_list(
+                'parent_user_id', flat=True
+            )
+        )
+    return subordinate_ids | parent_ids | {user.id}
+
+
 def _user_display_name(u: User) -> str:
     name = (u.get_full_name() or '').strip()
     return name or (u.email or u.phone or str(u.pk))
@@ -423,27 +458,40 @@ def _hierarchy_public_ref(u: User) -> str:
     return str(u.pk)
 
 
-def build_user_lineage(user: User) -> dict:
-    """
-    Upline (root → immediate parent), direct parent links (who added / when),
-    and a compact map path for admin UI.
-    """
-    # Direct parent edges (normal case: one row)
-    direct_parents = []
+def _direct_parent_contacts(user: User, *, include_pk: bool = False) -> list:
+    """Immediate parent hierarchy edges for a user (who they report to)."""
+    contacts = []
     for rel in (
         UserHierarchy.objects.filter(child_user=user)
         .select_related('parent_user')
         .order_by('created_at')
     ):
         p = rel.parent_user
-        direct_parents.append(
-            {
-                'user_id': p.user_id,
-                'role': p.role,
-                'name': _user_display_name(p),
-                'linked_at': rel.created_at.isoformat() if rel.created_at else None,
-            }
-        )
+        entry = {
+            'user_id': p.user_id,
+            'role': p.role,
+            'name': _user_display_name(p),
+            'linked_at': rel.created_at.isoformat() if rel.created_at else None,
+        }
+        if include_pk:
+            entry['id'] = p.pk
+        contacts.append(entry)
+    return contacts
+
+
+def build_point_of_contact(user: User) -> dict:
+    """
+    Non-admin profile view: direct parent(s) of the profile user only.
+    """
+    return {'contacts': _direct_parent_contacts(user, include_pk=True)}
+
+
+def build_user_lineage(user: User) -> dict:
+    """
+    Upline (root → immediate parent), direct parent links (who added / when),
+    and a compact map path for admin UI.
+    """
+    direct_parents = _direct_parent_contacts(user, include_pk=False)
 
     # Walk upline using first parent edge per level (matches commission upline behaviour)
     upline_steps = []

@@ -29,7 +29,8 @@ class ApiMaster(BaseModel):
         ('sandbox', 'Sandbox'),
     ]
 
-    provider_code = models.SlugField(max_length=80, unique=True, db_index=True)
+    # Integration family code (e.g. razorpay). Not unique: allow multiple accounts/credentials.
+    provider_code = models.SlugField(max_length=80, db_index=True)
     provider_name = models.CharField(max_length=200)
     provider_type = models.CharField(max_length=20, choices=PROVIDER_TYPE_CHOICES, db_index=True)
     base_url = models.URLField(max_length=500, blank=True)

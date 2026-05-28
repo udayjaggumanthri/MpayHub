@@ -1,6 +1,7 @@
 from decimal import Decimal
 
 from rest_framework import serializers
+from django.utils.text import slugify
 
 from apps.core.utils import decrypt_secret_payload, encrypt_secret_payload
 from apps.integrations.models import ApiMaster
@@ -28,6 +29,13 @@ def _mask_secret_value(value):
 
 
 class ApiMasterSerializer(serializers.ModelSerializer):
+    # Do not apply DRF's auto unique validator on provider_type.
+    # Business rule is: only one *default* per provider_type, not one total row.
+    provider_type = serializers.ChoiceField(
+        choices=ApiMaster.PROVIDER_TYPE_CHOICES,
+        required=True,
+        validators=[],
+    )
     secrets = serializers.DictField(write_only=True, required=False)
     secrets_masked = serializers.SerializerMethodField(read_only=True)
 
@@ -57,6 +65,14 @@ class ApiMasterSerializer(serializers.ModelSerializer):
         payload = decrypt_secret_payload(obj.secrets_encrypted or '')
         return {k: _mask_secret_value(v) for k, v in payload.items()}
 
+    def validate_provider_code(self, value):
+        normalized = slugify(str(value or ''), allow_unicode=False)
+        if not normalized:
+            raise serializers.ValidationError(
+                'Provider code must contain letters or numbers.'
+            )
+        return normalized
+
     def validate(self, attrs):
         attrs = super().validate(attrs)
         instance = getattr(self, 'instance', None)
@@ -69,6 +85,21 @@ class ApiMasterSerializer(serializers.ModelSerializer):
             value = attrs.get(key, getattr(instance, key, 0))
             if Decimal(str(value)) < 0:
                 raise serializers.ValidationError({key: ['Must be greater than or equal to 0.']})
+
+        provider_type = attrs.get('provider_type', getattr(instance, 'provider_type', '')).strip().lower()
+        is_default = bool(attrs.get('is_default', getattr(instance, 'is_default', False)))
+        if is_default and provider_type:
+            existing_default = ApiMaster.objects.filter(
+                provider_type=provider_type,
+                is_default=True,
+                is_deleted=False,
+            )
+            if instance is not None:
+                existing_default = existing_default.exclude(pk=instance.pk)
+            if existing_default.exists():
+                raise serializers.ValidationError(
+                    {'is_default': ['A default API master already exists for this module. Uncheck default or edit existing default entry.']}
+                )
 
         incoming_raw = attrs.get('secrets')
         decrypted_existing = decrypt_secret_payload(getattr(instance, 'secrets_encrypted', '') or '')
