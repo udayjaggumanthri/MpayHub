@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { useNavigate, useLocation } from 'react-router-dom';
+import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../../context/AuthContext';
 import { useWallet } from '../../context/WalletContext';
 import {
@@ -43,15 +43,6 @@ const Dashboard = () => {
   const { user } = useAuth();
   const { wallets, loading, loadWallets } = useWallet();
   const navigate = useNavigate();
-  const location = useLocation();
-  const [accessNotice, setAccessNotice] = useState('');
-
-  useEffect(() => {
-    if (location.state?.accessBlocked && location.state?.message) {
-      setAccessNotice(location.state.message);
-      navigate(location.pathname, { replace: true, state: {} });
-    }
-  }, [location.state, location.pathname, navigate]);
 
   useEffect(() => {
     loadWallets();
@@ -217,15 +208,6 @@ const Dashboard = () => {
   return (
     <>
       <AnnouncementBanner />
-      {accessNotice ? (
-        <div
-          className="mx-auto max-w-7xl mb-4 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-950"
-          role="alert"
-        >
-          <p className="font-semibold">Action not available</p>
-          <p className="mt-0.5">{accessNotice}</p>
-        </div>
-      ) : null}
       {loading ? (
         <div className="flex min-h-[400px] items-center justify-center">
           <div className="text-center">

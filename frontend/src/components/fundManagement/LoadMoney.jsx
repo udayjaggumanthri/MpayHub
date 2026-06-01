@@ -437,7 +437,7 @@ const LoadMoney = () => {
 
   return (
     <div className="max-w-5xl mx-auto space-y-4 sm:space-y-6 px-4 sm:px-0">
-      <AccountAccessBanner user={user} mode="pay_in" />
+      <AccountAccessBanner user={user} mode="pay_in" maintenance={maintenance} />
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between">
         <div>
           <h1 className="text-2xl sm:text-3xl font-bold text-gray-900">Load Money</h1>

@@ -4,6 +4,7 @@ import { FiDownload } from 'react-icons/fi';
 import { passbookAPI, reportsAPI } from '../../services/api';
 import { canUseTeamReportScope } from '../../utils/rolePermissions';
 import { formatCurrency, formatDateTime } from '../../utils/formatters';
+import { formatReportBalance } from '../../utils/reportBalanceDisplay';
 
 const Passbook = () => {
   const { user } = useAuth();
@@ -290,7 +291,8 @@ const Passbook = () => {
                   <th className="px-4 py-3 text-right text-sm font-semibold text-gray-700">DEBIT AMOUNT</th>
                   <th className="px-4 py-3 text-right text-sm font-semibold text-gray-700">CREDIT AMOUNT</th>
                   <th className="px-4 py-3 text-left text-sm font-semibold text-gray-700">CL</th>
-                  <th className="px-4 py-3 text-right text-sm font-semibold text-gray-700">CURRENT BALANCE</th>
+                  <th className="px-4 py-3 text-right text-sm font-semibold text-gray-700">OPENING BALANCE</th>
+                  <th className="px-4 py-3 text-right text-sm font-semibold text-gray-700">CLOSING BALANCE</th>
                 </tr>
               </thead>
               <tbody>
@@ -311,8 +313,11 @@ const Passbook = () => {
                       {entry.creditAmount > 0 ? formatCurrency(entry.creditAmount) : '-'}
                     </td>
                     <td className="px-4 py-3 text-sm text-gray-700">{entry.cl || '-'}</td>
+                    <td className="px-4 py-3 text-sm text-gray-900 text-right">
+                      {formatReportBalance(entry.openingBalance)}
+                    </td>
                     <td className="px-4 py-3 text-sm text-gray-900 text-right font-semibold">
-                      {formatCurrency(entry.closingBalance || entry.openingBalance || 0)}
+                      {formatReportBalance(entry.closingBalance)}
                     </td>
                   </tr>
                 ))}

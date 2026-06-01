@@ -1,8 +1,10 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import { FiDownload, FiEye, FiFilter, FiHelpCircle } from 'react-icons/fi';
+import { useSearchParams } from 'react-router-dom';
 import { useAuth } from '../../context/AuthContext';
 import { reportsAPI } from '../../services/api';
-import { canUseTeamReportScope } from '../../utils/rolePermissions';
+import { DRILLDOWN_SCOPE_PLATFORM, parseDrillDownSearchParams } from '../../utils/dashboardDrillDown';
+import { canUseTeamReportScope, isAdminUser } from '../../utils/rolePermissions';
 import FeedbackModal from '../common/FeedbackModal';
 import ReportTransactionDetailModal from './ReportTransactionDetailModal';
 import {
@@ -11,35 +13,42 @@ import {
   formatReportDateTime,
   formatAccountNumber,
 } from '../../utils/formatters';
+import { balanceFromRow, formatReportBalance } from '../../utils/reportBalanceDisplay';
 
 const ledgerStyleTypes = ['payin', 'payout'];
 
+const EMPTY_FILTERS = {
+  serviceId: '',
+  status: 'ALL',
+  dateFrom: '',
+  dateTo: '',
+  mobile: '',
+  amountMin: '',
+  amountMax: '',
+  serviceType: 'all',
+  agentRole: '',
+};
+
+function mergeDrillDownFilters(drillDown) {
+  if (!drillDown?.hasDrillDown) return { ...EMPTY_FILTERS };
+  return {
+    ...EMPTY_FILTERS,
+    status: drillDown.filters.status,
+    dateFrom: drillDown.filters.dateFrom,
+    dateTo: drillDown.filters.dateTo,
+  };
+}
+
 const TransactionReport = ({ type = 'all' }) => {
   const { user } = useAuth();
+  const [searchParams, setSearchParams] = useSearchParams();
+  const drillDown = useMemo(() => parseDrillDownSearchParams(searchParams), [searchParams]);
+  const initialFilters = useMemo(() => mergeDrillDownFilters(drillDown), [drillDown]);
+
   const [transactions, setTransactions] = useState([]);
-  const [filters, setFilters] = useState({
-    serviceId: '',
-    status: 'ALL',
-    dateFrom: '',
-    dateTo: '',
-    mobile: '',
-    amountMin: '',
-    amountMax: '',
-    serviceType: 'all',
-    agentRole: '',
-  });
+  const [filters, setFilters] = useState(initialFilters);
   /** Pay In / Pay Out: API query; updated on Apply (not on every keystroke). */
-  const [appliedLedgerFilters, setAppliedLedgerFilters] = useState({
-    serviceId: '',
-    status: 'ALL',
-    dateFrom: '',
-    dateTo: '',
-    mobile: '',
-    amountMin: '',
-    amountMax: '',
-    serviceType: 'all',
-    agentRole: '',
-  });
+  const [appliedLedgerFilters, setAppliedLedgerFilters] = useState(initialFilters);
   const [loading, setLoading] = useState(false);
   const [summary, setSummary] = useState({
     success: 0,
@@ -48,11 +57,28 @@ const TransactionReport = ({ type = 'all' }) => {
   });
   const [detailRecord, setDetailRecord] = useState(null);
   const [helpTxnId, setHelpTxnId] = useState(null);
-  const [reportScope, setReportScope] = useState('self');
+  const [reportScope, setReportScope] = useState(() =>
+    drillDown.scope === DRILLDOWN_SCOPE_PLATFORM && isAdminUser(user) ? 'platform' : 'self'
+  );
+  const [showDashboardBanner, setShowDashboardBanner] = useState(drillDown.fromDashboard);
+
+  useEffect(() => {
+    const next = mergeDrillDownFilters(drillDown);
+    setFilters(next);
+    setAppliedLedgerFilters(next);
+    if (drillDown.scope === DRILLDOWN_SCOPE_PLATFORM && isAdminUser(user)) {
+      setReportScope('platform');
+    }
+    setShowDashboardBanner(drillDown.fromDashboard);
+  }, [drillDown, user]);
 
   const buildReportParams = useCallback(() => {
-    const teamMode = reportScope === 'team' && canUseTeamReportScope(user?.role);
-    const scope = teamMode ? 'team' : 'self';
+    let scope = 'self';
+    if (reportScope === 'platform' && isAdminUser(user)) {
+      scope = 'platform';
+    } else if (reportScope === 'team' && canUseTeamReportScope(user?.role)) {
+      scope = 'team';
+    }
     const q = ledgerStyleTypes.includes(type) ? appliedLedgerFilters : filters;
     const params = { scope, page: 1, page_size: 500 };
     if (q.dateFrom) params.date_from = q.dateFrom;
@@ -109,6 +135,8 @@ const TransactionReport = ({ type = 'all' }) => {
             date: r.created_at,
             status: r.status,
             failureReason: '',
+            openingBalance: r.opening_balance,
+            closingBalance: r.closing_balance,
             detailLine1: `${r.agent_details?.user_code || ''} · ${r.agent_details?.name || ''}`,
             detailLine2: `Customer: ${r.customer_phone || r.customer_id || '—'}`,
             accountMasked: '',
@@ -153,6 +181,8 @@ const TransactionReport = ({ type = 'all' }) => {
             detailLine1: `${r.agent_details?.user_code || ''} · ${r.agent_details?.name || ''}`,
             detailLine2: r.bank_name || '—',
             accountMasked: r.account_number_masked || '—',
+            openingBalance: r.opening_balance,
+            closingBalance: r.closing_balance,
             detail: {
               bankName: r.bank_name,
               accountMasked: r.account_number_masked,
@@ -163,6 +193,8 @@ const TransactionReport = ({ type = 'all' }) => {
               netDebit: parseFloat(r.net_debit || '0'),
               totalDeducted: parseFloat(r.net_debit || '0'),
               gatewayTransactionId: r.reference,
+              openingBalance: r.opening_balance,
+              closingBalance: r.closing_balance,
             },
           }))
         );
@@ -237,8 +269,29 @@ const TransactionReport = ({ type = 'all' }) => {
 
   const isLedgerStyle = ledgerStyleTypes.includes(type);
 
+  const clearDashboardDrillDown = () => {
+    setSearchParams({});
+    setShowDashboardBanner(false);
+    const cleared = { ...EMPTY_FILTERS };
+    setFilters(cleared);
+    setAppliedLedgerFilters(cleared);
+    if (isAdminUser(user)) setReportScope('self');
+  };
+
   return (
     <div className="space-y-4 sm:space-y-6 px-4 sm:px-0">
+      {showDashboardBanner && drillDown.fromDashboard && (
+        <div className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-blue-200 bg-blue-50 px-4 py-3 text-sm text-blue-900">
+          <span>Filtered from dashboard portal activity (platform-wide).</span>
+          <button
+            type="button"
+            onClick={clearDashboardDrillDown}
+            className="font-semibold text-blue-700 hover:underline focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 rounded"
+          >
+            Clear filters
+          </button>
+        </div>
+      )}
       <ReportTransactionDetailModal
         open={Boolean(detailRecord)}
         onClose={() => setDetailRecord(null)}
@@ -257,30 +310,70 @@ const TransactionReport = ({ type = 'all' }) => {
         <h2 className="text-xl sm:text-2xl font-bold text-gray-900 mb-2">
           {reportTitle[type] || 'Transaction Report'}
         </h2>
-        {canUseTeamReportScope(user?.role) && (
+        {(canUseTeamReportScope(user?.role) || isAdminUser(user)) && (
           <div className="flex flex-wrap gap-2 mb-4">
-            <button
-              type="button"
-              onClick={() => setReportScope('self')}
-              className={`px-4 py-2 rounded-lg text-sm font-semibold border ${
-                reportScope === 'self'
-                  ? 'bg-blue-600 text-white border-blue-600'
-                  : 'bg-white text-gray-700 border-gray-300'
-              }`}
-            >
-              My activity
-            </button>
-            <button
-              type="button"
-              onClick={() => setReportScope('team')}
-              className={`px-4 py-2 rounded-lg text-sm font-semibold border ${
-                reportScope === 'team'
-                  ? 'bg-blue-600 text-white border-blue-600'
-                  : 'bg-white text-gray-700 border-gray-300'
-              }`}
-            >
-              Team activity
-            </button>
+            {!isAdminUser(user) ? (
+              <>
+                <button
+                  type="button"
+                  onClick={() => setReportScope('self')}
+                  className={`px-4 py-2 rounded-lg text-sm font-semibold border ${
+                    reportScope === 'self'
+                      ? 'bg-blue-600 text-white border-blue-600'
+                      : 'bg-white text-gray-700 border-gray-300'
+                  }`}
+                >
+                  My activity
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setReportScope('team')}
+                  className={`px-4 py-2 rounded-lg text-sm font-semibold border ${
+                    reportScope === 'team'
+                      ? 'bg-blue-600 text-white border-blue-600'
+                      : 'bg-white text-gray-700 border-gray-300'
+                  }`}
+                >
+                  Team activity
+                </button>
+              </>
+            ) : (
+              <>
+                <button
+                  type="button"
+                  onClick={() => setReportScope('platform')}
+                  className={`px-4 py-2 rounded-lg text-sm font-semibold border ${
+                    reportScope === 'platform'
+                      ? 'bg-blue-600 text-white border-blue-600'
+                      : 'bg-white text-gray-700 border-gray-300'
+                  }`}
+                >
+                  Platform (all users)
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setReportScope('team')}
+                  className={`px-4 py-2 rounded-lg text-sm font-semibold border ${
+                    reportScope === 'team'
+                      ? 'bg-blue-600 text-white border-blue-600'
+                      : 'bg-white text-gray-700 border-gray-300'
+                  }`}
+                >
+                  Team (excl. me)
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setReportScope('self')}
+                  className={`px-4 py-2 rounded-lg text-sm font-semibold border ${
+                    reportScope === 'self'
+                      ? 'bg-blue-600 text-white border-blue-600'
+                      : 'bg-white text-gray-700 border-gray-300'
+                  }`}
+                >
+                  My activity
+                </button>
+              </>
+            )}
           </div>
         )}
         {type === 'payin' && (
@@ -536,6 +629,12 @@ const TransactionReport = ({ type = 'all' }) => {
                   <th className="px-3 py-3 text-xs font-semibold uppercase tracking-wide text-gray-600 sm:px-4">
                     Agent
                   </th>
+                  <th className="px-3 py-3 text-right text-xs font-semibold uppercase tracking-wide text-gray-600 sm:px-4">
+                    Opening balance
+                  </th>
+                  <th className="px-3 py-3 text-right text-xs font-semibold uppercase tracking-wide text-gray-600 sm:px-4">
+                    Closing balance
+                  </th>
                   <th className="px-3 py-3 text-xs font-semibold uppercase tracking-wide text-gray-600 sm:px-4">
                     Transaction date
                   </th>
@@ -591,6 +690,12 @@ const TransactionReport = ({ type = 'all' }) => {
                       {txn.detail?.agentDetails
                         ? `${txn.detail.agentDetails.user_code || ''} · ${txn.detail.agentDetails.name || ''} · ${txn.detail.agentDetails.mobile || ''}`
                         : txn.detailLine1}
+                    </td>
+                    <td className="px-3 py-3 text-right text-sm text-gray-900 sm:px-4">
+                      {formatReportBalance(balanceFromRow(txn).opening)}
+                    </td>
+                    <td className="px-3 py-3 text-right text-sm text-gray-900 sm:px-4">
+                      {formatReportBalance(balanceFromRow(txn).closing)}
                     </td>
                     <td className="px-3 py-3 text-sm whitespace-nowrap text-gray-700 sm:px-4">
                       {formatReportDateTime(txn.date)}

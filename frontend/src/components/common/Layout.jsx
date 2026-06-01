@@ -1,7 +1,7 @@
 import React from 'react';
 import Sidebar from './Sidebar';
 import Header from './Header';
-import UserAccessNotice from './UserAccessNotice';
+import AccessBlockedAlert from './AccessBlockedAlert';
 
 const Layout = ({ children }) => {
   return (
@@ -10,7 +10,7 @@ const Layout = ({ children }) => {
       <div className="lg:ml-64">
         <Header />
         <main className="p-3 sm:p-4 md:p-6 lg:p-8 pb-6 sm:pb-8">
-          <UserAccessNotice />
+          <AccessBlockedAlert />
           {children}
         </main>
       </div>

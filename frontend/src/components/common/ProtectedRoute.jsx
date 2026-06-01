@@ -3,14 +3,13 @@ import { Navigate, useLocation } from 'react-router-dom';
 import { useAuth } from '../../context/AuthContext';
 import { isOperationalFundBlockedRole } from '../../utils/rolePermissions';
 import {
-  getAccessRedirectMessage,
-  isPayInOnlySession,
+  getBlockedActionNotice,
   shouldBlockPathForUser,
   userMayLogin,
 } from '../../utils/accessControl';
 
 const ProtectedRoute = ({ children, requireMPIN = true, blockFinancialTransactions = false }) => {
-  const { isAuthenticated, mpinVerified, loading, user } = useAuth();
+  const { isAuthenticated, mpinVerified, loading, user, maintenance } = useAuth();
   const location = useLocation();
   const path = location.pathname;
 
@@ -36,11 +35,11 @@ const ProtectedRoute = ({ children, requireMPIN = true, blockFinancialTransactio
   if (user && shouldBlockPathForUser(user, path)) {
     return (
       <Navigate
-        to={isPayInOnlySession(user) ? '/fund-management/load-money' : '/dashboard'}
+        to="/dashboard"
         replace
         state={{
           accessBlocked: true,
-          message: getAccessRedirectMessage(user, path),
+          message: getBlockedActionNotice(user, path, maintenance),
         }}
       />
     );

@@ -16,6 +16,13 @@ from apps.transactions.agent_snapshot import (
     utr_or_bank_reference_from_payment_meta,
 )
 from apps.transactions.models import CommissionLedger, PassbookEntry, Transaction
+from apps.transactions.report_passbook_balances import (
+    balance_fields_for_key,
+    bbps_balance_map,
+    payin_balance_map_for_load_money,
+    payin_balance_map_for_transactions,
+    payout_balance_map,
+)
 from apps.transactions.reporting_scope import is_direct_subordinate
 from apps.transactions.service_name_map import service_display_name
 
@@ -28,9 +35,14 @@ def money_str(v: Decimal | None) -> str:
 
 def txn_status_financial_summary(qs: QuerySet) -> dict[str, Any]:
     """Totals by status for summary cards (amount + count)."""
+    return operational_status_financial_summary(qs, amount_field='amount')
+
+
+def operational_status_financial_summary(qs: QuerySet, *, amount_field: str = 'amount') -> dict[str, Any]:
+    """Totals by status for operational models (LoadMoney, Payout, BillPayment)."""
     rows = (
         qs.values('status')
-        .annotate(total=Sum('amount'), n=Count('id'))
+        .annotate(total=Sum(amount_field), n=Count('id'))
         .order_by()
     )
     out = {
@@ -40,6 +52,8 @@ def txn_status_financial_summary(qs: QuerySet) -> dict[str, Any]:
     }
     for row in rows:
         st = (row['status'] or 'PENDING').upper()
+        if st == 'FAILURE':
+            st = 'FAILED'
         if st not in out:
             out[st] = {'amount': Decimal('0'), 'count': 0}
         out[st]['amount'] = row['total'] or Decimal('0')
@@ -68,38 +82,7 @@ def payin_rows_for_transactions(
             'user', 'package', 'package__payment_gateway', 'payment_gateway'
         )
     }
-    # Opening/closing balance around pay-in credit (payer's main wallet passbook row).
-    passbook_map: dict[tuple[str, int], PassbookEntry] = {}
-    passbook_qs = (
-        PassbookEntry.objects.filter(
-            service_id__in=ids,
-            wallet_type='main',
-            service__in=['LOAD MONEY', 'LOAD_MONEY'],
-            credit_amount__gt=Decimal('0'),
-        )
-        .only('service_id', 'user_id', 'opening_balance', 'closing_balance', 'created_at')
-        .order_by('-created_at')
-    )
-    for pe in passbook_qs:
-        key = (str(pe.service_id or ''), int(pe.user_id))
-        if key not in passbook_map:
-            passbook_map[key] = pe
-    # Legacy safety: if any entry was not found by service name, fallback by service_id + main wallet credit row.
-    missing_ids = {str(tx.service_id or '') for tx in transactions} - {k[0] for k in passbook_map.keys()}
-    if missing_ids:
-        fallback_qs = (
-            PassbookEntry.objects.filter(
-                service_id__in=list(missing_ids),
-                wallet_type='main',
-                credit_amount__gt=Decimal('0'),
-            )
-            .only('service_id', 'user_id', 'opening_balance', 'closing_balance', 'created_at')
-            .order_by('-created_at')
-        )
-        for pe in fallback_qs:
-            key = (str(pe.service_id or ''), int(pe.user_id))
-            if key not in passbook_map:
-                passbook_map[key] = pe
+    balance_map = payin_balance_map_for_transactions(transactions)
     out = []
     for t in transactions:
         lm = lm_map.get(t.service_id)
@@ -117,8 +100,11 @@ def payin_rows_for_transactions(
         gateway_transaction_id = ''
         fee_breakdown_snapshot: dict | None = None
         mode = ''
-        opening_balance = ''
-        closing_balance = ''
+        balances = balance_fields_for_key(
+            balance_map, str(t.service_id or ''), int(getattr(t, 'user_id', 0) or 0)
+        )
+        opening_balance = balances['opening_balance']
+        closing_balance = balances['closing_balance']
         if lm:
             gateway_meta = lm.payment_meta if isinstance(lm.payment_meta, dict) else {}
             mode = (lm.payment_method or '').replace('_', ' ') or '—'
@@ -143,11 +129,6 @@ def payin_rows_for_transactions(
                     payment_gateway_name = str(pg.name).strip()
             if not payment_gateway_name and (lm.gateway or '').strip():
                 payment_gateway_name = str(lm.gateway).replace('_', ' ').strip().title()
-
-        pe = passbook_map.get((str(t.service_id or ''), int(getattr(t, 'user_id', 0) or 0)))
-        if pe is not None:
-            opening_balance = money_str(pe.opening_balance)
-            closing_balance = money_str(pe.closing_balance)
 
         if not customer_email:
             customer_email = (gateway_meta.get('rzp_email') or '').strip()
@@ -236,6 +217,7 @@ def payout_rows_for_transactions(request, transactions: list[Transaction]) -> li
         p.transaction_id: p
         for p in Payout.objects.filter(transaction_id__in=ids).select_related('bank_account', 'user')
     }
+    balance_map = payout_balance_map(transactions)
     out = []
     for t in transactions:
         p = po_map.get(t.service_id)
@@ -255,6 +237,9 @@ def payout_rows_for_transactions(request, transactions: list[Transaction]) -> li
                     user=viewer,
                 ).values('amount', 'role_at_time', 'meta')[:50]
             )
+        balances = balance_fields_for_key(
+            balance_map, str(t.service_id or ''), int(getattr(t, 'user_id', 0) or 0)
+        )
         out.append(
             {
                 'id': t.id,
@@ -270,6 +255,8 @@ def payout_rows_for_transactions(request, transactions: list[Transaction]) -> li
                 'net_debit': money_str(t.net_amount if t.net_amount is not None else t.amount),
                 'status': t.status,
                 'reference': t.reference,
+                'opening_balance': balances['opening_balance'],
+                'closing_balance': balances['closing_balance'],
                 'commission_breakdown': [
                     {
                         'amount': money_str(Decimal(str(x.get('amount') or '0'))),
@@ -296,6 +283,7 @@ def bbps_rows_for_transactions(
     viewer = request.user
     ids = [tx.service_id for tx in transactions]
     bp_map = {b.service_id: b for b in BillPayment.objects.filter(service_id__in=ids)}
+    balance_map = bbps_balance_map(transactions)
     out = []
     for idx, t in enumerate(transactions, start=1):
         bp = bp_map.get(t.service_id)
@@ -307,6 +295,9 @@ def bbps_rows_for_transactions(
             token = 'SUCCESS'
         elif st == 'FAILED':
             token = 'FAILED'
+        balances = balance_fields_for_key(
+            balance_map, str(t.service_id or ''), int(getattr(t, 'user_id', 0) or 0)
+        )
         out.append(
             {
                 'serial': serial_offset + idx,
@@ -321,10 +312,203 @@ def bbps_rows_for_transactions(
                 'status': t.status,
                 'status_token': token,
                 'service_name': service_display_name(t.service_id),
+                'opening_balance': balances['opening_balance'],
+                'closing_balance': balances['closing_balance'],
                 'agent_details': agent_row_from_user(actor),
                 'direct_subordinate': is_direct_subordinate(viewer, row_user)
                 if getattr(viewer, 'role', '') == 'Super Distributor'
                 else None,
+            }
+        )
+    return out
+
+
+def payin_rows_from_load_money(request, items: list[LoadMoney]) -> list[dict[str, Any]]:
+    """Platform pay-in report rows from LoadMoney (matches dashboard counts)."""
+    viewer = request.user
+    balance_map = payin_balance_map_for_load_money(items)
+    out = []
+    for lm in items:
+        actor = lm.user
+        gateway_meta = lm.payment_meta if isinstance(lm.payment_meta, dict) else {}
+        mode = (lm.payment_method or '').replace('_', ' ') or '—'
+        customer_name = (lm.customer_name or '').strip()
+        customer_email = (lm.customer_email or '').strip()
+        customer_phone = (lm.customer_phone or '').strip()
+        provider_order_id = (lm.provider_order_id or '').strip()
+        provider_payment_id = (lm.provider_payment_id or '').strip()
+        gateway_transaction_id = (lm.gateway_transaction_id or '').strip()
+        fee_breakdown_snapshot = (
+            lm.fee_breakdown_snapshot if isinstance(lm.fee_breakdown_snapshot, dict) else None
+        )
+        package_code = ''
+        package_display_name = ''
+        payment_gateway_name = ''
+        pkg = lm.package
+        if pkg:
+            package_code = str(getattr(pkg, 'code', '') or '').strip()
+            package_display_name = str(getattr(pkg, 'display_name', '') or '').strip()
+        selected_pg = getattr(lm, 'payment_gateway', None)
+        if selected_pg is not None and getattr(selected_pg, 'name', None):
+            payment_gateway_name = str(selected_pg.name).strip()
+        if not payment_gateway_name and pkg:
+            pg = getattr(pkg, 'payment_gateway', None)
+            if pg is not None and getattr(pg, 'name', None):
+                payment_gateway_name = str(pg.name).strip()
+        if not payment_gateway_name and (lm.gateway or '').strip():
+            payment_gateway_name = str(lm.gateway).replace('_', ' ').strip().title()
+
+        balances = balance_fields_for_key(balance_map, str(lm.transaction_id or ''), int(lm.user_id))
+        opening_balance = balances['opening_balance']
+        closing_balance = balances['closing_balance']
+
+        customer_user_code = str(getattr(lm.user, 'user_id', None) or '')
+        if not customer_email:
+            customer_email = (gateway_meta.get('rzp_email') or '').strip()
+        if not customer_phone:
+            raw_c = (gateway_meta.get('rzp_contact') or '').strip()
+            digits = ''.join(c for c in raw_c if c.isdigit())
+            if len(digits) >= 10:
+                customer_phone = digits[-10:]
+        customer_id = customer_phone or customer_user_code
+
+        meta_utr = utr_or_bank_reference_from_payment_meta(gateway_meta)
+        bank_ref_for_utr = meta_utr
+        if not bank_ref_for_utr and gateway_transaction_id:
+            if not gateway_transaction_id.startswith('pay_'):
+                bank_ref_for_utr = gateway_transaction_id
+
+        card_last4 = card_last4_from_payment_meta(gateway_meta)
+        if getattr(viewer, 'role', None) != 'Admin':
+            fee_breakdown_snapshot = None
+
+        tid = lm.transaction_id
+        out.append(
+            {
+                'id': lm.id,
+                'created_at': lm.created_at.isoformat() if lm.created_at else None,
+                'service_id': tid,
+                'service_name': service_display_name(tid),
+                'customer_id': customer_id,
+                'customer_user_code': customer_user_code,
+                'customer_name': customer_name,
+                'customer_email': customer_email,
+                'customer_phone': customer_phone,
+                'mode': mode,
+                'principal': money_str(lm.amount),
+                'service_charge': money_str(lm.charge),
+                'net_credit': money_str(lm.net_credit),
+                'status': lm.status,
+                'reference': gateway_transaction_id or provider_payment_id or '',
+                'provider_order_id': provider_order_id,
+                'provider_payment_id': provider_payment_id,
+                'gateway_transaction_id': gateway_transaction_id,
+                'bank_txn_id': provider_payment_id or gateway_transaction_id or '',
+                'card_last4': card_last4,
+                'gateway_utr': bank_ref_for_utr,
+                'gateway_payment_meta': gateway_meta,
+                'package_id': lm.package_id if lm.package_id else None,
+                'package_code': package_code,
+                'package_display_name': package_display_name,
+                'payment_gateway_name': payment_gateway_name,
+                'opening_balance': opening_balance,
+                'closing_balance': closing_balance,
+                'fee_breakdown_snapshot': fee_breakdown_snapshot,
+                'agent_details': agent_row_from_user(actor),
+                'direct_subordinate': None,
+            }
+        )
+    return out
+
+
+def payout_rows_from_payout(request, items: list[Payout]) -> list[dict[str, Any]]:
+    viewer = request.user
+    balance_map = payout_balance_map(items)
+    out = []
+    for p in items:
+        bank_name = ''
+        acct_masked = ''
+        if p.bank_account:
+            bank_name = getattr(p.bank_account, 'bank_name', '') or '—'
+            acct = p.bank_account.account_number or ''
+            acct_masked = f"****{acct[-4:]}" if len(acct) >= 4 else '****'
+        actor = p.user
+        breakdown: list[dict[str, Any]] = []
+        breakdown = list(
+            CommissionLedger.objects.filter(
+                reference_service_id=p.transaction_id,
+                user=viewer,
+            ).values('amount', 'role_at_time', 'meta')[:50]
+        )
+        balances = balance_fields_for_key(balance_map, str(p.transaction_id or ''), int(p.user_id))
+        out.append(
+            {
+                'id': p.id,
+                'created_at': p.created_at.isoformat() if p.created_at else None,
+                'transaction_id': p.transaction_id,
+                'payout_id': p.transaction_id,
+                'service_name': service_display_name(p.transaction_id),
+                'bank_name': bank_name,
+                'account_number_masked': acct_masked,
+                'transfer_amount': money_str(p.amount),
+                'payout_charge': money_str(p.charge),
+                'platform_fee': money_str(p.platform_fee or Decimal('0')),
+                'net_debit': money_str(p.total_deducted),
+                'status': p.status,
+                'reference': p.gateway_transaction_id or '',
+                'opening_balance': balances['opening_balance'],
+                'closing_balance': balances['closing_balance'],
+                'commission_breakdown': [
+                    {
+                        'amount': money_str(Decimal(str(x.get('amount') or '0'))),
+                        'role_at_time': x.get('role_at_time'),
+                        'slice': (x.get('meta') or {}).get('slice'),
+                    }
+                    for x in breakdown
+                ],
+                'agent_details': agent_row_from_user(actor),
+                'direct_subordinate': None,
+            }
+        )
+    return out
+
+
+def bbps_rows_from_bill_payment(
+    request,
+    items: list[BillPayment],
+    *,
+    serial_offset: int = 0,
+) -> list[dict[str, Any]]:
+    viewer = request.user
+    balance_map = bbps_balance_map(items)
+    out = []
+    for idx, bp in enumerate(items, start=1):
+        actor = bp.user
+        st = (bp.status or 'PENDING').upper()
+        token = 'PENDING'
+        if st == 'SUCCESS':
+            token = 'SUCCESS'
+        elif st == 'FAILED':
+            token = 'FAILED'
+        balances = balance_fields_for_key(balance_map, str(bp.service_id or ''), int(bp.user_id))
+        out.append(
+            {
+                'serial': serial_offset + idx,
+                'id': bp.id,
+                'created_at': bp.created_at.isoformat() if bp.created_at else None,
+                'transaction_id': bp.service_id,
+                'request_id': bp.request_id or '',
+                'category': bp.bill_type or '',
+                'biller': bp.biller or '',
+                'bill_amount': money_str(bp.amount),
+                'platform_fee': money_str(bp.charge),
+                'status': bp.status,
+                'status_token': token,
+                'service_name': service_display_name(bp.service_id),
+                'opening_balance': balances['opening_balance'],
+                'closing_balance': balances['closing_balance'],
+                'agent_details': agent_row_from_user(actor),
+                'direct_subordinate': None,
             }
         )
     return out
@@ -366,7 +550,9 @@ def passbook_rows(request, entries: list[PassbookEntry]) -> list[dict[str, Any]]
                 'description': e.description,
                 'debit': money_str(e.debit_amount),
                 'credit': money_str(e.credit_amount),
+                'opening_balance': money_str(e.opening_balance),
                 'current_balance': money_str(e.closing_balance),
+                'closing_balance': money_str(e.closing_balance),
                 'wallet_type': e.wallet_type,
                 'service_charge': money_str(e.service_charge),
                 'principal_amount': money_str(e.principal_amount) if e.principal_amount is not None else '',

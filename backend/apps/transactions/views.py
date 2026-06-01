@@ -27,12 +27,21 @@ from apps.transactions.report_filters import (
     apply_transaction_report_filters,
     apply_commission_ledger_filters,
 )
+from apps.transactions.report_operational import (
+    platform_bbps_queryset,
+    platform_payin_queryset,
+    platform_payout_queryset,
+)
 from apps.transactions.report_api import (
     bbps_rows_for_transactions,
+    bbps_rows_from_bill_payment,
+    operational_status_financial_summary,
     passbook_period_header,
     passbook_rows,
     payin_rows_for_transactions,
+    payin_rows_from_load_money,
     payout_rows_for_transactions,
+    payout_rows_from_payout,
     stream_csv,
     txn_status_financial_summary,
 )
@@ -304,32 +313,48 @@ def payin_report_view(request):
     GET /api/reports/payin/
     """
     try:
-        uq = transaction_user_q(request)
+        scope = get_report_scope(request)
     except PermissionDenied as e:
         return Response(
             {'success': False, 'data': None, 'message': str(e.detail if hasattr(e, 'detail') else e), 'errors': []},
             status=status.HTTP_403_FORBIDDEN,
         )
-    qs = (
-        Transaction.objects.filter(uq, transaction_type='payin')
-        .select_related('user', 'agent_user')
-        .order_by('-created_at')
-    )
-    qs = apply_transaction_report_filters(qs, request, include_customer_mobile=True)
-    summary = txn_status_financial_summary(qs)
     page, page_size = _report_page_params(request)
-    total = qs.count()
-    start = (page - 1) * page_size
-    slice_qs = list(qs[start : start + page_size])
-    serializer = TransactionSerializer(slice_qs, many=True)
-    rows = payin_rows_for_transactions(request, slice_qs)
+    if scope == 'platform':
+        qs = platform_payin_queryset(request)
+        summary = operational_status_financial_summary(qs)
+        total = qs.count()
+        start = (page - 1) * page_size
+        slice_qs = list(qs[start : start + page_size])
+        rows = payin_rows_from_load_money(request, slice_qs)
+        tx_data = []
+    else:
+        try:
+            uq = transaction_user_q(request)
+        except PermissionDenied as e:
+            return Response(
+                {'success': False, 'data': None, 'message': str(e.detail if hasattr(e, 'detail') else e), 'errors': []},
+                status=status.HTTP_403_FORBIDDEN,
+            )
+        qs = (
+            Transaction.objects.filter(uq, transaction_type='payin')
+            .select_related('user', 'agent_user')
+            .order_by('-created_at')
+        )
+        qs = apply_transaction_report_filters(qs, request, include_customer_mobile=True)
+        summary = txn_status_financial_summary(qs)
+        total = qs.count()
+        start = (page - 1) * page_size
+        slice_qs = list(qs[start : start + page_size])
+        tx_data = TransactionSerializer(slice_qs, many=True).data
+        rows = payin_rows_for_transactions(request, slice_qs)
     return Response(
         {
             'success': True,
             'data': {
-                'transactions': serializer.data,
+                'transactions': tx_data,
                 'rows': rows,
-                'scope': get_report_scope(request),
+                'scope': scope,
                 'summary': summary,
                 'total': total,
                 'page': page,
@@ -350,32 +375,48 @@ def payout_report_view(request):
     GET /api/reports/payout/
     """
     try:
-        uq = transaction_user_q(request)
+        scope = get_report_scope(request)
     except PermissionDenied as e:
         return Response(
             {'success': False, 'data': None, 'message': str(e.detail if hasattr(e, 'detail') else e), 'errors': []},
             status=status.HTTP_403_FORBIDDEN,
         )
-    qs = (
-        Transaction.objects.filter(uq, transaction_type='payout')
-        .select_related('user', 'agent_user')
-        .order_by('-created_at')
-    )
-    qs = apply_transaction_report_filters(qs, request, include_customer_mobile=False)
-    summary = txn_status_financial_summary(qs)
     page, page_size = _report_page_params(request)
-    total = qs.count()
-    start = (page - 1) * page_size
-    slice_qs = list(qs[start : start + page_size])
-    serializer = TransactionSerializer(slice_qs, many=True)
-    rows = payout_rows_for_transactions(request, slice_qs)
+    if scope == 'platform':
+        qs = platform_payout_queryset(request)
+        summary = operational_status_financial_summary(qs)
+        total = qs.count()
+        start = (page - 1) * page_size
+        slice_qs = list(qs[start : start + page_size])
+        rows = payout_rows_from_payout(request, slice_qs)
+        tx_data = []
+    else:
+        try:
+            uq = transaction_user_q(request)
+        except PermissionDenied as e:
+            return Response(
+                {'success': False, 'data': None, 'message': str(e.detail if hasattr(e, 'detail') else e), 'errors': []},
+                status=status.HTTP_403_FORBIDDEN,
+            )
+        qs = (
+            Transaction.objects.filter(uq, transaction_type='payout')
+            .select_related('user', 'agent_user')
+            .order_by('-created_at')
+        )
+        qs = apply_transaction_report_filters(qs, request, include_customer_mobile=False)
+        summary = txn_status_financial_summary(qs)
+        total = qs.count()
+        start = (page - 1) * page_size
+        slice_qs = list(qs[start : start + page_size])
+        tx_data = TransactionSerializer(slice_qs, many=True).data
+        rows = payout_rows_for_transactions(request, slice_qs)
     return Response(
         {
             'success': True,
             'data': {
-                'transactions': serializer.data,
+                'transactions': tx_data,
                 'rows': rows,
-                'scope': get_report_scope(request),
+                'scope': scope,
                 'summary': summary,
                 'total': total,
                 'page': page,
@@ -396,32 +437,48 @@ def bbps_report_view(request):
     GET /api/reports/bbps/
     """
     try:
-        uq = transaction_user_q(request)
+        scope = get_report_scope(request)
     except PermissionDenied as e:
         return Response(
             {'success': False, 'data': None, 'message': str(e.detail if hasattr(e, 'detail') else e), 'errors': []},
             status=status.HTTP_403_FORBIDDEN,
         )
-    qs = (
-        Transaction.objects.filter(uq, transaction_type='bbps')
-        .select_related('user', 'agent_user')
-        .order_by('-created_at')
-    )
-    qs = apply_transaction_report_filters(qs, request, include_customer_mobile=False)
-    summary = txn_status_financial_summary(qs)
     page, page_size = _report_page_params(request)
-    total = qs.count()
-    start = (page - 1) * page_size
-    slice_qs = list(qs[start : start + page_size])
-    serializer = TransactionSerializer(slice_qs, many=True)
-    rows = bbps_rows_for_transactions(request, slice_qs, serial_offset=start)
+    if scope == 'platform':
+        qs = platform_bbps_queryset(request)
+        summary = operational_status_financial_summary(qs)
+        total = qs.count()
+        start = (page - 1) * page_size
+        slice_qs = list(qs[start : start + page_size])
+        rows = bbps_rows_from_bill_payment(request, slice_qs, serial_offset=start)
+        tx_data = []
+    else:
+        try:
+            uq = transaction_user_q(request)
+        except PermissionDenied as e:
+            return Response(
+                {'success': False, 'data': None, 'message': str(e.detail if hasattr(e, 'detail') else e), 'errors': []},
+                status=status.HTTP_403_FORBIDDEN,
+            )
+        qs = (
+            Transaction.objects.filter(uq, transaction_type='bbps')
+            .select_related('user', 'agent_user')
+            .order_by('-created_at')
+        )
+        qs = apply_transaction_report_filters(qs, request, include_customer_mobile=False)
+        summary = txn_status_financial_summary(qs)
+        total = qs.count()
+        start = (page - 1) * page_size
+        slice_qs = list(qs[start : start + page_size])
+        tx_data = TransactionSerializer(slice_qs, many=True).data
+        rows = bbps_rows_for_transactions(request, slice_qs, serial_offset=start)
     return Response(
         {
             'success': True,
             'data': {
-                'transactions': serializer.data,
+                'transactions': tx_data,
                 'rows': rows,
-                'scope': get_report_scope(request),
+                'scope': scope,
                 'summary': summary,
                 'total': total,
                 'page': page,
@@ -526,6 +583,8 @@ def commission_report_view(request):
 
 
 def _payin_report_queryset(request):
+    if get_report_scope(request) == 'platform':
+        return platform_payin_queryset(request)
     uq = transaction_user_q(request)
     qs = Transaction.objects.filter(uq, transaction_type='payin').select_related('user', 'agent_user').order_by(
         '-created_at'
@@ -534,6 +593,8 @@ def _payin_report_queryset(request):
 
 
 def _payout_report_queryset(request):
+    if get_report_scope(request) == 'platform':
+        return platform_payout_queryset(request)
     uq = transaction_user_q(request)
     qs = Transaction.objects.filter(uq, transaction_type='payout').select_related('user', 'agent_user').order_by(
         '-created_at'
@@ -542,6 +603,8 @@ def _payout_report_queryset(request):
 
 
 def _bbps_report_queryset(request):
+    if get_report_scope(request) == 'platform':
+        return platform_bbps_queryset(request)
     uq = transaction_user_q(request)
     qs = Transaction.objects.filter(uq, transaction_type='bbps').select_related('user', 'agent_user').order_by(
         '-created_at'
@@ -565,7 +628,12 @@ def payin_report_export_csv(request):
             {'success': False, 'data': None, 'message': str(e.detail if hasattr(e, 'detail') else e), 'errors': []},
             status=status.HTTP_403_FORBIDDEN,
         )
-    rows = payin_rows_for_transactions(request, list(qs[:5000]))
+    scope = get_report_scope(request)
+    slice_list = list(qs[:5000])
+    if scope == 'platform':
+        rows = payin_rows_from_load_money(request, slice_list)
+    else:
+        rows = payin_rows_for_transactions(request, slice_list)
     headers = [
         'created_at',
         'service_id',
@@ -575,6 +643,8 @@ def payin_report_export_csv(request):
         'principal',
         'service_charge',
         'net_credit',
+        'opening_balance',
+        'closing_balance',
         'status',
         'agent_code',
         'agent_name',
@@ -591,6 +661,8 @@ def payin_report_export_csv(request):
             r['principal'],
             r['service_charge'],
             r['net_credit'],
+            r['opening_balance'],
+            r['closing_balance'],
             r['status'],
             r['agent_details']['user_code'],
             r['agent_details']['name'],
@@ -612,7 +684,12 @@ def payout_report_export_csv(request):
             {'success': False, 'data': None, 'message': str(e.detail if hasattr(e, 'detail') else e), 'errors': []},
             status=status.HTTP_403_FORBIDDEN,
         )
-    rows = payout_rows_for_transactions(request, list(qs[:5000]))
+    scope = get_report_scope(request)
+    slice_list = list(qs[:5000])
+    if scope == 'platform':
+        rows = payout_rows_from_payout(request, slice_list)
+    else:
+        rows = payout_rows_for_transactions(request, slice_list)
     headers = [
         'created_at',
         'transaction_id',
@@ -622,6 +699,8 @@ def payout_report_export_csv(request):
         'payout_charge',
         'platform_fee',
         'net_debit',
+        'opening_balance',
+        'closing_balance',
         'status',
         'agent_code',
         'agent_name',
@@ -638,6 +717,8 @@ def payout_report_export_csv(request):
             r['payout_charge'],
             r['platform_fee'],
             r['net_debit'],
+            r['opening_balance'],
+            r['closing_balance'],
             r['status'],
             r['agent_details']['user_code'],
             r['agent_details']['name'],
@@ -659,7 +740,12 @@ def bbps_report_export_csv(request):
             {'success': False, 'data': None, 'message': str(e.detail if hasattr(e, 'detail') else e), 'errors': []},
             status=status.HTTP_403_FORBIDDEN,
         )
-    rows = bbps_rows_for_transactions(request, list(qs[:5000]))
+    scope = get_report_scope(request)
+    slice_list = list(qs[:5000])
+    if scope == 'platform':
+        rows = bbps_rows_from_bill_payment(request, slice_list)
+    else:
+        rows = bbps_rows_for_transactions(request, slice_list)
     headers = [
         'serial',
         'created_at',
@@ -669,6 +755,8 @@ def bbps_report_export_csv(request):
         'biller',
         'bill_amount',
         'platform_fee',
+        'opening_balance',
+        'closing_balance',
         'status',
         'status_token',
         'agent_code',
@@ -686,6 +774,8 @@ def bbps_report_export_csv(request):
             r['biller'],
             r['bill_amount'],
             r['platform_fee'],
+            r['opening_balance'],
+            r['closing_balance'],
             r['status'],
             r['status_token'],
             r['agent_details']['user_code'],
@@ -717,7 +807,8 @@ def passbook_report_export_csv(request):
         'description',
         'debit',
         'credit',
-        'current_balance',
+        'opening_balance',
+        'closing_balance',
         'wallet_type',
         'owner_user_code',
         'agent_code',
@@ -734,7 +825,8 @@ def passbook_report_export_csv(request):
             r['description'],
             r['debit'],
             r['credit'],
-            r['current_balance'],
+            r['opening_balance'],
+            r['closing_balance'],
             r['wallet_type'],
             r['owner_user_code'],
             r['agent_details']['user_code'],

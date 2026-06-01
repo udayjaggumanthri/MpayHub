@@ -14,6 +14,7 @@ urlpatterns = [
     path('quote/', views.quote_view, name='quote'),
     path('fetch-bill/', views.fetch_bill_view, name='fetch-bill'),
     path('pay/', views.pay_bill_view, name='pay'),
+    path('payments/export.csv', views.bill_payments_export_csv_view, name='payments-export'),
     path('payments/', views.bill_payments_list_view, name='payments'),
     path('payments/<int:payment_id>/', views.bill_payment_detail_view, name='payment-detail'),
     path('admin/config/', views.billavenue_config_view, name='billavenue-config'),

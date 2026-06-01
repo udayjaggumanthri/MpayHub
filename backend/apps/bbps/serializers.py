@@ -39,6 +39,9 @@ class BillPaymentSerializer(serializers.ModelSerializer):
     payment_mode = serializers.SerializerMethodField()
     init_channel = serializers.SerializerMethodField()
     receipt_details = serializers.SerializerMethodField()
+    agent_user_code = serializers.SerializerMethodField()
+    agent_name = serializers.SerializerMethodField()
+    agent_role = serializers.SerializerMethodField()
 
     class Meta:
         model = BillPayment
@@ -49,6 +52,7 @@ class BillPaymentSerializer(serializers.ModelSerializer):
             'bconnect_txn_id', 'approval_ref_number', 'ccf_amount', 'status_history',
             'input_params', 'customer_details', 'mobile', 'card_last4',
             'payment_mode', 'init_channel', 'receipt_details',
+            'agent_user_code', 'agent_name', 'agent_role',
         ]
         read_only_fields = [
             'id', 'charge', 'total_deducted', 'status', 'service_id',
@@ -137,6 +141,26 @@ class BillPaymentSerializer(serializers.ModelSerializer):
 
     def get_biller_name(self, obj):
         return str(self._receipt_ctx(obj).get('biller_name') or '').strip()
+
+    def _agent_user(self, obj):
+        return getattr(obj, 'user', None)
+
+    def get_agent_user_code(self, obj):
+        u = self._agent_user(obj)
+        return str(getattr(u, 'user_id', '') or '') if u else ''
+
+    def get_agent_name(self, obj):
+        u = self._agent_user(obj)
+        if not u:
+            return ''
+        prof = getattr(u, 'profile', None)
+        if prof and getattr(prof, 'full_name', None):
+            return str(prof.full_name).strip()
+        return (u.get_full_name() or '').strip()
+
+    def get_agent_role(self, obj):
+        u = self._agent_user(obj)
+        return str(getattr(u, 'role', '') or '') if u else ''
 
     def get_payment_mode(self, obj):
         return str(self._receipt_ctx(obj).get('payment_mode') or '').strip()

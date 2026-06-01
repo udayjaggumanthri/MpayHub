@@ -19,9 +19,23 @@ TEAM_SCOPE_ROLES = frozenset(
 )
 
 
+VALID_REPORT_SCOPES = frozenset({'self', 'team', 'platform'})
+
+
 def get_report_scope(request) -> str:
     raw = (request.query_params.get('scope') or 'self').strip().lower()
+    if raw == 'platform':
+        if (getattr(request.user, 'role', None) or '') != 'Admin':
+            raise PermissionDenied('Platform report scope is only available to Admin users.')
+        return 'platform'
     return raw if raw in ('self', 'team') else 'self'
+
+
+def is_platform_report_scope(request) -> bool:
+    try:
+        return get_report_scope(request) == 'platform'
+    except PermissionDenied:
+        return False
 
 
 def team_transaction_user_ids(viewer: User) -> frozenset[int]:

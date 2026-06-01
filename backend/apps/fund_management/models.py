@@ -44,7 +44,7 @@ class PayInPackage(BaseModel):
     super_distributor_pct = models.DecimalField(max_digits=8, decimal_places=4, default=Decimal('0.01'))
     master_distributor_pct = models.DecimalField(max_digits=8, decimal_places=4, default=Decimal('0.02'))
     distributor_pct = models.DecimalField(max_digits=8, decimal_places=4, default=Decimal('0.03'))
-    retailer_commission_pct = models.DecimalField(max_digits=8, decimal_places=4, default=Decimal('0.06'))
+    retailer_commission_pct = models.DecimalField(max_digits=8, decimal_places=4, default=Decimal('0'))
     is_active = models.BooleanField(default=True, db_index=True)
     is_default = models.BooleanField(
         default=False,

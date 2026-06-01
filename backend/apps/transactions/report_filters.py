@@ -75,6 +75,54 @@ def apply_transaction_report_filters(qs: QuerySet, request, *, include_customer_
     return qs
 
 
+def apply_operational_report_filters(
+    qs: QuerySet,
+    request,
+    *,
+    id_field: str = 'transaction_id',
+    include_customer_mobile: bool = False,
+) -> QuerySet:
+    """Filters for LoadMoney / Payout / BillPayment platform reports."""
+    qs = apply_date_filters(qs, request)
+
+    status = (request.query_params.get('status') or '').strip().upper()
+    if status and status not in ('ALL', 'ANY'):
+        if status == 'FAILURE':
+            status = 'FAILED'
+        qs = qs.filter(status=status)
+
+    service_id = (request.query_params.get('service_id') or '').strip()
+    if service_id:
+        qs = qs.filter(**{f'{id_field}__icontains': service_id})
+
+    mobile = _norm_mobile(request.query_params.get('mobile'))
+    if mobile:
+        user_phone = Q(user__phone=mobile)
+        if include_customer_mobile and id_field == 'transaction_id':
+            qs = qs.filter(user_phone | Q(customer_phone=mobile))
+        else:
+            qs = qs.filter(user_phone)
+
+    amount_min = (request.query_params.get('amount_min') or '').strip()
+    amount_max = (request.query_params.get('amount_max') or '').strip()
+    try:
+        if amount_min:
+            qs = qs.filter(amount__gte=Decimal(amount_min))
+    except (InvalidOperation, ValueError):
+        pass
+    try:
+        if amount_max:
+            qs = qs.filter(amount__lte=Decimal(amount_max))
+    except (InvalidOperation, ValueError):
+        pass
+
+    agent_role = (request.query_params.get('agent_role') or '').strip()
+    if agent_role:
+        qs = qs.filter(user__role__iexact=agent_role)
+
+    return qs
+
+
 def apply_passbook_report_filters(qs: QuerySet, request) -> QuerySet:
     qs = apply_date_filters(qs, request)
 

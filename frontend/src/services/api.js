@@ -1261,10 +1261,26 @@ export const bbpsAPI = {
    * Get Bill Payment Detail
    * GET /api/bbps/payments/{id}/
    */
-  getBillPaymentDetail: async (paymentId) => {
+  getBillPaymentDetail: async (paymentId, params = {}) => {
     try {
-      const response = await apiClient.get(`/bbps/payments/${paymentId}/`);
+      const response = await apiClient.get(`/bbps/payments/${paymentId}/`, { params });
       return extractData(response);
+    } catch (error) {
+      return handleError(error);
+    }
+  },
+
+  /**
+   * Export bill payments CSV (same filters as list).
+   * GET /api/bbps/payments/export.csv
+   */
+  downloadBillPaymentsCsv: async (params = {}) => {
+    try {
+      const response = await apiClient.get('/bbps/payments/export.csv', {
+        params,
+        responseType: 'blob',
+      });
+      return { success: true, blob: response.data, filename: 'bbps_bill_payments.csv' };
     } catch (error) {
       return handleError(error);
     }

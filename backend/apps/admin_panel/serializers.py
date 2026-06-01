@@ -408,6 +408,8 @@ class PayInPackageAdminSerializer(serializers.ModelSerializer):
             validated_data['payment_gateway'] = PaymentGateway.objects.filter(id=primary_id).first()
         elif payment_gateway_id:
             validated_data['payment_gateway'] = PaymentGateway.objects.filter(id=payment_gateway_id).first()
+        # Pay-in packages configured via admin UI match razorpay: no hidden retailer slice.
+        validated_data['retailer_commission_pct'] = Decimal('0')
         instance = super().create(validated_data)
         if gateway_ids is not None:
             sync_package_gateway_links(
@@ -438,6 +440,7 @@ class PayInPackageAdminSerializer(serializers.ModelSerializer):
             primary_id = default_gateway_id or (gateway_ids[0] if gateway_ids else None)
             if primary_id:
                 validated_data['payment_gateway'] = PaymentGateway.objects.filter(id=primary_id).first()
+        validated_data['retailer_commission_pct'] = Decimal('0')
         instance = super().update(instance, validated_data)
         if gateway_ids is not None:
             sync_package_gateway_links(

@@ -2,6 +2,7 @@
  * Access-control catalog and helpers (mirrors backend apps.core.access_catalog).
  * Single source for admin UX copy and end-user error messages.
  */
+import { isModuleEnabled } from './maintenanceMode';
 
 export const ACCESS_CODES = {
   ROLE_FINANCIAL_BLOCKED: 'ROLE_FINANCIAL_BLOCKED',
@@ -94,6 +95,20 @@ export function isPayInOnlySession(user) {
   return Boolean(user.pay_in_allowed_when_disabled);
 }
 
+/** Pay-in-only UX when load-money is actually available (not merely flagged on account). */
+export function shouldShowPayInOnlyNotice(user, maintenance = null) {
+  if (!user || isUserRestricted(user)) return false;
+  if (!isPayInOnlySession(user)) return false;
+  return canUsePayInModule(user, maintenance);
+}
+
+/** Redirect target after access-block or MPIN for pay-in-only users. */
+export function getPayInOnlyRedirectPath(user, maintenance = null) {
+  return shouldShowPayInOnlyNotice(user, maintenance)
+    ? '/fund-management/load-money'
+    : '/dashboard';
+}
+
 export function isUserRestricted(user) {
   return Boolean(user?.is_restricted);
 }
@@ -103,9 +118,23 @@ export function isPaymentsLocked(user) {
 }
 
 export function userMayPayIn(user) {
-  if (user?.access?.may_pay_in != null) return Boolean(user.access.may_pay_in);
+  if (!user) return false;
+  if (user.access && typeof user.access === 'object' && user.access.may_pay_in != null) {
+    return Boolean(user.access.may_pay_in);
+  }
   if (!userMayLogin(user) || isUserRestricted(user)) return false;
+  if (user.is_active === false && !user.pay_in_allowed_when_disabled) return false;
   return true;
+}
+
+/** Platform + account: pay-in / load-money is usable. */
+export function isPayInModuleOperational(maintenance = null) {
+  if (!maintenance) return true;
+  return isModuleEnabled(maintenance, 'pay_in');
+}
+
+export function canUsePayInModule(user, maintenance = null) {
+  return userMayPayIn(user) && isPayInModuleOperational(maintenance);
 }
 
 export function userMayPayOut(user) {
@@ -132,7 +161,7 @@ export function isPayInAllowedPath(path) {
 export function shouldBlockPathForUser(user, path) {
   if (!user) return false;
   if (isUserRestricted(user) && isFinancialAppPath(path)) return true;
-  if (isPayInOnlySession(user) && isFinancialAppPath(path) && !isPayInAllowedPath(path)) {
+  if (shouldShowPayInOnlyNotice(user) && isFinancialAppPath(path) && !isPayInAllowedPath(path)) {
     return true;
   }
   if (isPaymentsLocked(user) && isFinancialAppPath(path) && !isPayInAllowedPath(path)) {
@@ -196,26 +225,78 @@ function messageForAccessError(result, code) {
   return fromErrors || result.message || ACCESS_ERROR_MESSAGES[code];
 }
 
-export function getAccessRedirectMessage(user, path) {
+export function getAccessRedirectMessage(user, path, maintenance = null) {
+  return getBlockedActionNotice(user, path, maintenance);
+}
+
+const CONTACT_ADMIN = 'Contact your administrator if you need access.';
+
+/** Contextual notice when user attempts a route or action they cannot use. */
+export function getBlockedActionNotice(user, path, maintenance = null) {
   if (!user) return null;
-  if (!userMayLogin(user)) return ACCESS_ERROR_MESSAGES[ACCESS_CODES.USER_DISABLED];
+
   if (isUserRestricted(user) && isFinancialAppPath(path)) {
-    return ACCESS_ERROR_MESSAGES[ACCESS_CODES.USER_RESTRICTED];
+    return `This action is not available on your account. ${CONTACT_ADMIN}`;
   }
-  if (isPayInOnlySession(user)) {
-    return 'Your account is limited to pay-in only. Open Load Money from the dashboard or menu.';
+  if (
+    shouldShowPayInOnlyNotice(user, maintenance) &&
+    isFinancialAppPath(path) &&
+    !isPayInAllowedPath(path)
+  ) {
+    return `This action is not available on your account. ${CONTACT_ADMIN}`;
+  }
+  if (isPaymentsLocked(user) && isFinancialAppPath(path) && !isPayInAllowedPath(path)) {
+    return `Payments are locked on your account. ${CONTACT_ADMIN}`;
+  }
+  if (shouldBlockPathForUser(user, path)) {
+    return `This action is not available. ${CONTACT_ADMIN}`;
+  }
+  return `This action is not available. ${CONTACT_ADMIN}`;
+}
+
+/**
+ * Page-level block notice (e.g. payout screen) — shown only when user navigates there.
+ * @param {'pay_in' | 'pay_out'} mode
+ */
+export function getPageAccessBlockNotice(user, mode = 'pay_out', maintenance = null) {
+  if (!user) return null;
+
+  if (mode === 'pay_in') {
+    if (isUserRestricted(user) || !canUsePayInModule(user, maintenance)) {
+      return {
+        title: 'Action not available',
+        message: `Pay-in is not available on your account. ${CONTACT_ADMIN}`,
+      };
+    }
+    return null;
+  }
+
+  if (isUserRestricted(user)) {
+    return {
+      title: 'Action not available',
+      message: `This action is not available on your account. ${CONTACT_ADMIN}`,
+    };
   }
   if (isPaymentsLocked(user)) {
-    return ACCESS_ERROR_MESSAGES[ACCESS_CODES.USER_PAYMENTS_LOCKED];
+    return {
+      title: 'Action not available',
+      message: `Payments are locked on your account. ${CONTACT_ADMIN}`,
+    };
   }
-  return 'This area is not available for your account status.';
+  if (shouldShowPayInOnlyNotice(user, maintenance)) {
+    return {
+      title: 'Action not available',
+      message: `This action is not available on your account. ${CONTACT_ADMIN}`,
+    };
+  }
+  return null;
 }
 
 export function accountAccessBadges(user) {
   if (!user) return [];
   const badges = [];
   if (user.is_active === false) {
-    if (user.pay_in_allowed_when_disabled) {
+    if (user.pay_in_allowed_when_disabled && userMayPayIn(user)) {
       badges.push({ key: 'payin_only', label: 'Pay-in only', tone: 'amber' });
     } else {
       badges.push({ key: 'disabled', label: 'Disabled', tone: 'slate' });
@@ -240,6 +321,22 @@ export function getAccessCapabilityRows(user) {
     { label: 'Pay-in (load money)', allowed: userMayPayIn(user) },
     { label: 'Payout / BBPS / transfers', allowed: userMayPayOut(user) },
   ];
+}
+
+/** End-user banner chips — omit modules that are hidden or inaccessible. */
+export function getEndUserAccessCapabilityRows(user) {
+  return getAccessCapabilityRows(user).filter((row) => {
+    if (row.label.startsWith('Pay-in') && !userMayPayIn(user)) return false;
+    return true;
+  });
+}
+
+/**
+ * Global proactive banners removed — use getBlockedActionNotice on blocked actions only.
+ * @returns {null}
+ */
+export function getUserAccessNoticeVariant() {
+  return null;
 }
 
 export function formatAdminAccessSuccessMessage(apiMessage) {

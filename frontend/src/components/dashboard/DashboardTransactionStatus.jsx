@@ -1,6 +1,12 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { FaCircleCheck, FaClock, FaCircleXmark } from 'react-icons/fa6';
 import { reportsAPI } from '../../services/api';
+import {
+  buildAllModulesDrillDownUrl,
+  buildModuleReportDrillDownUrl,
+  drillDownAriaLabel,
+} from '../../utils/dashboardDrillDown';
 import Card from '../common/Card';
 
 function todayIsoDate() {
@@ -63,6 +69,7 @@ const selectClass =
  * compact — embedded in welcome hero (top-right); full — standalone section (legacy)
  */
 const DashboardTransactionStatus = ({ variant = 'compact' }) => {
+  const navigate = useNavigate();
   const isCompact = variant === 'compact';
 
   const [filters, setFilters] = useState(() => ({
@@ -118,6 +125,48 @@ const DashboardTransactionStatus = ({ variant = 'compact' }) => {
       ...defaultDatesForInterval(interval),
     }));
   };
+
+  const drillDownContext = useMemo(
+    () => ({
+      dateFrom: filters.dateFrom,
+      dateTo: filters.dateTo,
+      periodLabel,
+    }),
+    [filters.dateFrom, filters.dateTo, periodLabel]
+  );
+
+  const navigateDrillDown = useCallback(
+    (moduleKey, statusKey) => {
+      const count =
+        moduleKey && byModule?.[moduleKey]
+          ? byModule[moduleKey][statusKey] ?? 0
+          : counts[statusKey] ?? 0;
+      if (!count || count <= 0) return;
+
+      const url =
+        moduleKey && moduleKey !== 'all'
+          ? buildModuleReportDrillDownUrl({
+              module: moduleKey,
+              status: statusKey,
+              dateFrom: drillDownContext.dateFrom,
+              dateTo: drillDownContext.dateTo,
+            })
+          : filters.module !== 'all'
+            ? buildModuleReportDrillDownUrl({
+                module: filters.module,
+                status: statusKey,
+                dateFrom: drillDownContext.dateFrom,
+                dateTo: drillDownContext.dateTo,
+              })
+            : buildAllModulesDrillDownUrl({
+                status: statusKey,
+                dateFrom: drillDownContext.dateFrom,
+                dateTo: drillDownContext.dateTo,
+              });
+      navigate(url);
+    },
+    [byModule, counts, drillDownContext, filters.module, navigate]
+  );
 
   const statusTiles = [
     {
@@ -235,12 +284,19 @@ const DashboardTransactionStatus = ({ variant = 'compact' }) => {
     <div className={isCompact ? 'grid grid-cols-3 gap-2' : 'grid grid-cols-1 gap-4 sm:grid-cols-3'}>
       {statusTiles.map((c) => {
         const Icon = c.icon;
+        const countNum = Number(c.value) || 0;
+        const canDrill = !loading && countNum > 0;
+        const moduleForTile = filters.module !== 'all' ? filters.module : null;
+        const tileLabel = drillDownAriaLabel({
+          moduleLabel: moduleForTile ? MODULE_LABELS[moduleForTile] : '',
+          status: c.label,
+          count: countNum,
+          periodLabel: drillDownContext.periodLabel,
+        });
+
         if (isCompact) {
-          return (
-            <div
-              key={c.key}
-              className={`rounded-lg border border-slate-200/90 ${c.bg} px-2.5 py-2.5 ring-1 ${c.ring}`}
-            >
+          const inner = (
+            <>
               <div className="flex items-center justify-between gap-1">
                 <span className={`text-[10px] font-semibold uppercase tracking-wide ${c.accent}`}>
                   {c.label}
@@ -248,8 +304,27 @@ const DashboardTransactionStatus = ({ variant = 'compact' }) => {
                 <span className={`h-1.5 w-1.5 rounded-full ${c.dot}`} aria-hidden />
               </div>
               <p className={`mt-0.5 text-xl font-bold tabular-nums leading-none ${c.accent}`}>
-                {loading ? '—' : Number(c.value).toLocaleString('en-IN')}
+                {loading ? '—' : countNum.toLocaleString('en-IN')}
               </p>
+            </>
+          );
+          return (
+            <div
+              key={c.key}
+              className={`rounded-lg border border-slate-200/90 ${c.bg} px-2.5 py-2.5 ring-1 ${c.ring}`}
+            >
+              {canDrill ? (
+                <button
+                  type="button"
+                  onClick={() => navigateDrillDown(moduleForTile, c.key)}
+                  className={`w-full text-left rounded-md transition hover:opacity-90 focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 ${canDrill ? 'cursor-pointer' : ''}`}
+                  aria-label={tileLabel}
+                >
+                  {inner}
+                </button>
+              ) : (
+                inner
+              )}
             </div>
           );
         }
@@ -258,9 +333,20 @@ const DashboardTransactionStatus = ({ variant = 'compact' }) => {
             <div className="flex items-start justify-between gap-2">
               <div>
                 <p className="text-xs font-semibold uppercase tracking-wide text-slate-600">{c.label}</p>
-                <p className={`mt-2 text-3xl font-bold tabular-nums ${c.accent}`}>
-                  {Number(c.value).toLocaleString('en-IN')}
-                </p>
+                {canDrill ? (
+                  <button
+                    type="button"
+                    onClick={() => navigateDrillDown(moduleForTile, c.key)}
+                    className={`mt-2 text-3xl font-bold tabular-nums ${c.accent} hover:underline focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 rounded`}
+                    aria-label={tileLabel}
+                  >
+                    {countNum.toLocaleString('en-IN')}
+                  </button>
+                ) : (
+                  <p className={`mt-2 text-3xl font-bold tabular-nums ${c.accent}`}>
+                    {countNum.toLocaleString('en-IN')}
+                  </p>
+                )}
               </div>
               <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-white/80">
                 <Icon size={22} className={c.accent} />
@@ -281,23 +367,47 @@ const DashboardTransactionStatus = ({ variant = 'compact' }) => {
             : 'mt-6 flex flex-wrap gap-2 border-t border-slate-100 pt-4'
         }
       >
-        {Object.entries(byModule).map(([key, row]) => (
-          <span
-            key={key}
-            className={
-              isCompact
-                ? 'inline-flex items-center gap-1 rounded-md bg-white/90 px-2 py-0.5 text-[10px] text-slate-600 ring-1 ring-slate-200/80'
-                : 'rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs text-slate-700'
-            }
-          >
-            <span className="font-semibold text-slate-800">{MODULE_LABELS[key] || key}</span>
-            <span className="text-amber-700">{row.PENDING ?? 0}</span>
-            <span className="text-slate-300">/</span>
-            <span className="text-emerald-700">{row.SUCCESS ?? 0}</span>
-            <span className="text-slate-300">/</span>
-            <span className="text-red-700">{row.FAILED ?? 0}</span>
-          </span>
-        ))}
+        {Object.entries(byModule).map(([key, row]) => {
+          const statuses = [
+            { key: 'PENDING', value: row.PENDING ?? 0, className: 'text-amber-700' },
+            { key: 'SUCCESS', value: row.SUCCESS ?? 0, className: 'text-emerald-700' },
+            { key: 'FAILED', value: row.FAILED ?? 0, className: 'text-red-700' },
+          ];
+          return (
+            <span
+              key={key}
+              className={
+                isCompact
+                  ? 'inline-flex items-center gap-1 rounded-md bg-white/90 px-2 py-0.5 text-[10px] text-slate-600 ring-1 ring-slate-200/80'
+                  : 'rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs text-slate-700'
+              }
+            >
+              <span className="font-semibold text-slate-800">{MODULE_LABELS[key] || key}</span>
+              {statuses.map((st, idx) => (
+                <React.Fragment key={st.key}>
+                  {idx > 0 ? <span className="text-slate-300">/</span> : null}
+                  {st.value > 0 && !loading ? (
+                    <button
+                      type="button"
+                      onClick={() => navigateDrillDown(key, st.key)}
+                      className={`font-semibold tabular-nums hover:underline focus:outline-none focus-visible:ring-1 focus-visible:ring-blue-500 rounded ${st.className}`}
+                      aria-label={drillDownAriaLabel({
+                        moduleLabel: MODULE_LABELS[key] || key,
+                        status: st.key,
+                        count: st.value,
+                        periodLabel: drillDownContext.periodLabel,
+                      })}
+                    >
+                      {st.value}
+                    </button>
+                  ) : (
+                    <span className={st.className}>{st.value}</span>
+                  )}
+                </React.Fragment>
+              ))}
+            </span>
+          );
+        })}
       </div>
     ) : null;
 

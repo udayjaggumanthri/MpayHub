@@ -9,6 +9,7 @@ import uuid
 
 from rest_framework import status
 from rest_framework.decorators import api_view, permission_classes
+from rest_framework.exceptions import PermissionDenied
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 from django.conf import settings
@@ -711,25 +712,34 @@ def pay_bill_view(request):
 @permission_classes([IsAuthenticated])
 def bill_payments_list_view(request):
     """
-    List bill payments (My Bills).
+    List bill payments (My Bills / Reports BBPS).
     GET /api/bbps/payments/
+
+    Query: scope=self|team|platform (platform = Admin only), status, search, date_from, date_to,
+    page, page_size (max 500).
     """
-    payments = (
-        BillPayment.objects.filter(user=request.user)
-        .prefetch_related('attempts')
-        .order_by('-created_at')
-    )
-    
-    # Filters
-    status_filter = request.query_params.get('status')
-    if status_filter:
-        payments = payments.filter(status=status_filter)
-    
-    # Pagination
-    page_size = 20
+    from apps.bbps.bill_payments_filters import apply_bill_payments_list_filters
+    from apps.bbps.bill_payments_scope import bill_payments_queryset_for_request
+    from apps.transactions.reporting_scope import get_report_scope
+
+    try:
+        scope = get_report_scope(request)
+        payments = apply_bill_payments_list_filters(bill_payments_queryset_for_request(request), request)
+    except PermissionDenied as e:
+        return Response(
+            {'success': False, 'data': None, 'message': str(e.detail if hasattr(e, 'detail') else e), 'errors': []},
+            status=status.HTTP_403_FORBIDDEN,
+        )
+
+    try:
+        page_size = int(request.query_params.get('page_size', 20))
+    except (TypeError, ValueError):
+        page_size = 20
+    page_size = max(1, min(page_size, 500))
+
     try:
         page = int(request.query_params.get('page', 1))
-    except Exception:
+    except (TypeError, ValueError):
         return Response(
             {'success': False, 'data': None, 'message': 'Invalid page parameter', 'errors': {'page': ['Must be an integer >= 1.']}},
             status=status.HTTP_400_BAD_REQUEST,
@@ -739,23 +749,51 @@ def bill_payments_list_view(request):
             {'success': False, 'data': None, 'message': 'Invalid page parameter', 'errors': {'page': ['Must be an integer >= 1.']}},
             status=status.HTTP_400_BAD_REQUEST,
         )
+
+    total = payments.count()
     start = (page - 1) * page_size
-    end = start + page_size
-    
-    paginated_payments = payments[start:end]
+    paginated_payments = list(payments[start : start + page_size])
     serializer = BillPaymentSerializer(paginated_payments, many=True)
-    
-    return Response({
-        'success': True,
-        'data': {
-            'payments': serializer.data,
-            'total': payments.count(),
-            'page': page,
-            'page_size': page_size
+    from apps.bbps.bill_payment_balances import enrich_serialized_bill_payments
+
+    payment_rows = enrich_serialized_bill_payments(paginated_payments, list(serializer.data))
+
+    return Response(
+        {
+            'success': True,
+            'data': {
+                'payments': payment_rows,
+                'total': total,
+                'page': page,
+                'page_size': page_size,
+                'scope': scope,
+            },
+            'message': 'Bill payments retrieved successfully',
+            'errors': [],
         },
-        'message': 'Bill payments retrieved successfully',
-        'errors': []
-    }, status=status.HTTP_200_OK)
+        status=status.HTTP_200_OK,
+    )
+
+
+@api_view(['GET'])
+@permission_classes([IsAuthenticated])
+def bill_payments_export_csv_view(request):
+    """
+    Export bill payments CSV (same filters as list).
+    GET /api/bbps/payments/export.csv
+    """
+    from apps.bbps.bill_payments_export import stream_bill_payments_csv
+    from apps.bbps.bill_payments_filters import apply_bill_payments_list_filters
+    from apps.bbps.bill_payments_scope import bill_payments_queryset_for_request
+
+    try:
+        payments = apply_bill_payments_list_filters(bill_payments_queryset_for_request(request), request)
+    except PermissionDenied as e:
+        return Response(
+            {'success': False, 'data': None, 'message': str(e.detail if hasattr(e, 'detail') else e), 'errors': []},
+            status=status.HTTP_403_FORBIDDEN,
+        )
+    return stream_bill_payments_csv('bbps_bill_payments', list(payments[:5000]))
 
 
 @api_view(['GET'])
@@ -765,25 +803,25 @@ def bill_payment_detail_view(request, payment_id):
     Get bill payment details.
     GET /api/bbps/payments/{id}/
     """
+    from apps.bbps.bill_payments_scope import bill_payment_detail_queryset_for_request
+
     try:
-        payment = (
-            BillPayment.objects.prefetch_related('attempts')
-            .get(id=payment_id, user=request.user)
+        payment = bill_payment_detail_queryset_for_request(request).get(id=payment_id)
+    except BillPayment.DoesNotExist:
+        return Response(
+            {'success': False, 'data': None, 'message': 'Bill payment not found', 'errors': []},
+            status=status.HTTP_404_NOT_FOUND,
         )
-        serializer = BillPaymentSerializer(payment)
-        return Response({
+    serializer = BillPaymentSerializer(payment)
+    return Response(
+        {
             'success': True,
             'data': {'payment': serializer.data},
             'message': 'Bill payment retrieved successfully',
-            'errors': []
-        }, status=status.HTTP_200_OK)
-    except BillPayment.DoesNotExist:
-        return Response({
-            'success': False,
-            'data': None,
-            'message': 'Bill payment not found',
-            'errors': []
-        }, status=status.HTTP_404_NOT_FOUND)
+            'errors': [],
+        },
+        status=status.HTTP_200_OK,
+    )
 
 
 @api_view(['GET', 'POST'])

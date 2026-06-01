@@ -56,6 +56,29 @@ def _make_pay_package(code, sort_order=0):
     )
 
 
+class PayInRetailerCommissionTests(TestCase):
+    """Hidden retailer_commission_pct rolls into platform admin — must default to 0 for new packages."""
+
+    def test_zero_retailer_matches_configured_admin_share(self):
+        pkg = _make_pay_package('zero-retailer')
+        gross = Decimal('100000')
+        dist = _compute_payin_distribution(pkg, gross, payer_user=None)
+        self.assertEqual(dist['ad_base'], Decimal('240.0000'))
+        self.assertEqual(dist['ad_total'], Decimal('240.0000'))
+        self.assertEqual(dist['total_deduction'], Decimal('1300.0000'))
+        admin_line = next(line for line in dist['lines'] if line['key'] == 'admin')
+        self.assertEqual(Decimal(admin_line['pct']), Decimal('0.24'))
+
+    def test_nonzero_retailer_inflates_admin_row(self):
+        pkg = _make_pay_package('with-retailer')
+        pkg.retailer_commission_pct = Decimal('0.0600')
+        pkg.save(update_fields=['retailer_commission_pct'])
+        gross = Decimal('100000')
+        dist = _compute_payin_distribution(pkg, gross, payer_user=None)
+        self.assertEqual(dist['ad_total'], Decimal('300.0000'))
+        self.assertEqual(dist['total_deduction'], Decimal('1360.0000'))
+
+
 class PayoutSlabPerPackageTests(TestCase):
     """Per-package tiers via assignment; first accessible package wins; empty tiers → global."""
 
