@@ -3,7 +3,7 @@ from decimal import Decimal
 
 from apps.integrations.base import BaseIntegration
 from apps.integrations.billavenue.client import BillAvenueClient
-from apps.integrations.billavenue.errors import BillAvenueClientError, BillAvenueValidationError
+from apps.integrations.billavenue.errors import BillAvenueClientError, BillAvenueTransportError, BillAvenueValidationError
 from apps.integrations.billavenue.parsers import _get_ci
 from apps.integrations.models import BillAvenueAgentProfile, BillAvenueConfig
 
@@ -513,7 +513,12 @@ class BBPSClient(BaseIntegration):
                 request_id=str(request_id or '').strip(),
                 service_id=str(service_id or '').strip(),
             )
-            out = client.bill_pay(payload, request_id=pay_transport or None)
+            try:
+                out = client.bill_pay(payload, request_id=pay_transport or None)
+            except BillAvenueTransportError as exc:
+                if 'TIMEOUT' not in str(exc).upper():
+                    raise
+                out = client.bill_pay(payload, request_id=pay_transport or None)
             normalized = out.normalized if isinstance(out.normalized, dict) else {}
             body = _best_bill_pay_transaction_dict(normalized)
             txn_raw = _txn_resp_type_value(body)

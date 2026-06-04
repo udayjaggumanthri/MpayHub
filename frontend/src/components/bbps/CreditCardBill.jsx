@@ -8,7 +8,8 @@ import Input from '../common/Input';
 import Button from '../common/Button';
 import MPINModal from '../common/MPINModal';
 import { FaCircleCheck, FaCircleExclamation, FaMagnifyingGlass } from 'react-icons/fa6';
-import BharatConnectBranding from './BharatConnectBranding';
+import { BharatConnectLogo } from './BbpsPartnerLogos';
+import { bharatConnectLogoSlotStyle } from './bbpsLogoSizes';
 import BbpsDynamicFieldSet from './BbpsDynamicFieldSet';
 import BAssuredReceiptHeader from './BAssuredReceiptHeader';
 import { normalizeCategorySlug } from '../../constants/bbpsCanonicalCategories';
@@ -25,6 +26,8 @@ const CreditCardBill = ({ category = 'credit-card', categoryLabel = '', onPaymen
   const { user, maintenance, refreshMaintenance } = useAuth();
   const bbpsMaintenance = !isModuleEnabled(maintenance, 'bbps');
   const paySubmitInFlight = useRef(false);
+  const billAmountAnchorRef = useRef(null);
+  const scrollAfterFetchRef = useRef(false);
   const [biller, setBiller] = useState('');
   const [billDetails, setBillDetails] = useState(null);
   const [billId, setBillId] = useState(null);
@@ -295,6 +298,19 @@ const CreditCardBill = ({ category = 'credit-card', categoryLabel = '', onPaymen
     return { label: 'Customer ID', value: resolveCustomerIdentifier() };
   }, [category, pickFastagVehicleNumber, resolveCustomerIdentifier]);
 
+  useEffect(() => {
+    if (!billDetails || !scrollAfterFetchRef.current) return;
+    scrollAfterFetchRef.current = false;
+    const timer = window.setTimeout(() => {
+      const el = billAmountAnchorRef.current;
+      if (!el) return;
+      const stickyOffset = 168;
+      const top = el.getBoundingClientRect().top + window.scrollY - stickyOffset;
+      window.scrollTo({ top: Math.max(0, top), behavior: 'smooth' });
+    }, 200);
+    return () => window.clearTimeout(timer);
+  }, [billDetails]);
+
   const handleFetchBill = async () => {
     const invalid = validateInputs();
     if (invalid) {
@@ -345,6 +361,7 @@ const CreditCardBill = ({ category = 'credit-card', categoryLabel = '', onPaymen
         });
         setBillId(bill.id || null);
         setFetchRequestId(String(bill.request_id || bill.requestId || '').trim());
+        scrollAfterFetchRef.current = true;
       } else {
         const isQuickPayOnly = String(result?.errorCode || '').trim() === 'BBPS_FETCH_QUICKPAY_ONLY'
           || /quickpay/i.test(String(result?.message || ''));
@@ -364,6 +381,7 @@ const CreditCardBill = ({ category = 'credit-card', categoryLabel = '', onPaymen
           });
           setBillId(null);
           setFetchRequestId('');
+          scrollAfterFetchRef.current = true;
           setError('QuickPay-only biller: fetch is not required. Continue with payment.');
           return;
         }
@@ -562,7 +580,7 @@ const CreditCardBill = ({ category = 'credit-card', categoryLabel = '', onPaymen
         </div>
       )}
 
-      <div className="space-y-6">
+      <div className="space-y-4">
         <AccountAccessBanner user={user} mode="pay_out" />
         {isPaymentProcessing && (
           <div className="fixed inset-0 z-[60] bg-black/45 backdrop-blur-[1px] flex items-center justify-center p-4">
@@ -588,27 +606,53 @@ const CreditCardBill = ({ category = 'credit-card', categoryLabel = '', onPaymen
           </div>
         )}
         <MaintenanceModuleLock maintenance={maintenance} moduleKey="bbps">
-        <Card padding="lg">
-          <div className="p-4 sm:p-6 bg-gradient-to-r from-blue-50 to-indigo-50 border-2 border-blue-200 rounded-xl">
-            <p className="text-sm font-medium text-gray-600 mb-2">Your BBPS Wallet Balance:</p>
-            <p className="text-3xl font-bold text-blue-600">{formatCurrency(bbpsWallet)}</p>
+        <div className="relative min-w-0">
+          <div
+            className="sticky z-30 border-b border-slate-200 bg-white py-3.5 shadow-[0_2px_8px_rgba(15,23,42,0.08)] sm:py-4"
+            style={{ top: 'var(--mpay-app-header-offset)' }}
+            role="region"
+            aria-label="Bill payment wallet and partner branding"
+          >
+            <div className="flex min-h-[30px] items-center justify-between gap-4">
+              <div className="flex min-w-0 flex-1 items-center gap-3">
+                <div
+                  className="hidden h-9 w-1 shrink-0 rounded-full bg-blue-600 sm:block"
+                  aria-hidden
+                />
+                <div className="min-w-0">
+                  <p className="text-[11px] font-semibold uppercase tracking-wider text-slate-500">
+                    Your Wallet Balance
+                  </p>
+                  <p className="text-xl font-semibold tabular-nums tracking-tight text-slate-900 sm:text-2xl">
+                    {formatCurrency(bbpsWallet)}
+                  </p>
+                </div>
+              </div>
+              <div className="flex shrink-0 items-center justify-end" style={bharatConnectLogoSlotStyle}>
+                <BharatConnectLogo isolated alt="Bharat Connect" fit="cover" />
+              </div>
+            </div>
           </div>
-        </Card>
 
-        <Card
-          title={`${title} Bill Payment`}
-          subtitle={`Enter ${title.toLowerCase()} details to fetch and pay`}
-          padding="lg"
-        >
-          <BharatConnectBranding stage="stage2" />
+          <div className="pt-4 pb-1">
+            <h2 className="text-lg font-semibold tracking-tight text-slate-900 sm:text-xl">
+              {title} Bill Payment
+            </h2>
+            <p className="mt-1 text-sm text-slate-500">
+              Enter {title.toLowerCase()} details to fetch and pay
+            </p>
+          </div>
+
+        <div className="mt-4 space-y-4">
+        <Card padding="md" className="border-slate-200/80 shadow-sm">
           {error && (
-            <div className="mb-4 bg-red-50 border-2 border-red-200 text-red-700 px-4 py-3 rounded-lg flex items-center space-x-2">
-              <FaCircleExclamation size={20} />
+            <div className="mb-4 flex items-center space-x-2 rounded-lg border border-red-200 bg-red-50 px-3 py-2.5 text-sm text-red-700">
+              <FaCircleExclamation size={18} className="shrink-0" />
               <span>{error}</span>
             </div>
           )}
 
-          <div className="space-y-6">
+          <div className="space-y-5">
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-2">
                 Select Biller <span className="text-red-500">*</span>
@@ -733,34 +777,39 @@ const CreditCardBill = ({ category = 'credit-card', categoryLabel = '', onPaymen
           <Card
             title="Bill Details"
             subtitle="Review your bill information before proceeding to payment"
-            padding="lg"
+            padding="md"
+            className="scroll-mt-28 shadow-sm"
           >
-            <div className="space-y-4">
-              <div className="flex justify-between items-center p-4 bg-gray-50 rounded-lg">
-                <span className="text-gray-600">Name:</span>
-                <span className="font-semibold text-gray-900">{billDetails.name}</span>
+            <div className="space-y-2">
+              <div className="flex items-center justify-between gap-3 rounded-lg bg-gray-50 px-3 py-2.5 text-sm">
+                <span className="text-gray-600">Name</span>
+                <span className="font-semibold text-gray-900 text-right">{billDetails.name}</span>
               </div>
 
-              <div className="flex justify-between items-center p-4 bg-gray-50 rounded-lg">
-                <span className="text-gray-600">Telephone Number:</span>
-                <span className="font-semibold text-gray-900">{billDetails.telephoneNumber}</span>
+              <div className="flex items-center justify-between gap-3 rounded-lg bg-gray-50 px-3 py-2.5 text-sm">
+                <span className="text-gray-600">Telephone Number</span>
+                <span className="font-semibold text-gray-900 text-right">{billDetails.telephoneNumber}</span>
               </div>
 
-              <div className="flex justify-between items-center p-4 bg-gray-50 rounded-lg">
-                <span className="text-gray-600">Due Date:</span>
-                <span className="font-semibold text-gray-900">{formatDate(billDetails.dueDate)}</span>
+              <div className="flex items-center justify-between gap-3 rounded-lg bg-gray-50 px-3 py-2.5 text-sm">
+                <span className="text-gray-600">Due Date</span>
+                <span className="font-semibold text-gray-900 text-right">{formatDate(billDetails.dueDate)}</span>
               </div>
 
-              <div className="flex justify-between items-center p-4 bg-gray-50 rounded-lg">
-                <span className="text-gray-600">Minimum Due Amount:</span>
-                <span className="font-semibold text-gray-900">
+              <div className="flex items-center justify-between gap-3 rounded-lg bg-gray-50 px-3 py-2.5 text-sm">
+                <span className="text-gray-600">Minimum Due Amount</span>
+                <span className="font-semibold text-gray-900 tabular-nums text-right">
                   {formatCurrency(billDetails.minimumDueAmount)}
                 </span>
               </div>
 
-              <div className="flex justify-between items-center p-4 bg-blue-50 border-2 border-blue-200 rounded-lg">
-                <span className="text-gray-700 font-medium">Total Due Amount:</span>
-                <span className="font-bold text-blue-600 text-xl">
+              <div
+                ref={billAmountAnchorRef}
+                id="bbps-bill-amount"
+                className="flex scroll-mt-28 items-center justify-between gap-3 rounded-lg border border-blue-200 bg-blue-50 px-3 py-3 text-sm"
+              >
+                <span className="font-medium text-gray-700">Total Due Amount</span>
+                <span className="text-lg font-bold tabular-nums text-blue-600">
                   {formatCurrency(billDetails.totalDueAmount)}
                 </span>
               </div>
@@ -794,8 +843,8 @@ const CreditCardBill = ({ category = 'credit-card', categoryLabel = '', onPaymen
                 </div>
               ) : null}
 
-              <div className="mt-6 p-4 bg-gray-50 rounded-lg border border-gray-200">
-                <h4 className="text-sm font-semibold text-gray-900 mb-4">Select Payment Amount:</h4>
+              <div className="mt-4 rounded-lg border border-gray-200 bg-gray-50 p-3 sm:p-4">
+                <h4 className="mb-3 text-sm font-semibold text-gray-900">Select Payment Amount</h4>
                 <div className="space-y-3">
                   <label className="flex items-center space-x-3 cursor-pointer">
                     <input
@@ -865,8 +914,8 @@ const CreditCardBill = ({ category = 'credit-card', categoryLabel = '', onPaymen
               </div>
 
               {getPaymentAmount() > 0 && (
-                <div className="mt-6 p-6 bg-gray-50 rounded-xl border border-gray-200">
-                  <h4 className="text-sm font-semibold text-gray-700 mb-4 uppercase tracking-wide">
+                <div className="mt-4 rounded-xl border border-gray-200 bg-gray-50 p-4 sm:p-5">
+                  <h4 className="mb-3 text-xs font-semibold uppercase tracking-wide text-gray-700">
                     Transaction Summary
                   </h4>
                   <div className="space-y-3">
@@ -877,7 +926,7 @@ const CreditCardBill = ({ category = 'credit-card', categoryLabel = '', onPaymen
                       </span>
                     </div>
                     <div className="flex justify-between items-center py-2 border-b border-gray-200">
-                      <span className="text-gray-600">Service Charge (BBPS wallet):</span>
+                      <span className="text-gray-600">Service Charge:</span>
                       <span className="font-semibold text-red-600">+{formatCurrency(serviceCharge)}</span>
                     </div>
                     {quote?.wallet_service_charge_mode ? (
@@ -894,7 +943,7 @@ const CreditCardBill = ({ category = 'credit-card', categoryLabel = '', onPaymen
                       </div>
                     )}
                     <div className="flex justify-between items-center pt-3 bg-blue-50 p-3 rounded-lg">
-                      <span className="text-lg font-bold text-gray-900">Total Deducted from BBPS Wallet:</span>
+                      <span className="text-lg font-bold text-gray-900">Total Deducted from Wallet:</span>
                       <span className="text-2xl font-bold text-red-600">{formatCurrency(totalDeducted)}</span>
                     </div>
                     {bbpsWallet < totalDeducted && (
@@ -969,6 +1018,8 @@ const CreditCardBill = ({ category = 'credit-card', categoryLabel = '', onPaymen
             ) : null}
           </Card>
         )}
+        </div>
+        </div>
         </MaintenanceModuleLock>
       </div>
 

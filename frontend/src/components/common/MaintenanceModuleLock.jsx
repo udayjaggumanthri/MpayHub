@@ -17,7 +17,7 @@ const MaintenanceModuleLock = ({ maintenance, moduleKey, children, className = '
     <div className={`space-y-4 sm:space-y-5 ${className}`.trim()}>
       <MaintenanceBanner maintenance={maintenance} moduleKey={moduleKey} />
 
-      <div className="relative">
+      <div className="relative overflow-visible">
         {locked ? (
           <div
             className="pointer-events-none absolute inset-0 z-20 flex items-start justify-center rounded-xl bg-slate-900/[0.04] backdrop-blur-[1px] sm:items-center sm:min-h-[12rem]"

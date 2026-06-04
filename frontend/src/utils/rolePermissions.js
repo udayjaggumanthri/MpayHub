@@ -114,7 +114,7 @@ export const roleMenus = {
       submenu: [
         { name: 'Pay Bill', path: '/bill-payments/pay' },
         { name: 'Complaints', path: '/bill-payments/complaints' },
-        { name: 'Fund BBPS wallet', path: '/bill-payments/fund-wallet' },
+        { name: 'Fund wallet', path: '/bill-payments/fund-wallet' },
         { name: 'My Bills', path: '/bill-payments/my-bills' },
       ],
     },
@@ -152,7 +152,7 @@ export const roleMenus = {
       submenu: [
         { name: 'Pay Bill', path: '/bill-payments/pay' },
         { name: 'Complaints', path: '/bill-payments/complaints' },
-        { name: 'Fund BBPS wallet', path: '/bill-payments/fund-wallet' },
+        { name: 'Fund wallet', path: '/bill-payments/fund-wallet' },
         { name: 'My Bills', path: '/bill-payments/my-bills' },
       ],
     },
@@ -190,7 +190,7 @@ export const roleMenus = {
       submenu: [
         { name: 'Pay Bill', path: '/bill-payments/pay' },
         { name: 'Complaints', path: '/bill-payments/complaints' },
-        { name: 'Fund BBPS wallet', path: '/bill-payments/fund-wallet' },
+        { name: 'Fund wallet', path: '/bill-payments/fund-wallet' },
         { name: 'My Bills', path: '/bill-payments/my-bills' },
       ],
     },

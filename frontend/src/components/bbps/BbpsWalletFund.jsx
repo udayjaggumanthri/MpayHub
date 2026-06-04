@@ -61,7 +61,7 @@ const BbpsWalletFund = () => {
 
   return (
     <div className="max-w-lg mx-auto space-y-6 px-4 py-6">
-      <Card title="Fund BBPS wallet" padding="lg">
+      <Card title="Fund wallet" padding="lg">
         <MaintenanceModuleLock maintenance={maintenance} moduleKey="bbps">
           <p className="text-sm text-gray-600 mb-4">
             Move money from your <strong>main</strong> wallet to your <strong>BBPS</strong> wallet. Bill

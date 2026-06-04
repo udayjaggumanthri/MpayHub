@@ -268,7 +268,9 @@ class BbpsBillAvenueHardeningTests(TestCase):
                 'read_timeout_seconds': 999,
             },
         )()
-        self.assertEqual(client._safe_timeout_tuple(), (10, 25))
+        self.assertEqual(client._safe_timeout_tuple(), (15, 35))
+        self.assertEqual(client._safe_timeout_tuple('bill_pay'), (15, 60))
+        self.assertEqual(client._safe_timeout_tuple('bill_fetch'), (15, 35))
 
 
 class BillAvenueSnapshotXmlTests(SimpleTestCase):

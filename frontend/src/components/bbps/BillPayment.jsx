@@ -71,48 +71,51 @@ const BillPayment = () => {
     });
   };
 
-  // If no category selected, show category selector
-  if (!category) {
-    return (
-      <div className="max-w-6xl mx-auto space-y-6">
-        <MaintenanceBanner maintenance={maintenance} moduleKey="bbps" />
-        <div className="bg-white rounded-xl shadow-sm p-6 border border-gray-200">
+  const categoryPickerShell = (selector) => (
+    <div className="mx-auto flex w-full max-w-7xl min-h-0 flex-col gap-3">
+      <MaintenanceBanner maintenance={maintenance} moduleKey="bbps" />
+      <div className="flex max-h-[calc(100dvh-8.25rem)] min-h-[min(24rem,calc(100dvh-10rem))] flex-col overflow-hidden rounded-xl border border-gray-200 bg-white shadow-sm sm:max-h-[calc(100dvh-7.75rem)]">
+        <div className="shrink-0 border-b border-gray-100 bg-slate-50/60 px-3 py-3 sm:px-5 sm:py-3.5">
           <BharatConnectBranding
             stage="stage1"
             title="Bill Payment"
             subtitle=""
             showMnemonic={false}
-            logoSize="lg"
+            logoSize="md"
+            variant="compact"
           />
-
-          {/* Category Selector */}
-          <div className="mb-8">
-            <h2 className="text-lg font-semibold text-gray-900 mb-4">
-              Select Bill Category
-            </h2>
-            <BillCategorySelector selectedCategory={null} />
-          </div>
+          <p className="mt-1.5 text-sm text-slate-600 sm:mt-2">Select a category to continue</p>
         </div>
+        <div className="flex min-h-0 flex-1 flex-col px-3 pb-3 pt-3 sm:px-5 sm:pb-4 sm:pt-3.5">{selector}</div>
       </div>
+    </div>
+  );
+
+  // If no category selected, show category selector
+  if (!category) {
+    return categoryPickerShell(
+      <BillCategorySelector selectedCategory={null} scrollCategoriesOnly />
     );
   }
 
   if (showCategoryPicker) {
     return (
-      <div className="max-w-6xl mx-auto space-y-6">
+      <div className="mx-auto flex w-full max-w-6xl min-h-0 flex-col gap-4 sm:gap-6">
         <button
           type="button"
           onClick={() => navigate('/bill-payments/pay')}
-          className="flex items-center space-x-2 text-gray-600 hover:text-blue-600 transition-colors"
+          className="flex shrink-0 items-center space-x-2 text-gray-600 transition-colors hover:text-blue-600"
         >
           <FaArrowLeft size={18} />
           <span className="font-medium">Back to Categories</span>
         </button>
-        <div className="bg-amber-50 border border-amber-200 rounded-lg px-4 py-3 text-sm text-amber-900">
+        <div className="shrink-0 rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900">
           We could not match &quot;{category}&quot; to a bill category. Select one below from all available
           categories.
         </div>
-        <BillCategorySelector selectedCategory={null} />
+        {categoryPickerShell(
+          <BillCategorySelector selectedCategory={null} scrollCategoriesOnly />
+        )}
       </div>
     );
   }
@@ -134,11 +137,11 @@ const BillPayment = () => {
   }
 
   return (
-    <div className="max-w-6xl mx-auto space-y-6">
+    <div className="mx-auto flex w-full max-w-7xl flex-col gap-3 overflow-visible">
       <button
         type="button"
         onClick={() => navigate('/bill-payments/pay')}
-        className="flex items-center space-x-2 text-gray-600 hover:text-blue-600 transition-colors"
+        className="flex shrink-0 items-center space-x-2 text-gray-600 transition-colors hover:text-blue-600"
       >
         <FaArrowLeft size={18} />
         <span className="font-medium">Back to Categories</span>

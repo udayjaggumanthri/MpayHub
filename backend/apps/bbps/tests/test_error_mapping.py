@@ -9,6 +9,12 @@ from apps.bbps.views import (
 
 
 class BbpsErrorMappingTests(SimpleTestCase):
+    def test_pay_timeout_message_is_friendly(self):
+        msg = _friendly_pay_error_message(
+            'TIMEOUT endpoint=bill_pay connect=10s read=20s: HTTPSConnectionPool(host=\'stgapi.billavenue.com\', port=443): Read timed out.'
+        )
+        self.assertIn('try again', msg.lower())
+
     def test_fetch_timeout_message_is_friendly(self):
         msg = _friendly_fetch_error_message(
             'BBPS Service Error: TIMEOUT endpoint=bill_fetch connect=5s read=25s: Read timed out'

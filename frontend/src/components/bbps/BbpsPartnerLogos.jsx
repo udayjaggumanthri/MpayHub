@@ -17,9 +17,25 @@ export const BharatConnectLogo = ({
   isolated = true,
   className = '',
   alt = 'Bharat Connect logo',
+  /** 'cover' = BBPS spec fill; 'contain' = full mark visible inside 83×30 frame */
+  fit = 'cover',
 }) => {
   const src = reverse ? bbpsLogoAssets.bharatConnectReverse : bbpsLogoAssets.bharatConnectPrimary;
-  const img = <img src={src} alt={alt} {...bharatConnectImgProps} draggable={false} />;
+  const imgClass =
+    fit === 'contain'
+      ? 'block h-full w-full max-w-none object-contain object-center'
+      : bharatConnectImgProps.className;
+  const img = (
+    <img
+      src={src}
+      alt={alt}
+      width={bharatConnectImgProps.width}
+      height={bharatConnectImgProps.height}
+      decoding={bharatConnectImgProps.decoding}
+      className={imgClass}
+      draggable={false}
+    />
+  );
 
   const frameClass = `${bbpsLogoFrameClass} ${className}`.trim();
 

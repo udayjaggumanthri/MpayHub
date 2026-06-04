@@ -135,6 +135,8 @@ def _friendly_pay_error_message(raw_message: str) -> str:
     low = msg.lower()
     if not msg:
         return 'Payment failed. Please try again.'
+    if 'timeout' in low or 'timed out' in low:
+        return 'Bill payment is taking longer than usual at the provider. Please wait a moment and try again.'
 
     if 'agent_device_info missing required field' in low:
         return (
@@ -663,6 +665,13 @@ def pay_bill_view(request):
         except TransactionFailed as e:
             raw = str(e)
             low = raw.lower()
+            if 'timeout' in low or 'timed out' in low:
+                return bbps_error_response(
+                    _friendly_pay_error_message(raw),
+                    code='BBPS_PAY_TIMEOUT',
+                    retryable=True,
+                    http_status=status.HTTP_503_SERVICE_UNAVAILABLE,
+                )
             if ('e204' in low and 'already been used' in low) or 'request id is already been used' in low:
                 return bbps_error_response(
                     _friendly_pay_error_message(raw),

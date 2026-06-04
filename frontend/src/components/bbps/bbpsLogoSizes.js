@@ -1,12 +1,15 @@
 /**
  * Official BBPS partner logo dimensions (px). Use only via BbpsPartnerLogos.
  */
+/** Official Bharat Connect (B-Connect) logo size — use on every screen. */
 export const BBPS_BHARAT_CONNECT_LOGO = { width: 83, height: 30 };
+
+export const bharatConnectLogoTailwindSize = 'h-[30px] w-[83px] min-h-[30px] min-w-[83px] max-h-[30px] max-w-[83px]';
 export const BBPS_B_ASSURED_LOGO = { width: 130, height: 120 };
 
 /** Fixed frame; transparent — no merge with page background. */
 export const bbpsLogoFrameClass =
-  'inline-flex shrink-0 items-center justify-center overflow-hidden bg-transparent p-0 m-0 leading-none';
+  'inline-flex shrink-0 items-center justify-center overflow-hidden bg-transparent p-0 m-0 leading-none h-[30px] w-[83px] min-h-[30px] min-w-[83px] max-h-[30px] max-w-[83px]';
 
 const logoFrameStyleBase = {
   boxSizing: 'border-box',

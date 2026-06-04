@@ -4,7 +4,12 @@ import { Link } from 'react-router-dom';
 import bMnemonicPrimary from '../../assets/bbps/b-mnemonic-primary.svg';
 import bMnemonicReverse from '../../assets/bbps/b-mnemonic-reverse.svg';
 import { BharatConnectLogo, BAssuredLogo } from './BbpsPartnerLogos';
-import { bAssuredLogoSlotStyle, bharatConnectLogoSlotStyle } from './bbpsLogoSizes';
+import {
+  BBPS_BHARAT_CONNECT_LOGO,
+  bAssuredLogoSlotStyle,
+  bharatConnectLogoSlotStyle,
+  bharatConnectLogoTailwindSize,
+} from './bbpsLogoSizes';
 
 const BharatConnectBranding = ({
   stage = 'stage2',
@@ -16,6 +21,8 @@ const BharatConnectBranding = ({
   logoSize = 'md',
   subtitle = 'Bill Pay · Pay Bill · Bill Payment',
   variant = 'default',
+  /** Pin B-Connect logo (83×30) to viewport top-right; does not scroll with page content */
+  fixedLogo = false,
 }) => {
   const showBMnemonic = stage === 'stage1' && showMnemonic;
   const showBharatConnect = stage === 'stage1' || stage === 'stage2';
@@ -26,9 +33,7 @@ const BharatConnectBranding = ({
   const isStage1 = stage === 'stage1';
 
   const logoSlotStyle = showBAssured ? bAssuredLogoSlotStyle : bharatConnectLogoSlotStyle;
-  const gridColsClass = showBAssured
-    ? 'sm:grid-cols-[minmax(0,1fr)_130px]'
-    : 'sm:grid-cols-[minmax(0,1fr)_83px]';
+  const bConnectColWidth = `${BBPS_BHARAT_CONNECT_LOGO.width}px`;
 
   const mnemonicClass = isStage1
     ? isLarge
@@ -50,13 +55,34 @@ const BharatConnectBranding = ({
     <BAssuredLogo reverse={useReverse} isolated />
   ) : null;
 
+  const useInFlowLogo = Boolean(rightLogo) && !fixedLogo;
+  const gridColsClass = showBAssured
+    ? 'sm:grid-cols-[minmax(0,1fr)_130px]'
+    : useInFlowLogo
+      ? `sm:grid-cols-[minmax(0,1fr)_${bConnectColWidth}]`
+      : '';
+
+  const titleReserveClass =
+    fixedLogo && showBharatConnect ? 'pr-[5.75rem] sm:pr-[5.75rem]' : '';
+
   return (
-    <header
-      className={`mb-4 grid w-full gap-x-4 gap-y-3 grid-cols-1 ${
-        rightLogo ? `${gridColsClass} sm:items-center` : ''
-      } ${isCompact ? '' : ''}`}
-    >
-      <div className={`flex min-w-0 items-center gap-3 ${isStage1 ? 'items-start' : ''}`}>
+    <>
+      {fixedLogo && showBharatConnect && rightLogo ? (
+        <div
+          className="pointer-events-none fixed right-4 top-14 z-30 sm:right-6 sm:top-16 lg:right-8"
+          style={bharatConnectLogoSlotStyle}
+        >
+          {rightLogo}
+        </div>
+      ) : null}
+      <header
+        className={`grid w-full grid-cols-1 gap-x-4 gap-y-2 ${
+          isCompact ? 'mb-0' : 'mb-4 gap-y-3'
+        } ${useInFlowLogo ? `${gridColsClass} sm:items-center` : ''}`}
+      >
+      <div
+        className={`flex min-w-0 items-center gap-2.5 sm:gap-3 ${isStage1 && !isCompact ? 'items-start' : 'items-center'} ${titleReserveClass}`}
+      >
         {showBMnemonic &&
           (mnemonicClickable ? (
             <Link to={mnemonicHref} aria-label="Go to BBPS categories" className="shrink-0">
@@ -66,19 +92,37 @@ const BharatConnectBranding = ({
             mnemonicNode
           ))}
         <div className="min-w-0 flex-1">
-          {title ? <h1 className="text-xl font-semibold text-gray-900 leading-tight">{title}</h1> : null}
-          {isStage1 && subtitleText ? (
-            <p className="mt-1 text-xs font-medium tracking-wide text-slate-600 sm:text-sm">{subtitleText}</p>
+          {title ? (
+            <h1
+              className={`font-semibold text-gray-900 leading-tight ${
+                isCompact ? 'text-lg sm:text-xl' : 'text-xl'
+              }`}
+            >
+              {title}
+            </h1>
+          ) : null}
+          {subtitleText ? (
+            <p
+              className={`mt-1 text-xs sm:text-sm ${
+                isStage1 ? 'font-medium tracking-wide text-slate-600' : 'text-gray-500'
+              }`}
+            >
+              {subtitleText}
+            </p>
           ) : null}
         </div>
       </div>
 
-      {rightLogo ? (
-        <div className="flex shrink-0 items-center justify-end sm:justify-self-end" style={logoSlotStyle}>
+      {useInFlowLogo ? (
+        <div
+          className={`flex shrink-0 items-center justify-end sm:justify-self-end ${showBharatConnect ? bharatConnectLogoTailwindSize : ''}`}
+          style={logoSlotStyle}
+        >
           {rightLogo}
         </div>
       ) : null}
     </header>
+    </>
   );
 };
 

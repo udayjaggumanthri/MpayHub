@@ -272,10 +272,10 @@ class BillAvenueClient:
         fmt = str(getattr(self.config, 'api_format', 'json') or 'json').strip().lower()
         return 'xml' if fmt == 'xml' else 'json'
 
-    def _safe_timeout_tuple(self) -> tuple[int, int]:
+    def _safe_timeout_tuple(self, endpoint_name: str | None = None) -> tuple[int, int]:
         """
-        Keep provider timeouts bounded so upstream slowness does not exceed worker budget.
-        Defaults still come from admin config but are clamped to safe limits.
+        Provider HTTP timeouts from admin config, with per-endpoint caps.
+        bill_pay on UAT often exceeds 20s; gunicorn worker timeout must allow the read cap (see run_gunicorn.sh).
         """
         def _to_int(value, fallback: int) -> int:
             try:
@@ -284,11 +284,21 @@ class BillAvenueClient:
                 n = fallback
             return n if n > 0 else fallback
 
-        connect_cfg = _to_int(getattr(self.config, 'connect_timeout_seconds', 5), 5)
-        read_cfg = _to_int(getattr(self.config, 'read_timeout_seconds', 20), 20)
-        connect_timeout = min(max(connect_cfg, 2), 10)
-        # Keep bounded so sync workers can return graceful timeout responses (avoid worker aborts).
-        read_timeout = min(max(read_cfg, 5), 20)
+        connect_cfg = _to_int(getattr(self.config, 'connect_timeout_seconds', 30), 30)
+        read_cfg = _to_int(getattr(self.config, 'read_timeout_seconds', 60), 60)
+        connect_cap = 15
+        read_caps = {
+            'bill_fetch': 35,
+            'bill_validate': 35,
+            'bill_pay': 60,
+            'txn_status': 30,
+            'plan_pull': 45,
+        }
+        default_read_cap = 35
+        ep = str(endpoint_name or '').strip().lower()
+        read_cap = read_caps.get(ep, default_read_cap)
+        connect_timeout = min(max(connect_cfg, 2), connect_cap)
+        read_timeout = min(max(read_cfg, 5), read_cap)
         return (connect_timeout, read_timeout)
 
     def _endpoint_for(self, endpoint_key: str) -> str:
@@ -423,7 +433,7 @@ class BillAvenueClient:
             ),
         }
         try:
-            timeout = self._safe_timeout_tuple()
+            timeout = self._safe_timeout_tuple(endpoint_name)
             request_meta = {
                 **request_meta,
                 'timeout_connect_seconds': timeout[0],

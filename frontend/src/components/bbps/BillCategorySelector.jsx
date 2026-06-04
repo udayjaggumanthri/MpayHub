@@ -54,7 +54,12 @@ const CATEGORY_ICONS = {
   water: FaDroplet,
 };
 
-const BillCategorySelector = ({ selectedCategory, viewMode: controlledViewMode, onViewModeChange }) => {
+const BillCategorySelector = ({
+  selectedCategory,
+  viewMode: controlledViewMode,
+  onViewModeChange,
+  scrollCategoriesOnly = false,
+}) => {
   const navigate = useNavigate();
   const [apiCategories, setApiCategories] = useState([]);
   const [searchQuery, setSearchQuery] = useState('');
@@ -102,31 +107,31 @@ const BillCategorySelector = ({ selectedCategory, viewMode: controlledViewMode, 
         key={category.primarySlug}
         type="button"
         onClick={() => handleCategoryClick(category)}
-        className={`group relative overflow-hidden border-2 rounded-2xl transition-all text-left w-full ${
-          isList ? 'flex items-center gap-4 p-4' : 'p-6 flex flex-col items-center'
+        className={`group relative w-full overflow-hidden rounded-xl border text-left transition-all focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 focus-visible:ring-offset-2 ${
+          isList ? 'flex items-center gap-3 px-3 py-2.5 sm:px-4 sm:py-3' : 'flex min-h-[5.25rem] flex-col items-center justify-center px-2 py-3 sm:min-h-[5.5rem] sm:py-3.5'
         } ${
           isSelected
-            ? 'border-transparent bg-gradient-to-br from-blue-500 to-indigo-600 shadow-xl shadow-blue-200'
-            : 'border-blue-200 bg-white hover:border-blue-300 hover:shadow-lg hover:bg-blue-50 hover:-translate-y-0.5'
+            ? 'border-transparent bg-gradient-to-br from-blue-500 to-indigo-600 shadow-md shadow-blue-200/80'
+            : 'border-slate-200 bg-white hover:border-blue-300 hover:bg-blue-50/80 hover:shadow-sm'
         }`}
       >
         <div
-          className={`shrink-0 p-3 rounded-xl ${
-            isList ? '' : 'mb-3'
-          } ${isSelected ? 'bg-white/20 backdrop-blur-sm' : 'bg-blue-100 group-hover:bg-blue-200 transition-colors'}`}
+          className={`shrink-0 rounded-lg p-2 ${
+            isList ? '' : 'mb-1.5'
+          } ${isSelected ? 'bg-white/20' : 'bg-blue-50 group-hover:bg-blue-100 transition-colors'}`}
         >
-          <Icon size={isList ? 28 : 32} className={isSelected ? 'text-white' : 'text-blue-600'} />
+          <Icon size={isList ? 22 : 24} className={isSelected ? 'text-white' : 'text-blue-600'} />
         </div>
-        <div className={isList ? 'flex-1 min-w-0' : ''}>
+        <div className={isList ? 'min-w-0 flex-1' : 'w-full px-0.5'}>
           <p
-            className={`font-bold leading-snug ${isList ? 'text-base' : 'text-sm text-center'} ${
-              isSelected ? 'text-white' : 'text-gray-800'
-            }`}
+            className={`font-semibold leading-snug ${
+              isList ? 'text-sm sm:text-base' : 'text-center text-xs sm:text-[13px]'
+            } ${isSelected ? 'text-white' : 'text-gray-800'}`}
           >
             {category.displayName}
           </p>
-          {category.fromApi && (
-            <p className={`text-[11px] mt-0.5 ${isSelected ? 'text-blue-100' : 'text-slate-400'}`}>
+          {isList && category.fromApi && (
+            <p className={`mt-0.5 text-[11px] ${isSelected ? 'text-blue-100' : 'text-slate-400'}`}>
               From biller catalog
             </p>
           )}
@@ -135,68 +140,103 @@ const BillCategorySelector = ({ selectedCategory, viewMode: controlledViewMode, 
     );
   };
 
+  const categoryCountLabel =
+    orderedCategories.length === 1 ? '1 category' : `${orderedCategories.length} categories`;
+
+  const toolbar = (
+    <div className="flex flex-col gap-2 sm:flex-row sm:flex-wrap sm:items-center sm:gap-2.5">
+      <div className="flex min-w-0 flex-1 flex-col gap-2 sm:flex-row sm:items-center">
+        <input
+          type="search"
+          value={searchQuery}
+          onChange={(e) => setSearchQuery(e.target.value)}
+          placeholder="Search category…"
+          aria-label="Search bill categories"
+          className="min-w-0 flex-1 rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm shadow-sm transition-colors placeholder:text-slate-400 focus:border-blue-400 focus:outline-none focus:ring-2 focus:ring-blue-500/20"
+        />
+        <select
+          value={statusFilter}
+          onChange={(e) => setStatusFilter(e.target.value)}
+          aria-label="Filter categories"
+          className="w-full shrink-0 rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm shadow-sm focus:border-blue-400 focus:outline-none focus:ring-2 focus:ring-blue-500/20 sm:w-auto sm:min-w-[11rem]"
+        >
+          <option value="all">All categories</option>
+          <option value="with-billers">With active billers</option>
+          <option value="no-billers">Awaiting billers</option>
+        </select>
+      </div>
+      <div className="flex items-center justify-between gap-2 sm:justify-end sm:gap-3">
+        <span className="text-xs font-medium text-slate-500 tabular-nums" aria-live="polite">
+          {categoryCountLabel}
+        </span>
+        <div className="inline-flex shrink-0 rounded-lg border border-slate-200 bg-slate-50 p-0.5">
+        <button
+          type="button"
+          onClick={() => setViewMode('grid')}
+          className={`inline-flex items-center gap-1.5 rounded-md px-2.5 py-1.5 text-xs font-medium transition-colors sm:px-3 sm:text-sm ${
+            viewMode === 'grid' ? 'bg-white text-blue-700 shadow-sm' : 'text-gray-600 hover:text-gray-900'
+          }`}
+          aria-pressed={viewMode === 'grid'}
+        >
+          <FaGrip size={13} />
+          Grid
+        </button>
+        <button
+          type="button"
+          onClick={() => setViewMode('list')}
+          className={`inline-flex items-center gap-1.5 rounded-md px-2.5 py-1.5 text-xs font-medium transition-colors sm:px-3 sm:text-sm ${
+            viewMode === 'list' ? 'bg-white text-blue-700 shadow-sm' : 'text-gray-600 hover:text-gray-900'
+          }`}
+          aria-pressed={viewMode === 'list'}
+        >
+          <FaList size={13} />
+          List
+        </button>
+        </div>
+      </div>
+    </div>
+  );
+
+  const categoryGrid = (
+    <div
+      className={
+        viewMode === 'grid'
+          ? 'grid grid-cols-2 gap-2 sm:grid-cols-3 sm:gap-2.5 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6'
+          : 'flex flex-col gap-2'
+      }
+    >
+      {orderedCategories.map((category) => renderCategoryCard(category))}
+    </div>
+  );
+
+  const emptyState =
+    orderedCategories.length === 0 ? (
+      <div className="rounded-lg border border-dashed border-slate-200 bg-slate-50 px-4 py-8 text-center text-sm text-slate-600">
+        <p className="font-medium text-slate-700">No categories found</p>
+        <p className="mt-1 text-xs text-slate-500">Try a different search or clear filters.</p>
+      </div>
+    ) : null;
+
+  if (scrollCategoriesOnly) {
+    return (
+      <div className="flex min-h-0 flex-1 flex-col">
+        <div className="shrink-0 border-b border-gray-100 pb-3">{toolbar}</div>
+        <div
+          className="relative min-h-0 flex-1 overflow-y-auto overscroll-contain scroll-smooth pt-3 [scrollbar-gutter:stable]"
+          aria-label="Bill categories"
+        >
+          {categoryGrid}
+          {emptyState}
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="space-y-4">
-      <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-3 flex-1">
-          <input
-            type="text"
-            value={searchQuery}
-            onChange={(e) => setSearchQuery(e.target.value)}
-            placeholder="Search category"
-            className="border rounded-lg px-3 py-2 text-sm"
-          />
-          <select
-            value={statusFilter}
-            onChange={(e) => setStatusFilter(e.target.value)}
-            className="border rounded-lg px-3 py-2 text-sm"
-          >
-            <option value="all">All categories</option>
-            <option value="with-billers">With active billers</option>
-            <option value="no-billers">Awaiting billers</option>
-          </select>
-        </div>
-        <div className="inline-flex rounded-lg border border-gray-200 p-1 bg-gray-50 self-start">
-          <button
-            type="button"
-            onClick={() => setViewMode('grid')}
-            className={`inline-flex items-center gap-2 px-3 py-1.5 rounded-md text-sm font-medium transition-colors ${
-              viewMode === 'grid' ? 'bg-white text-blue-700 shadow-sm' : 'text-gray-600 hover:text-gray-900'
-            }`}
-            aria-pressed={viewMode === 'grid'}
-          >
-            <FaGrip size={14} />
-            Grid
-          </button>
-          <button
-            type="button"
-            onClick={() => setViewMode('list')}
-            className={`inline-flex items-center gap-2 px-3 py-1.5 rounded-md text-sm font-medium transition-colors ${
-              viewMode === 'list' ? 'bg-white text-blue-700 shadow-sm' : 'text-gray-600 hover:text-gray-900'
-            }`}
-            aria-pressed={viewMode === 'list'}
-          >
-            <FaList size={14} />
-            List
-          </button>
-        </div>
-      </div>
-
-      <div
-        className={
-          viewMode === 'grid'
-            ? 'grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4'
-            : 'flex flex-col gap-3'
-        }
-      >
-        {orderedCategories.map((category) => renderCategoryCard(category))}
-      </div>
-
-      {orderedCategories.length === 0 && (
-        <div className="text-sm text-slate-600 border rounded-lg p-3 bg-slate-50">
-          No categories matched your search. Try clearing filters or check biller sync in admin.
-        </div>
-      )}
+      {toolbar}
+      {categoryGrid}
+      {emptyState}
     </div>
   );
 };

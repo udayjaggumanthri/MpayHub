@@ -1,23 +1,38 @@
 /**
- * PM2 — MpayHub frontend (production static).
+ * PM2 — MpayHub production (backend + frontend).
  *
- * Prerequisite (once per deploy, from repo root):
- *   cd frontend && npm ci && npm run build
+ *   cd ~/MpayHub
+ *   pm2 start ecosystem.config.cjs
+ *   pm2 save
  *
- * If you still see ENOENT for build/index.html or path-to-regexp errors, your old PM2
- * process is probably running a custom Express script. Remove it and start from this file:
- *   pm2 delete mpayhub-frontend
- *   pm2 start ecosystem.config.cjs --only mpayhub-frontend
+ * Nginx (partner.mpayhub.in) proxies:
+ *   /      → localhost:3001 (frontend)
+ *   /api/  → localhost:8000 (backend)
  *
- * Do not use `pm2 restart` alone to change script/cwd — recreate the process.
+ * If you use systemd mpayhub instead, stop PM2 backend:
+ *   pm2 delete mpayhub-backend && sudo systemctl start mpayhub
  */
 const path = require('path');
 
 const root = __dirname;
 const serveMain = path.join(root, 'frontend', 'node_modules', 'serve', 'build', 'main.js');
+const gunicornScript = path.join(root, 'backend', 'run_gunicorn.sh');
 
 module.exports = {
   apps: [
+    {
+      name: 'mpayhub-backend',
+      cwd: path.join(root, 'backend'),
+      script: gunicornScript,
+      interpreter: 'bash',
+      env: {
+        DJANGO_SETTINGS_MODULE: 'config.settings',
+      },
+      autorestart: true,
+      max_restarts: 15,
+      min_uptime: '10s',
+      restart_delay: 3000,
+    },
     {
       name: 'mpayhub-frontend',
       cwd: path.join(root, 'frontend'),
@@ -27,6 +42,9 @@ module.exports = {
       env: {
         NODE_ENV: 'production',
       },
+      autorestart: true,
+      max_restarts: 10,
+      min_uptime: '10s',
     },
   ],
 };
