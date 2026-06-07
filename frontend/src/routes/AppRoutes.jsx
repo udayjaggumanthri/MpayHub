@@ -40,6 +40,7 @@ import BankAccounts from '../components/bankManagement/BankAccounts';
 // Profile
 import ProfileSettings from '../components/profile/ProfileSettings';
 import OnboardingKYC from '../components/onboarding/OnboardingKYC';
+import OnboardingDigilockerCallback from '../components/onboarding/OnboardingDigilockerCallback';
 import OnboardingMPINSetup from '../components/onboarding/OnboardingMPINSetup';
 import SetPasswordOnboarding from '../components/onboarding/SetPasswordOnboarding';
 
@@ -89,6 +90,16 @@ const AppRoutes = () => {
           <ProtectedRoute requireMPIN={false}>
             <Layout>
               <OnboardingKYC />
+            </Layout>
+          </ProtectedRoute>
+        }
+      />
+      <Route
+        path="/onboarding/kyc/digilocker/callback"
+        element={
+          <ProtectedRoute requireMPIN={false}>
+            <Layout>
+              <OnboardingDigilockerCallback />
             </Layout>
           </ProtectedRoute>
         }

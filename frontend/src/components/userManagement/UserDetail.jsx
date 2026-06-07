@@ -30,11 +30,13 @@ import Button from '../common/Button';
 import Card from '../common/Card';
 import FeedbackModal from '../common/FeedbackModal';
 import AccessControlConfirmModal from '../common/AccessControlConfirmModal';
+import DeleteUserConfirmModal from './DeleteUserConfirmModal';
 import AccessStatusBadges from './AccessStatusBadges';
 import AccountAccessSummary from './AccountAccessSummary';
 import { formatAdminAccessSuccessMessage } from '../../utils/accessControl';
 import HierarchyCard from './HierarchyCard';
 import PointOfContactCard from './PointOfContactCard';
+import KycVerificationPanel from '../onboarding/KycVerificationPanel';
 
 const ADMIN_ASSIGNABLE_ROLES = [
   'Admin',
@@ -86,6 +88,9 @@ const UserDetail = () => {
   const [accessConfirm, setAccessConfirm] = useState(null);
   const [allowPayInWhenDisabled, setAllowPayInWhenDisabled] = useState(false);
   const [selfBlockOpen, setSelfBlockOpen] = useState(false);
+  const [deleteConfirmOpen, setDeleteConfirmOpen] = useState(false);
+  const [deleteSaving, setDeleteSaving] = useState(false);
+  const [deleteError, setDeleteError] = useState('');
 
   const [userPackages, setUserPackages] = useState({ assigned: [], accessible: [] });
   const [assignablePackages, setAssignablePackages] = useState([]);
@@ -387,6 +392,37 @@ const UserDetail = () => {
     applyAccessFlag(patch);
   };
 
+  const requestDeleteUser = () => {
+    if (!isAdmin || !user?.id) return;
+    if (String(user.id) === String(currentUserId)) {
+      setSelfBlockOpen(true);
+      return;
+    }
+    setDeleteError('');
+    setDeleteConfirmOpen(true);
+  };
+
+  const performDeleteUser = async () => {
+    if (!user?.id) return;
+    setDeleteSaving(true);
+    setDeleteError('');
+    try {
+      const res = await usersAPI.deleteUser(user.id);
+      if (res.success) {
+        navigate('/user-management/users', {
+          replace: true,
+          state: { deleteSuccess: res.message || 'User deleted permanently.' },
+        });
+      } else {
+        setDeleteError(res.message || 'Could not delete this user.');
+      }
+    } catch {
+      setDeleteError('Could not delete this user. Please try again.');
+    } finally {
+      setDeleteSaving(false);
+    }
+  };
+
   const requestRestrictToggle = (checked) => {
     if (!checked) {
       applyAccessFlag({ is_restricted: false });
@@ -683,10 +719,10 @@ const UserDetail = () => {
                   <div className="h-10 w-10 rounded-xl bg-emerald-100 flex items-center justify-center">
                     <FaIdCard className="text-emerald-600" size={18} />
                   </div>
-                  <h2 className="text-lg font-bold text-slate-900">KYC & Compliance</h2>
+                  <h2 id="kyc-compliance-heading" className="text-lg font-bold text-slate-900">KYC & Compliance</h2>
                 </div>
               </div>
-              <div className="p-6">
+              <section className="p-6" aria-labelledby="kyc-compliance-heading">
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-6">
                   <div className="flex items-start gap-3">
                     <div className={`h-10 w-10 rounded-xl flex items-center justify-center ${
@@ -728,38 +764,54 @@ const UserDetail = () => {
                   </div>
                 </div>
 
-                {(user.kyc?.pan_number || user.kyc?.aadhaar_number) && (
+                {(user.kyc_verification?.pan || user.kyc_verification?.aadhaar) ? (
                   <div className="mt-6 pt-6 border-t border-slate-100">
-                    <p className="text-xs font-semibold uppercase tracking-wide text-slate-600 mb-4">Identity Documents</p>
-                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                      {user.kyc?.pan_number && (
-                        <div className="rounded-xl border border-slate-200 bg-slate-50 p-4">
-                          <p className="text-xs font-semibold uppercase text-slate-500 mb-1">PAN Number</p>
-                          <p className="font-mono text-slate-900 font-medium">{user.kyc.pan_number}</p>
-                          {user.kyc.pan_verified && (
-                            <span className="inline-flex items-center gap-1 mt-2 text-xs text-emerald-700">
-                              <FaCircleCheck size={10} /> Verified
-                            </span>
-                          )}
+                    <KycVerificationPanel
+                      verification={user.kyc_verification}
+                      title={
+                        isAdmin && currentUserId !== user.id
+                          ? 'Verified identity records'
+                          : 'Your verified KYC records'
+                      }
+                      showTechnicalDetails={isAdmin}
+                    />
+                    {isAdmin && Array.isArray(user.profile_sync_audits) && user.profile_sync_audits.length > 0 ? (
+                      <div className="mt-6">
+                        <p className="text-xs font-semibold uppercase tracking-wide text-slate-600 mb-3">
+                          Profile sync audit
+                        </p>
+                        <div className="space-y-2 max-h-48 overflow-y-auto">
+                          {user.profile_sync_audits.map((row) => (
+                            <div key={row.id} className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-xs text-slate-700">
+                              <span className="font-semibold capitalize">{row.status}</span>
+                              {' · '}
+                              <span>{row.source}</span>
+                              {' · '}
+                              <span>
+                                {row.before?.first_name} {row.before?.last_name}
+                                {row.before?.date_of_birth ? ` (${row.before.date_of_birth})` : ''}
+                              </span>
+                              {' → '}
+                              <span>
+                                {row.after?.first_name || row.verified?.full_name} {row.after?.last_name || ''}
+                                {row.after?.date_of_birth ? ` (${row.after.date_of_birth})` : ''}
+                              </span>
+                            </div>
+                          ))}
                         </div>
-                      )}
-                      {user.kyc?.aadhaar_number && (
-                        <div className="rounded-xl border border-slate-200 bg-slate-50 p-4">
-                          <p className="text-xs font-semibold uppercase text-slate-500 mb-1">Aadhaar Number</p>
-                          <p className="font-mono text-slate-900 font-medium">
-                            {user.kyc.aadhaar_number.substring(0, 4)} **** {user.kyc.aadhaar_number.substring(8)}
-                          </p>
-                          {user.kyc.aadhaar_verified && (
-                            <span className="inline-flex items-center gap-1 mt-2 text-xs text-emerald-700">
-                              <FaCircleCheck size={10} /> Verified
-                            </span>
-                          )}
-                        </div>
-                      )}
-                    </div>
+                      </div>
+                    ) : null}
+                  </div>
+                ) : (
+                  <div className="mt-6 pt-6 border-t border-slate-100">
+                    <p className="text-sm text-slate-600 bg-slate-50 rounded-xl px-4 py-3 border border-slate-200">
+                      {kycOk
+                        ? 'KYC is marked complete but detailed provider records are not on file.'
+                        : 'User has not completed KYC onboarding yet.'}
+                    </p>
                   </div>
                 )}
-              </div>
+              </section>
             </Card>
           </div>
 
@@ -887,6 +939,29 @@ const UserDetail = () => {
                       </p>
                     )}
                   </div>
+
+                  {!isSelf ? (
+                    <div className="pt-4 border-t border-red-100">
+                      <p className="text-xs font-semibold uppercase tracking-wide text-red-700 mb-2">Danger zone</p>
+                      <p className="text-sm text-slate-600 mb-3">
+                        Permanently delete this user and all related account data. This cannot be undone.
+                      </p>
+                      <Button
+                        type="button"
+                        variant="danger"
+                        size="md"
+                        icon={FaTrash}
+                        iconPosition="left"
+                        onClick={requestDeleteUser}
+                        disabled={deleteSaving || activeStatusSaving || accessControlsSaving}
+                      >
+                        Delete user permanently
+                      </Button>
+                      {deleteError ? (
+                        <p role="alert" className="mt-2 text-sm text-red-600">{deleteError}</p>
+                      ) : null}
+                    </div>
+                  ) : null}
                 </div>
               </Card>
             )}
@@ -1061,6 +1136,14 @@ const UserDetail = () => {
         onClose={() => setSelfBlockOpen(false)}
         title="Cannot modify your own account"
         description="Use another administrator account to modify your own access settings."
+      />
+
+      <DeleteUserConfirmModal
+        open={deleteConfirmOpen}
+        user={user}
+        loading={deleteSaving}
+        onConfirm={performDeleteUser}
+        onCancel={() => !deleteSaving && setDeleteConfirmOpen(false)}
       />
     </div>
   );

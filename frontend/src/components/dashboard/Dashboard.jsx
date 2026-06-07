@@ -11,6 +11,7 @@ import { reportsAPI } from '../../services/api';
 import { formatCurrency } from '../../utils/formatters';
 import WalletCard from './WalletCard';
 import AnnouncementBanner from './AnnouncementBanner';
+import KycProfileSyncAlert from '../onboarding/KycProfileSyncAlert';
 import Card from '../common/Card';
 import DashboardAnalyticsCharts from './DashboardAnalyticsCharts';
 import DashboardTransactionStatus from './DashboardTransactionStatus';
@@ -208,6 +209,7 @@ const Dashboard = () => {
   return (
     <>
       <AnnouncementBanner />
+      <KycProfileSyncAlert className="mx-auto mb-6 max-w-7xl" />
       {loading ? (
         <div className="flex min-h-[400px] items-center justify-center">
           <div className="text-center">

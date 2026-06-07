@@ -332,11 +332,6 @@ export const buildBbpsReceiptSummary = (txn, identity = { label: 'Customer Numbe
   const amount = Number(txn?.amount || 0);
   const biller = resolveBillerName(txn);
   const ref = identity?.value || txn?.customerId || pickDetail(txn, [/customer/, /mobile/, /vehicle/]) || '';
-  const category = String(txn?.billType || 'bill').toLowerCase();
 
-  if (category.includes('fastag') || category.includes('recharge')) {
-    return `Your payment of ${formatCurrency(amount)} to ${biller}${ref ? ` (${ref})` : ''} was successful. Thank you for using mPayHub.`;
-  }
-
-  return `Your BBPS payment of ${formatCurrency(amount)} to ${biller}${ref ? ` for ${ref}` : ''} was successful. Thank you for using mPayHub.`;
+  return `Your payment of ${formatCurrency(amount)} to ${biller}${ref ? ` for ${ref}` : ''} was successful. Thank you for using mPayHub.`;
 };

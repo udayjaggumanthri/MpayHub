@@ -13,4 +13,9 @@ urlpatterns = [
     path('', include(router.urls)),
     path('razorpay/webhook/', views.RazorpayWebhookView.as_view(), name='razorpay-webhook'),
     path('payu/webhook/', views.PayUWebhookView.as_view(), name='payu-webhook'),
+    path(
+        'cashfree/digilocker/webhook/',
+        views.CashfreeDigilockerWebhookView.as_view(),
+        name='cashfree-digilocker-webhook',
+    ),
 ]

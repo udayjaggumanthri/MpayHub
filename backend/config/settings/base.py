@@ -278,6 +278,15 @@ RAZORPAY_WEBHOOK_SECRET = config('RAZORPAY_WEBHOOK_SECRET', default='')
 PAYU_MERCHANT_KEY = config('PAYU_MERCHANT_KEY', default='')
 PAYU_MERCHANT_SALT = config('PAYU_MERCHANT_SALT', default='')
 
+# KYC → profile sync (confirmation on mismatch)
+KYC_PROFILE_SYNC_REQUIRE_CONFIRM_ON_MISMATCH = config(
+    'KYC_PROFILE_SYNC_REQUIRE_CONFIRM_ON_MISMATCH',
+    default=True,
+    cast=bool,
+)
+KYC_PROFILE_SYNC_AUTO_FILL_EMPTY = config('KYC_PROFILE_SYNC_AUTO_FILL_EMPTY', default=True, cast=bool)
+KYC_PROFILE_SYNC_TOKEN_TTL_MINUTES = config('KYC_PROFILE_SYNC_TOKEN_TTL_MINUTES', default=30, cast=int)
+
 # Logging
 LOGGING = {
     'version': 1,

@@ -30,6 +30,8 @@ from apps.integrations.razorpay_orders import (
     verify_webhook_signature,
 )
 from apps.integrations.serializers import ApiMasterSerializer
+from apps.integrations.kyc.cashfree_vrs_client import CashfreeVrsClient
+from apps.integrations.kyc.webhooks import handle_digilocker_webhook, verify_cashfree_webhook_signature
 from apps.integrations.payu_webhook import log_payu_webhook_post
 
 logger = logging.getLogger(__name__)
@@ -114,6 +116,44 @@ class PayUWebhookView(APIView):
         )
 
 
+@method_decorator(csrf_exempt, name='dispatch')
+class CashfreeDigilockerWebhookView(APIView):
+    permission_classes = [AllowAny]
+    authentication_classes = []
+
+    def post(self, request, *args, **kwargs):
+        raw_body = request.body
+        signature = request.META.get('HTTP_X_WEBHOOK_SIGNATURE', '')
+        timestamp = request.META.get('HTTP_X_WEBHOOK_TIMESTAMP', '')
+        try:
+            payload = json.loads(raw_body.decode('utf-8'))
+        except (UnicodeDecodeError, json.JSONDecodeError):
+            return Response({'success': False}, status=status.HTTP_400_BAD_REQUEST)
+
+        from apps.integrations.kyc.registry import _active_kyc_master
+
+        try:
+            master = _active_kyc_master(kyc_service='aadhaar')
+        except Exception:
+            logger.warning('Cashfree DigiLocker webhook received but aadhaar provider not configured')
+            return Response({'success': True})
+
+        cfg = master.config_json if isinstance(master.config_json, dict) else {}
+        secret = str(cfg.get('webhook_secret') or '').strip()
+        if not secret:
+            logger.warning('Cashfree DigiLocker webhook rejected: webhook_secret not configured')
+            return Response({'success': False}, status=status.HTTP_401_UNAUTHORIZED)
+        if not verify_cashfree_webhook_signature(raw_body, signature, timestamp, secret):
+            logger.warning('Cashfree DigiLocker webhook signature verification failed')
+            return Response({'success': False}, status=status.HTTP_401_UNAUTHORIZED)
+
+        try:
+            handle_digilocker_webhook(payload)
+        except Exception:
+            logger.exception('Cashfree DigiLocker webhook handler error')
+        return Response({'success': True})
+
+
 class ApiMasterViewSet(viewsets.ModelViewSet):
     """Admin API master CRUD (enterprise integration registry)."""
 
@@ -149,6 +189,7 @@ class ApiMasterViewSet(viewsets.ModelViewSet):
             provider_code=f"{src.provider_code}-sandbox-{src.pk}",
             provider_name=f"{src.provider_name} (Sandbox)",
             provider_type=src.provider_type,
+            kyc_service=src.kyc_service,
             base_url=src.base_url,
             auth_type=src.auth_type,
             config_json=src.config_json,
@@ -170,6 +211,58 @@ class ApiMasterViewSet(viewsets.ModelViewSet):
         obj = self.get_object()
         timeout = int((obj.config_json or {}).get('timeout', 8))
         timeout = max(3, min(timeout, 45))
+
+        if obj.provider_code in ('cashfree_pan', 'cashfree_digilocker'):
+            payload = decrypt_secret_payload(obj.secrets_encrypted or '')
+            client_id = str(payload.get('client_id') or '').strip()
+            client_secret = str(payload.get('client_secret') or '').strip()
+            if not client_id or not client_secret:
+                return Response(
+                    {
+                        'success': False,
+                        'message': 'Missing client_id or client_secret',
+                        'errors': [],
+                    },
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+            try:
+                client = CashfreeVrsClient(
+                    base_url=obj.base_url,
+                    client_id=client_id,
+                    client_secret=client_secret,
+                    timeout=timeout,
+                )
+                # Valid credentials return 400 (missing verification_id); 401 means bad auth.
+                resp = requests.get(
+                    f'{client.base_url}/digilocker',
+                    headers=client._headers,
+                    timeout=timeout,
+                )
+                ok = resp.status_code != 401
+                detail = 'Cashfree credentials accepted' if ok else 'Invalid client ID/secret'
+                return Response(
+                    {
+                        'success': ok,
+                        'data': {
+                            'status_code': resp.status_code,
+                            'ok': ok,
+                            'cashfree_vrs': True,
+                            'detail': detail,
+                        },
+                        'message': detail,
+                        'errors': [] if ok else [detail],
+                    },
+                    status=status.HTTP_200_OK if ok else status.HTTP_400_BAD_REQUEST,
+                )
+            except Exception as e:
+                return Response(
+                    {
+                        'success': False,
+                        'message': f'Cashfree connection failed: {e}',
+                        'errors': [],
+                    },
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
 
         # Razorpay: verify real API credentials (generic HTTP ping does not use key_id/key_secret).
         if is_razorpay_like_provider_code(obj.provider_code):

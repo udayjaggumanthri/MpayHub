@@ -16,10 +16,12 @@ import {
   FaBan,
   FaUsers,
   FaXmark,
+  FaTrash,
 } from 'react-icons/fa6';
 import Button from '../common/Button';
 import FeedbackModal from '../common/FeedbackModal';
 import AccessControlConfirmModal from '../common/AccessControlConfirmModal';
+import DeleteUserConfirmModal from './DeleteUserConfirmModal';
 import AccessStatusBadges from './AccessStatusBadges';
 
 const accountIsActive = (u) => u && u.is_active !== false;
@@ -46,6 +48,9 @@ const UserList = ({ role, onCreateNew, currentUserId, isAdmin = false }) => {
   const [accountConfirm, setAccountConfirm] = useState(null);
   const [allowPayInWhenDisabled, setAllowPayInWhenDisabled] = useState(false);
   const [selfBlockOpen, setSelfBlockOpen] = useState(false);
+  const [deleteConfirm, setDeleteConfirm] = useState(null);
+  const [deleteSaving, setDeleteSaving] = useState(false);
+  const [deleteFeedback, setDeleteFeedback] = useState(null);
 
   const loadUsers = useCallback(async () => {
     setLoading(true);
@@ -125,6 +130,43 @@ const UserList = ({ role, onCreateNew, currentUserId, isAdmin = false }) => {
     }
     setAllowPayInWhenDisabled(false);
     setAccountConfirm({ user: userRow, nextActive });
+  };
+
+  const requestDeleteUser = (userRow) => {
+    if (!isAdmin || !userRow?.id) return;
+    if (String(userRow.id) === String(currentUserId)) {
+      setSelfBlockOpen(true);
+      return;
+    }
+    setDeleteConfirm(userRow);
+  };
+
+  const performDeleteUser = async () => {
+    if (!deleteConfirm?.id) return;
+    setDeleteSaving(true);
+    try {
+      const res = await usersAPI.deleteUser(deleteConfirm.id);
+      if (res.success) {
+        setDeleteConfirm(null);
+        setDeleteFeedback({
+          title: 'User deleted',
+          description: res.message || 'The user and all account data were removed permanently.',
+        });
+        await loadUsers();
+      } else {
+        setDeleteFeedback({
+          title: 'Delete failed',
+          description: res.message || 'Could not delete this user.',
+        });
+      }
+    } catch {
+      setDeleteFeedback({
+        title: 'Delete failed',
+        description: 'Could not delete this user. Please try again.',
+      });
+    } finally {
+      setDeleteSaving(false);
+    }
   };
 
   const confirmUserName = accountConfirm
@@ -323,28 +365,39 @@ const UserList = ({ role, onCreateNew, currentUserId, isAdmin = false }) => {
                             View
                           </button>
                           {isAdmin && !isSelf && (
-                            <button
-                              type="button"
-                              onClick={() => requestToggleAccountActive(user, !activeOk)}
-                              disabled={activeStatusSaving}
-                              className={`inline-flex items-center gap-1.5 rounded-lg px-3 py-2 text-xs font-semibold shadow-sm transition-all disabled:opacity-50 ${
-                                activeOk
-                                  ? 'border border-amber-200/90 bg-amber-50 text-amber-900 hover:bg-amber-100'
-                                  : 'border border-emerald-200/90 bg-emerald-50 text-emerald-900 hover:bg-emerald-100'
-                              }`}
-                            >
-                              {activeOk ? (
-                                <>
-                                  <FaUserSlash size={14} aria-hidden />
-                                  Disable
-                                </>
-                              ) : (
-                                <>
-                                  <FaUserCheck size={14} aria-hidden />
-                                  Enable
-                                </>
-                              )}
-                            </button>
+                            <>
+                              <button
+                                type="button"
+                                onClick={() => requestToggleAccountActive(user, !activeOk)}
+                                disabled={activeStatusSaving || deleteSaving}
+                                className={`inline-flex items-center gap-1.5 rounded-lg px-3 py-2 text-xs font-semibold shadow-sm transition-all disabled:opacity-50 ${
+                                  activeOk
+                                    ? 'border border-amber-200/90 bg-amber-50 text-amber-900 hover:bg-amber-100'
+                                    : 'border border-emerald-200/90 bg-emerald-50 text-emerald-900 hover:bg-emerald-100'
+                                }`}
+                              >
+                                {activeOk ? (
+                                  <>
+                                    <FaUserSlash size={14} aria-hidden />
+                                    Disable
+                                  </>
+                                ) : (
+                                  <>
+                                    <FaUserCheck size={14} aria-hidden />
+                                    Enable
+                                  </>
+                                )}
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => requestDeleteUser(user)}
+                                disabled={deleteSaving || activeStatusSaving}
+                                className="inline-flex items-center gap-1.5 rounded-lg border border-red-200/90 bg-red-50 px-3 py-2 text-xs font-semibold text-red-800 shadow-sm transition-all hover:bg-red-100 disabled:opacity-50"
+                              >
+                                <FaTrash size={14} aria-hidden />
+                                Delete
+                              </button>
+                            </>
                           )}
                         </div>
                       </td>
@@ -372,8 +425,23 @@ const UserList = ({ role, onCreateNew, currentUserId, isAdmin = false }) => {
       <FeedbackModal
         open={selfBlockOpen}
         onClose={() => setSelfBlockOpen(false)}
-        title="Cannot change your own access"
-        description="Use another administrator account to enable or disable your user, or manage your profile from settings where applicable."
+        title="Cannot modify your own account"
+        description="Use another administrator account to disable, delete, or change access for your own user."
+      />
+
+      <DeleteUserConfirmModal
+        open={Boolean(deleteConfirm)}
+        user={deleteConfirm}
+        loading={deleteSaving}
+        onConfirm={performDeleteUser}
+        onCancel={() => !deleteSaving && setDeleteConfirm(null)}
+      />
+
+      <FeedbackModal
+        open={Boolean(deleteFeedback)}
+        onClose={() => setDeleteFeedback(null)}
+        title={deleteFeedback?.title || ''}
+        description={deleteFeedback?.description || ''}
       />
     </div>
   );

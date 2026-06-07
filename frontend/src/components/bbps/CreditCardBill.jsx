@@ -571,7 +571,7 @@ const CreditCardBill = ({ category = 'credit-card', categoryLabel = '', onPaymen
               </span>
             </div>
             <div className="mt-4 rounded-lg border border-emerald-100 bg-emerald-50/60 p-4">
-              <p className="text-sm text-gray-700">Your BBPS payment has been processed successfully.</p>
+              <p className="text-sm text-gray-700">Your payment has been processed successfully.</p>
               <p className="mt-1 text-sm font-semibold text-gray-900">
                 B-Connect Transaction ID: <span className="font-mono">{transactionId}</span>
               </p>

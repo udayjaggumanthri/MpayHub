@@ -180,23 +180,49 @@ class UserSerializer(serializers.ModelSerializer):
 
     onboarding = serializers.SerializerMethodField()
     access = serializers.SerializerMethodField()
+    kyc_verification = serializers.SerializerMethodField()
+    profile = serializers.SerializerMethodField()
+    profile_sync_pending = serializers.SerializerMethodField()
 
     class Meta:
         model = User
         fields = [
             'id', 'user_id', 'phone', 'email', 'first_name', 'last_name',
             'role', 'is_active', 'is_restricted', 'payments_locked',
-            'pay_in_allowed_when_disabled', 'access', 'created_at', 'onboarding',
+            'pay_in_allowed_when_disabled', 'access', 'profile', 'created_at',
+            'onboarding', 'kyc_verification', 'profile_sync_pending',
         ]
         read_only_fields = [
             'id', 'user_id', 'created_at', 'is_restricted', 'payments_locked',
-            'pay_in_allowed_when_disabled', 'access',
+            'pay_in_allowed_when_disabled', 'access', 'kyc_verification', 'profile',
+            'profile_sync_pending',
         ]
 
     def get_access(self, obj):
         from apps.core.financial_access import user_access_flags_snapshot
 
         return user_access_flags_snapshot(obj)
+
+    def get_profile(self, obj):
+        from apps.users.serializers import UserProfileSerializer
+
+        try:
+            return UserProfileSerializer(obj.profile).data
+        except Exception:
+            return None
+
+    def get_kyc_verification(self, obj):
+        from apps.users.kyc_display import build_kyc_verification_payload
+        from apps.users.models import KYC
+
+        kyc = KYC.objects.filter(user=obj).first()
+        return build_kyc_verification_payload(kyc)
+
+    def get_profile_sync_pending(self, obj):
+        from apps.users.kyc_profile_sync_audit import get_pending_audits_for_user, serialize_pending_audit
+
+        pending = get_pending_audits_for_user(obj)
+        return [serialize_pending_audit(row) for row in pending[:5]]
 
     def get_onboarding(self, obj):
         from apps.users.models import KYC
@@ -244,6 +270,29 @@ class ForcedPasswordResetCompleteSerializer(serializers.Serializer):
 
 class OnboardingPANSerializer(serializers.Serializer):
     pan = serializers.CharField(max_length=10)
+    name = serializers.CharField(max_length=200, min_length=2, trim_whitespace=True)
+
+    def validate_name(self, value):
+        cleaned = str(value or '').strip()
+        if len(cleaned) < 2:
+            raise serializers.ValidationError('Name as per PAN is required.')
+        return cleaned
+
+
+class OnboardingDigilockerInitSerializer(serializers.Serializer):
+    aadhaar = serializers.CharField(max_length=12, required=False, allow_blank=True)
+
+
+class OnboardingDigilockerStatusSerializer(serializers.Serializer):
+    verification_id = serializers.CharField(max_length=50)
+
+
+class OnboardingDigilockerCompleteSerializer(serializers.Serializer):
+    verification_id = serializers.CharField(max_length=50)
+
+
+class ProfileSyncTokenSerializer(serializers.Serializer):
+    sync_token = serializers.CharField(max_length=64)
 
 
 class OnboardingAadhaarSerializer(serializers.Serializer):

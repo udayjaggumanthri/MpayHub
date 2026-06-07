@@ -27,5 +27,11 @@ export function normalizeAuthUser(raw) {
     payments_locked: Boolean(raw.payments_locked),
     pay_in_allowed_when_disabled: Boolean(raw.pay_in_allowed_when_disabled),
     access: raw.access && typeof raw.access === 'object' ? raw.access : null,
+    profile: raw.profile && typeof raw.profile === 'object' ? raw.profile : null,
+    kyc_verification:
+      raw.kyc_verification && typeof raw.kyc_verification === 'object'
+        ? raw.kyc_verification
+        : null,
+    profile_sync_pending: Array.isArray(raw.profile_sync_pending) ? raw.profile_sync_pending : [],
   };
 }

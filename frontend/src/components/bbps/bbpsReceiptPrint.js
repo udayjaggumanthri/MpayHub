@@ -290,7 +290,7 @@ export const buildBbpsReceiptPrintHtml = (txn, identity, { mobile = false } = {}
           </table>
 
           <div class="note-box">
-            Note: This is a system-generated receipt from BBPS. No signature is required.
+            Note: This is a system-generated receipt. No signature is required.
           </div>
           <p class="thank-you">Thank you for your payment.</p>
         </div>

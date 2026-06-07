@@ -265,27 +265,49 @@ EMAIL_EVENT_CATALOG = [
         'label': 'BBPS payment success',
         'description': 'Bill payment completed successfully.',
         'variable_schema': [
+            {'name': 'name', 'required': True, 'description': 'Account holder name'},
+            {'name': 'service', 'required': True, 'description': 'Service category (e.g. Mobile Postpaid)'},
+            {'name': 'consumer_id', 'required': False, 'description': 'Consumer ID for the service'},
+            {'name': 'b_connect_txn_id', 'required': False, 'description': 'B-Connect transaction ID'},
+            {'name': 'status', 'required': True, 'description': 'Payment status (e.g. Success)'},
             {'name': 'biller', 'required': True, 'description': 'Biller name'},
             {'name': 'amount', 'required': True, 'description': 'Amount'},
-            {'name': 'txn_ref', 'required': False, 'description': 'Transaction reference'},
+            {'name': 'txn_ref', 'required': False, 'description': 'Transaction reference (legacy)'},
             {'name': 'service_id', 'required': True, 'description': 'Service ID'},
         ],
         'sample_variables': {
-            'biller': 'Electricity Co',
+            'name': 'Retailer Name',
+            'service': 'Mobile Postpaid',
+            'consumer_id': '9876543210',
+            'b_connect_txn_id': 'CC1234567890123456789012345678901234',
+            'status': 'Success',
+            'biller': 'Airtel Postpaid',
             'amount': '250.00',
-            'txn_ref': 'TXN123',
+            'txn_ref': 'CC1234567890123456789012345678901234',
             'service_id': 'BP123',
         },
         'default_subject': 'mPayhub — Bill payment successful',
         'default_body_html': (
-            '<p>Payment to <strong>{{biller}}</strong> of <strong>₹{{amount}}</strong> was successful.</p>'
-            '<p>Txn ref: {{txn_ref}}</p>'
-            '<p>Service ID: {{service_id}}</p>'
+            '<p>Hello {{name}},</p>'
+            '<p>Your bill payment was completed successfully.</p>'
+            '<ul>'
+            '<li><strong>Service:</strong> {{service}}</li>'
+            '<li><strong>Consumer ID:</strong> {{consumer_id}}</li>'
+            '<li><strong>B-Connect Txn ID:</strong> {{b_connect_txn_id}}</li>'
+            '<li><strong>Status:</strong> {{status}}</li>'
+            '<li><strong>Biller:</strong> {{biller}}</li>'
+            '<li><strong>Amount:</strong> ₹{{amount}}</li>'
+            '</ul>'
         ),
         'default_body_plain': (
-            'Payment to {{biller}} of Rs {{amount}} was successful.\n'
-            'Txn ref: {{txn_ref}}\n'
-            'Service ID: {{service_id}}'
+            'Hello {{name}},\n\n'
+            'Your bill payment was completed successfully.\n'
+            'Service: {{service}}\n'
+            'Consumer ID: {{consumer_id}}\n'
+            'B-Connect Txn ID: {{b_connect_txn_id}}\n'
+            'Status: {{status}}\n'
+            'Biller: {{biller}}\n'
+            'Amount: Rs {{amount}}\n'
         ),
     },
     {
@@ -294,27 +316,51 @@ EMAIL_EVENT_CATALOG = [
         'label': 'BBPS payment failed',
         'description': 'Bill payment failed.',
         'variable_schema': [
+            {'name': 'name', 'required': True, 'description': 'Account holder name'},
+            {'name': 'service', 'required': True, 'description': 'Service category (e.g. Mobile Postpaid)'},
+            {'name': 'consumer_id', 'required': False, 'description': 'Consumer ID for the service'},
+            {'name': 'b_connect_txn_id', 'required': False, 'description': 'B-Connect transaction ID'},
+            {'name': 'status', 'required': True, 'description': 'Payment status (e.g. Failed)'},
             {'name': 'biller', 'required': True, 'description': 'Biller name'},
             {'name': 'amount', 'required': True, 'description': 'Amount'},
             {'name': 'reason', 'required': False, 'description': 'Failure reason'},
             {'name': 'service_id', 'required': True, 'description': 'Service ID'},
         ],
         'sample_variables': {
-            'biller': 'Electricity Co',
+            'name': 'Retailer Name',
+            'service': 'Mobile Postpaid',
+            'consumer_id': '9876543210',
+            'b_connect_txn_id': '',
+            'status': 'Failed',
+            'biller': 'Airtel Postpaid',
             'amount': '250.00',
-            'reason': 'Declined',
+            'reason': 'Declined by biller',
             'service_id': 'BP123',
         },
         'default_subject': 'mPayhub — Bill payment failed',
         'default_body_html': (
-            '<p>Payment to <strong>{{biller}}</strong> of <strong>₹{{amount}}</strong> failed.</p>'
-            '<p>Reason: {{reason}}</p>'
-            '<p>Service ID: {{service_id}}</p>'
+            '<p>Hello {{name}},</p>'
+            '<p>Your bill payment could not be completed.</p>'
+            '<ul>'
+            '<li><strong>Service:</strong> {{service}}</li>'
+            '<li><strong>Consumer ID:</strong> {{consumer_id}}</li>'
+            '<li><strong>B-Connect Txn ID:</strong> {{b_connect_txn_id}}</li>'
+            '<li><strong>Status:</strong> {{status}}</li>'
+            '<li><strong>Biller:</strong> {{biller}}</li>'
+            '<li><strong>Amount:</strong> ₹{{amount}}</li>'
+            '<li><strong>Reason:</strong> {{reason}}</li>'
+            '</ul>'
         ),
         'default_body_plain': (
-            'Payment to {{biller}} of Rs {{amount}} failed.\n'
+            'Hello {{name}},\n\n'
+            'Your bill payment could not be completed.\n'
+            'Service: {{service}}\n'
+            'Consumer ID: {{consumer_id}}\n'
+            'B-Connect Txn ID: {{b_connect_txn_id}}\n'
+            'Status: {{status}}\n'
+            'Biller: {{biller}}\n'
+            'Amount: Rs {{amount}}\n'
             'Reason: {{reason}}\n'
-            'Service ID: {{service_id}}'
         ),
     },
     {
@@ -323,27 +369,49 @@ EMAIL_EVENT_CATALOG = [
         'label': 'BBPS payment awaited',
         'description': 'Payment in AWAITED state.',
         'variable_schema': [
+            {'name': 'name', 'required': True, 'description': 'Account holder name'},
+            {'name': 'service', 'required': True, 'description': 'Service category (e.g. Mobile Postpaid)'},
+            {'name': 'consumer_id', 'required': False, 'description': 'Consumer ID for the service'},
+            {'name': 'b_connect_txn_id', 'required': False, 'description': 'B-Connect transaction ID'},
+            {'name': 'status', 'required': True, 'description': 'Payment status (e.g. Pending)'},
             {'name': 'biller', 'required': True, 'description': 'Biller name'},
             {'name': 'amount', 'required': True, 'description': 'Amount'},
-            {'name': 'txn_ref', 'required': False, 'description': 'Transaction reference'},
+            {'name': 'txn_ref', 'required': False, 'description': 'Transaction reference (legacy)'},
             {'name': 'service_id', 'required': True, 'description': 'Service ID'},
         ],
         'sample_variables': {
-            'biller': 'Electricity Co',
+            'name': 'Retailer Name',
+            'service': 'Mobile Postpaid',
+            'consumer_id': '9876543210',
+            'b_connect_txn_id': 'CC1234567890123456789012345678901234',
+            'status': 'Pending',
+            'biller': 'Airtel Postpaid',
             'amount': '250.00',
-            'txn_ref': 'TXN123',
+            'txn_ref': 'CC1234567890123456789012345678901234',
             'service_id': 'BP123',
         },
         'default_subject': 'mPayhub — Bill payment pending',
         'default_body_html': (
-            '<p>Payment to <strong>{{biller}}</strong> of <strong>₹{{amount}}</strong> is pending confirmation.</p>'
-            '<p>Txn ref: {{txn_ref}}</p>'
-            '<p>Service ID: {{service_id}}</p>'
+            '<p>Hello {{name}},</p>'
+            '<p>Your bill payment is pending confirmation.</p>'
+            '<ul>'
+            '<li><strong>Service:</strong> {{service}}</li>'
+            '<li><strong>Consumer ID:</strong> {{consumer_id}}</li>'
+            '<li><strong>B-Connect Txn ID:</strong> {{b_connect_txn_id}}</li>'
+            '<li><strong>Status:</strong> {{status}}</li>'
+            '<li><strong>Biller:</strong> {{biller}}</li>'
+            '<li><strong>Amount:</strong> ₹{{amount}}</li>'
+            '</ul>'
         ),
         'default_body_plain': (
-            'Payment to {{biller}} of Rs {{amount}} is pending confirmation.\n'
-            'Txn ref: {{txn_ref}}\n'
-            'Service ID: {{service_id}}'
+            'Hello {{name}},\n\n'
+            'Your bill payment is pending confirmation.\n'
+            'Service: {{service}}\n'
+            'Consumer ID: {{consumer_id}}\n'
+            'B-Connect Txn ID: {{b_connect_txn_id}}\n'
+            'Status: {{status}}\n'
+            'Biller: {{biller}}\n'
+            'Amount: Rs {{amount}}\n'
         ),
     },
     {

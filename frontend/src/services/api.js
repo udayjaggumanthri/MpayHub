@@ -520,10 +520,11 @@ export const authAPI = {
   /**
    * KYC step 1: verify PAN. POST /api/auth/onboarding/kyc/pan/
    */
-  verifyOnboardingPan: async (pan) => {
+  verifyOnboardingPan: async (pan, name) => {
     try {
       const response = await apiClient.post('/auth/onboarding/kyc/pan/', {
         pan: String(pan ?? '').toUpperCase().trim(),
+        name: String(name ?? '').trim(),
       });
       const result = extractData(response);
       if (result.success && result.data?.user) {
@@ -539,13 +540,44 @@ export const authAPI = {
   },
 
   /**
-   * KYC step 2a: Aadhaar + send OTP to registered mobile.
-   * POST /api/auth/onboarding/kyc/aadhaar/send-otp/
+   * KYC step 2: start Cashfree DigiLocker consent.
+   * POST /api/auth/onboarding/kyc/digilocker/init/
    */
-  sendOnboardingAadhaarOtp: async (aadhaar) => {
+  initOnboardingDigilocker: async (aadhaar) => {
     try {
-      const response = await apiClient.post('/auth/onboarding/kyc/aadhaar/send-otp/', {
-        aadhaar: String(aadhaar ?? '').replace(/\D/g, '').slice(0, 12),
+      const payload = {};
+      const a = String(aadhaar ?? '').replace(/\D/g, '').slice(0, 12);
+      if (a) payload.aadhaar = a;
+      const response = await apiClient.post('/auth/onboarding/kyc/digilocker/init/', payload);
+      return extractData(response);
+    } catch (error) {
+      return handleError(error);
+    }
+  },
+
+  /**
+   * Poll DigiLocker status after redirect.
+   * GET /api/auth/onboarding/kyc/digilocker/status/
+   */
+  getDigilockerStatus: async (verificationId) => {
+    try {
+      const response = await apiClient.get('/auth/onboarding/kyc/digilocker/status/', {
+        params: { verification_id: String(verificationId ?? '').trim() },
+      });
+      return extractData(response);
+    } catch (error) {
+      return handleError(error);
+    }
+  },
+
+  /**
+   * Finalize DigiLocker Aadhaar verification.
+   * POST /api/auth/onboarding/kyc/digilocker/complete/
+   */
+  completeDigilockerKyc: async (verificationId) => {
+    try {
+      const response = await apiClient.post('/auth/onboarding/kyc/digilocker/complete/', {
+        verification_id: String(verificationId ?? '').trim(),
       });
       const result = extractData(response);
       if (result.success && result.data?.user) {
@@ -560,14 +592,19 @@ export const authAPI = {
     }
   },
 
-  /**
-   * KYC step 2b: verify Aadhaar OTP (SMS or demo 123456).
-   * POST /api/auth/onboarding/kyc/aadhaar/verify-otp/
-   */
-  verifyOnboardingAadhaarOtp: async (otp) => {
+  getProfileSyncPending: async () => {
     try {
-      const response = await apiClient.post('/auth/onboarding/kyc/aadhaar/verify-otp/', {
-        otp: String(otp ?? '').trim(),
+      const response = await apiClient.get('/auth/me/profile-sync/pending/');
+      return extractData(response);
+    } catch (error) {
+      return handleError(error);
+    }
+  },
+
+  confirmProfileSync: async (syncToken) => {
+    try {
+      const response = await apiClient.post('/auth/profile-sync/confirm/', {
+        sync_token: String(syncToken ?? '').trim(),
       });
       const result = extractData(response);
       if (result.success && result.data?.user) {
@@ -577,6 +614,17 @@ export const authAPI = {
         );
       }
       return result;
+    } catch (error) {
+      return handleError(error);
+    }
+  },
+
+  declineProfileSync: async (syncToken) => {
+    try {
+      const response = await apiClient.post('/auth/profile-sync/decline/', {
+        sync_token: String(syncToken ?? '').trim(),
+      });
+      return extractData(response);
     } catch (error) {
       return handleError(error);
     }

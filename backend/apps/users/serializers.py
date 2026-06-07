@@ -20,9 +20,9 @@ class UserProfileSerializer(serializers.ModelSerializer):
         model = UserProfile
         fields = [
             'id', 'first_name', 'last_name', 'alternate_phone',
-            'business_name', 'business_address', 'created_at'
+            'business_name', 'business_address', 'date_of_birth', 'created_at',
         ]
-        read_only_fields = ['id', 'created_at']
+        read_only_fields = ['id', 'created_at', 'date_of_birth']
 
 
 class KYCSerializer(serializers.ModelSerializer):
@@ -428,21 +428,25 @@ class UserDetailSerializer(serializers.ModelSerializer):
     """Serializer for user details."""
     profile = serializers.SerializerMethodField()
     kyc = serializers.SerializerMethodField()
+    kyc_verification = serializers.SerializerMethodField()
     hierarchy_lineage = serializers.SerializerMethodField()
     point_of_contact = serializers.SerializerMethodField()
     mpin_configured = serializers.SerializerMethodField()
+    profile_sync_audits = serializers.SerializerMethodField()
 
     class Meta:
         model = User
         fields = [
             'id', 'user_id', 'phone', 'email', 'first_name', 'last_name',
             'role', 'is_active', 'is_restricted', 'payments_locked',
-            'pay_in_allowed_when_disabled', 'profile', 'kyc', 'hierarchy_lineage',
-            'point_of_contact', 'mpin_configured', 'created_at', 'updated_at',
+            'pay_in_allowed_when_disabled', 'profile', 'kyc', 'kyc_verification',
+            'hierarchy_lineage', 'point_of_contact', 'mpin_configured',
+            'profile_sync_audits', 'created_at', 'updated_at',
         ]
         read_only_fields = [
             'id', 'user_id', 'created_at', 'updated_at',
-            'hierarchy_lineage', 'point_of_contact',
+            'hierarchy_lineage', 'point_of_contact', 'kyc_verification',
+            'profile_sync_audits',
         ]
 
     def _viewer_is_admin(self):
@@ -455,6 +459,15 @@ class UserDetailSerializer(serializers.ModelSerializer):
 
     def get_mpin_configured(self, obj):
         return bool(obj.mpin_hash)
+
+    def get_profile_sync_audits(self, obj):
+        if not self._viewer_is_admin():
+            return []
+        from apps.users.kyc_profile_sync_audit import serialize_audit_row
+        from apps.users.models import KycProfileSyncAudit
+
+        rows = KycProfileSyncAudit.objects.filter(user=obj, is_deleted=False).order_by('-created_at')[:20]
+        return [serialize_audit_row(row) for row in rows]
 
     def get_profile(self, obj):
         try:
@@ -474,6 +487,23 @@ class UserDetailSerializer(serializers.ModelSerializer):
             return KYCSerializer(kyc).data
         return KYCMaskedSerializer(kyc).data
 
+    def get_kyc_verification(self, obj):
+        from apps.users.kyc_display import (
+            build_kyc_status_only,
+            build_kyc_verification_payload,
+            viewer_may_see_full_kyc_verification,
+        )
+
+        try:
+            kyc = obj.kyc
+        except ObjectDoesNotExist:
+            return None
+        request = self.context.get('request')
+        viewer = getattr(request, 'user', None) if request else None
+        if viewer_may_see_full_kyc_verification(viewer, obj):
+            return build_kyc_verification_payload(kyc)
+        return build_kyc_status_only(kyc)
+
     def get_hierarchy_lineage(self, obj):
         if not self._viewer_is_admin():
             return None
@@ -486,14 +516,21 @@ class UserDetailSerializer(serializers.ModelSerializer):
 
 
 class PANVerificationSerializer(serializers.Serializer):
-    """Serializer for PAN verification."""
+    """Serializer for admin PAN verification."""
     pan = serializers.CharField(max_length=10)
-    
+    name = serializers.CharField(max_length=200)
+
     def validate_pan(self, value):
         """Validate PAN format."""
         if not validate_pan(value):
             raise serializers.ValidationError("Invalid PAN format.")
         return value
+
+    def validate_name(self, value):
+        name = str(value or '').strip()
+        if not name:
+            raise serializers.ValidationError("Name as per PAN is required.")
+        return name
 
 
 class AadhaarOTPSerializer(serializers.Serializer):

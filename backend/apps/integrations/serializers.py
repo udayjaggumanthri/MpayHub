@@ -5,6 +5,7 @@ from django.utils.text import slugify
 
 from apps.core.utils import decrypt_secret_payload, encrypt_secret_payload
 from apps.integrations.models import ApiMaster
+from apps.integrations.kyc.registry import infer_kyc_service
 from apps.integrations.razorpay_orders import (
     extract_razorpay_key_pair_from_secrets,
     is_razorpay_like_provider_code,
@@ -14,6 +15,8 @@ from apps.integrations.razorpay_orders import (
 REQUIRED_SECRETS_BY_PROVIDER = {
     'aadhaar_ekyc': ['client_id', 'client_secret'],
     'pan_verify': ['api_key'],
+    'cashfree_pan': ['client_id', 'client_secret'],
+    'cashfree_digilocker': ['client_id', 'client_secret'],
     'razorpay': ['key_id', 'key_secret'],
     'payu': ['merchant_key', 'merchant_salt'],
 }
@@ -46,6 +49,7 @@ class ApiMasterSerializer(serializers.ModelSerializer):
             'provider_code',
             'provider_name',
             'provider_type',
+            'kyc_service',
             'base_url',
             'auth_type',
             'config_json',
@@ -88,17 +92,59 @@ class ApiMasterSerializer(serializers.ModelSerializer):
 
         provider_type = attrs.get('provider_type', getattr(instance, 'provider_type', '')).strip().lower()
         is_default = bool(attrs.get('is_default', getattr(instance, 'is_default', False)))
+        kyc_service = attrs.get('kyc_service', getattr(instance, 'kyc_service', '') or '')
+        if provider_type == 'kyc':
+            inferred = infer_kyc_service(provider_code)
+            if inferred and not kyc_service:
+                kyc_service = inferred
+                attrs['kyc_service'] = inferred
+            if not kyc_service:
+                raise serializers.ValidationError(
+                    {'kyc_service': ['KYC service (pan or aadhaar) is required for KYC providers.']}
+                )
+            if provider_code == 'cashfree_pan':
+                cfg = attrs.get('config_json', getattr(instance, 'config_json', None) or {})
+                if not isinstance(cfg, dict):
+                    cfg = {}
+                mode = str(cfg.get('mode') or 'sync').lower()
+                if mode not in ('sync', 'advance'):
+                    raise serializers.ValidationError(
+                        {'config_json': ['cashfree_pan config_json.mode must be sync or advance.']}
+                    )
+            if provider_code == 'cashfree_digilocker':
+                cfg = attrs.get('config_json', getattr(instance, 'config_json', None) or {})
+                if isinstance(cfg, dict) and cfg.get('redirect_url'):
+                    url = str(cfg['redirect_url']).strip()
+                    if not url.startswith('https://'):
+                        raise serializers.ValidationError(
+                            {'config_json': ['redirect_url must start with https://']}
+                        )
+        if provider_type == 'kyc' and kyc_service and not is_default:
+            active_for_service = ApiMaster.objects.filter(
+                provider_type='kyc',
+                kyc_service=kyc_service,
+                is_deleted=False,
+                status__in=('active', 'sandbox'),
+            )
+            if instance is not None:
+                active_for_service = active_for_service.exclude(pk=instance.pk)
+            if not active_for_service.filter(is_default=True).exists():
+                attrs['is_default'] = True
+
         if is_default and provider_type:
             existing_default = ApiMaster.objects.filter(
                 provider_type=provider_type,
                 is_default=True,
                 is_deleted=False,
             )
+            if provider_type == 'kyc':
+                existing_default = existing_default.filter(kyc_service=kyc_service)
             if instance is not None:
                 existing_default = existing_default.exclude(pk=instance.pk)
             if existing_default.exists():
+                label = f'KYC service {kyc_service}' if provider_type == 'kyc' else 'this module'
                 raise serializers.ValidationError(
-                    {'is_default': ['A default API master already exists for this module. Uncheck default or edit existing default entry.']}
+                    {'is_default': [f'A default API master already exists for {label}.']}
                 )
 
         incoming_raw = attrs.get('secrets')

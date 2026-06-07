@@ -21,6 +21,7 @@ class UserProfile(BaseModel):
     alternate_phone = models.CharField(max_length=10, blank=True, null=True)
     business_name = models.CharField(max_length=200, blank=True, null=True)
     business_address = models.TextField(blank=True, null=True)
+    date_of_birth = models.DateField(blank=True, null=True)
     
     class Meta:
         db_table = 'user_profiles'
@@ -60,13 +61,98 @@ class KYC(BaseModel):
         choices=VERIFICATION_STATUS_CHOICES,
         default='pending'
     )
-    
+    verified_identity = models.JSONField(default=dict, blank=True)
+
     class Meta:
         db_table = 'kyc'
         ordering = ['-created_at']
     
     def __str__(self):
         return f"KYC for {self.user.user_id}"
+
+
+class KycVerificationAttempt(BaseModel):
+    """Audit trail for external PAN verification calls."""
+
+    user = models.ForeignKey(User, on_delete=models.CASCADE, related_name='kyc_pan_attempts')
+    provider_code = models.CharField(max_length=80, blank=True, default='')
+    verification_id = models.CharField(max_length=100, blank=True, default='', db_index=True)
+    reference_id = models.CharField(max_length=50, blank=True, default='')
+    status = models.CharField(max_length=40, blank=True, default='')
+    request_meta = models.JSONField(default=dict, blank=True)
+    response_meta = models.JSONField(default=dict, blank=True)
+
+    class Meta:
+        db_table = 'kyc_verification_attempts'
+        ordering = ['-created_at']
+
+
+class KycDigilockerSession(BaseModel):
+    """Tracks Cashfree DigiLocker consent sessions across redirect."""
+
+    user = models.ForeignKey(User, on_delete=models.CASCADE, related_name='kyc_digilocker_sessions')
+    verification_id = models.CharField(max_length=50, unique=True, db_index=True)
+    reference_id = models.CharField(max_length=50, blank=True, default='')
+    status = models.CharField(max_length=30, blank=True, default='PENDING', db_index=True)
+    user_flow = models.CharField(max_length=20, blank=True, default='')
+    document_requested = models.JSONField(default=list, blank=True)
+    provider_code = models.CharField(max_length=80, blank=True, default='')
+    raw_status = models.JSONField(default=dict, blank=True)
+    completed_at = models.DateTimeField(null=True, blank=True)
+
+    class Meta:
+        db_table = 'kyc_digilocker_sessions'
+        ordering = ['-created_at']
+
+
+class KycProfileSyncAudit(BaseModel):
+    """Immutable audit trail for KYC → profile synchronization."""
+
+    STATUS_CHOICES = [
+        ('pending', 'Pending confirmation'),
+        ('applied', 'Applied after confirmation'),
+        ('auto_applied', 'Auto-applied'),
+        ('declined', 'Declined by user'),
+    ]
+
+    user = models.ForeignKey(User, on_delete=models.CASCADE, related_name='kyc_profile_sync_audits')
+    source = models.CharField(max_length=20, blank=True, default='')  # pan | aadhaar
+    trigger = models.CharField(max_length=40, blank=True, default='')
+    status = models.CharField(max_length=20, choices=STATUS_CHOICES, default='pending', db_index=True)
+
+    before_first_name = models.CharField(max_length=150, blank=True, default='')
+    before_last_name = models.CharField(max_length=150, blank=True, default='')
+    before_date_of_birth = models.DateField(null=True, blank=True)
+
+    verified_full_name = models.CharField(max_length=300, blank=True, default='')
+    verified_date_of_birth = models.DateField(null=True, blank=True)
+
+    after_first_name = models.CharField(max_length=150, blank=True, default='')
+    after_last_name = models.CharField(max_length=150, blank=True, default='')
+    after_date_of_birth = models.DateField(null=True, blank=True)
+
+    sync_token = models.CharField(max_length=64, unique=True, null=True, blank=True, db_index=True)
+    sync_token_expires_at = models.DateTimeField(null=True, blank=True)
+    confirmed_at = models.DateTimeField(null=True, blank=True)
+    declined_at = models.DateTimeField(null=True, blank=True)
+    actor_user = models.ForeignKey(
+        User,
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        related_name='kyc_profile_sync_actions',
+    )
+    metadata = models.JSONField(default=dict, blank=True)
+
+    class Meta:
+        db_table = 'kyc_profile_sync_audits'
+        ordering = ['-created_at']
+        indexes = [
+            models.Index(fields=['user', 'status', '-created_at']),
+        ]
+
+    def __str__(self):
+        return f'KYC profile sync {self.status} for {self.user_id}'
 
 
 class UserHierarchy(BaseModel):

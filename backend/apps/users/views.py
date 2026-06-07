@@ -1,6 +1,8 @@
 """
 User management views for the mPayhub platform.
 """
+import logging
+
 from rest_framework import status, viewsets
 from rest_framework.decorators import action
 from rest_framework.permissions import IsAuthenticated
@@ -24,14 +26,15 @@ from apps.users.services import (
     admin_change_user_role,
     apply_user_access_controls,
     create_user,
+    delete_user_account,
     verify_pan,
-    send_aadhaar_otp,
-    verify_aadhaar_otp,
     get_subordinates,
     get_viewable_user_ids,
 )
 from apps.core.exceptions import InvalidUserRole
 from apps.wallets.views import build_wallet_summary
+
+logger = logging.getLogger(__name__)
 
 
 class UserViewSet(viewsets.ModelViewSet):
@@ -181,13 +184,22 @@ class UserViewSet(viewsets.ModelViewSet):
     
     @action(detail=True, methods=['post'])
     def verify_pan(self, request, pk=None):
-        """Verify PAN for a user."""
+        """Verify PAN for a user (Admin only; requires explicit name as per PAN)."""
+        if getattr(request.user, 'role', None) != 'Admin' and not getattr(request.user, 'is_superuser', False):
+            return Response({
+                'success': False,
+                'data': None,
+                'message': 'Only administrators can verify PAN on behalf of users.',
+                'errors': [],
+            }, status=status.HTTP_403_FORBIDDEN)
+
         user = self.get_object()
         serializer = PANVerificationSerializer(data=request.data)
         
         if serializer.is_valid():
             pan = serializer.validated_data['pan']
-            if verify_pan(user, pan):
+            name = serializer.validated_data['name']
+            if verify_pan(user, pan, name=name):
                 return Response({
                     'success': True,
                     'data': None,
@@ -211,65 +223,23 @@ class UserViewSet(viewsets.ModelViewSet):
     
     @action(detail=True, methods=['post'])
     def send_aadhaar_otp(self, request, pk=None):
-        """Send Aadhaar OTP for verification."""
-        user = self.get_object()
-        serializer = AadhaarOTPSerializer(data=request.data)
-        
-        if serializer.is_valid():
-            try:
-                aadhaar = serializer.validated_data['aadhaar']
-                send_aadhaar_otp(user, aadhaar)
-                return Response({
-                    'success': True,
-                    'data': None,
-                    'message': 'Aadhaar OTP sent successfully',
-                    'errors': []
-                }, status=status.HTTP_200_OK)
-            except ValueError as e:
-                return Response({
-                    'success': False,
-                    'data': None,
-                    'message': str(e),
-                    'errors': []
-                }, status=status.HTTP_400_BAD_REQUEST)
-        
+        """Deprecated — Aadhaar SMS OTP replaced by DigiLocker."""
         return Response({
             'success': False,
             'data': None,
-            'message': 'Failed to send Aadhaar OTP',
-            'errors': serializer.errors
-        }, status=status.HTTP_400_BAD_REQUEST)
-    
+            'message': 'Aadhaar OTP is no longer supported. Use DigiLocker verification.',
+            'errors': [],
+        }, status=status.HTTP_410_GONE)
+
     @action(detail=True, methods=['post'])
     def verify_aadhaar_otp(self, request, pk=None):
-        """Verify Aadhaar OTP."""
-        user = self.get_object()
-        serializer = AadhaarOTPVerificationSerializer(data=request.data)
-        
-        if serializer.is_valid():
-            otp_code = serializer.validated_data['otp']
-            aadhaar = serializer.validated_data['aadhaar']
-            if verify_aadhaar_otp(user, otp_code, aadhaar=aadhaar):
-                return Response({
-                    'success': True,
-                    'data': None,
-                    'message': 'Aadhaar verified successfully',
-                    'errors': []
-                }, status=status.HTTP_200_OK)
-            else:
-                return Response({
-                    'success': False,
-                    'data': None,
-                    'message': 'Aadhaar OTP verification failed',
-                    'errors': []
-                }, status=status.HTTP_400_BAD_REQUEST)
-        
+        """Deprecated — Aadhaar SMS OTP replaced by DigiLocker."""
         return Response({
             'success': False,
             'data': None,
-            'message': 'Aadhaar OTP verification failed',
-            'errors': serializer.errors
-        }, status=status.HTTP_400_BAD_REQUEST)
+            'message': 'Aadhaar OTP is no longer supported. Use DigiLocker verification.',
+            'errors': [],
+        }, status=status.HTTP_410_GONE)
     
     def update(self, request, *args, **kwargs):
         """Update a user."""
@@ -306,35 +276,33 @@ class UserViewSet(viewsets.ModelViewSet):
         }, status=status.HTTP_400_BAD_REQUEST)
     
     def destroy(self, request, *args, **kwargs):
-        """Delete a user."""
+        """Permanently delete a user and all related account data (Admin only)."""
         instance = self.get_object()
-        
-        # Check permissions - only Admin can delete
-        if request.user.role != 'Admin':
+        try:
+            user_id = delete_user_account(actor=request.user, target=instance)
+        except ValueError as e:
+            msg = str(e)
+            code = status.HTTP_403_FORBIDDEN if 'Only administrators' in msg else status.HTTP_400_BAD_REQUEST
             return Response({
                 'success': False,
                 'data': None,
-                'message': 'Only Admin can delete users',
-                'errors': []
-            }, status=status.HTTP_403_FORBIDDEN)
-        
-        # Prevent deleting yourself
-        if instance.id == request.user.id:
+                'message': msg,
+                'errors': [],
+            }, status=code)
+        except Exception:
+            logger.exception('Failed to delete user %s', getattr(instance, 'pk', None))
             return Response({
                 'success': False,
                 'data': None,
-                'message': 'You cannot delete your own account',
-                'errors': []
+                'message': 'Could not delete user. The account may have linked records that block removal.',
+                'errors': [],
             }, status=status.HTTP_400_BAD_REQUEST)
-        
-        user_id = instance.user_id
-        instance.delete()
-        
+
         return Response({
             'success': True,
             'data': {'user_id': user_id},
-            'message': 'User deleted successfully',
-            'errors': []
+            'message': 'User and all account data deleted permanently.',
+            'errors': [],
         }, status=status.HTTP_200_OK)
     
     @action(detail=False, methods=['get'])

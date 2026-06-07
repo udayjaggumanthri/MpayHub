@@ -19,6 +19,9 @@ from apps.authentication.serializers import (
     ForcedPasswordResetCompleteSerializer,
     UserSerializer,
     OnboardingPANSerializer,
+    OnboardingDigilockerInitSerializer,
+    OnboardingDigilockerStatusSerializer,
+    OnboardingDigilockerCompleteSerializer,
     OnboardingAadhaarSerializer,
     OnboardingAadhaarVerifyOTPSerializer,
     SetupMPINSerializer,
@@ -36,8 +39,9 @@ from apps.authentication.services import (
 from apps.core.utils import mask_email, mask_phone
 from apps.users.services import (
     self_service_verify_pan,
-    self_service_send_aadhaar_otp,
-    self_service_verify_aadhaar_otp_only,
+    init_digilocker_aadhaar,
+    poll_digilocker_status,
+    complete_digilocker_aadhaar,
     setup_initial_mpin,
 )
 from apps.core.exceptions import InvalidCredentials, InvalidMPIN, InvalidOTP
@@ -514,7 +518,7 @@ def current_user_view(request):
     Get current authenticated user.
     GET /api/auth/me/
     """
-    user = User.objects.select_related('kyc').get(pk=request.user.pk)
+    user = User.objects.select_related('kyc', 'profile').get(pk=request.user.pk)
     user_data = UserSerializer(user).data
     from apps.core.maintenance_mode import get_status
 
@@ -531,18 +535,32 @@ def current_user_view(request):
 
 @api_view(['POST'])
 @permission_classes([IsAuthenticated])
+@ratelimit(key='user', rate='5/m', method='POST')
+@ratelimit(key='ip', rate='15/m', method='POST')
 def onboarding_kyc_verify_pan_view(request):
     """Step 1: verify PAN only. POST /api/auth/onboarding/kyc/pan/"""
     serializer = OnboardingPANSerializer(data=request.data)
     if not serializer.is_valid():
+        first_err = ''
+        for field_errors in serializer.errors.values():
+            if isinstance(field_errors, list) and field_errors:
+                first_err = str(field_errors[0])
+                break
+            if isinstance(field_errors, str):
+                first_err = field_errors
+                break
         return Response({
             'success': False,
             'data': None,
-            'message': 'Validation failed',
+            'message': first_err or 'Validation failed',
             'errors': serializer.errors,
         }, status=status.HTTP_400_BAD_REQUEST)
     try:
-        self_service_verify_pan(request.user, serializer.validated_data['pan'])
+        _kyc, kyc_details = self_service_verify_pan(
+            request.user,
+            serializer.validated_data['pan'],
+            name=serializer.validated_data['name'],
+        )
     except ValueError as e:
         return Response({
             'success': False,
@@ -551,9 +569,15 @@ def onboarding_kyc_verify_pan_view(request):
             'errors': [],
         }, status=status.HTTP_400_BAD_REQUEST)
     u = User.objects.select_related('kyc').get(pk=request.user.pk)
+    response_data = {
+        'user': UserSerializer(u).data,
+        'kyc_details': kyc_details,
+    }
+    if isinstance(kyc_details, dict) and kyc_details.get('profile_sync'):
+        response_data['profile_sync'] = kyc_details['profile_sync']
     return Response({
         'success': True,
-        'data': {'user': UserSerializer(u).data},
+        'data': response_data,
         'message': 'PAN verified successfully',
         'errors': [],
     }, status=status.HTTP_200_OK)
@@ -561,9 +585,11 @@ def onboarding_kyc_verify_pan_view(request):
 
 @api_view(['POST'])
 @permission_classes([IsAuthenticated])
-def onboarding_kyc_aadhaar_send_otp_view(request):
-    """Step 2a: save Aadhaar and send OTP to registered mobile. POST /api/auth/onboarding/kyc/aadhaar/send-otp/"""
-    serializer = OnboardingAadhaarSerializer(data=request.data)
+@ratelimit(key='user', rate='5/m', method='POST')
+@ratelimit(key='ip', rate='15/m', method='POST')
+def onboarding_kyc_digilocker_init_view(request):
+    """Start Cashfree DigiLocker consent. POST /api/auth/onboarding/kyc/digilocker/init/"""
+    serializer = OnboardingDigilockerInitSerializer(data=request.data)
     if not serializer.is_valid():
         return Response({
             'success': False,
@@ -572,7 +598,8 @@ def onboarding_kyc_aadhaar_send_otp_view(request):
             'errors': serializer.errors,
         }, status=status.HTTP_400_BAD_REQUEST)
     try:
-        self_service_send_aadhaar_otp(request.user, serializer.validated_data['aadhaar'])
+        aadhaar = (serializer.validated_data.get('aadhaar') or '').strip() or None
+        result = init_digilocker_aadhaar(request.user, aadhaar_number=aadhaar)
     except ValueError as e:
         return Response({
             'success': False,
@@ -580,23 +607,63 @@ def onboarding_kyc_aadhaar_send_otp_view(request):
             'message': str(e),
             'errors': [],
         }, status=status.HTTP_400_BAD_REQUEST)
-    u = User.objects.select_related('kyc').get(pk=request.user.pk)
     return Response({
         'success': True,
         'data': {
-            'user': UserSerializer(u).data,
-            'demo_otp_hint': 'If SMS is not available, use OTP 123456 in demo mode.',
+            'url': result.url,
+            'verification_id': result.verification_id,
+            'status': result.status,
         },
-        'message': 'OTP sent to your registered mobile number.',
+        'message': 'Redirect to DigiLocker to complete Aadhaar verification.',
+        'errors': [],
+    }, status=status.HTTP_200_OK)
+
+
+@api_view(['GET'])
+@permission_classes([IsAuthenticated])
+@ratelimit(key='user', rate='30/m', method='GET')
+@ratelimit(key='ip', rate='60/m', method='GET')
+def onboarding_kyc_digilocker_status_view(request):
+    """Poll DigiLocker status. GET /api/auth/onboarding/kyc/digilocker/status/?verification_id="""
+    serializer = OnboardingDigilockerStatusSerializer(data=request.query_params)
+    if not serializer.is_valid():
+        return Response({
+            'success': False,
+            'data': None,
+            'message': 'Validation failed',
+            'errors': serializer.errors,
+        }, status=status.HTTP_400_BAD_REQUEST)
+    try:
+        result = poll_digilocker_status(
+            request.user,
+            serializer.validated_data['verification_id'],
+        )
+    except ValueError as e:
+        return Response({
+            'success': False,
+            'data': None,
+            'message': str(e),
+            'errors': [],
+        }, status=status.HTTP_400_BAD_REQUEST)
+    return Response({
+        'success': True,
+        'data': {
+            'verification_id': result.verification_id,
+            'status': result.status,
+            'document_consent': result.document_consent,
+        },
+        'message': 'DigiLocker status retrieved.',
         'errors': [],
     }, status=status.HTTP_200_OK)
 
 
 @api_view(['POST'])
 @permission_classes([IsAuthenticated])
-def onboarding_kyc_aadhaar_verify_otp_view(request):
-    """Step 2b: verify Aadhaar OTP (SMS code or demo 123456). POST /api/auth/onboarding/kyc/aadhaar/verify-otp/"""
-    serializer = OnboardingAadhaarVerifyOTPSerializer(data=request.data)
+@ratelimit(key='user', rate='10/m', method='POST')
+@ratelimit(key='ip', rate='20/m', method='POST')
+def onboarding_kyc_digilocker_complete_view(request):
+    """Finalize DigiLocker after consent. POST /api/auth/onboarding/kyc/digilocker/complete/"""
+    serializer = OnboardingDigilockerCompleteSerializer(data=request.data)
     if not serializer.is_valid():
         return Response({
             'success': False,
@@ -605,7 +672,10 @@ def onboarding_kyc_aadhaar_verify_otp_view(request):
             'errors': serializer.errors,
         }, status=status.HTTP_400_BAD_REQUEST)
     try:
-        self_service_verify_aadhaar_otp_only(request.user, serializer.validated_data['otp'])
+        _kyc, kyc_details = complete_digilocker_aadhaar(
+            request.user,
+            serializer.validated_data['verification_id'],
+        )
     except ValueError as e:
         return Response({
             'success': False,
@@ -614,12 +684,137 @@ def onboarding_kyc_aadhaar_verify_otp_view(request):
             'errors': [],
         }, status=status.HTTP_400_BAD_REQUEST)
     u = User.objects.select_related('kyc').get(pk=request.user.pk)
+    response_data = {
+        'user': UserSerializer(u).data,
+        'kyc_details': kyc_details,
+    }
+    if isinstance(kyc_details, dict) and kyc_details.get('profile_sync'):
+        response_data['profile_sync'] = kyc_details['profile_sync']
     return Response({
         'success': True,
-        'data': {'user': UserSerializer(u).data},
+        'data': response_data,
         'message': 'Aadhaar verified. KYC is complete.',
         'errors': [],
     }, status=status.HTTP_200_OK)
+
+
+@api_view(['GET'])
+@permission_classes([IsAuthenticated])
+def profile_sync_pending_view(request):
+    """List pending KYC → profile sync offers for the current user."""
+    from apps.users.kyc_profile_sync_audit import get_pending_audits_for_user, serialize_pending_audit
+
+    pending = [serialize_pending_audit(row) for row in get_pending_audits_for_user(request.user)]
+    return Response({
+        'success': True,
+        'data': {'pending': pending},
+        'message': 'Pending profile sync offers retrieved.',
+        'errors': [],
+    }, status=status.HTTP_200_OK)
+
+
+@api_view(['POST'])
+@permission_classes([IsAuthenticated])
+@ratelimit(key='user', rate='5/m', method='POST')
+def profile_sync_confirm_view(request):
+    """Apply verified KYC name/DOB to profile after user confirmation."""
+    from apps.authentication.serializers import ProfileSyncTokenSerializer
+    from apps.integrations.kyc.profile_sync_orchestrator import confirm_profile_sync
+
+    serializer = ProfileSyncTokenSerializer(data=request.data)
+    if not serializer.is_valid():
+        return Response({
+            'success': False,
+            'data': None,
+            'message': 'Validation failed',
+            'errors': serializer.errors,
+        }, status=status.HTTP_400_BAD_REQUEST)
+    try:
+        result = confirm_profile_sync(
+            request.user,
+            sync_token=serializer.validated_data['sync_token'],
+        )
+    except ValueError as e:
+        return Response({
+            'success': False,
+            'data': None,
+            'message': str(e),
+            'errors': [],
+        }, status=status.HTTP_400_BAD_REQUEST)
+    u = User.objects.select_related('kyc', 'profile').get(pk=request.user.pk)
+    return Response({
+        'success': True,
+        'data': {
+            'user': UserSerializer(u).data,
+            'profile_sync': result.to_api_dict() or {'status': 'applied', 'profile_updated': result.profile_updated},
+        },
+        'message': result.message,
+        'errors': [],
+    }, status=status.HTTP_200_OK)
+
+
+@api_view(['POST'])
+@permission_classes([IsAuthenticated])
+@ratelimit(key='user', rate='5/m', method='POST')
+def profile_sync_decline_view(request):
+    """Decline syncing verified KYC fields into profile."""
+    from apps.authentication.serializers import ProfileSyncTokenSerializer
+    from apps.integrations.kyc.profile_sync_orchestrator import decline_profile_sync
+
+    serializer = ProfileSyncTokenSerializer(data=request.data)
+    if not serializer.is_valid():
+        return Response({
+            'success': False,
+            'data': None,
+            'message': 'Validation failed',
+            'errors': serializer.errors,
+        }, status=status.HTTP_400_BAD_REQUEST)
+    try:
+        result = decline_profile_sync(
+            request.user,
+            sync_token=serializer.validated_data['sync_token'],
+        )
+    except ValueError as e:
+        return Response({
+            'success': False,
+            'data': None,
+            'message': str(e),
+            'errors': [],
+            'warning_code': 'PROFILE_SYNC_DECLINED',
+        }, status=status.HTTP_400_BAD_REQUEST)
+    return Response({
+        'success': True,
+        'data': {
+            'profile_sync': {'status': 'declined', 'profile_updated': False},
+        },
+        'message': result.message,
+        'errors': [],
+        'warning_code': 'PROFILE_SYNC_DECLINED',
+    }, status=status.HTTP_200_OK)
+
+
+@api_view(['POST'])
+@permission_classes([IsAuthenticated])
+def onboarding_kyc_aadhaar_send_otp_view(request):
+    """Deprecated — use DigiLocker init."""
+    return Response({
+        'success': False,
+        'data': None,
+        'message': 'Aadhaar OTP is no longer supported. Use DigiLocker verification.',
+        'errors': [],
+    }, status=status.HTTP_410_GONE)
+
+
+@api_view(['POST'])
+@permission_classes([IsAuthenticated])
+def onboarding_kyc_aadhaar_verify_otp_view(request):
+    """Deprecated — use DigiLocker complete."""
+    return Response({
+        'success': False,
+        'data': None,
+        'message': 'Aadhaar OTP is no longer supported. Use DigiLocker verification.',
+        'errors': [],
+    }, status=status.HTTP_410_GONE)
 
 
 @api_view(['POST'])

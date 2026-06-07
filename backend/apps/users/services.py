@@ -17,7 +17,7 @@ ACCESS_CONTROL_FIELDS = (
     'payments_locked',
     'pay_in_allowed_when_disabled',
 )
-from apps.users.models import UserProfile, KYC, UserHierarchy
+from apps.users.models import UserProfile, KYC, UserHierarchy, KycVerificationAttempt
 from apps.core.utils import generate_user_id, validate_pan, validate_aadhaar
 from apps.core.exceptions import InvalidUserRole
 from apps.wallets.models import Wallet
@@ -105,6 +105,43 @@ def assert_admin_may_deactivate_user(*, actor: User, target: User) -> None:
         )
         if not others.exists():
             raise ValueError('Cannot disable the last active administrator account.')
+
+
+def assert_admin_may_delete_user(*, actor: User, target: User) -> None:
+    """
+    Enforce safe permanent deletion: admin only, no self-delete, keep at least one admin,
+    and no users with active subordinates in the hierarchy.
+    """
+    if getattr(actor, 'role', None) != 'Admin' and not getattr(actor, 'is_superuser', False):
+        raise ValueError('Only administrators may delete user accounts.')
+    if target.pk == actor.pk:
+        raise ValueError('You cannot delete your own account.')
+    if target.is_superuser or target.role == 'Admin':
+        others = User.objects.filter(Q(is_superuser=True) | Q(role='Admin')).exclude(pk=target.pk)
+        if not others.exists():
+            raise ValueError('Cannot delete the last administrator account.')
+    if UserHierarchy.objects.filter(parent_user=target, is_deleted=False).exists():
+        raise ValueError(
+            'Cannot delete a user who has subordinates. Reassign or delete their downline users first.'
+        )
+
+
+def delete_user_account(*, actor: User, target: User) -> str:
+    """
+    Permanently delete a user and all related data (CASCADE).
+    Returns the deleted user's public user_id for audit/logging.
+    """
+    assert_admin_may_delete_user(actor=actor, target=target)
+    public_id = str(target.user_id or target.pk)
+    actor_id = str(getattr(actor, 'user_id', None) or actor.pk)
+    with transaction.atomic():
+        target.delete()
+    logger.info(
+        'User account permanently deleted: target=%s by_admin=%s',
+        public_id,
+        actor_id,
+    )
+    return public_id
 
 
 def sync_kyc_verification_status(kyc):
@@ -233,16 +270,105 @@ def create_user(user_data, created_by):
     return user, temporary_plain_password
 
 
-def verify_pan(user, pan):
+def _resolve_pan_holder_name(user, name: str | None = None) -> str:
+    explicit = str(name or '').strip()
+    if explicit:
+        return explicit
+    profile = getattr(user, 'profile', None)
+    if profile is not None:
+        fn = f'{profile.first_name or ""} {profile.last_name or ""}'.strip()
+        if fn:
+            return fn
+    full = (user.get_full_name() or '').strip()
+    if full:
+        return full
+    raise ValueError('Name as per PAN is required for verification.')
+
+
+def parse_kyc_dob_safe(value):
+    from apps.integrations.kyc.profile_sync import parse_kyc_dob
+    return parse_kyc_dob(value)
+
+
+def _apply_pan_verified(user, *, pan: str, provider_code: str, result):
+    from django.db import transaction
+    from django.utils import timezone
+
+    from apps.integrations.kyc.profile_sync import build_kyc_details, extract_dob_from_raw
+    from apps.integrations.kyc.profile_sync_orchestrator import handle_post_kyc_profile_sync
+    from apps.integrations.kyc.types import PanVerifyResult
+
+    with transaction.atomic():
+        if KYC.objects.select_for_update().filter(pan=pan).exclude(user=user).exists():
+            raise ValueError('PAN is already linked to another account.')
+        kyc, _ = KYC.objects.select_for_update().get_or_create(user=user)
+        kyc.pan = pan
+        kyc.pan_verified = True
+        kyc.pan_verified_at = timezone.now()
+        kyc.save(update_fields=['pan', 'pan_verified', 'pan_verified_at', 'updated_at'])
+
+    kyc_details = {}
+    if isinstance(result, PanVerifyResult):
+        registered_name = result.registered_name or ''
+        dob = extract_dob_from_raw(result.raw) or parse_kyc_dob_safe(result.date_of_birth)
+        sync_result = handle_post_kyc_profile_sync(
+            user,
+            source='pan',
+            trigger='onboarding_pan',
+            verified_name=registered_name,
+            verified_dob=dob,
+            metadata={'provider_code': provider_code, 'reference_id': str(result.reference_id or '')},
+        )
+        profile_updated = sync_result.profile_updated
+        kyc_details = build_kyc_details(
+            pan=pan,
+            name=registered_name,
+            dob=dob,
+            pan_type=result.pan_type,
+            profile_updated=profile_updated,
+        )
+        if sync_result.to_api_dict():
+            kyc_details['profile_sync'] = sync_result.to_api_dict()
+        KycVerificationAttempt.objects.create(
+            user=user,
+            provider_code=provider_code,
+            verification_id=result.verification_id,
+            reference_id=str(result.reference_id or ''),
+            status=result.status or 'VALID',
+            request_meta={'pan': pan},
+            response_meta={
+                'registered_name': registered_name,
+                'date_of_birth': kyc_details.get('date_of_birth', ''),
+                'pan_type': result.pan_type,
+                'message': result.message,
+                'name_match_score': result.raw.get('name_match_score') if isinstance(result.raw, dict) else '',
+                'name_match_result': result.raw.get('name_match_result') if isinstance(result.raw, dict) else '',
+                'aadhaar_seeding_status': result.raw.get('aadhaar_seeding_status') if isinstance(result.raw, dict) else '',
+                'father_name': result.raw.get('father_name') if isinstance(result.raw, dict) else '',
+                'pan_status': result.status or ('VALID' if isinstance(result.raw, dict) and result.raw.get('valid') else ''),
+            },
+        )
+        from apps.users.kyc_display import persist_pan_verified_identity
+
+        persist_pan_verified_identity(
+            kyc,
+            pan=pan,
+            name=registered_name,
+            dob=dob,
+            pan_type=result.pan_type,
+            provider_code=provider_code,
+            reference_id=result.reference_id,
+            verified_at=kyc.pan_verified_at,
+            profile_updated=profile_updated,
+            raw=result.raw if isinstance(result.raw, dict) else None,
+        )
+    sync_kyc_verification_status(kyc)
+    return kyc, kyc_details
+
+
+def verify_pan(user, pan, name: str | None = None):
     """
-    Verify PAN number (mock implementation - integrate with actual PAN verification API).
-    
-    Args:
-        user: User object
-        pan: PAN number to verify
-    
-    Returns:
-        bool: True if verified, False otherwise
+    Verify PAN via configured Cashfree provider (admin / hierarchy flow).
     """
     if not validate_pan(pan):
         return False
@@ -251,143 +377,227 @@ def verify_pan(user, pan):
     if KYC.objects.filter(pan=normalized).exclude(user=user).exists():
         return False
 
-    # Mock verification - in production, integrate with PAN verification API
-    kyc, _ = KYC.objects.get_or_create(user=user)
-    kyc.pan = normalized
-    kyc.pan_verified = True
-    kyc.save(update_fields=['pan', 'pan_verified'])
-    sync_kyc_verification_status(kyc)
+    try:
+        holder_name = _resolve_pan_holder_name(user, name)
+        from apps.integrations.kyc.exceptions import KycConfigurationError, KycVerificationFailed
+        from apps.integrations.kyc.registry import resolve_pan_provider
 
-    return True
+        provider = resolve_pan_provider()
+        result = provider.verify_pan(user=user, pan=normalized, name=holder_name)
+        _apply_pan_verified(user, pan=normalized, provider_code=provider.provider_code, result=result)
+        return True  # noqa: profile synced inside _apply_pan_verified
+    except (KycConfigurationError, KycVerificationFailed, ValueError):
+        return False
+    except Exception:
+        logger.exception('PAN verification failed for user %s', getattr(user, 'pk', None))
+        return False
 
 
 def send_aadhaar_otp(user, aadhaar):
-    """
-    Send OTP for Aadhaar verification.
-    
-    Args:
-        user: User object
-        aadhaar: Aadhaar number
-    
-    Returns:
-        OTP object
-    """
-    if not validate_aadhaar(aadhaar):
-        raise ValueError("Invalid Aadhaar format")
-    
-    # Update KYC with Aadhaar
-    kyc, created = KYC.objects.get_or_create(user=user)
-    kyc.aadhaar = aadhaar
-    kyc.save(update_fields=['aadhaar'])
-    
-    # Send OTP
-    otp = send_otp(user.phone, purpose='aadhaar-verification')
-    
-    return otp
+    """Deprecated: use init_digilocker_aadhaar."""
+    raise ValueError('Aadhaar OTP is no longer supported. Use DigiLocker verification.')
 
 
 def verify_aadhaar_otp(user, otp_code, aadhaar=None):
-    """
-    Verify Aadhaar OTP and mark Aadhaar as verified.
-
-    If ``aadhaar`` is provided, it must match the number stored at send-otp time
-    (prevents confusing the API with a mismatched body while reusing an OTP).
-
-    Args:
-        user: User object
-        otp_code: OTP code to verify
-        aadhaar: Optional; must match KYC.aadhaar when provided
-
-    Returns:
-        bool: True if verified, False otherwise
-    """
-    from apps.authentication.services import verify_otp
-
-    try:
-        kyc = KYC.objects.get(user=user)
-    except KYC.DoesNotExist:
-        return False
-
-    if not kyc.aadhaar:
-        return False
-
-    if aadhaar is not None and str(aadhaar).strip() != str(kyc.aadhaar).strip():
-        return False
-
-    try:
-        verify_otp(user.phone, otp_code, purpose='aadhaar-verification')
-        kyc.aadhaar_verified = True
-        kyc.save(update_fields=['aadhaar_verified'])
-        sync_kyc_verification_status(kyc)
-        return True
-    except Exception:
-        return False
+    """Deprecated: use complete_digilocker_aadhaar."""
+    return False
 
 
-def self_service_verify_pan(user, pan):
-    """Step 1: PAN only (mock document check — valid format + uniqueness)."""
+def self_service_verify_pan(user, pan, name: str | None = None):
+    """Step 1: verify PAN via Cashfree (sync or PAN 360 per ApiMaster config)."""
+    from django.db import transaction
+
+    from apps.integrations.kyc.exceptions import KycConfigurationError, KycVerificationFailed
+    from apps.integrations.kyc.registry import resolve_pan_provider
+
     normalized = str(pan).upper().strip()
     if not validate_pan(normalized):
         raise ValueError('Invalid PAN format.')
 
-    if KYC.objects.filter(pan=normalized).exclude(user=user).exists():
-        raise ValueError('PAN is already linked to another account.')
+    holder_name = str(name or '').strip()
+    if not holder_name:
+        raise ValueError('Name as per PAN is required for verification.')
 
-    kyc, _ = KYC.objects.get_or_create(user=user)
-    if kyc.pan_verified and kyc.pan == normalized:
-        return kyc
-    if kyc.pan_verified and kyc.pan != normalized:
-        raise ValueError('PAN is already verified for this account. Contact support to change it.')
+    with transaction.atomic():
+        kyc = KYC.objects.select_for_update().filter(user=user).first()
+        if not kyc:
+            kyc = KYC.objects.create(user=user)
+        if kyc.pan_verified and kyc.pan == normalized:
+            return kyc, {}
+        if kyc.pan_verified and kyc.pan != normalized:
+            raise ValueError('PAN is already verified for this account. Contact support to change it.')
+        if KYC.objects.filter(pan=normalized).exclude(user=user).exists():
+            raise ValueError('PAN is already linked to another account.')
 
-    kyc.pan = normalized
-    kyc.pan_verified = True
-    kyc.save()
-    sync_kyc_verification_status(kyc)
-    return kyc
+    try:
+        provider = resolve_pan_provider()
+    except KycConfigurationError as e:
+        raise ValueError(str(e)) from e
+    try:
+        result = provider.verify_pan(user=user, pan=normalized, name=holder_name)
+    except KycVerificationFailed as e:
+        raise ValueError(str(e)) from e
+    except Exception as e:
+        logger.exception('Cashfree PAN verification error')
+        raise ValueError('PAN verification is temporarily unavailable. Please try again.') from e
+
+    try:
+        return _apply_pan_verified(
+            user, pan=normalized, provider_code=provider.provider_code, result=result
+        )
+    except ValueError:
+        raise
 
 
-def self_service_send_aadhaar_otp(user, aadhaar):
-    """Step 2a: store Aadhaar and send OTP to registered mobile (demo: also accept 123456 on verify)."""
+def init_digilocker_aadhaar(user, aadhaar_number: str | None = None):
+    """Start Cashfree DigiLocker consent flow; returns init result with redirect URL."""
+    from apps.integrations.kyc.exceptions import KycConfigurationError, KycVerificationFailed
+    from apps.integrations.kyc.registry import resolve_aadhaar_provider
+
     kyc = KYC.objects.filter(user=user).first()
     if not kyc or not kyc.pan_verified:
         raise ValueError('Verify PAN before Aadhaar.')
 
-    normalized = str(aadhaar).strip()
-    if not validate_aadhaar(normalized):
-        raise ValueError('Invalid Aadhaar format.')
+    if aadhaar_number:
+        normalized = str(aadhaar_number).strip()
+        if not validate_aadhaar(normalized):
+            raise ValueError('Invalid Aadhaar format.')
+        if KYC.objects.filter(aadhaar=normalized).exclude(user=user).exists():
+            raise ValueError('Aadhaar is already linked to another account.')
 
-    if KYC.objects.filter(aadhaar=normalized).exclude(user=user).exists():
-        raise ValueError('Aadhaar is already linked to another account.')
+    try:
+        provider = resolve_aadhaar_provider()
+    except KycConfigurationError as e:
+        raise ValueError(str(e)) from e
+    try:
+        return provider.init_session(user=user, aadhaar_number=aadhaar_number)
+    except KycVerificationFailed as e:
+        raise ValueError(str(e)) from e
+    except Exception as e:
+        logger.exception('DigiLocker init failed')
+        raise ValueError('Could not start DigiLocker verification. Please try again.') from e
 
-    kyc.aadhaar = normalized
-    kyc.aadhaar_verified = False
-    kyc.save(update_fields=['aadhaar', 'aadhaar_verified'])
 
-    send_otp(user.phone, purpose='aadhaar-verification')
-    return kyc
+def poll_digilocker_status(user, verification_id: str):
+    """Poll Cashfree DigiLocker session status."""
+    from apps.integrations.kyc.registry import resolve_aadhaar_provider
+    from apps.users.models import KycDigilockerSession
+
+    vid = str(verification_id or '').strip()
+    if not vid:
+        raise ValueError('verification_id is required.')
+    if not KycDigilockerSession.objects.filter(user=user, verification_id=vid, is_deleted=False).exists():
+        raise ValueError('Invalid or expired DigiLocker session.')
+    provider = resolve_aadhaar_provider()
+    return provider.get_status(verification_id=vid)
+
+
+def complete_digilocker_aadhaar(user, verification_id: str):
+    """Finalize DigiLocker after AUTHENTICATED; marks aadhaar_verified on KYC."""
+    from django.db import transaction
+    from django.utils import timezone
+
+    from apps.integrations.kyc.exceptions import KycVerificationFailed
+    from apps.integrations.kyc.profile_sync import build_kyc_details, extract_dob_from_raw
+    from apps.integrations.kyc.profile_sync_orchestrator import handle_post_kyc_profile_sync
+    from apps.integrations.kyc.registry import resolve_aadhaar_provider
+    from apps.users.kyc_display import persist_aadhaar_verified_identity
+    from apps.users.models import KycDigilockerSession
+
+    vid = str(verification_id or '').strip()
+    if not vid:
+        raise ValueError('verification_id is required.')
+    if not KycDigilockerSession.objects.filter(user=user, verification_id=vid, is_deleted=False).exists():
+        raise ValueError('Invalid or expired DigiLocker session.')
+
+    with transaction.atomic():
+        kyc = KYC.objects.select_for_update().filter(user=user).first()
+        if not kyc or not kyc.pan_verified:
+            raise ValueError('Complete PAN verification first.')
+        if kyc.aadhaar_verified:
+            return kyc, build_kyc_details(
+                pan=kyc.pan or '',
+                name='',
+                aadhaar_masked=kyc.aadhaar or '',
+            )
+
+    provider = resolve_aadhaar_provider()
+    try:
+        doc = provider.complete_if_authenticated(user=user, verification_id=vid)
+    except KycVerificationFailed as e:
+        raise ValueError(str(e)) from e
+
+    with transaction.atomic():
+        kyc = KYC.objects.select_for_update().filter(user=user).first()
+        if not kyc:
+            raise ValueError('Complete PAN verification first.')
+        if kyc.aadhaar_verified:
+            return kyc, build_kyc_details(
+                pan=kyc.pan or '',
+                name=doc.name or '',
+                aadhaar_masked=kyc.aadhaar or '',
+            )
+        if doc.uid_masked and KYC.objects.filter(aadhaar=doc.uid_masked).exclude(user=user).exists():
+            raise ValueError('Aadhaar is already linked to another account.')
+        if doc.uid_masked:
+            kyc.aadhaar = doc.uid_masked
+        kyc.aadhaar_verified = True
+        kyc.aadhaar_verified_at = timezone.now()
+        kyc.save(update_fields=['aadhaar', 'aadhaar_verified', 'aadhaar_verified_at', 'updated_at'])
+
+        dob = extract_dob_from_raw(doc.raw) or parse_kyc_dob_safe(doc.date_of_birth)
+        sync_result = handle_post_kyc_profile_sync(
+            user,
+            source='aadhaar',
+            trigger='onboarding_aadhaar',
+            verified_name=doc.name or '',
+            verified_dob=dob,
+            metadata={
+                'provider_code': provider.provider_code,
+                'reference_id': str(doc.raw.get('reference_id') or '') if isinstance(doc.raw, dict) else '',
+            },
+        )
+        profile_updated = sync_result.profile_updated
+        kyc_details = build_kyc_details(
+            pan=kyc.pan or '',
+            name=doc.name or '',
+            dob=dob,
+            aadhaar_masked=doc.uid_masked or kyc.aadhaar or '',
+            profile_updated=profile_updated,
+        )
+        if sync_result.to_api_dict():
+            kyc_details['profile_sync'] = sync_result.to_api_dict()
+        persist_aadhaar_verified_identity(
+            kyc,
+            uid_masked=doc.uid_masked or kyc.aadhaar or '',
+            name=doc.name or '',
+            dob=dob,
+            gender=doc.gender or '',
+            provider_code=provider.provider_code,
+            reference_id=str(doc.raw.get('reference_id') or '') if isinstance(doc.raw, dict) else '',
+            verified_at=kyc.aadhaar_verified_at,
+            profile_updated=profile_updated,
+            raw=doc.raw if isinstance(doc.raw, dict) else None,
+        )
+        sync_kyc_verification_status(kyc)
+
+    session = KycDigilockerSession.objects.filter(user=user, verification_id=vid, is_deleted=False).first()
+    if session and isinstance(doc.raw, dict):
+        raw_status = dict(session.raw_status or {})
+        raw_status['document'] = doc.raw
+        session.raw_status = raw_status
+        session.save(update_fields=['raw_status', 'updated_at'])
+    return kyc, kyc_details
+
+
+def self_service_send_aadhaar_otp(user, aadhaar):
+    """Deprecated: Aadhaar SMS OTP replaced by DigiLocker."""
+    raise ValueError('Aadhaar OTP verification is no longer supported. Use DigiLocker verification.')
 
 
 def self_service_verify_aadhaar_otp_only(user, otp_code):
-    """Step 2b: verify OTP sent to mobile; demo shortcut OTP 123456."""
-    from apps.core.exceptions import InvalidOTP
-
-    kyc = KYC.objects.filter(user=user).first()
-    if not kyc or not kyc.pan_verified:
-        raise ValueError('Complete PAN verification first.')
-    if not kyc.aadhaar:
-        raise ValueError('Enter Aadhaar and request OTP first.')
-
-    code = str(otp_code).strip()
-    if code != '123456':
-        try:
-            verify_otp(user.phone, code, purpose='aadhaar-verification')
-        except InvalidOTP as e:
-            raise ValueError(str(e)) from e
-
-    kyc.aadhaar_verified = True
-    kyc.save(update_fields=['aadhaar_verified'])
-    sync_kyc_verification_status(kyc)
-    return kyc
+    """Deprecated: Aadhaar SMS OTP replaced by DigiLocker."""
+    raise ValueError('Aadhaar OTP verification is no longer supported. Use DigiLocker verification.')
 
 
 def setup_initial_mpin(user, mpin, confirm_mpin):

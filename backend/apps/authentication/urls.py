@@ -16,6 +16,9 @@ urlpatterns = [
     path('refresh-token/', views.refresh_token_view, name='refresh-token'),
     path('logout/', views.logout_view, name='logout'),
     path('me/', views.current_user_view, name='current-user'),
+    path('me/profile-sync/pending/', views.profile_sync_pending_view, name='profile-sync-pending'),
+    path('profile-sync/confirm/', views.profile_sync_confirm_view, name='profile-sync-confirm'),
+    path('profile-sync/decline/', views.profile_sync_decline_view, name='profile-sync-decline'),
     path(
         'me/send-password-reset-otp/',
         views.send_forced_password_reset_otp_view,
@@ -29,6 +32,21 @@ urlpatterns = [
     path('change-password/', views.change_password_view, name='change-password'),
     path('change-mpin/', views.change_mpin_view, name='change-mpin'),
     path('onboarding/kyc/pan/', views.onboarding_kyc_verify_pan_view, name='onboarding-kyc-pan'),
+    path(
+        'onboarding/kyc/digilocker/init/',
+        views.onboarding_kyc_digilocker_init_view,
+        name='onboarding-kyc-digilocker-init',
+    ),
+    path(
+        'onboarding/kyc/digilocker/status/',
+        views.onboarding_kyc_digilocker_status_view,
+        name='onboarding-kyc-digilocker-status',
+    ),
+    path(
+        'onboarding/kyc/digilocker/complete/',
+        views.onboarding_kyc_digilocker_complete_view,
+        name='onboarding-kyc-digilocker-complete',
+    ),
     path(
         'onboarding/kyc/aadhaar/send-otp/',
         views.onboarding_kyc_aadhaar_send_otp_view,

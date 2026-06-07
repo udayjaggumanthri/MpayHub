@@ -47,6 +47,7 @@ const ProtectedRoute = ({ children, requireMPIN = true, blockFinancialTransactio
 
   const ob = user?.onboarding;
   const onOnboardingRoute = path.startsWith('/onboarding');
+  const onDigilockerCallback = path === '/onboarding/kyc/digilocker/callback';
   const onProfileDuringOnboarding = path === '/profile';
 
   if (ob?.must_change_password) {
@@ -57,7 +58,9 @@ const ProtectedRoute = ({ children, requireMPIN = true, blockFinancialTransactio
   }
 
   if (ob && !ob.account_ready) {
-    if (!onOnboardingRoute && !onProfileDuringOnboarding) {
+    const allowedDuringOnboarding =
+      onOnboardingRoute || onProfileDuringOnboarding || onDigilockerCallback;
+    if (!allowedDuringOnboarding) {
       const next = !ob.kyc_complete ? '/onboarding/kyc' : '/onboarding/mpin-setup';
       return <Navigate to={next} replace />;
     }

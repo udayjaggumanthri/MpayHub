@@ -17,10 +17,60 @@ const parseList = (result) => {
 
 const authTypes = ['api_key', 'bearer', 'basic', 'oauth2', 'custom'];
 const statusOptions = ['active', 'inactive', 'down', 'sandbox'];
-const kycServiceOptions = [
-  { code: 'aadhaar_ekyc', name: 'Aadhaar eKYC' },
-  { code: 'pan_verify', name: 'PAN Verification' },
-];
+
+const KYC_PROVIDERS = {
+  cashfree_pan: {
+    code: 'cashfree_pan',
+    name: 'Cashfree PAN Verification',
+    kyc_service: 'pan',
+    base_url: 'https://sandbox.cashfree.com',
+    config: { mode: 'sync', min_name_match_score: 80, timeout: 15 },
+    secrets: [
+      { key: 'client_id', value: '', maskedPreview: '' },
+      { key: 'client_secret', value: '', maskedPreview: '' },
+    ],
+  },
+  cashfree_digilocker: {
+    code: 'cashfree_digilocker',
+    name: 'Cashfree DigiLocker (Aadhaar)',
+    kyc_service: 'aadhaar',
+    base_url: 'https://sandbox.cashfree.com',
+    config: {
+      redirect_url: 'https://partner.mpayhub.in/onboarding/kyc/digilocker/callback',
+      document_requested: ['AADHAAR'],
+      user_flow: 'signup',
+      poll_interval_seconds: 3,
+      timeout: 30,
+    },
+    secrets: [
+      { key: 'client_id', value: '', maskedPreview: '' },
+      { key: 'client_secret', value: '', maskedPreview: '' },
+    ],
+  },
+};
+
+const kycProviderOptions = Object.values(KYC_PROVIDERS);
+
+const defaultKycForm = (providerCode = 'cashfree_pan') => {
+  const preset = KYC_PROVIDERS[providerCode] || KYC_PROVIDERS.cashfree_pan;
+  return {
+    provider_code: preset.code,
+    provider_name: preset.name,
+    provider_type: 'kyc',
+    kyc_service: preset.kyc_service,
+    base_url: preset.base_url,
+    auth_type: 'api_key',
+    status: 'inactive',
+    priority: '0',
+    is_default: true,
+    supports_webhook: providerCode === 'cashfree_digilocker',
+    webhook_path: providerCode === 'cashfree_digilocker' ? '/api/integrations/cashfree/digilocker/webhook/' : '',
+    pan_mode: preset.config.mode || 'sync',
+    redirect_url: preset.config.redirect_url || '',
+    config_json_text: JSON.stringify(preset.config, null, 2),
+    secrets: preset.secrets.map((s) => ({ ...s })),
+  };
+};
 
 const APIMasterManagement = () => {
   const [rows, setRows] = useState([]);
@@ -30,20 +80,7 @@ const APIMasterManagement = () => {
   const [editing, setEditing] = useState(null);
   const [feedback, setFeedback] = useState('');
   const [feedbackType, setFeedbackType] = useState('ok');
-  const [form, setForm] = useState({
-    provider_code: 'aadhaar_ekyc',
-    provider_name: 'Aadhaar eKYC',
-    provider_type: 'kyc',
-    base_url: '',
-    auth_type: 'api_key',
-    status: 'inactive',
-    priority: '0',
-    is_default: false,
-    supports_webhook: false,
-    webhook_path: '',
-    config_json_text: '{}',
-    secrets: [{ key: '', value: '', maskedPreview: '' }],
-  });
+  const [form, setForm] = useState(defaultKycForm());
 
   const moduleRows = useMemo(
     () => rows.filter((row) => (row.provider_type || '').toLowerCase() === activeModule),
@@ -70,26 +107,14 @@ const APIMasterManagement = () => {
 
   const resetForm = (module = activeModule) => {
     if (module === 'kyc') {
-      setForm({
-        provider_code: 'aadhaar_ekyc',
-        provider_name: 'Aadhaar eKYC',
-        provider_type: 'kyc',
-        base_url: '',
-        auth_type: 'api_key',
-        status: 'inactive',
-        priority: '0',
-        is_default: false,
-        supports_webhook: false,
-        webhook_path: '',
-        config_json_text: '{}',
-        secrets: [{ key: '', value: '', maskedPreview: '' }],
-      });
+      setForm(defaultKycForm());
       return;
     }
     setForm({
       provider_code: 'razorpay',
       provider_name: 'Razorpay',
       provider_type: 'payments',
+      kyc_service: '',
       base_url: 'https://api.razorpay.com',
       auth_type: 'api_key',
       status: 'inactive',
@@ -97,6 +122,8 @@ const APIMasterManagement = () => {
       is_default: false,
       supports_webhook: false,
       webhook_path: '',
+      pan_mode: 'sync',
+      redirect_url: '',
       config_json_text: '{}',
       secrets: [
         { key: 'key_id', value: '', maskedPreview: '' },
@@ -118,6 +145,8 @@ const APIMasterManagement = () => {
         ? row.secrets_masked
         : {};
     const maskedKeys = Object.keys(masked);
+    const providerCode = row.provider_code || '';
+    const preset = KYC_PROVIDERS[providerCode];
     let secretRows;
     if (maskedKeys.length > 0) {
       secretRows = maskedKeys.map((k) => ({
@@ -130,13 +159,17 @@ const APIMasterManagement = () => {
         { key: 'key_id', value: '', maskedPreview: '' },
         { key: 'key_secret', value: '', maskedPreview: '' },
       ];
+    } else if (preset) {
+      secretRows = preset.secrets.map((s) => ({ ...s }));
     } else {
       secretRows = [{ key: '', value: '', maskedPreview: '' }];
     }
+    const cfg = row.config_json || {};
     setForm({
-      provider_code: row.provider_code || '',
+      provider_code: providerCode,
       provider_name: row.provider_name || '',
       provider_type: row.provider_type || activeModule,
+      kyc_service: row.kyc_service || preset?.kyc_service || '',
       base_url: row.base_url || '',
       auth_type: row.auth_type || 'api_key',
       status: row.status || 'inactive',
@@ -144,13 +177,14 @@ const APIMasterManagement = () => {
       is_default: Boolean(row.is_default),
       supports_webhook: Boolean(row.supports_webhook),
       webhook_path: row.webhook_path || '',
-      config_json_text: JSON.stringify(row.config_json || {}, null, 2),
+      pan_mode: cfg.mode || 'sync',
+      redirect_url: cfg.redirect_url || '',
+      config_json_text: JSON.stringify(cfg, null, 2),
       secrets: secretRows,
     });
     setShowModal(true);
   };
 
-  /** Only non-empty values; on edit, omit blank values so existing secrets are not wiped. */
   const buildSecretsPayload = () => {
     const out = {};
     for (const entry of form.secrets) {
@@ -163,6 +197,34 @@ const APIMasterManagement = () => {
     return out;
   };
 
+  const buildKycConfigJson = () => {
+    let base = {};
+    try {
+      base = form.config_json_text ? JSON.parse(form.config_json_text) : {};
+    } catch {
+      base = {};
+    }
+    if (form.provider_code === 'cashfree_pan') {
+      return {
+        ...base,
+        mode: form.pan_mode || 'sync',
+        min_name_match_score: base.min_name_match_score ?? 80,
+        timeout: base.timeout ?? 15,
+      };
+    }
+    if (form.provider_code === 'cashfree_digilocker') {
+      return {
+        ...base,
+        redirect_url: form.redirect_url || base.redirect_url || '',
+        document_requested: base.document_requested || ['AADHAAR'],
+        user_flow: base.user_flow || 'signup',
+        poll_interval_seconds: base.poll_interval_seconds ?? 3,
+        timeout: base.timeout ?? 30,
+      };
+    }
+    return base;
+  };
+
   const saveForm = async (e) => {
     e.preventDefault();
     if (!form.provider_code || !form.provider_name) {
@@ -170,11 +232,15 @@ const APIMasterManagement = () => {
       return;
     }
     let configJson = {};
-    try {
-      configJson = form.config_json_text ? JSON.parse(form.config_json_text) : {};
-    } catch {
-      alert('config_json must be valid JSON');
-      return;
+    if (activeModule === 'kyc') {
+      configJson = buildKycConfigJson();
+    } else {
+      try {
+        configJson = form.config_json_text ? JSON.parse(form.config_json_text) : {};
+      } catch {
+        alert('config_json must be valid JSON');
+        return;
+      }
     }
 
     const payload = {
@@ -190,6 +256,9 @@ const APIMasterManagement = () => {
       webhook_path: form.webhook_path.trim(),
       config_json: configJson,
     };
+    if (activeModule === 'kyc') {
+      payload.kyc_service = form.kyc_service || KYC_PROVIDERS[form.provider_code]?.kyc_service;
+    }
     const secretsPayload = buildSecretsPayload();
     if (Object.keys(secretsPayload).length > 0) payload.secrets = secretsPayload;
 
@@ -264,12 +333,21 @@ const APIMasterManagement = () => {
     });
   };
 
-  const onKycServiceChange = (value) => {
-    const selected = kycServiceOptions.find((s) => s.code === value);
+  const onKycProviderChange = (value) => {
+    const preset = KYC_PROVIDERS[value];
+    if (!preset) return;
     setForm((prev) => ({
       ...prev,
-      provider_code: value,
-      provider_name: selected?.name || prev.provider_name,
+      provider_code: preset.code,
+      provider_name: preset.name,
+      kyc_service: preset.kyc_service,
+      base_url: preset.base_url,
+      pan_mode: preset.config.mode || 'sync',
+      redirect_url: preset.config.redirect_url || '',
+      config_json_text: JSON.stringify(preset.config, null, 2),
+      supports_webhook: value === 'cashfree_digilocker',
+      webhook_path: value === 'cashfree_digilocker' ? '/api/integrations/cashfree/digilocker/webhook/' : '',
+      secrets: preset.secrets.map((s) => ({ ...s })),
     }));
   };
 
@@ -283,7 +361,7 @@ const APIMasterManagement = () => {
         <div>
           <h1 className="text-2xl sm:text-3xl font-bold text-gray-900">API Master Management</h1>
           <p className="mt-1 sm:mt-2 text-sm sm:text-base text-gray-600">
-            Two enterprise modules: KYC APIs (Aadhaar, PAN) and Payment Gateway APIs.
+            Two enterprise modules: KYC APIs (Cashfree PAN + DigiLocker) and Payment Gateway APIs.
           </p>
         </div>
       </div>
@@ -307,7 +385,7 @@ const APIMasterManagement = () => {
           }`}
         >
           <p className="font-semibold text-gray-900">KYC APIs</p>
-          <p className="text-sm text-gray-600">Aadhaar + PAN integrations</p>
+          <p className="text-sm text-gray-600">Cashfree PAN + DigiLocker Aadhaar</p>
           <p className="text-xs text-blue-700 mt-1">{kycCount} configured</p>
         </button>
         <button
@@ -345,6 +423,7 @@ const APIMasterManagement = () => {
             <thead>
               <tr className="border-b border-gray-200">
                 <th className="text-left py-3 px-4 font-semibold text-gray-700">Provider</th>
+                <th className="text-left py-3 px-4 font-semibold text-gray-700">Service</th>
                 <th className="text-left py-3 px-4 font-semibold text-gray-700">Auth</th>
                 <th className="text-left py-3 px-4 font-semibold text-gray-700">Status</th>
                 <th className="text-left py-3 px-4 font-semibold text-gray-700">Default</th>
@@ -355,7 +434,7 @@ const APIMasterManagement = () => {
             <tbody>
               {moduleRows.length === 0 ? (
                 <tr>
-                  <td colSpan="6" className="text-center py-8 text-gray-500">
+                  <td colSpan="7" className="text-center py-8 text-gray-500">
                     {loading ? 'Loading...' : `No ${activeModule === 'kyc' ? 'KYC APIs' : 'payment APIs'} configured yet.`}
                   </td>
                 </tr>
@@ -365,6 +444,9 @@ const APIMasterManagement = () => {
                     <td className="py-4 px-4">
                       <div className="font-semibold text-gray-900">{row.provider_name}</div>
                       <div className="text-xs text-gray-500">{row.provider_code}</div>
+                    </td>
+                    <td className="py-4 px-4 text-sm text-gray-600">
+                      {activeModule === 'kyc' ? row.kyc_service || '—' : '—'}
                     </td>
                     <td className="py-4 px-4">{row.auth_type}</td>
                     <td className="py-4 px-4">
@@ -376,7 +458,15 @@ const APIMasterManagement = () => {
                         {row.status}
                       </span>
                     </td>
-                    <td className="py-4 px-4">{row.is_default ? 'Yes' : 'No'}</td>
+                    <td className="py-4 px-4">
+                      {row.is_default ? (
+                        'Yes'
+                      ) : (
+                        <span className="text-amber-700" title="Edit and save to auto-set as default if none exists">
+                          No
+                        </span>
+                      )}
+                    </td>
                     <td className="py-4 px-4">{row.priority}</td>
                     <td className="py-4 px-4">
                       <div className="flex items-center justify-end gap-2">
@@ -440,20 +530,22 @@ const APIMasterManagement = () => {
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 {activeModule === 'kyc' ? (
                   <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-2">KYC Service</label>
+                    <label className="block text-sm font-medium text-gray-700 mb-2">KYC Provider</label>
                     <select
                       value={form.provider_code}
-                      onChange={(e) => onKycServiceChange(e.target.value)}
+                      onChange={(e) => onKycProviderChange(e.target.value)}
                       disabled={Boolean(editing)}
                       className="w-full px-4 py-3 border border-gray-300 rounded-lg"
                     >
-                      {kycServiceOptions.map((s) => (
+                      {kycProviderOptions.map((s) => (
                         <option key={s.code} value={s.code}>
                           {s.name}
                         </option>
                       ))}
                     </select>
-                    <p className="text-xs text-gray-500 mt-1">Initial phase allows only Aadhaar and PAN APIs.</p>
+                    <p className="text-xs text-gray-500 mt-1">
+                      Only one default per service (PAN / Aadhaar). Use sandbox status for Cashfree test credentials.
+                    </p>
                   </div>
                 ) : (
                   <Input
@@ -497,7 +589,7 @@ const APIMasterManagement = () => {
                   label="Base URL"
                   value={form.base_url}
                   onChange={(e) => setForm((p) => ({ ...p, base_url: e.target.value }))}
-                  placeholder="https://api.provider.com"
+                  placeholder="https://sandbox.cashfree.com"
                 />
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-2">Status</label>
@@ -525,9 +617,38 @@ const APIMasterManagement = () => {
                   label="Webhook Path"
                   value={form.webhook_path}
                   onChange={(e) => setForm((p) => ({ ...p, webhook_path: e.target.value }))}
-                  placeholder="/v1/callback"
+                  placeholder="/api/integrations/cashfree/digilocker/webhook/"
                 />
               </div>
+
+              {activeModule === 'kyc' && form.provider_code === 'cashfree_pan' && (
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">PAN verification mode</label>
+                  <select
+                    value={form.pan_mode}
+                    onChange={(e) => setForm((p) => ({ ...p, pan_mode: e.target.value }))}
+                    className="w-full px-4 py-3 border border-gray-300 rounded-lg"
+                  >
+                    <option value="sync">Sync — POST /verification/pan</option>
+                    <option value="advance">Advance (PAN 360) — POST /verification/pan/advance</option>
+                  </select>
+                </div>
+              )}
+
+              {activeModule === 'kyc' && form.provider_code === 'cashfree_digilocker' && (
+                <div>
+                  <Input
+                    label="DigiLocker redirect URL (HTTPS)"
+                    value={form.redirect_url}
+                    onChange={(e) => setForm((p) => ({ ...p, redirect_url: e.target.value }))}
+                    placeholder="https://partner.mpayhub.in/onboarding/kyc/digilocker/callback"
+                  />
+                  <p className="text-xs text-gray-500 mt-1">
+                    Must match the callback route registered in Cashfree Merchant Dashboard. Webhook:
+                    POST /api/integrations/cashfree/digilocker/webhook/
+                  </p>
+                </div>
+              )}
 
               <div className="flex flex-wrap gap-5">
                 <label className="inline-flex items-center gap-2 cursor-pointer">
@@ -536,7 +657,9 @@ const APIMasterManagement = () => {
                     checked={form.is_default}
                     onChange={(e) => setForm((p) => ({ ...p, is_default: e.target.checked }))}
                   />
-                  <span className="text-sm text-gray-700">Default for this module</span>
+                  <span className="text-sm text-gray-700">
+                    Default for {activeModule === 'kyc' ? `KYC service (${form.kyc_service || 'pan/aadhaar'})` : 'this module'}
+                  </span>
                 </label>
                 <label className="inline-flex items-center gap-2 cursor-pointer">
                   <input
@@ -548,16 +671,18 @@ const APIMasterManagement = () => {
                 </label>
               </div>
 
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">
-                  Config JSON (non-secret settings)
-                </label>
-                <textarea
-                  value={form.config_json_text}
-                  onChange={(e) => setForm((p) => ({ ...p, config_json_text: e.target.value }))}
-                  className="w-full min-h-[120px] px-4 py-3 border border-gray-300 rounded-lg"
-                />
-              </div>
+              {activeModule !== 'kyc' && (
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">
+                    Config JSON (non-secret settings)
+                  </label>
+                  <textarea
+                    value={form.config_json_text}
+                    onChange={(e) => setForm((p) => ({ ...p, config_json_text: e.target.value }))}
+                    className="w-full min-h-[120px] px-4 py-3 border border-gray-300 rounded-lg"
+                  />
+                </div>
+              )}
 
               <div className="border border-gray-200 rounded-xl p-4">
                 <div className="flex items-center justify-between mb-3">
@@ -587,6 +712,13 @@ const APIMasterManagement = () => {
                       (and your payment gateway link / default Razorpay entry); .env is optional.
                     </p>
                   )}
+                  {activeModule === 'kyc' && (
+                    <p className="text-xs text-blue-800 bg-blue-50 border border-blue-100 rounded-lg px-3 py-2 mb-2">
+                      <strong>Cashfree:</strong> Use keys <code className="bg-blue-100/80 px-1 rounded">client_id</code>{' '}
+                      and <code className="bg-blue-100/80 px-1 rounded">client_secret</code> from Cashfree Secure ID /
+                      VRS dashboard. Sandbox base URL: https://sandbox.cashfree.com
+                    </p>
+                  )}
                   {form.secrets.map((entry, idx) => (
                     <div key={idx} className="space-y-1">
                       <div className="grid grid-cols-1 md:grid-cols-2 gap-3 items-end">
@@ -594,7 +726,7 @@ const APIMasterManagement = () => {
                           label="Key"
                           value={entry.key}
                           onChange={(e) => updateSecret(idx, { key: e.target.value })}
-                          placeholder={activeModule === 'payments' ? 'key_id' : 'api_key'}
+                          placeholder={activeModule === 'payments' ? 'key_id' : 'client_id'}
                         />
                         <div className="flex gap-2">
                           <Input

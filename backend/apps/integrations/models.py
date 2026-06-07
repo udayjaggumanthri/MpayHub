@@ -28,11 +28,23 @@ class ApiMaster(BaseModel):
         ('down', 'Down'),
         ('sandbox', 'Sandbox'),
     ]
+    KYC_SERVICE_CHOICES = [
+        ('', 'N/A'),
+        ('pan', 'PAN'),
+        ('aadhaar', 'Aadhaar'),
+    ]
 
     # Integration family code (e.g. razorpay). Not unique: allow multiple accounts/credentials.
     provider_code = models.SlugField(max_length=80, db_index=True)
     provider_name = models.CharField(max_length=200)
     provider_type = models.CharField(max_length=20, choices=PROVIDER_TYPE_CHOICES, db_index=True)
+    kyc_service = models.CharField(
+        max_length=20,
+        choices=KYC_SERVICE_CHOICES,
+        blank=True,
+        default='',
+        db_index=True,
+    )
     base_url = models.URLField(max_length=500, blank=True)
     auth_type = models.CharField(max_length=20, choices=AUTH_TYPE_CHOICES, default='api_key')
     config_json = models.JSONField(default=dict, blank=True)
@@ -48,9 +60,18 @@ class ApiMaster(BaseModel):
         ordering = ['provider_type', '-is_default', 'priority', 'provider_name']
         constraints = [
             models.UniqueConstraint(
+                fields=['provider_type', 'kyc_service'],
+                condition=Q(is_default=True, is_deleted=False, provider_type='kyc'),
+                name='uniq_active_default_per_kyc_service',
+            ),
+            models.UniqueConstraint(
                 fields=['provider_type'],
-                condition=Q(is_default=True, is_deleted=False),
-                name='uniq_active_default_per_provider_type',
+                condition=Q(
+                    is_default=True,
+                    is_deleted=False,
+                )
+                & ~Q(provider_type='kyc'),
+                name='uniq_active_default_per_non_kyc_provider_type',
             ),
         ]
 
