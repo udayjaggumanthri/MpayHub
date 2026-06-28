@@ -18,7 +18,6 @@ class ContactSerializer(serializers.ModelSerializer):
             'name',
             'email',
             'phone',
-            'contact_role',
             'created_at',
             'updated_at',
         ]
@@ -49,12 +48,6 @@ class ContactSerializer(serializers.ModelSerializer):
         if not validate_email(cleaned):
             raise serializers.ValidationError('Invalid email format.')
         return cleaned
-
-    def validate_contact_role(self, value):
-        valid = {c[0] for c in Contact.ContactRole.choices}
-        if value not in valid:
-            raise serializers.ValidationError('Invalid contact role.')
-        return value
 
     def validate(self, attrs):
         request = self.context.get('request')

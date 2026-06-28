@@ -136,7 +136,6 @@ def ensure_contact(user, phone):
         defaults={
             'name': 'Mock Test Beneficiary',
             'email': f'mock.{phone}@example.com',
-            'contact_role': Contact.ContactRole.END_USER,
         },
     )
     return contact

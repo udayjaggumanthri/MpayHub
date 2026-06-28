@@ -193,23 +193,36 @@ def create_user(user_data, created_by):
     if not UserHierarchy.can_create_role(created_by, target_role):
         raise InvalidUserRole(f"You cannot create users with role: {target_role}")
     
-    # Generate user ID
-    existing_user_ids = list(User.objects.filter(role=target_role).values_list('user_id', flat=True))
-    user_id = generate_user_id(target_role, existing_user_ids)
-
     raw_password = (user_data.get('password') or '').strip()
     temporary_plain_password = None
 
-    # Create user (placeholder password replaced when issuing unique temp credentials)
-    user = User.objects.create_user(
-        phone=user_data['phone'],
-        email=user_data['email'],
-        password=raw_password if raw_password else None,
-        role=target_role,
-        user_id=user_id,
-        first_name=user_data.get('first_name', ''),
-        last_name=user_data.get('last_name', ''),
-    )
+    # Allocate user_id against all rows sharing this prefix (user_id is globally unique).
+    user = None
+    last_integrity_error = None
+    for _attempt in range(5):
+        user_id = generate_user_id(target_role)
+        try:
+            user = User.objects.create_user(
+                phone=user_data['phone'],
+                email=user_data['email'],
+                password=raw_password if raw_password else None,
+                role=target_role,
+                user_id=user_id,
+                first_name=user_data.get('first_name', ''),
+                last_name=user_data.get('last_name', ''),
+            )
+            break
+        except Exception as exc:
+            from django.db import IntegrityError
+
+            if isinstance(exc, IntegrityError) and 'user_id' in str(exc).lower():
+                last_integrity_error = exc
+                continue
+            raise
+    if user is None:
+        if last_integrity_error is not None:
+            raise last_integrity_error
+        raise RuntimeError('Could not allocate a unique user_id.')
     if not raw_password:
         temporary_plain_password = issue_temporary_password(user)
     

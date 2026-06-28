@@ -18,11 +18,7 @@ import {
 
 const EMPTY_FILTERS = { name: '', email: '', phone: '' };
 
-const CONTACT_ROLE_OPTIONS = [
-  { value: 'end_user', label: 'End-user' },
-  { value: 'merchant', label: 'Merchant' },
-  { value: 'dealer', label: 'Dealer' },
-];
+const EMPTY_FORM = { name: '', email: '', phone: '' };
 
 const Contacts = () => {
   const { user } = useAuth();
@@ -33,12 +29,7 @@ const Contacts = () => {
   const [showAddModal, setShowAddModal] = useState(false);
   const [showEditModal, setShowEditModal] = useState(false);
   const [selectedContact, setSelectedContact] = useState(null);
-  const [formData, setFormData] = useState({
-    name: '',
-    email: '',
-    phone: '',
-    contact_role: 'end_user',
-  });
+  const [formData, setFormData] = useState({ ...EMPTY_FORM });
   const [errors, setErrors] = useState({});
   const [saving, setSaving] = useState(false);
   const [totalCount, setTotalCount] = useState(null);
@@ -83,12 +74,7 @@ const Contacts = () => {
   }, [loadContacts]);
 
   const handleAddNew = () => {
-    setFormData({
-      name: '',
-      email: '',
-      phone: '',
-      contact_role: 'end_user',
-    });
+    setFormData({ ...EMPTY_FORM });
     setErrors({});
     setSelectedContact(null);
     setShowAddModal(true);
@@ -99,7 +85,6 @@ const Contacts = () => {
       name: contact.name || '',
       email: contact.email || '',
       phone: contact.phone || '',
-      contact_role: contact.contact_role || 'end_user',
     });
     setErrors({});
     setSelectedContact(contact);
@@ -135,10 +120,6 @@ const Contacts = () => {
       newErrors.phone = phoneValidation.message;
     }
 
-    if (!formData.contact_role || !CONTACT_ROLE_OPTIONS.some((o) => o.value === formData.contact_role)) {
-      newErrors.contact_role = 'Select a valid role';
-    }
-
     setErrors(newErrors);
     return Object.keys(newErrors).length === 0;
   };
@@ -152,7 +133,6 @@ const Contacts = () => {
         name: formData.name.trim(),
         email: formData.email.trim(),
         phone: String(formData.phone || '').replace(/\D/g, '').slice(0, 10),
-        contact_role: formData.contact_role,
       };
       if (selectedContact) {
         const result = await contactsAPI.updateContact(selectedContact.id, payload);
@@ -169,12 +149,7 @@ const Contacts = () => {
         if (result.success) {
           await loadContacts();
           setShowAddModal(false);
-          setFormData({
-            name: '',
-            email: '',
-            phone: '',
-            contact_role: 'end_user',
-          });
+          setFormData({ ...EMPTY_FORM });
         } else {
           const errorMsg = formatApiErrors(result);
           alert(errorMsg);
@@ -219,38 +194,16 @@ const Contacts = () => {
 
   const closeAddModal = () => {
     setShowAddModal(false);
-    setFormData({ name: '', email: '', phone: '', contact_role: 'end_user' });
+    setFormData({ ...EMPTY_FORM });
     setErrors({});
   };
 
   const closeEditModal = () => {
     setShowEditModal(false);
     setSelectedContact(null);
-    setFormData({ name: '', email: '', phone: '', contact_role: 'end_user' });
+    setFormData({ ...EMPTY_FORM });
     setErrors({});
   };
-
-  const RoleSelect = ({ idPrefix }) => (
-    <div>
-      <label htmlFor={`${idPrefix}-role`} className="block text-sm font-medium text-gray-700 mb-2">
-        Contact role <span className="text-red-500">*</span>
-      </label>
-      <select
-        id={`${idPrefix}-role`}
-        value={formData.contact_role}
-        onChange={(e) => handleInputChange('contact_role', e.target.value)}
-        className="w-full px-4 py-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent bg-white text-gray-900"
-      >
-        {CONTACT_ROLE_OPTIONS.map((opt) => (
-          <option key={opt.value} value={opt.value}>
-            {opt.label}
-          </option>
-        ))}
-      </select>
-      {errors.contact_role && <p className="mt-1 text-sm text-red-600">{errors.contact_role}</p>}
-      <p className="mt-1 text-xs text-gray-500">Tag as End-user, Merchant, or Dealer for your records.</p>
-    </div>
-  );
 
   return (
     <div className="max-w-7xl mx-auto space-y-6 px-4 sm:px-0">
@@ -394,7 +347,7 @@ const Contacts = () => {
                         type="button"
                         onClick={() => handleEdit(contact)}
                         className="inline-flex items-center justify-center text-blue-600 hover:text-blue-800 transition-colors p-2 rounded-lg hover:bg-blue-50"
-                        title="Edit contact (name, email, phone, role)"
+                        title="Edit contact"
                         aria-label="Edit contact"
                       >
                         <FaPen size={18} />
@@ -452,7 +405,6 @@ const Contacts = () => {
                 required
                 error={errors.phone}
               />
-              <RoleSelect idPrefix="add" />
             </div>
 
             <div className="mt-6 flex gap-3">
@@ -477,7 +429,7 @@ const Contacts = () => {
               </button>
             </div>
             <p className="text-sm text-gray-500 mb-4">
-              Update details or role. Phone must stay unique in your directory.
+              Update contact details. Phone must stay unique in your directory.
             </p>
 
             <div className="space-y-4">
@@ -514,7 +466,6 @@ const Contacts = () => {
                 required
                 error={errors.phone}
               />
-              <RoleSelect idPrefix="edit" />
             </div>
 
             <div className="mt-6 flex gap-3">

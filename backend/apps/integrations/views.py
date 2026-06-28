@@ -212,7 +212,7 @@ class ApiMasterViewSet(viewsets.ModelViewSet):
         timeout = int((obj.config_json or {}).get('timeout', 8))
         timeout = max(3, min(timeout, 45))
 
-        if obj.provider_code in ('cashfree_pan', 'cashfree_digilocker'):
+        if obj.provider_code in ('cashfree_pan', 'cashfree_digilocker', 'cashfree_bav'):
             payload = decrypt_secret_payload(obj.secrets_encrypted or '')
             client_id = str(payload.get('client_id') or '').strip()
             client_secret = str(payload.get('client_secret') or '').strip()

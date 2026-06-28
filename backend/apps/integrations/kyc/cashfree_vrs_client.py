@@ -141,3 +141,21 @@ class CashfreeVrsClient:
             params['reference_id'] = reference_id
         path = f'digilocker/document/{document_type}'
         return self.get(path, params=params, action='DigiLocker document')
+
+    def verify_bank_account_sync(
+        self,
+        *,
+        bank_account: str,
+        ifsc: str,
+        name: str = '',
+        phone: str = '',
+    ) -> dict:
+        payload: dict[str, Any] = {
+            'bank_account': bank_account,
+            'ifsc': ifsc.upper(),
+        }
+        if name:
+            payload['name'] = name
+        if phone:
+            payload['phone'] = phone
+        return self.post('bank-account/sync', payload, action='Bank account verify')

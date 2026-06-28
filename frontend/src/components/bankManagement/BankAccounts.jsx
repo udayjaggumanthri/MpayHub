@@ -1,29 +1,180 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { useAuth } from '../../context/AuthContext';
 import { bankAccountsAPI } from '../../services/api';
-import { formatAccountNumber } from '../../utils/formatters';
+import { formatPhone } from '../../utils/formatters';
 import Card from '../common/Card';
 import Button from '../common/Button';
-import Input from '../common/Input';
-import { 
-  FaPlus, 
-  FaMagnifyingGlass, 
+import FeedbackModal from '../common/FeedbackModal';
+import {
+  FaPlus,
+  FaMagnifyingGlass,
   FaTrash,
-  FaUser,
-  FaPhone,
   FaBuilding,
-  FaCreditCard
+  FaEye,
+  FaXmark,
+  FaTriangleExclamation,
 } from 'react-icons/fa6';
 import AddBankAccount from './AddBankAccount';
+
+const formatDetailValue = (value) => {
+  if (value === null || value === undefined || value === '') return '—';
+  if (typeof value === 'object') return JSON.stringify(value, null, 2);
+  return String(value);
+};
+
+const BankAccountViewModal = ({ account, onClose }) => {
+  if (!account) return null;
+
+  const details = account.verification_details || {};
+  const ifscDetails = details.ifsc_details || {};
+
+  const rows = [
+    ['Beneficiary Name', account.beneficiary_name || account.account_holder_name],
+    ['Mobile Number', account.mobile_number ? formatPhone(account.mobile_number) : '—'],
+    ['Account Number', account.account_number],
+    ['IFSC', account.ifsc],
+    ['Bank Name', account.bank_name],
+    ['Branch', account.branch || details.branch],
+    ['City', account.city || details.city],
+    ['Reference ID', account.verification_reference_id || details.reference_id],
+    ['Account Status', details.account_status],
+    ['Status Code', details.account_status_code],
+    ['Name Match Score', account.name_match_score || details.name_match_score],
+    ['Name Match Result', account.name_match_result || details.name_match_result],
+    ['UTR', details.utr],
+    ['MICR', details.micr],
+    ['Verified At', account.verified_at ? new Date(account.verified_at).toLocaleString() : '—'],
+    ['Provider', account.provider_code],
+  ];
+
+  const ifscRows = Object.entries(ifscDetails).map(([key, value]) => [
+    key.replace(/_/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase()),
+    formatDetailValue(value),
+  ]);
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black bg-opacity-50 overflow-y-auto">
+      <Card className="max-w-2xl w-full border-2 border-blue-200 my-auto" padding="lg" shadow="xl">
+        <div className="flex items-center justify-between mb-4">
+          <h2 className="text-xl sm:text-2xl font-bold text-gray-900">Bank Account Details</h2>
+          <button
+            type="button"
+            onClick={onClose}
+            className="text-gray-400 hover:text-gray-600 transition-colors"
+          >
+            <FaXmark size={22} />
+          </button>
+        </div>
+
+        <div className="space-y-6 max-h-[70vh] overflow-y-auto pr-1">
+          <div>
+            <h3 className="text-sm font-semibold text-gray-700 mb-3 uppercase tracking-wide">Account Summary</h3>
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+              {rows.map(([label, value]) => (
+                <div key={label} className="rounded-lg border border-gray-200 p-3 bg-gray-50">
+                  <p className="text-xs text-gray-500">{label}</p>
+                  <p className="text-sm font-medium text-gray-900 mt-1 break-words">{formatDetailValue(value)}</p>
+                </div>
+              ))}
+            </div>
+          </div>
+
+          {ifscRows.length > 0 && (
+            <div>
+              <h3 className="text-sm font-semibold text-gray-700 mb-3 uppercase tracking-wide">IFSC Details</h3>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                {ifscRows.map(([label, value]) => (
+                  <div key={label} className="rounded-lg border border-gray-200 p-3 bg-gray-50">
+                    <p className="text-xs text-gray-500">{label}</p>
+                    <p className="text-sm font-medium text-gray-900 mt-1 break-words whitespace-pre-wrap">{value}</p>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+        </div>
+
+        <div className="mt-6">
+          <Button onClick={onClose} variant="primary" fullWidth>
+            Close
+          </Button>
+        </div>
+      </Card>
+    </div>
+  );
+};
+
+const BankAccountDeleteModal = ({ account, loading, onCancel, onConfirm }) => {
+  if (!account) return null;
+
+  return (
+    <div
+      className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-sm"
+      role="dialog"
+      aria-modal="true"
+      aria-labelledby="delete-bank-account-title"
+      onClick={() => !loading && onCancel()}
+    >
+      <div
+        className="w-full max-w-md rounded-2xl bg-white p-6 shadow-2xl"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <div className="flex items-start gap-4">
+          <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-xl bg-red-50 text-red-700">
+            <FaTriangleExclamation size={22} aria-hidden />
+          </div>
+          <div className="min-w-0 flex-1">
+            <h3 id="delete-bank-account-title" className="text-lg font-bold text-slate-900">
+              Delete bank account?
+            </h3>
+            <p className="mt-1 text-sm text-slate-600">
+              This action cannot be undone. The account will be removed from your profile.
+            </p>
+          </div>
+        </div>
+
+        <div className="mt-4 rounded-xl border border-slate-100 bg-slate-50 px-4 py-3 text-sm text-slate-700 space-y-1">
+          <p>
+            <span className="font-medium">Account holder:</span>{' '}
+            {account.account_holder_name || account.beneficiary_name || '—'}
+          </p>
+          <p>
+            <span className="font-medium">Account number:</span> {account.account_number || '—'}
+          </p>
+          <p>
+            <span className="font-medium">IFSC:</span> {account.ifsc || '—'}
+          </p>
+          {account.mobile_number ? (
+            <p>
+              <span className="font-medium">Mobile:</span> {formatPhone(account.mobile_number)}
+            </p>
+          ) : null}
+        </div>
+
+        <div className="mt-6 flex gap-3 justify-end">
+          <Button onClick={onCancel} disabled={loading} variant="outline" size="lg">
+            Cancel
+          </Button>
+          <Button onClick={onConfirm} loading={loading} variant="danger" size="lg" icon={FaTrash} iconPosition="left">
+            Delete Account
+          </Button>
+        </div>
+      </div>
+    </div>
+  );
+};
 
 const BankAccounts = () => {
   const { user } = useAuth();
   const [accounts, setAccounts] = useState([]);
   const [loading, setLoading] = useState(false);
   const [showAddForm, setShowAddForm] = useState(false);
+  const [viewAccount, setViewAccount] = useState(null);
+  const [deleteTarget, setDeleteTarget] = useState(null);
+  const [deleting, setDeleting] = useState(false);
+  const [deleteError, setDeleteError] = useState({ open: false, message: '' });
   const [filters, setFilters] = useState({
     name: '',
-    phone: '',
     bankName: '',
     accountNumber: '',
     ifsc: '',
@@ -35,22 +186,14 @@ const BankAccounts = () => {
     setLoading(true);
     try {
       const result = await bankAccountsAPI.listBankAccounts();
-      if (result.success && result.data?.bank_accounts) {
-        let filtered = result.data.bank_accounts || [];
+      if (result.success) {
+        const payload = result.data || {};
+        let filtered = payload.bank_accounts || payload.results || (Array.isArray(payload) ? payload : []);
 
-        // Apply filters
         if (filters.name) {
           filtered = filtered.filter((acc) =>
             (acc.account_holder_name?.toLowerCase().includes(filters.name.toLowerCase())) ||
-            (acc.beneficiary_name?.toLowerCase().includes(filters.name.toLowerCase())) ||
-            (acc.contact?.name?.toLowerCase().includes(filters.name.toLowerCase()))
-          );
-        }
-
-        if (filters.phone) {
-          filtered = filtered.filter((acc) => 
-            acc.contact?.phone?.includes(filters.phone) || 
-            acc.phone?.includes(filters.phone)
+            (acc.beneficiary_name?.toLowerCase().includes(filters.name.toLowerCase()))
           );
         }
 
@@ -61,13 +204,13 @@ const BankAccounts = () => {
         }
 
         if (filters.accountNumber) {
-          filtered = filtered.filter((acc) => 
+          filtered = filtered.filter((acc) =>
             acc.account_number?.includes(filters.accountNumber)
           );
         }
 
         if (filters.ifsc) {
-          filtered = filtered.filter((acc) => 
+          filtered = filtered.filter((acc) =>
             acc.ifsc?.toUpperCase().includes(filters.ifsc.toUpperCase())
           );
         }
@@ -93,20 +236,29 @@ const BankAccounts = () => {
     setShowAddForm(false);
   };
 
-  const handleDelete = async (accountId) => {
-    if (window.confirm('Are you sure you want to delete this bank account?')) {
-      try {
-        const result = await bankAccountsAPI.deleteBankAccount(accountId);
-        if (result.success) {
-          loadAccounts();
-        } else {
-          const errorMsg = result.errors?.join(', ') || result.message || 'Failed to delete bank account';
-          alert(errorMsg);
-        }
-      } catch (error) {
-        console.error('Error deleting bank account:', error);
-        alert('An error occurred. Please try again.');
+  const handleDelete = (account) => {
+    setDeleteTarget(account);
+  };
+
+  const confirmDelete = async () => {
+    if (!deleteTarget?.id) return;
+    setDeleting(true);
+    try {
+      const result = await bankAccountsAPI.deleteBankAccount(deleteTarget.id);
+      if (result.success) {
+        setDeleteTarget(null);
+        loadAccounts();
+      } else {
+        const errorMsg = result.errors?.join(', ') || result.message || 'Failed to delete bank account';
+        setDeleteTarget(null);
+        setDeleteError({ open: true, message: errorMsg });
       }
+    } catch (error) {
+      console.error('Error deleting bank account:', error);
+      setDeleteTarget(null);
+      setDeleteError({ open: true, message: 'An error occurred. Please try again.' });
+    } finally {
+      setDeleting(false);
     }
   };
 
@@ -115,7 +267,7 @@ const BankAccounts = () => {
   };
 
   const clearFilters = () => {
-    setFilters({ name: '', phone: '', bankName: '', accountNumber: '', ifsc: '' });
+    setFilters({ name: '', bankName: '', accountNumber: '', ifsc: '' });
   };
 
   if (showAddForm) {
@@ -129,7 +281,6 @@ const BankAccounts = () => {
 
   return (
     <div className="max-w-7xl mx-auto space-y-6 px-4 sm:px-0">
-      {/* Header */}
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between">
         <div>
           <h1 className="text-2xl sm:text-3xl font-bold text-gray-900">All Bank Accounts</h1>
@@ -148,10 +299,9 @@ const BankAccounts = () => {
         </Button>
       </div>
 
-      {/* Filter Section */}
       <Card padding="lg">
         <h3 className="text-lg font-semibold text-gray-900 mb-4">Filter</h3>
-        <div className="grid grid-cols-1 md:grid-cols-3 lg:grid-cols-5 gap-4">
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-2">Name</label>
             <div className="relative">
@@ -161,24 +311,6 @@ const BankAccounts = () => {
                 value={filters.name}
                 onChange={(e) => setFilters({ ...filters, name: e.target.value })}
                 placeholder="Enter Name"
-                className="w-full pl-10 pr-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-              />
-            </div>
-          </div>
-
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-2">Phone</label>
-            <div className="relative">
-              <FaMagnifyingGlass className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400" size={18} />
-              <input
-                type="tel"
-                value={filters.phone}
-                onChange={(e) => {
-                  const value = e.target.value.replace(/\D/g, '').slice(0, 10);
-                  setFilters({ ...filters, phone: value });
-                }}
-                placeholder="Enter Phone"
-                maxLength={10}
                 className="w-full pl-10 pr-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
               />
             </div>
@@ -243,7 +375,6 @@ const BankAccounts = () => {
         </div>
       </Card>
 
-      {/* Accounts List */}
       <Card padding="lg">
         <h3 className="text-lg font-semibold text-gray-900 mb-4">All Links</h3>
         {loading ? (
@@ -261,15 +392,7 @@ const BankAccounts = () => {
             <table className="w-full border-collapse">
               <thead>
                 <tr className="bg-gray-50 border-b border-gray-200">
-                  <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                    #
-                  </th>
-                  <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                    CONTACT NAME
-                  </th>
-                  <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                    PHONE
-                  </th>
+                  <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">#</th>
                   <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
                     ACCOUNT HOLDER NAME
                   </th>
@@ -278,6 +401,9 @@ const BankAccounts = () => {
                   </th>
                   <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
                     BANK NAME
+                  </th>
+                  <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                    MOBILE
                   </th>
                   <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
                     IFSC
@@ -289,35 +415,20 @@ const BankAccounts = () => {
               </thead>
               <tbody>
                 {accounts.map((account, index) => {
-                  const contactName = account.contact?.name || 'N/A';
-                  const contactPhone = account.contact?.phone || account.phone || 'N/A';
                   const accountHolderName = account.account_holder_name || account.beneficiary_name || 'N/A';
                   const accountNumber = account.account_number || 'N/A';
                   const bankName = account.bank_name || 'N/A';
                   const ifsc = account.ifsc || 'N/A';
-                  
+                  const mobile = account.mobile_number || '—';
+
                   return (
                     <tr key={account.id} className="border-b border-gray-200 hover:bg-gray-50 transition-colors">
-                      <td className="px-4 py-4 whitespace-nowrap text-sm text-gray-900">
-                        {index + 1}
-                      </td>
-                      <td className="px-4 py-4 whitespace-nowrap text-sm font-medium text-gray-900">
-                        <div className="flex items-center space-x-2">
-                          <FaUser size={14} className="text-gray-400" />
-                          <span>{contactName}</span>
-                        </div>
-                      </td>
-                      <td className="px-4 py-4 whitespace-nowrap text-sm text-gray-700">
-                        <div className="flex items-center space-x-2">
-                          <FaPhone size={14} className="text-gray-400" />
-                          <span>{contactPhone}</span>
-                        </div>
-                      </td>
+                      <td className="px-4 py-4 whitespace-nowrap text-sm text-gray-900">{index + 1}</td>
                       <td className="px-4 py-4 whitespace-nowrap text-sm font-medium text-gray-900">
                         {accountHolderName}
                       </td>
                       <td className="px-4 py-4 whitespace-nowrap text-sm text-gray-700 font-mono">
-                        {formatAccountNumber(accountNumber)}
+                        {accountNumber}
                       </td>
                       <td className="px-4 py-4 whitespace-nowrap text-sm text-gray-700">
                         <div className="flex items-center space-x-2">
@@ -325,17 +436,29 @@ const BankAccounts = () => {
                           <span>{bankName}</span>
                         </div>
                       </td>
-                      <td className="px-4 py-4 whitespace-nowrap text-sm text-gray-700 font-mono">
-                        {ifsc}
+                      <td className="px-4 py-4 whitespace-nowrap text-sm text-gray-700">
+                        {mobile !== '—' ? formatPhone(mobile) : mobile}
                       </td>
+                      <td className="px-4 py-4 whitespace-nowrap text-sm text-gray-700 font-mono">{ifsc}</td>
                       <td className="px-4 py-4 whitespace-nowrap text-center">
-                        <button
-                          onClick={() => handleDelete(account.id)}
-                          className="text-red-600 hover:text-red-800 transition-colors p-1 rounded hover:bg-red-50"
-                          title="Delete Account"
-                        >
-                          <FaTrash size={18} />
-                        </button>
+                        <div className="inline-flex items-center gap-2">
+                          <button
+                            type="button"
+                            onClick={() => setViewAccount(account)}
+                            className="text-blue-600 hover:text-blue-800 transition-colors p-1 rounded hover:bg-blue-50"
+                            title="View Details"
+                          >
+                            <FaEye size={18} />
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => handleDelete(account)}
+                            className="text-red-600 hover:text-red-800 transition-colors p-1 rounded hover:bg-red-50"
+                            title="Delete Account"
+                          >
+                            <FaTrash size={18} />
+                          </button>
+                        </div>
                       </td>
                     </tr>
                   );
@@ -345,6 +468,26 @@ const BankAccounts = () => {
           </div>
         )}
       </Card>
+
+      {viewAccount && (
+        <BankAccountViewModal account={viewAccount} onClose={() => setViewAccount(null)} />
+      )}
+
+      {deleteTarget && (
+        <BankAccountDeleteModal
+          account={deleteTarget}
+          loading={deleting}
+          onCancel={() => !deleting && setDeleteTarget(null)}
+          onConfirm={confirmDelete}
+        />
+      )}
+
+      <FeedbackModal
+        open={deleteError.open}
+        onClose={() => setDeleteError({ open: false, message: '' })}
+        title="Could not delete account"
+        description={deleteError.message}
+      />
     </div>
   );
 };

@@ -49,7 +49,48 @@ const KYC_PROVIDERS = {
   },
 };
 
+const BANKING_PROVIDERS = {
+  cashfree_bav: {
+    code: 'cashfree_bav',
+    name: 'Cashfree Bank Account Verification',
+    base_url: 'https://sandbox.cashfree.com',
+    config: { timeout: 15 },
+    secrets: [
+      { key: 'client_id', value: '', maskedPreview: '' },
+      { key: 'client_secret', value: '', maskedPreview: '' },
+    ],
+  },
+};
+
 const kycProviderOptions = Object.values(KYC_PROVIDERS);
+const bankingProviderOptions = Object.values(BANKING_PROVIDERS);
+
+const moduleApiLabel = (module) => {
+  if (module === 'kyc') return 'KYC API';
+  if (module === 'banking') return 'Banking API';
+  return 'Payment Gateway API';
+};
+
+const defaultBankingForm = (providerCode = 'cashfree_bav') => {
+  const preset = BANKING_PROVIDERS[providerCode] || BANKING_PROVIDERS.cashfree_bav;
+  return {
+    provider_code: preset.code,
+    provider_name: preset.name,
+    provider_type: 'banking',
+    kyc_service: '',
+    base_url: preset.base_url,
+    auth_type: 'api_key',
+    status: 'inactive',
+    priority: '0',
+    is_default: true,
+    supports_webhook: false,
+    webhook_path: '',
+    pan_mode: 'sync',
+    redirect_url: '',
+    config_json_text: JSON.stringify(preset.config, null, 2),
+    secrets: preset.secrets.map((s) => ({ ...s })),
+  };
+};
 
 const defaultKycForm = (providerCode = 'cashfree_pan') => {
   const preset = KYC_PROVIDERS[providerCode] || KYC_PROVIDERS.cashfree_pan;
@@ -87,6 +128,7 @@ const APIMasterManagement = () => {
     [rows, activeModule]
   );
   const kycCount = rows.filter((r) => r.provider_type === 'kyc').length;
+  const bankingCount = rows.filter((r) => r.provider_type === 'banking').length;
   const paymentCount = rows.filter((r) => r.provider_type === 'payments').length;
 
   const loadRows = async () => {
@@ -108,6 +150,10 @@ const APIMasterManagement = () => {
   const resetForm = (module = activeModule) => {
     if (module === 'kyc') {
       setForm(defaultKycForm());
+      return;
+    }
+    if (module === 'banking') {
+      setForm(defaultBankingForm());
       return;
     }
     setForm({
@@ -146,7 +192,7 @@ const APIMasterManagement = () => {
         : {};
     const maskedKeys = Object.keys(masked);
     const providerCode = row.provider_code || '';
-    const preset = KYC_PROVIDERS[providerCode];
+    const preset = KYC_PROVIDERS[providerCode] || BANKING_PROVIDERS[providerCode];
     let secretRows;
     if (maskedKeys.length > 0) {
       secretRows = maskedKeys.map((k) => ({
@@ -159,6 +205,8 @@ const APIMasterManagement = () => {
         { key: 'key_id', value: '', maskedPreview: '' },
         { key: 'key_secret', value: '', maskedPreview: '' },
       ];
+    } else if ((row.provider_type || '').toLowerCase() === 'banking' && BANKING_PROVIDERS[providerCode]) {
+      secretRows = BANKING_PROVIDERS[providerCode].secrets.map((s) => ({ ...s }));
     } else if (preset) {
       secretRows = preset.secrets.map((s) => ({ ...s }));
     } else {
@@ -225,6 +273,22 @@ const APIMasterManagement = () => {
     return base;
   };
 
+  const buildBankingConfigJson = () => {
+    let base = {};
+    try {
+      base = form.config_json_text ? JSON.parse(form.config_json_text) : {};
+    } catch {
+      base = {};
+    }
+    if (form.provider_code === 'cashfree_bav') {
+      return {
+        ...base,
+        timeout: base.timeout ?? 15,
+      };
+    }
+    return base;
+  };
+
   const saveForm = async (e) => {
     e.preventDefault();
     if (!form.provider_code || !form.provider_name) {
@@ -234,6 +298,8 @@ const APIMasterManagement = () => {
     let configJson = {};
     if (activeModule === 'kyc') {
       configJson = buildKycConfigJson();
+    } else if (activeModule === 'banking') {
+      configJson = buildBankingConfigJson();
     } else {
       try {
         configJson = form.config_json_text ? JSON.parse(form.config_json_text) : {};
@@ -333,6 +399,19 @@ const APIMasterManagement = () => {
     });
   };
 
+  const onBankingProviderChange = (value) => {
+    const preset = BANKING_PROVIDERS[value];
+    if (!preset) return;
+    setForm((prev) => ({
+      ...prev,
+      provider_code: preset.code,
+      provider_name: preset.name,
+      base_url: preset.base_url,
+      config_json_text: JSON.stringify(preset.config, null, 2),
+      secrets: preset.secrets.map((s) => ({ ...s })),
+    }));
+  };
+
   const onKycProviderChange = (value) => {
     const preset = KYC_PROVIDERS[value];
     if (!preset) return;
@@ -361,7 +440,7 @@ const APIMasterManagement = () => {
         <div>
           <h1 className="text-2xl sm:text-3xl font-bold text-gray-900">API Master Management</h1>
           <p className="mt-1 sm:mt-2 text-sm sm:text-base text-gray-600">
-            Two enterprise modules: KYC APIs (Cashfree PAN + DigiLocker) and Payment Gateway APIs.
+            KYC, Banking, and Payment Gateway APIs.
           </p>
         </div>
       </div>
@@ -376,7 +455,7 @@ const APIMasterManagement = () => {
         </Link>
       </div>
 
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
         <button
           type="button"
           onClick={() => setActiveModule('kyc')}
@@ -387,6 +466,17 @@ const APIMasterManagement = () => {
           <p className="font-semibold text-gray-900">KYC APIs</p>
           <p className="text-sm text-gray-600">Cashfree PAN + DigiLocker Aadhaar</p>
           <p className="text-xs text-blue-700 mt-1">{kycCount} configured</p>
+        </button>
+        <button
+          type="button"
+          onClick={() => setActiveModule('banking')}
+          className={`text-left p-4 rounded-xl border ${
+            activeModule === 'banking' ? 'border-blue-500 bg-blue-50' : 'border-gray-200 bg-white'
+          }`}
+        >
+          <p className="font-semibold text-gray-900">Banking APIs</p>
+          <p className="text-sm text-gray-600">Cashfree Bank Account Verification (BAV)</p>
+          <p className="text-xs text-blue-700 mt-1">{bankingCount} configured</p>
         </button>
         <button
           type="button"
@@ -403,7 +493,7 @@ const APIMasterManagement = () => {
 
       <div className="flex justify-end">
         <Button onClick={openCreate} variant="primary" icon={FaPlus} iconPosition="left">
-          {activeModule === 'kyc' ? 'Add KYC API' : 'Add Payment Gateway API'}
+          {activeModule === 'kyc' ? 'Add KYC API' : activeModule === 'banking' ? 'Add Banking API' : 'Add Payment Gateway API'}
         </Button>
       </div>
 
@@ -435,7 +525,7 @@ const APIMasterManagement = () => {
               {moduleRows.length === 0 ? (
                 <tr>
                   <td colSpan="7" className="text-center py-8 text-gray-500">
-                    {loading ? 'Loading...' : `No ${activeModule === 'kyc' ? 'KYC APIs' : 'payment APIs'} configured yet.`}
+                    {loading ? 'Loading...' : `No ${moduleApiLabel(activeModule).toLowerCase()}s configured yet.`}
                   </td>
                 </tr>
               ) : (
@@ -446,7 +536,7 @@ const APIMasterManagement = () => {
                       <div className="text-xs text-gray-500">{row.provider_code}</div>
                     </td>
                     <td className="py-4 px-4 text-sm text-gray-600">
-                      {activeModule === 'kyc' ? row.kyc_service || '—' : '—'}
+                      {activeModule === 'kyc' ? row.kyc_service || '—' : activeModule === 'banking' ? 'BAV' : '—'}
                     </td>
                     <td className="py-4 px-4">{row.auth_type}</td>
                     <td className="py-4 px-4">
@@ -513,7 +603,7 @@ const APIMasterManagement = () => {
           <Card className="max-w-4xl w-full border-2 border-blue-200 my-auto" padding="lg" shadow="xl">
             <div className="flex items-center justify-between mb-6">
               <h2 className="text-xl sm:text-2xl font-bold text-gray-900">
-                {editing ? `Edit ${activeModule === 'kyc' ? 'KYC API' : 'Payment API'}` : `Add ${activeModule === 'kyc' ? 'KYC API' : 'Payment API'}`}
+                {editing ? `Edit ${moduleApiLabel(activeModule)}` : `Add ${moduleApiLabel(activeModule)}`}
               </h2>
               <button
                 onClick={() => {
@@ -545,6 +635,25 @@ const APIMasterManagement = () => {
                     </select>
                     <p className="text-xs text-gray-500 mt-1">
                       Only one default per service (PAN / Aadhaar). Use sandbox status for Cashfree test credentials.
+                    </p>
+                  </div>
+                ) : activeModule === 'banking' ? (
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-2">Banking Provider</label>
+                    <select
+                      value={form.provider_code}
+                      onChange={(e) => onBankingProviderChange(e.target.value)}
+                      disabled={Boolean(editing)}
+                      className="w-full px-4 py-3 border border-gray-300 rounded-lg"
+                    >
+                      {bankingProviderOptions.map((s) => (
+                        <option key={s.code} value={s.code}>
+                          {s.name}
+                        </option>
+                      ))}
+                    </select>
+                    <p className="text-xs text-gray-500 mt-1">
+                      Cashfree BAV Sync V2. Use sandbox status for test credentials; configure timeout in config JSON.
                     </p>
                   </div>
                 ) : (
@@ -658,7 +767,12 @@ const APIMasterManagement = () => {
                     onChange={(e) => setForm((p) => ({ ...p, is_default: e.target.checked }))}
                   />
                   <span className="text-sm text-gray-700">
-                    Default for {activeModule === 'kyc' ? `KYC service (${form.kyc_service || 'pan/aadhaar'})` : 'this module'}
+                    Default for{' '}
+                    {activeModule === 'kyc'
+                      ? `KYC service (${form.kyc_service || 'pan/aadhaar'})`
+                      : activeModule === 'banking'
+                        ? 'banking (BAV)'
+                        : 'this module'}
                   </span>
                 </label>
                 <label className="inline-flex items-center gap-2 cursor-pointer">
@@ -671,7 +785,7 @@ const APIMasterManagement = () => {
                 </label>
               </div>
 
-              {activeModule !== 'kyc' && (
+              {activeModule === 'payments' && (
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-2">
                     Config JSON (non-secret settings)
@@ -680,6 +794,19 @@ const APIMasterManagement = () => {
                     value={form.config_json_text}
                     onChange={(e) => setForm((p) => ({ ...p, config_json_text: e.target.value }))}
                     className="w-full min-h-[120px] px-4 py-3 border border-gray-300 rounded-lg"
+                  />
+                </div>
+              )}
+
+              {activeModule === 'banking' && form.provider_code === 'cashfree_bav' && (
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">
+                    Config JSON (timeout)
+                  </label>
+                  <textarea
+                    value={form.config_json_text}
+                    onChange={(e) => setForm((p) => ({ ...p, config_json_text: e.target.value }))}
+                    className="w-full min-h-[120px] px-4 py-3 border border-gray-300 rounded-lg font-mono text-sm"
                   />
                 </div>
               )}
@@ -712,7 +839,7 @@ const APIMasterManagement = () => {
                       (and your payment gateway link / default Razorpay entry); .env is optional.
                     </p>
                   )}
-                  {activeModule === 'kyc' && (
+                  {(activeModule === 'kyc' || activeModule === 'banking') && (
                     <p className="text-xs text-blue-800 bg-blue-50 border border-blue-100 rounded-lg px-3 py-2 mb-2">
                       <strong>Cashfree:</strong> Use keys <code className="bg-blue-100/80 px-1 rounded">client_id</code>{' '}
                       and <code className="bg-blue-100/80 px-1 rounded">client_secret</code> from Cashfree Secure ID /

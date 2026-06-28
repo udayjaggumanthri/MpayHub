@@ -10,7 +10,7 @@ import Button from '../common/Button';
 import FeedbackModal from '../common/FeedbackModal';
 import ContactSearchTypeahead from './ContactSearchTypeahead';
 import { formatCurrency } from '../../utils/formatters';
-import { validateAmount } from '../../utils/validators';
+import { validateAmount, validateAccountNumber, validateIFSC, validatePhone } from '../../utils/validators';
 import AccountAccessBanner from '../common/AccountAccessBanner';
 import MaintenanceModuleLock from '../common/MaintenanceModuleLock';
 import { isModuleEnabled } from '../../utils/maintenanceMode';
@@ -68,14 +68,16 @@ const Payout = () => {
   const [payoutPreview, setPayoutPreview] = useState(null);
   const [showAddBankAccount, setShowAddBankAccount] = useState(false);
   const [newBankAccount, setNewBankAccount] = useState({
-    bankName: '',
     ifsc: '',
     accountNumber: '',
+    mobileNumber: '',
   });
   const [validatingAccount, setValidatingAccount] = useState(false);
-  const [validatedBeneficiary, setValidatedBeneficiary] = useState(null);
+  const [validationData, setValidationData] = useState(null);
   const [showValidationModal, setShowValidationModal] = useState(false);
   const [showSuccessNotification, setShowSuccessNotification] = useState(false);
+
+  const validatedBeneficiary = validationData?.beneficiary_name || null;
   const [searchFeedbackModal, setSearchFeedbackModal] = useState({
     open: false,
     title: '',
@@ -88,19 +90,6 @@ const Payout = () => {
     description: '',
     primaryAction: null,
   });
-
-  const bankNames = [
-    'HDFC BANK',
-    'ICICI BANK',
-    'STATE BANK OF INDIA',
-    'AXIS BANK',
-    'KOTAK MAHINDRA BANK',
-    'UNION BANK OF INDIA',
-    'PUNJAB NATIONAL BANK',
-    'BANK OF BARODA',
-    'CANARA BANK',
-    'INDIAN BANK',
-  ];
 
   const refreshCore = useCallback(async () => {
     if (!user) return;
@@ -221,8 +210,21 @@ const Payout = () => {
   };
 
   const handleValidateAccount = async () => {
-    if (!newBankAccount.bankName || !newBankAccount.ifsc || !newBankAccount.accountNumber) {
-      alert('Please fill in all required fields');
+    const accountValidation = validateAccountNumber(newBankAccount.accountNumber);
+    if (!accountValidation.valid) {
+      alert(accountValidation.message);
+      return;
+    }
+
+    const ifscValidation = validateIFSC(newBankAccount.ifsc);
+    if (!ifscValidation.valid) {
+      alert(ifscValidation.message);
+      return;
+    }
+
+    const phoneValidation = validatePhone(newBankAccount.mobileNumber);
+    if (!phoneValidation.valid) {
+      alert(phoneValidation.message);
       return;
     }
 
@@ -230,11 +232,12 @@ const Payout = () => {
     try {
       const result = await bankAccountsAPI.validateBankAccount(
         newBankAccount.accountNumber,
-        newBankAccount.ifsc
+        newBankAccount.ifsc.toUpperCase(),
+        newBankAccount.mobileNumber
       );
-      const name = result.success ? result.data?.beneficiary_name : null;
-      if (name) {
-        setValidatedBeneficiary(name);
+      const data = result.success ? result.data : null;
+      if (data?.beneficiary_name) {
+        setValidationData(data);
         setShowValidationModal(true);
       } else {
         alert(result.message || 'Account validation failed. Please check the details.');
@@ -247,15 +250,38 @@ const Payout = () => {
   };
 
   const handleSaveBankAccount = async () => {
+    if (validationData?.bank_account) {
+      const mapped = mapBankAccountRow(validationData.bank_account);
+      if (mapped) {
+        setBankAccounts((prev) => [...prev, mapped]);
+        setSelectedAccount(mapped);
+      }
+      await refreshCore();
+      setShowValidationModal(false);
+      setShowAddBankAccount(false);
+      setShowSuccessNotification(true);
+      setNewBankAccount({ ifsc: '', accountNumber: '', mobileNumber: '' });
+      setValidationData(null);
+      setTimeout(() => setShowSuccessNotification(false), 3000);
+      return;
+    }
+
     setLoading(true);
     try {
       const holder = validatedBeneficiary || '';
+      const bankName =
+        validationData?.bank_name ||
+        validationData?.verification_details?.bank_name ||
+        validationData?.verification_details?.ifsc_details?.bank ||
+        '';
       const body = {
         account_number: newBankAccount.accountNumber,
-        ifsc: newBankAccount.ifsc.toUpperCase(),
-        bank_name: newBankAccount.bankName,
+        ifsc: (validationData?.ifsc || newBankAccount.ifsc).toUpperCase(),
+        bank_name: bankName || 'UNKNOWN',
         account_holder_name: holder,
         beneficiary_name: holder,
+        mobile_number: newBankAccount.mobileNumber,
+        validation_token: validationData?.validation_token,
       };
       if (beneficiaryDetails?.id) {
         body.contact = beneficiaryDetails.id;
@@ -272,8 +298,8 @@ const Payout = () => {
         setShowValidationModal(false);
         setShowAddBankAccount(false);
         setShowSuccessNotification(true);
-        setNewBankAccount({ bankName: '', ifsc: '', accountNumber: '' });
-        setValidatedBeneficiary(null);
+        setNewBankAccount({ ifsc: '', accountNumber: '', mobileNumber: '' });
+        setValidationData(null);
         setTimeout(() => setShowSuccessNotification(false), 3000);
       } else {
         alert(result.message || result.errors?.join?.(', ') || 'Failed to save bank account');
@@ -533,22 +559,17 @@ const Payout = () => {
                       <div className="mt-4 p-4 bg-gray-50 border border-gray-200 rounded-lg space-y-4">
                         <div>
                           <label className="block text-sm font-medium text-gray-700 mb-2">
-                            Bank Name <span className="text-red-500">*</span>
+                            Mobile Number <span className="text-red-500">*</span>
                           </label>
-                          <select
-                            value={newBankAccount.bankName}
-                            onChange={(e) =>
-                              setNewBankAccount({ ...newBankAccount, bankName: e.target.value })
-                            }
-                            className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 text-gray-900 bg-white"
-                          >
-                            <option value="">-- Select Bank --</option>
-                            {bankNames.map((bank) => (
-                              <option key={bank} value={bank}>
-                                {bank}
-                              </option>
-                            ))}
-                          </select>
+                          <Input
+                            value={newBankAccount.mobileNumber}
+                            onChange={(e) => {
+                              const value = e.target.value.replace(/\D/g, '').slice(0, 10);
+                              setNewBankAccount({ ...newBankAccount, mobileNumber: value });
+                            }}
+                            placeholder="Enter 10-digit mobile number"
+                            maxLength={10}
+                          />
                         </div>
 
                         <div>
@@ -558,7 +579,7 @@ const Payout = () => {
                           <Input
                             value={newBankAccount.ifsc}
                             onChange={(e) => {
-                              const value = e.target.value.toUpperCase().replace(/[^A-Z0-9]/g, '');
+                              const value = e.target.value.toUpperCase().replace(/[^A-Z0-9]/g, '').slice(0, 11);
                               setNewBankAccount({ ...newBankAccount, ifsc: value });
                             }}
                             placeholder="Enter IFSC code"
@@ -584,8 +605,8 @@ const Payout = () => {
                           onClick={handleValidateAccount}
                           disabled={
                             validatingAccount ||
-                            !newBankAccount.bankName ||
-                            !newBankAccount.ifsc ||
+                            newBankAccount.ifsc.length !== 11 ||
+                            newBankAccount.mobileNumber.length !== 10 ||
                             !newBankAccount.accountNumber
                           }
                           loading={validatingAccount}
@@ -721,17 +742,31 @@ const Payout = () => {
                 <p className="text-sm text-gray-600 mb-2">Beneficiary Name:</p>
                 <p className="text-xl font-bold text-gray-900">{validatedBeneficiary}</p>
                 <p className="text-sm text-gray-600 mt-2">
-                  Account: {formatAccountNumber(newBankAccount.accountNumber)}
+                  Account: {newBankAccount.accountNumber}
                 </p>
-                <p className="text-sm text-gray-600">IFSC: {newBankAccount.ifsc}</p>
-                <p className="text-sm text-gray-600">Bank: {newBankAccount.bankName}</p>
+                {newBankAccount.mobileNumber && (
+                  <p className="text-sm text-gray-600">Mobile: {newBankAccount.mobileNumber}</p>
+                )}
+                <p className="text-sm text-gray-600">
+                  IFSC: {(validationData?.ifsc || newBankAccount.ifsc).toUpperCase()}
+                </p>
+                {(validationData?.bank_name ||
+                  validationData?.verification_details?.bank_name ||
+                  validationData?.verification_details?.ifsc_details?.bank) && (
+                  <p className="text-sm text-gray-600">
+                    Bank:{' '}
+                    {validationData?.bank_name ||
+                      validationData?.verification_details?.bank_name ||
+                      validationData?.verification_details?.ifsc_details?.bank}
+                  </p>
+                )}
               </div>
 
               <div className="flex space-x-3">
                 <Button
                   onClick={() => {
                     setShowValidationModal(false);
-                    setValidatedBeneficiary(null);
+                    setValidationData(null);
                   }}
                   variant="outline"
                   size="lg"

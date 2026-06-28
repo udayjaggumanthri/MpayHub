@@ -174,6 +174,24 @@ class UserViewSet(viewsets.ModelViewSet):
                     'message': str(e),
                     'errors': []
                 }, status=status.HTTP_403_FORBIDDEN)
+            except Exception as e:
+                from django.db import IntegrityError
+
+                if isinstance(e, IntegrityError):
+                    logger.exception('User create failed: integrity error')
+                    return Response({
+                        'success': False,
+                        'data': None,
+                        'message': 'Could not assign a unique user ID. Please retry.',
+                        'errors': [str(e)],
+                    }, status=status.HTTP_400_BAD_REQUEST)
+                logger.exception('User create failed')
+                return Response({
+                    'success': False,
+                    'data': None,
+                    'message': 'User creation failed',
+                    'errors': [str(e)],
+                }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
         
         return Response({
             'success': False,

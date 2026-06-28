@@ -1898,11 +1898,12 @@ export const bankAccountsAPI = {
    * Validate Bank Account
    * POST /api/bank-accounts/validate/
    */
-  validateBankAccount: async (accountNumber, ifsc) => {
+  validateBankAccount: async (accountNumber, ifsc, mobileNumber) => {
     try {
       const response = await apiClient.post('/bank-accounts/validate/', {
         account_number: accountNumber,
         ifsc,
+        mobile_number: mobileNumber,
       });
       return extractData(response);
     } catch (error) {

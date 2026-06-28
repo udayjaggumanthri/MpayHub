@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { contactsAPI } from '../../services/api';
-import { mapContactRow, contactRoleLabel } from '../../utils/contactsHelpers';
+import { mapContactRow } from '../../utils/contactsHelpers';
 import Input from '../common/Input';
 import { FaUser, FaSpinner } from 'react-icons/fa6';
 
@@ -156,9 +156,7 @@ const ContactSearchTypeahead = ({
               {!loading && suggestions.length === 0 && qLen >= MIN_QUERY ? (
                 <li className="px-4 py-3 text-sm text-gray-500">No matching contacts</li>
               ) : null}
-              {suggestions.map((row) => {
-                const role = contactRoleLabel(row.contact_role);
-                return (
+              {suggestions.map((row) => (
                   <li key={row.id} role="option" aria-selected="false">
                     <button
                       type="button"
@@ -171,11 +169,9 @@ const ContactSearchTypeahead = ({
                       {row.email ? (
                         <span className="text-xs text-gray-500 truncate max-w-full">{row.email}</span>
                       ) : null}
-                      {role ? <span className="text-xs text-blue-600">{role}</span> : null}
                     </button>
                   </li>
-                );
-              })}
+                ))}
             </ul>
           )}
         </div>

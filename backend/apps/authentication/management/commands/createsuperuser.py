@@ -126,8 +126,7 @@ class Command(BaseCommand):
         try:
             with transaction.atomic(using=database):
                 # Generate user_id
-                existing_user_ids = list(User.objects.filter(role='Admin').values_list('user_id', flat=True))
-                user_id = generate_user_id('Admin', existing_user_ids)
+                user_id = generate_user_id('Admin')
                 
                 # Create user
                 user = db_manager.create_superuser(

@@ -99,9 +99,6 @@ const BeneficiarySelector = ({ onSelect, selectedBeneficiary }) => {
                   {contact.email ? (
                     <p className="text-xs text-gray-400 mt-0.5">{contact.email}</p>
                   ) : null}
-                  {contact.contactRoleLabel ? (
-                    <p className="text-xs text-blue-600 mt-0.5">{contact.contactRoleLabel}</p>
-                  ) : null}
                 </button>
               ))
             )}
@@ -116,9 +113,6 @@ const BeneficiarySelector = ({ onSelect, selectedBeneficiary }) => {
           <p className="text-sm text-gray-600">{selectedBeneficiary.phone}</p>
           {selectedBeneficiary.email ? (
             <p className="text-sm text-gray-600">{selectedBeneficiary.email}</p>
-          ) : null}
-          {selectedBeneficiary.contactRoleLabel ? (
-            <p className="text-xs text-blue-700 mt-1">{selectedBeneficiary.contactRoleLabel}</p>
           ) : null}
         </div>
       )}

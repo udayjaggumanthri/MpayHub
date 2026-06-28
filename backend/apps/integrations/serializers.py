@@ -17,6 +17,7 @@ REQUIRED_SECRETS_BY_PROVIDER = {
     'pan_verify': ['api_key'],
     'cashfree_pan': ['client_id', 'client_secret'],
     'cashfree_digilocker': ['client_id', 'client_secret'],
+    'cashfree_bav': ['client_id', 'client_secret'],
     'razorpay': ['key_id', 'key_secret'],
     'payu': ['merchant_key', 'merchant_salt'],
 }
@@ -119,6 +120,18 @@ class ApiMasterSerializer(serializers.ModelSerializer):
                         raise serializers.ValidationError(
                             {'config_json': ['redirect_url must start with https://']}
                         )
+        if provider_type == 'banking' and provider_code == 'cashfree_bav':
+            cfg = attrs.get('config_json', getattr(instance, 'config_json', None) or {})
+            if not isinstance(cfg, dict):
+                cfg = {}
+            timeout = cfg.get('timeout', 15)
+            try:
+                if int(timeout) < 3 or int(timeout) > 45:
+                    raise ValueError('out of range')
+            except (TypeError, ValueError):
+                raise serializers.ValidationError(
+                    {'config_json': ['timeout must be an integer between 3 and 45.']}
+                )
         if provider_type == 'kyc' and kyc_service and not is_default:
             active_for_service = ApiMaster.objects.filter(
                 provider_type='kyc',

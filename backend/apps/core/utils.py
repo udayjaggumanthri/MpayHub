@@ -36,17 +36,7 @@ def generate_service_id(transaction_type):
     return f"{prefix}{date_str}{random_number}"
 
 
-def generate_user_id(role, existing_user_ids):
-    """
-    Generate a sequential user ID based on role.
-    
-    Format:
-    - Admin: ADMIN{number}
-    - Super Distributor: SD{number}
-    - Master Distributor: MD{number}
-    - Distributor: DT{number}
-    - Retailer: R{number}
-    """
+def _role_user_id_prefix(role: str) -> str:
     role_prefix_map = {
         'Admin': 'ADMIN',
         'Super Distributor': 'SD',
@@ -54,25 +44,45 @@ def generate_user_id(role, existing_user_ids):
         'Distributor': 'DT',
         'Retailer': 'R',
     }
-    
-    prefix = role_prefix_map.get(role, 'USER')
-    
-    # Extract existing numbers for this role
+    return role_prefix_map.get(role, 'USER')
+
+
+def generate_user_id(role, existing_user_ids=None):
+    """
+    Generate the next sequential user_id for a role.
+
+    ``user_id`` is globally unique in the database (not per role). When
+    ``existing_user_ids`` is omitted, all rows with this role's prefix are
+    considered — including users whose role was changed but user_id kept stable.
+
+    Format:
+    - Admin: ADMIN{number}
+    - Super Distributor: SD{number}
+    - Master Distributor: MD{number}
+    - Distributor: DT{number}
+    - Retailer: R{number}
+    """
+    prefix = _role_user_id_prefix(role)
+
+    if existing_user_ids is None:
+        from apps.authentication.models import User
+
+        existing_user_ids = User.objects.filter(user_id__startswith=prefix).values_list(
+            'user_id', flat=True
+        )
+
     existing_numbers = []
     for user_id in existing_user_ids:
-        # Skip None values
-        if user_id is None:
+        if not user_id:
             continue
-        if user_id.startswith(prefix):
-            try:
-                number = int(user_id[len(prefix):])
-                existing_numbers.append(number)
-            except ValueError:
-                continue
-    
-    # Get next sequential number
+        if not str(user_id).startswith(prefix):
+            continue
+        suffix = str(user_id)[len(prefix):]
+        if not suffix.isdigit():
+            continue
+        existing_numbers.append(int(suffix))
+
     next_number = max(existing_numbers) + 1 if existing_numbers else 1
-    
     return f"{prefix}{next_number}"
 
 
