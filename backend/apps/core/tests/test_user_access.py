@@ -87,3 +87,16 @@ class UserAccessMatrixTests(TestCase):
         )
         self.assertFalse(user_may_pay_in(admin))
         self.assertFalse(user_may_pay_out(admin))
+
+    def test_super_distributor_may_use_financial_apis(self):
+        sd = User.objects.create_user(
+            phone='9333333301',
+            email='access-sd@test.com',
+            password='testpass123',
+            role='Super Distributor',
+            user_id='ACCSD1',
+        )
+        self.assertTrue(user_may_pay_in(sd))
+        self.assertTrue(user_may_pay_out(sd))
+        assert_can_pay_in(sd)
+        assert_can_pay_out(sd)

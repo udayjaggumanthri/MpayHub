@@ -3,6 +3,8 @@ Custom permission classes for the mPayhub platform.
 """
 from rest_framework import permissions
 
+from apps.users.hierarchy_policy import can_parent_create_child
+
 
 class IsOwner(permissions.BasePermission):
     """
@@ -70,8 +72,8 @@ class IsDistributorOrAbove(permissions.BasePermission):
 
 class IsHierarchy(permissions.BasePermission):
     """
-    Permission to check if user can access resources based on hierarchy.
-    Admin: all roles below; Super Distributor: D/R (skips MD tier for onboarding); Master Distributor: D/R; Distributor: R.
+    Permission to check if user can access resources based on hierarchy onboarding policy.
+    Admin: all roles below; each upline role may access direct-report role types per hierarchy_policy.
     """
     
     def has_permission(self, request, view):
@@ -101,21 +103,4 @@ class IsHierarchy(permissions.BasePermission):
         else:
             return False
         
-        # Check hierarchy
-        current_role = request.user.role
-        target_role = target_user.role
-        
-        hierarchy = {
-            'Admin': [
-                'Super Distributor',
-                'Master Distributor',
-                'Distributor',
-                'Retailer',
-            ],
-            'Super Distributor': ['Distributor', 'Retailer'],
-            'Master Distributor': ['Distributor', 'Retailer'],
-            'Distributor': ['Retailer'],
-            'Retailer': [],
-        }
-        
-        return target_role in hierarchy.get(current_role, [])
+        return can_parent_create_child(request.user.role, target_user.role)

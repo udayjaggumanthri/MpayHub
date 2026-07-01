@@ -2,7 +2,7 @@ import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import { useAuth } from '../../context/AuthContext';
 import { usersAPI, fundManagementAPI } from '../../services/api';
 import { validatePhone, validateEmail } from '../../utils/validators';
-import { canCreateRole, isAdminUser } from '../../utils/rolePermissions';
+import { creatableRolesFor, isAdminUser } from '../../utils/rolePermissions';
 import Card from '../common/Card';
 import FeedbackModal from '../common/FeedbackModal';
 import { FaBox, FaStar, FaTimes } from 'react-icons/fa';
@@ -62,12 +62,7 @@ const AddUser = ({ onCancel, onSuccess, initialRole = '' }) => {
 
   const availableRoles = useMemo(() => {
     if (!currentUser) return [];
-    const roles = [];
-    if (canCreateRole(currentUser.role, 'Super Distributor')) roles.push('Super Distributor');
-    if (canCreateRole(currentUser.role, 'Master Distributor')) roles.push('Master Distributor');
-    if (canCreateRole(currentUser.role, 'Distributor')) roles.push('Distributor');
-    if (canCreateRole(currentUser.role, 'Retailer')) roles.push('Retailer');
-    return roles;
+    return creatableRolesFor(currentUser.role);
   }, [currentUser]);
 
   useEffect(() => {

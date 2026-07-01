@@ -74,6 +74,17 @@ export const roleMenus = {
       icon: 'dashboard',
     },
     {
+      name: 'Bill Payment',
+      path: '/bill-payments',
+      icon: 'bbps-mnemonic',
+      submenu: [
+        { name: 'Pay Bill', path: '/bill-payments/pay' },
+        { name: 'Complaints', path: '/bill-payments/complaints' },
+        { name: 'Fund wallet', path: '/bill-payments/fund-wallet' },
+        { name: 'My Bills', path: '/bill-payments/my-bills' },
+      ],
+    },
+    {
       name: 'User Management',
       path: '/user-management',
       icon: 'users',
@@ -221,22 +232,33 @@ export const getMenuForRole = (role) => {
   return roleMenus[role] || roleMenus.Retailer;
 };
 
+/**
+ * Mirror of backend ``apps/users/hierarchy_policy.py`` — keep in sync when changing onboarding rules.
+ */
+export const HIERARCHY_ROLE_ORDER = [
+  'Admin',
+  'Super Distributor',
+  'Master Distributor',
+  'Distributor',
+  'Retailer',
+];
+
+export const CREATABLE_CHILD_ROLES = {
+  Admin: ['Super Distributor', 'Master Distributor', 'Distributor', 'Retailer'],
+  'Super Distributor': ['Master Distributor', 'Distributor', 'Retailer'],
+  'Master Distributor': ['Distributor', 'Retailer'],
+  Distributor: ['Retailer'],
+  Retailer: [],
+};
+
+export const creatableRolesFor = (currentUserRole) => {
+  const allowed = new Set(CREATABLE_CHILD_ROLES[currentUserRole] || []);
+  return HIERARCHY_ROLE_ORDER.filter((role) => allowed.has(role));
+};
+
 // Check if user can create a specific role
 export const canCreateRole = (currentUserRole, targetRole) => {
-  const permissions = {
-    Admin: [
-      'Super Distributor',
-      'Master Distributor',
-      'Distributor',
-      'Retailer',
-    ],
-    'Super Distributor': ['Distributor', 'Retailer'],
-    'Master Distributor': ['Distributor', 'Retailer'],
-    Distributor: ['Retailer'],
-    Retailer: [],
-  };
-
-  return permissions[currentUserRole]?.includes(targetRole) || false;
+  return (CREATABLE_CHILD_ROLES[currentUserRole] || []).includes(targetRole);
 };
 
 // Check if user can view commission wallet
@@ -250,17 +272,16 @@ export const canViewCommissionWallet = (role) => {
 };
 
 /**
- * Super Distributor: no personal load/payout/BBPS ops (downline management only).
- * Used for dashboard alternate quick actions.
+ * Platform roles blocked from personal pay-in, pay-out, and BBPS (mirrors backend FINANCIAL_TX_BLOCKED_ROLES).
  */
-export const isFinancialTxBlockedRole = (role) => role === 'Super Distributor';
+export const OPERATIONAL_FINANCE_BLOCKED_ROLES = ['Admin'];
 
-/**
- * Admin and Super Distributor cannot use operational fund/BBPS routes (load money, payout, bill pay, BBPS wallet).
- * Aligns ProtectedRoute `blockFinancialTransactions` with dashboard isolation for Admin.
- */
+/** True when role cannot use load-money, payout, or BBPS operational routes. */
 export const isOperationalFundBlockedRole = (role) =>
-  role === 'Admin' || role === 'Super Distributor';
+  OPERATIONAL_FINANCE_BLOCKED_ROLES.includes(role);
+
+/** Alias used by dashboard quick actions — same policy as operational fund block. */
+export const isFinancialTxBlockedRole = (role) => isOperationalFundBlockedRole(role);
 
 /** Admin UI: hide retailer/distributor-style money movement; show admin tools instead. */
 export const isAdminOperationalIsolationRole = (role) => role === 'Admin';

@@ -17,11 +17,10 @@ from apps.core.access_catalog import (
     access_error_detail,
 )
 
-# Roles that may onboard and earn commission but must not initiate wallet movements.
+# Platform operator roles — may manage users/reports but must not use agent wallets (pay-in, payout, BBPS).
 FINANCIAL_TX_BLOCKED_ROLES = frozenset(
     {
         'Admin',
-        'Super Distributor',
     }
 )
 

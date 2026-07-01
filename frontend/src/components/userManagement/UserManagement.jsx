@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { useAuth } from '../../context/AuthContext';
-import { canCreateRole } from '../../utils/rolePermissions';
+import { creatableRolesFor } from '../../utils/rolePermissions';
 import UserList from './UserList';
 import AddUser from './AddUser';
 
@@ -13,12 +13,7 @@ const UserManagement = () => {
   // Get available roles based on current user's role
   const availableRoles = React.useMemo(() => {
     if (!user) return [];
-    const roles = [];
-    if (canCreateRole(user.role, 'Super Distributor')) roles.push('Super Distributor');
-    if (canCreateRole(user.role, 'Master Distributor')) roles.push('Master Distributor');
-    if (canCreateRole(user.role, 'Distributor')) roles.push('Distributor');
-    if (canCreateRole(user.role, 'Retailer')) roles.push('Retailer');
-    return roles;
+    return creatableRolesFor(user.role);
   }, [user]);
 
   const handleCreateNew = (role = null) => {
@@ -109,7 +104,7 @@ const UserManagement = () => {
           <UserList
             role={activeRole === 'all' ? undefined : activeRole}
             onCreateNew={
-              activeRole !== 'all' && canCreateRole(user?.role, activeRole)
+              activeRole !== 'all' && availableRoles.includes(activeRole)
                 ? () => handleCreateNew(activeRole)
                 : null
             }

@@ -904,6 +904,19 @@ export const usersAPI = {
       return handleError(error);
     }
   },
+
+  /**
+   * Creatable roles for current user
+   * GET /api/users/creatable-roles/
+   */
+  getCreatableRoles: async () => {
+    try {
+      const response = await apiClient.get('/users/creatable-roles/');
+      return extractData(response);
+    } catch (error) {
+      return handleError(error);
+    }
+  },
 };
 
 // ==================== WALLETS APIs ====================

@@ -5,6 +5,7 @@ from django.db import models
 from django.conf import settings
 from apps.core.models import BaseModel
 from apps.authentication.models import User
+from apps.users.hierarchy_policy import can_parent_create_child, creatable_roles_for
 
 
 class UserProfile(BaseModel):
@@ -158,7 +159,7 @@ class KycProfileSyncAudit(BaseModel):
 class UserHierarchy(BaseModel):
     """
     User hierarchy model to track parent-child relationships.
-    Admin → Super Distributor → … → Distributor → Retailer (SD may onboard D/R directly without MD)
+    Admin → Super Distributor → Master Distributor → Distributor → Retailer
     """
     parent_user = models.ForeignKey(
         User,
@@ -183,25 +184,14 @@ class UserHierarchy(BaseModel):
     def __str__(self):
         return f"{self.parent_user.user_id} → {self.child_user.user_id}"
     
-    _ROLE_CREATE_MATRIX = {
-        'Admin': [
-            'Super Distributor',
-            'Master Distributor',
-            'Distributor',
-            'Retailer',
-        ],
-        'Super Distributor': ['Distributor', 'Retailer'],
-        'Master Distributor': ['Distributor', 'Retailer'],
-        'Distributor': ['Retailer'],
-        'Retailer': [],
-    }
-
     @classmethod
     def can_parent_role_create_child_role(cls, parent_role: str, child_role: str) -> bool:
         """Whether a user with parent_role may have a direct report with child_role."""
-        if not parent_role:
-            return False
-        return child_role in cls._ROLE_CREATE_MATRIX.get(parent_role, [])
+        return can_parent_create_child(parent_role, child_role)
+
+    @classmethod
+    def creatable_roles_for_parent(cls, parent_role: str) -> list[str]:
+        return creatable_roles_for(parent_role)
 
     @classmethod
     def can_create_role(cls, parent_user, target_role):

@@ -220,10 +220,9 @@ class SuperDistributorFinancialBlockTests(TestCase):
             last_name='D',
         )
 
-    def test_sd_may_not_transact(self):
-        self.assertFalse(user_may_perform_financial_txn(self.sd))
-        with self.assertRaises(PermissionDenied):
-            assert_can_perform_financial_txn(self.sd)
+    def test_sd_may_transact(self):
+        self.assertTrue(user_may_perform_financial_txn(self.sd))
+        assert_can_perform_financial_txn(self.sd)
 
     def test_retailer_may_transact(self):
         self.assertTrue(user_may_perform_financial_txn(self.retailer))
@@ -260,9 +259,9 @@ class MainToBbpsTransferTests(TestCase):
 
 
 class SuperDistributorOnboardingMatrixTests(TestCase):
-    def test_sd_cannot_create_master_distributor(self):
-        allowed = UserHierarchy._ROLE_CREATE_MATRIX.get('Super Distributor', [])
-        self.assertNotIn('Master Distributor', allowed)
+    def test_sd_can_create_master_distributor_distributor_retailer(self):
+        allowed = UserHierarchy.creatable_roles_for_parent('Super Distributor')
+        self.assertIn('Master Distributor', allowed)
         self.assertIn('Distributor', allowed)
         self.assertIn('Retailer', allowed)
 

@@ -31,7 +31,7 @@ from apps.users.services import (
     get_subordinates,
     get_viewable_user_ids,
 )
-from apps.core.exceptions import InvalidUserRole
+from apps.users.hierarchy_policy import creatable_roles_for, policy_snapshot
 from apps.wallets.views import build_wallet_summary
 
 logger = logging.getLogger(__name__)
@@ -333,6 +333,20 @@ class UserViewSet(viewsets.ModelViewSet):
             'data': {'users': serializer.data},
             'message': 'Subordinates retrieved successfully',
             'errors': []
+        }, status=status.HTTP_200_OK)
+
+    @action(detail=False, methods=['get'], url_path='creatable-roles')
+    def creatable_roles(self, request):
+        """Roles the current user may onboard as direct reports."""
+        roles = creatable_roles_for(getattr(request.user, 'role', None))
+        return Response({
+            'success': True,
+            'data': {
+                'roles': roles,
+                'policy': policy_snapshot(),
+            },
+            'message': 'Creatable roles retrieved successfully',
+            'errors': [],
         }, status=status.HTTP_200_OK)
 
     @action(detail=True, methods=['get'], url_path='wallets')
