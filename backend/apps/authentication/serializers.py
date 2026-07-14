@@ -230,17 +230,20 @@ class UserSerializer(serializers.ModelSerializer):
         kyc = KYC.objects.filter(user=obj).first()
         pan_ok = bool(kyc and kyc.pan_verified)
         ad_ok = bool(kyc and kyc.aadhaar_verified)
-        kyc_complete = bool(
-            kyc
-            and (
-                kyc.verification_status == 'verified'
-                or (pan_ok and ad_ok)
-            )
+        provider_complete = pan_ok and ad_ok
+        status = kyc.verification_status if kyc else 'pending'
+        # Active KYC requires Admin verification — provider checks alone are insufficient.
+        kyc_complete = bool(kyc and status == 'verified')
+        awaiting_admin_approval = bool(
+            kyc and status == 'awaiting_approval' and provider_complete
         )
         has_mpin = bool(obj.mpin_hash)
         return {
-            'kyc_status': kyc.verification_status if kyc else 'pending',
+            'kyc_status': status,
             'kyc_complete': kyc_complete,
+            'provider_kyc_complete': provider_complete,
+            'awaiting_admin_approval': awaiting_admin_approval,
+            'kyc_rejected': status == 'rejected',
             'pan_verified': pan_ok,
             'aadhaar_verified': ad_ok,
             'mpin_set': has_mpin,

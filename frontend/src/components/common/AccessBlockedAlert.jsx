@@ -5,16 +5,20 @@ import { FaCircleExclamation } from 'react-icons/fa6';
 /**
  * Shown only on the page the user was redirected to after a blocked route attempt.
  * Does not follow navigation to other modules (e.g. pay-in after a payout block).
+ * End-user wording is intentional: does not expose restriction/lock reasons.
  */
+const ACCESS_BLOCKED_USER_MESSAGE =
+  'Technical Error: Something went wrong, please contact us if the problem persists.';
+
 const AccessBlockedAlert = () => {
   const location = useLocation();
   const navigate = useNavigate();
   const [alert, setAlert] = useState(null);
 
   useEffect(() => {
-    if (location.state?.accessBlocked && location.state?.message) {
+    if (location.state?.accessBlocked) {
       setAlert({
-        message: String(location.state.message),
+        message: ACCESS_BLOCKED_USER_MESSAGE,
         showOnPath: location.pathname,
       });
       navigate(location.pathname, { replace: true, state: {} });
@@ -37,8 +41,7 @@ const AccessBlockedAlert = () => {
       <div className="flex gap-3">
         <FaCircleExclamation className="mt-0.5 shrink-0 text-amber-700" size={18} aria-hidden />
         <div className="min-w-0 flex-1">
-          <p className="font-semibold">Action not available</p>
-          <p className="mt-0.5 text-[13px] leading-relaxed opacity-90">{alert.message}</p>
+          <p className="font-semibold leading-relaxed">{alert.message}</p>
           <button
             type="button"
             className="mt-2 text-[12px] font-semibold text-amber-900 underline underline-offset-2"

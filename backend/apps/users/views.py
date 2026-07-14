@@ -21,9 +21,12 @@ from apps.users.serializers import (
     PANVerificationSerializer,
     AadhaarOTPSerializer,
     AadhaarOTPVerificationSerializer,
+    KycAdminDecisionSerializer,
 )
 from apps.users.services import (
     admin_change_user_role,
+    admin_approve_kyc,
+    admin_reject_kyc,
     apply_user_access_controls,
     create_user,
     delete_user_account,
@@ -473,6 +476,57 @@ class UserViewSet(viewsets.ModelViewSet):
                 'success': True,
                 'data': {'user': user_data},
                 'message': 'User role updated successfully',
+                'errors': [],
+            },
+            status=status.HTTP_200_OK,
+        )
+
+    @action(detail=True, methods=['post'], url_path='kyc-approval')
+    def kyc_approval(self, request, pk=None):
+        """Admin-only: approve or reject KYC after provider verification."""
+        if getattr(request.user, 'role', None) != 'Admin':
+            return Response(
+                {
+                    'success': False,
+                    'data': None,
+                    'message': 'Only administrators may approve or reject KYC.',
+                    'errors': [],
+                },
+                status=status.HTTP_403_FORBIDDEN,
+            )
+        instance = self.get_object()
+        serializer = KycAdminDecisionSerializer(data=request.data)
+        if not serializer.is_valid():
+            return Response(
+                {
+                    'success': False,
+                    'data': None,
+                    'message': 'Invalid KYC approval payload',
+                    'errors': serializer.errors,
+                },
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        decision = serializer.validated_data['decision']
+        notes = serializer.validated_data.get('notes') or ''
+        try:
+            if decision == 'approve':
+                admin_approve_kyc(actor=request.user, target_user=instance, notes=notes)
+                message = 'KYC approved. User can complete onboarding and activate their account.'
+            else:
+                admin_reject_kyc(actor=request.user, target_user=instance, notes=notes)
+                message = 'KYC rejected. User account remains inactive until KYC is approved.'
+        except ValueError as e:
+            return Response(
+                {'success': False, 'data': None, 'message': str(e), 'errors': []},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        instance.refresh_from_db()
+        user_data = UserDetailSerializer(instance, context=self.get_serializer_context()).data
+        return Response(
+            {
+                'success': True,
+                'data': {'user': user_data},
+                'message': message,
                 'errors': [],
             },
             status=status.HTTP_200_OK,

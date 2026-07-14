@@ -74,6 +74,76 @@ def list_checkout_gateways_for_package(package: PayInPackage):
     return []
 
 
+def checkout_option_key(package_id: int, gateway_id: int) -> str:
+    return f'{package_id}:{gateway_id}'
+
+
+def _serialize_checkout_option(
+    *,
+    package: PayInPackage,
+    gateway: PaymentGateway,
+    is_default: bool,
+    sort_order: int,
+) -> dict:
+    return {
+        'option_key': checkout_option_key(package.pk, gateway.id),
+        'package_id': package.pk,
+        'gateway_id': gateway.id,
+        'id': gateway.id,
+        'name': gateway.name,
+        'status': gateway.status,
+        'is_default': is_default,
+        'sort_order': sort_order,
+        'min_amount': str(package.min_amount),
+        'max_amount_per_txn': str(package.max_amount_per_txn),
+    }
+
+
+def list_payin_checkout_options_for_user(user) -> list[dict]:
+    """
+    Flatten all checkout gateways across packages assigned to the user.
+    Package is kept server-side for quotes/orders; UI shows gateway names only.
+    """
+    from apps.fund_management.services import get_user_accessible_packages
+
+    options: list[dict] = []
+    for package in get_user_accessible_packages(user):
+        links = package_gateway_links_queryset(package)
+        if links.exists():
+            for link in links:
+                gateway = link.payment_gateway
+                if not gateway or gateway.status != 'active':
+                    continue
+                options.append(
+                    _serialize_checkout_option(
+                        package=package,
+                        gateway=gateway,
+                        is_default=link.is_default,
+                        sort_order=link.sort_order,
+                    )
+                )
+            continue
+        if package.payment_gateway_id and package.payment_gateway.status == 'active':
+            options.append(
+                _serialize_checkout_option(
+                    package=package,
+                    gateway=package.payment_gateway,
+                    is_default=True,
+                    sort_order=0,
+                )
+            )
+
+    options.sort(
+        key=lambda row: (
+            0 if row.get('is_default') else 1,
+            row.get('sort_order', 0),
+            row.get('name') or '',
+            row.get('option_key') or '',
+        )
+    )
+    return options
+
+
 def resolve_payment_gateway_for_order(
     package: PayInPackage,
     gateway_id: Optional[int] = None,

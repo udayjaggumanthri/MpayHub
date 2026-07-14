@@ -10,6 +10,7 @@ app_name = 'fund_management'
 urlpatterns = [
     # Pay-in endpoints
     path('pay-in/packages/', views.pay_in_packages_view, name='pay-in-packages'),
+    path('pay-in/checkout-gateways/', views.pay_in_checkout_gateways_view, name='pay-in-checkout-gateways'),
     path(
         'pay-in/packages/<int:package_id>/gateways/',
         views.pay_in_package_gateways_view,

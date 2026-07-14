@@ -98,10 +98,44 @@ EMAIL_EVENT_CATALOG = [
         ),
     },
     {
+        'event_key': 'kyc.submitted.for_approval',
+        'module': 'kyc',
+        'label': 'KYC submitted for Admin approval',
+        'description': 'Sent when PAN and Aadhaar are verified and KYC awaits Admin review.',
+        'variable_schema': [
+            {'name': 'name', 'required': True, 'description': 'Display name'},
+            {'name': 'user_id', 'required': True, 'description': 'User ID'},
+            {'name': 'pan_masked', 'required': False, 'description': 'Masked PAN'},
+            {'name': 'verification_status', 'required': True, 'description': 'KYC status'},
+        ],
+        'sample_variables': {
+            'name': 'Retailer Name',
+            'user_id': 'RTL001',
+            'pan_masked': 'ABCDE****F',
+            'verification_status': 'awaiting_approval',
+        },
+        'default_subject': 'mPayhub — KYC submitted for review',
+        'default_body_html': (
+            '<p>Hello {{name}},</p>'
+            '<p>Your PAN and Aadhaar verification is complete. Your KYC is now '
+            '<strong>awaiting Admin approval</strong> before your account becomes active.</p>'
+            '<p>User ID: {{user_id}}</p>'
+            '<p>PAN: {{pan_masked}}</p>'
+            '<p>You will receive another email once an administrator reviews your KYC.</p>'
+        ),
+        'default_body_plain': (
+            'Hello {{name}},\n\n'
+            'Your PAN and Aadhaar verification is complete. Your KYC is awaiting Admin approval '
+            'before your account becomes active.\n'
+            'User ID: {{user_id}}\n'
+            'PAN: {{pan_masked}}\n'
+        ),
+    },
+    {
         'event_key': 'kyc.verification.complete',
         'module': 'kyc',
         'label': 'KYC verification complete',
-        'description': 'Sent when both PAN and Aadhaar are verified.',
+        'description': 'Sent when an Admin approves KYC after provider verification.',
         'variable_schema': [
             {'name': 'name', 'required': True, 'description': 'Display name'},
             {'name': 'user_id', 'required': True, 'description': 'User ID'},
@@ -114,17 +148,55 @@ EMAIL_EVENT_CATALOG = [
             'pan_masked': 'ABCDE****F',
             'verification_status': 'verified',
         },
-        'default_subject': 'mPayhub — KYC verification successful',
+        'default_subject': 'mPayhub — KYC approved',
         'default_body_html': (
             '<p>Hello {{name}},</p>'
-            '<p>Your KYC verification is complete (status: <strong>{{verification_status}}</strong>).</p>'
+            '<p>Your KYC has been <strong>approved</strong> by an administrator '
+            '(status: <strong>{{verification_status}}</strong>).</p>'
             '<p>User ID: {{user_id}}</p>'
             '<p>PAN: {{pan_masked}}</p>'
-            '<p>You can now use all enabled mPayhub services.</p>'
+            '<p>Please complete MPIN setup (if not already done) to start using mPayhub services.</p>'
         ),
         'default_body_plain': (
             'Hello {{name}},\n\n'
-            'Your KYC verification is complete (status: {{verification_status}}).\n'
+            'Your KYC has been approved by an administrator (status: {{verification_status}}).\n'
+            'User ID: {{user_id}}\n'
+            'PAN: {{pan_masked}}\n'
+            'Please complete MPIN setup if needed to start using mPayhub services.\n'
+        ),
+    },
+    {
+        'event_key': 'kyc.verification.rejected',
+        'module': 'kyc',
+        'label': 'KYC verification rejected',
+        'description': 'Sent when an Admin rejects KYC after review.',
+        'variable_schema': [
+            {'name': 'name', 'required': True, 'description': 'Display name'},
+            {'name': 'user_id', 'required': True, 'description': 'User ID'},
+            {'name': 'pan_masked', 'required': False, 'description': 'Masked PAN'},
+            {'name': 'verification_status', 'required': True, 'description': 'KYC status'},
+            {'name': 'reason', 'required': True, 'description': 'Rejection reason'},
+        ],
+        'sample_variables': {
+            'name': 'Retailer Name',
+            'user_id': 'RTL001',
+            'pan_masked': 'ABCDE****F',
+            'verification_status': 'rejected',
+            'reason': 'Document mismatch — please contact support.',
+        },
+        'default_subject': 'mPayhub — KYC requires attention',
+        'default_body_html': (
+            '<p>Hello {{name}},</p>'
+            '<p>Your KYC review could not be approved (status: <strong>{{verification_status}}</strong>).</p>'
+            '<p>Reason: {{reason}}</p>'
+            '<p>User ID: {{user_id}}</p>'
+            '<p>PAN: {{pan_masked}}</p>'
+            '<p>Please contact your administrator or support for next steps.</p>'
+        ),
+        'default_body_plain': (
+            'Hello {{name}},\n\n'
+            'Your KYC review could not be approved (status: {{verification_status}}).\n'
+            'Reason: {{reason}}\n'
             'User ID: {{user_id}}\n'
             'PAN: {{pan_masked}}\n'
         ),

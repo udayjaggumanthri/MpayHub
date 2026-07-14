@@ -811,6 +811,22 @@ export const usersAPI = {
   },
 
   /**
+   * Admin only: approve or reject KYC after provider verification.
+   * POST /api/users/{id}/kyc-approval/
+   */
+  decideKycApproval: async (userId, decision, notes = '') => {
+    try {
+      const response = await apiClient.post(`/users/${userId}/kyc-approval/`, {
+        decision,
+        notes: notes || '',
+      });
+      return extractData(response);
+    } catch (error) {
+      return handleError(error);
+    }
+  },
+
+  /**
    * Admin only: enable or disable user account (blocks login and API access).
    * PATCH /api/users/{id}/active-status/
    */
@@ -985,6 +1001,19 @@ export const fundManagementAPI = {
   listPayInPackages: async () => {
     try {
       const response = await apiClient.get('/fund-management/pay-in/packages/');
+      return extractData(response);
+    } catch (error) {
+      return handleError(error);
+    }
+  },
+
+  /**
+   * All pay-in checkout gateways across assigned packages (gateway-only UI).
+   * GET /api/fund-management/pay-in/checkout-gateways/
+   */
+  listPayInCheckoutGateways: async () => {
+    try {
+      const response = await apiClient.get('/fund-management/pay-in/checkout-gateways/');
       return extractData(response);
     } catch (error) {
       return handleError(error);

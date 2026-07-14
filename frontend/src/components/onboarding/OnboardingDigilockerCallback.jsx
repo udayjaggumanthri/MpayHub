@@ -54,7 +54,7 @@ const OnboardingDigilockerCallback = () => {
           setProfileSyncOffer(offer);
           setProfileSyncOpen(true);
         } else {
-          setTimeout(() => navigate('/onboarding/mpin-setup', { replace: true }), 2500);
+          setTimeout(() => navigate('/onboarding/kyc', { replace: true }), 2500);
         }
         return true;
       }
@@ -116,7 +116,7 @@ const OnboardingDigilockerCallback = () => {
         await refreshUser();
         setProfileSyncOpen(false);
         setProfileSyncOffer(null);
-        navigate('/onboarding/mpin-setup', { replace: true });
+        navigate('/onboarding/kyc', { replace: true });
       }
     } finally {
       setProfileSyncLoading(false);
@@ -130,7 +130,7 @@ const OnboardingDigilockerCallback = () => {
       const res = await authAPI.declineProfileSync(profileSyncOffer.sync_token);
       setProfileSyncOpen(false);
       setProfileSyncOffer(null);
-      navigate('/onboarding/mpin-setup', { replace: true });
+      navigate('/onboarding/kyc', { replace: true });
       return { warning: res.message || 'Profile was not updated.' };
     } finally {
       setProfileSyncLoading(false);
@@ -148,7 +148,9 @@ const OnboardingDigilockerCallback = () => {
         {kycDetails ? (
           <div className="space-y-4">
             <KycDetailsCard details={kycDetails} title="Aadhaar verified — details from DigiLocker" />
-            <p className="text-sm text-gray-600 text-center">Continuing to MPIN setup…</p>
+            <p className="text-sm text-gray-600 text-center">
+              Documents verified. Waiting for Admin approval before account activation…
+            </p>
           </div>
         ) : null}
 

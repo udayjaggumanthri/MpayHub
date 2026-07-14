@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { FaIdCard, FaLock } from 'react-icons/fa6';
+import { FaIdCard, FaLock, FaClock } from 'react-icons/fa6';
 import { useAuth } from '../../context/AuthContext';
 import { authAPI } from '../../services/api';
 import { validatePAN, validateAadhaar } from '../../utils/validators';
@@ -37,6 +37,11 @@ const OnboardingKYC = () => {
     }
     if (user.onboarding.kyc_complete) {
       navigate('/onboarding/mpin-setup', { replace: true });
+      return;
+    }
+    // Provider documents done — stay on this page for Admin approval / rejection messaging.
+    if (user.onboarding.awaiting_admin_approval || user.onboarding.kyc_rejected) {
+      setBootLoading(false);
       return;
     }
     if (user.onboarding.pan_verified) {
@@ -162,6 +167,61 @@ const OnboardingKYC = () => {
         <Card title="Complete KYC" subtitle="Loading your verification status…" padding="lg">
           <div className="flex justify-center py-8">
             <div className="h-8 w-8 animate-spin rounded-full border-2 border-indigo-600 border-t-transparent" />
+          </div>
+        </Card>
+      </div>
+    );
+  }
+
+  if (user?.onboarding?.awaiting_admin_approval) {
+    return (
+      <div className="max-w-lg mx-auto px-4 py-8">
+        <Card
+          title="KYC under review"
+          subtitle="Your documents were verified. An administrator must approve your KYC before your account becomes active."
+          padding="lg"
+        >
+          <div className="rounded-xl border border-amber-200 bg-amber-50/70 px-4 py-4 space-y-3">
+            <div className="flex items-start gap-3">
+              <FaClock className="text-amber-600 shrink-0 mt-0.5" size={20} />
+              <div className="text-sm text-amber-950 space-y-2">
+                <p className="font-semibold">Awaiting Admin approval</p>
+                <p>
+                  PAN and Aadhaar checks are complete. You will be able to set your MPIN and use
+                  services once an administrator approves your KYC.
+                </p>
+                <ul className="list-disc list-inside space-y-1 text-amber-900/90">
+                  <li>PAN verified</li>
+                  <li>Aadhaar verified</li>
+                  <li>Manual Admin review pending</li>
+                </ul>
+              </div>
+            </div>
+            <Button type="button" variant="outline" size="md" fullWidth onClick={() => refreshUser()}>
+              Refresh status
+            </Button>
+          </div>
+        </Card>
+      </div>
+    );
+  }
+
+  if (user?.onboarding?.kyc_rejected) {
+    return (
+      <div className="max-w-lg mx-auto px-4 py-8">
+        <Card
+          title="KYC needs attention"
+          subtitle="An administrator reviewed your KYC and could not approve it yet."
+          padding="lg"
+        >
+          <div className="rounded-xl border border-red-200 bg-red-50/70 px-4 py-4 space-y-3">
+            <p className="text-sm text-red-900">
+              Please contact your administrator or support for next steps. Your account will remain
+              inactive until KYC is approved.
+            </p>
+            <Button type="button" variant="outline" size="md" fullWidth onClick={() => refreshUser()}>
+              Refresh status
+            </Button>
           </div>
         </Card>
       </div>

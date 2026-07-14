@@ -29,15 +29,15 @@ class KycEmailNotificationTests(TestCase):
         )
 
     @patch('apps.notifications.services.email_dispatch.EmailNotificationService.dispatch')
-    def test_sync_kyc_dispatches_once_on_verified(self, mock_dispatch):
+    def test_sync_kyc_dispatches_once_on_awaiting_approval(self, mock_dispatch):
         sync_kyc_verification_status(self.kyc)
         self.kyc.refresh_from_db()
-        self.assertEqual(self.kyc.verification_status, 'verified')
+        self.assertEqual(self.kyc.verification_status, 'awaiting_approval')
         mock_dispatch.assert_called_once()
         args, kwargs = mock_dispatch.call_args
-        self.assertEqual(args[0], 'kyc.verification.complete')
+        self.assertEqual(args[0], 'kyc.submitted.for_approval')
         self.assertEqual(args[1], 'kyc@test.com')
-        self.assertEqual(kwargs['idempotency_key'], f'kyc:verified:{self.user.pk}')
+        self.assertEqual(kwargs['idempotency_key'], f'kyc:awaiting_approval:{self.user.pk}')
 
         mock_dispatch.reset_mock()
         sync_kyc_verification_status(self.kyc)

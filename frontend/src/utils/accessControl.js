@@ -229,33 +229,36 @@ export function getAccessRedirectMessage(user, path, maintenance = null) {
   return getBlockedActionNotice(user, path, maintenance);
 }
 
-const CONTACT_ADMIN = 'Contact your administrator if you need access.';
+/** Neutral end-user copy when Pay-Out / BBPS / other blocked financial routes are attempted. */
+export const ACCESS_BLOCKED_TECHNICAL_MESSAGE =
+  'Technical Error: Something went wrong, please contact us if the problem persists.';
 
 /** Contextual notice when user attempts a route or action they cannot use. */
 export function getBlockedActionNotice(user, path, maintenance = null) {
-  if (!user) return null;
+  if (!user) return ACCESS_BLOCKED_TECHNICAL_MESSAGE;
 
   if (isUserRestricted(user) && isFinancialAppPath(path)) {
-    return `This action is not available on your account. ${CONTACT_ADMIN}`;
+    return ACCESS_BLOCKED_TECHNICAL_MESSAGE;
   }
   if (
     shouldShowPayInOnlyNotice(user, maintenance) &&
     isFinancialAppPath(path) &&
     !isPayInAllowedPath(path)
   ) {
-    return `This action is not available on your account. ${CONTACT_ADMIN}`;
+    return ACCESS_BLOCKED_TECHNICAL_MESSAGE;
   }
   if (isPaymentsLocked(user) && isFinancialAppPath(path) && !isPayInAllowedPath(path)) {
-    return `Payments are locked on your account. ${CONTACT_ADMIN}`;
+    return ACCESS_BLOCKED_TECHNICAL_MESSAGE;
   }
   if (shouldBlockPathForUser(user, path)) {
-    return `This action is not available. ${CONTACT_ADMIN}`;
+    return ACCESS_BLOCKED_TECHNICAL_MESSAGE;
   }
-  return `This action is not available. ${CONTACT_ADMIN}`;
+  return ACCESS_BLOCKED_TECHNICAL_MESSAGE;
 }
 
 /**
  * Page-level block notice (e.g. payout screen) — shown only when user navigates there.
+ * End-user wording does not expose restriction/lock reasons.
  * @param {'pay_in' | 'pay_out'} mode
  */
 export function getPageAccessBlockNotice(user, mode = 'pay_out', maintenance = null) {
@@ -264,29 +267,17 @@ export function getPageAccessBlockNotice(user, mode = 'pay_out', maintenance = n
   if (mode === 'pay_in') {
     if (isUserRestricted(user) || !canUsePayInModule(user, maintenance)) {
       return {
-        title: 'Action not available',
-        message: `Pay-in is not available on your account. ${CONTACT_ADMIN}`,
+        title: 'Technical Error',
+        message: 'Something went wrong, please contact us if the problem persists.',
       };
     }
     return null;
   }
 
-  if (isUserRestricted(user)) {
+  if (isUserRestricted(user) || isPaymentsLocked(user) || shouldShowPayInOnlyNotice(user, maintenance)) {
     return {
-      title: 'Action not available',
-      message: `This action is not available on your account. ${CONTACT_ADMIN}`,
-    };
-  }
-  if (isPaymentsLocked(user)) {
-    return {
-      title: 'Action not available',
-      message: `Payments are locked on your account. ${CONTACT_ADMIN}`,
-    };
-  }
-  if (shouldShowPayInOnlyNotice(user, maintenance)) {
-    return {
-      title: 'Action not available',
-      message: `This action is not available on your account. ${CONTACT_ADMIN}`,
+      title: 'Technical Error',
+      message: 'Something went wrong, please contact us if the problem persists.',
     };
   }
   return null;

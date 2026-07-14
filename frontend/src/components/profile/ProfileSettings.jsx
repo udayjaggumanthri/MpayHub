@@ -369,9 +369,17 @@ const ProfileSettings = () => {
                 <>
                   <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
                     {[
-                      { label: 'PAN', done: ob.pan_verified },
-                      { label: 'Aadhaar', done: ob.aadhaar_verified },
-                      { label: 'KYC overall', done: ob.kyc_complete },
+                      { label: 'PAN', done: ob.pan_verified, pendingLabel: 'Pending' },
+                      { label: 'Aadhaar', done: ob.aadhaar_verified, pendingLabel: 'Pending' },
+                      {
+                        label: 'KYC overall',
+                        done: ob.kyc_complete,
+                        pendingLabel: ob.awaiting_admin_approval
+                          ? 'Awaiting Admin approval'
+                          : ob.kyc_rejected
+                            ? 'Rejected'
+                            : 'Pending',
+                      },
                     ].map((item) => (
                       <div
                         key={item.label}
@@ -387,7 +395,7 @@ const ProfileSettings = () => {
                         <div>
                           <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">{item.label}</p>
                           <p className={`text-sm font-semibold ${item.done ? 'text-emerald-700' : 'text-amber-700'}`}>
-                            {item.done ? 'Verified' : 'Pending'}
+                            {item.done ? 'Verified' : item.pendingLabel}
                           </p>
                         </div>
                       </div>
@@ -400,11 +408,15 @@ const ProfileSettings = () => {
                       onClick={() => navigate('/onboarding/kyc')}
                       className="px-5 py-3 bg-indigo-600 text-white font-semibold rounded-lg hover:bg-indigo-700"
                     >
-                      Continue verification
+                      {ob.awaiting_admin_approval
+                        ? 'View approval status'
+                        : ob.kyc_rejected
+                          ? 'View KYC status'
+                          : 'Continue verification'}
                     </button>
                   ) : (
                     <p className="text-sm text-emerald-700 bg-emerald-50 border border-emerald-100 rounded-xl px-4 py-3">
-                      Your identity verification is complete.
+                      Your identity verification is complete and Admin-approved.
                     </p>
                   )}
 

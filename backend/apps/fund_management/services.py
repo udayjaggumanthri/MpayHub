@@ -251,6 +251,9 @@ def create_payin_order(
     )
     if not package:
         raise ValueError('Invalid or inactive package')
+    accessible = get_user_accessible_packages(user)
+    if not accessible.filter(pk=package.pk).exists():
+        raise ValueError('Package not available for your account')
     if package.provider == 'payu':
         raise TransactionFailed('PayU checkout is not enabled yet. Use a mock or Razorpay package.')
 

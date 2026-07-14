@@ -39,9 +39,15 @@ class UserProfile(BaseModel):
 class KYC(BaseModel):
     """
     KYC (Know Your Customer) information for users.
+
+    Lifecycle:
+      pending → (PAN + Aadhaar provider-verified) → awaiting_approval
+      → Admin approve → verified | Admin reject → rejected
+    Account readiness (onboarding.kyc_complete / account_ready) requires verified.
     """
     VERIFICATION_STATUS_CHOICES = [
         ('pending', 'Pending'),
+        ('awaiting_approval', 'Awaiting Approval'),
         ('verified', 'Verified'),
         ('rejected', 'Rejected'),
     ]
@@ -60,9 +66,20 @@ class KYC(BaseModel):
     verification_status = models.CharField(
         max_length=20,
         choices=VERIFICATION_STATUS_CHOICES,
-        default='pending'
+        default='pending',
+        db_index=True,
     )
     verified_identity = models.JSONField(default=dict, blank=True)
+    # Admin decision metadata (denormalized for list/filter; history in KycApprovalAudit)
+    decided_by = models.ForeignKey(
+        User,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name='kyc_decisions',
+    )
+    decided_at = models.DateTimeField(null=True, blank=True)
+    decision_notes = models.TextField(blank=True, default='')
 
     class Meta:
         db_table = 'kyc'
@@ -70,6 +87,19 @@ class KYC(BaseModel):
     
     def __str__(self):
         return f"KYC for {self.user.user_id}"
+
+    @property
+    def provider_complete(self):
+        """True when both identity providers have verified documents."""
+        return bool(self.pan_verified and self.aadhaar_verified)
+
+    @property
+    def awaiting_admin_approval(self):
+        return self.verification_status == 'awaiting_approval' and self.provider_complete
+
+    @property
+    def is_admin_verified(self):
+        return self.verification_status == 'verified'
 
 
 class KycVerificationAttempt(BaseModel):
@@ -104,6 +134,42 @@ class KycDigilockerSession(BaseModel):
     class Meta:
         db_table = 'kyc_digilocker_sessions'
         ordering = ['-created_at']
+
+
+class KycApprovalAudit(BaseModel):
+    """
+    Immutable audit trail for Admin KYC approve/reject decisions.
+    Supports replay, compliance review, and future multi-step approval chains.
+    """
+    DECISION_CHOICES = [
+        ('approve', 'Approve'),
+        ('reject', 'Reject'),
+    ]
+
+    user = models.ForeignKey(User, on_delete=models.CASCADE, related_name='kyc_approval_audits')
+    kyc = models.ForeignKey(KYC, on_delete=models.CASCADE, related_name='approval_audits')
+    decision = models.CharField(max_length=20, choices=DECISION_CHOICES, db_index=True)
+    previous_status = models.CharField(max_length=20, blank=True, default='')
+    new_status = models.CharField(max_length=20, blank=True, default='')
+    decided_by = models.ForeignKey(
+        User,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name='kyc_approval_actions',
+    )
+    notes = models.TextField(blank=True, default='')
+
+    class Meta:
+        db_table = 'kyc_approval_audits'
+        ordering = ['-created_at']
+        indexes = [
+            models.Index(fields=['user', 'created_at']),
+            models.Index(fields=['decision', 'created_at']),
+        ]
+
+    def __str__(self):
+        return f"KYC {self.decision} for {self.user_id} by {self.decided_by_id}"
 
 
 class KycProfileSyncAudit(BaseModel):

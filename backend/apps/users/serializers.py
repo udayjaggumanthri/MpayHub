@@ -27,20 +27,31 @@ class UserProfileSerializer(serializers.ModelSerializer):
 
 class KYCSerializer(serializers.ModelSerializer):
     """Full KYC payload (identifiers visible). Restrict to Admin-facing detail responses."""
+    decided_by_user_id = serializers.SerializerMethodField()
+    decided_by_name = serializers.SerializerMethodField()
 
     class Meta:
         model = KYC
         fields = [
             'id', 'pan', 'pan_verified', 'pan_verified_at',
             'aadhaar', 'aadhaar_verified', 'aadhaar_verified_at',
-            'verification_status', 'created_at'
+            'verification_status', 'decided_at', 'decision_notes',
+            'decided_by_user_id', 'decided_by_name', 'created_at',
         ]
-        read_only_fields = [
-            'id', 'pan', 'aadhaar',
-            'pan_verified', 'pan_verified_at',
-            'aadhaar_verified', 'aadhaar_verified_at',
-            'verification_status', 'created_at',
-        ]
+        read_only_fields = fields
+
+    def get_decided_by_user_id(self, obj):
+        actor = getattr(obj, 'decided_by', None)
+        return getattr(actor, 'user_id', None) if actor else None
+
+    def get_decided_by_name(self, obj):
+        actor = getattr(obj, 'decided_by', None)
+        if not actor:
+            return None
+        return (
+            f"{getattr(actor, 'first_name', '') or ''} {getattr(actor, 'last_name', '') or ''}".strip()
+            or None
+        )
 
 
 class KYCListSerializer(serializers.ModelSerializer):
@@ -82,6 +93,21 @@ class KYCMaskedSerializer(serializers.ModelSerializer):
         if len(a) <= 8:
             return '****'
         return f"{a[:4]}****{a[-4:]}"
+
+
+class KycAdminDecisionSerializer(serializers.Serializer):
+    """Admin body for POST .../users/{id}/kyc-approval/."""
+
+    decision = serializers.ChoiceField(choices=['approve', 'reject'])
+    notes = serializers.CharField(required=False, allow_blank=True, max_length=2000)
+
+    def validate(self, attrs):
+        decision = attrs.get('decision')
+        notes = (attrs.get('notes') or '').strip()
+        if decision == 'reject' and not notes:
+            raise serializers.ValidationError({'notes': 'A rejection reason is required.'})
+        attrs['notes'] = notes
+        return attrs
 
 
 class UserCreateSerializer(serializers.Serializer):

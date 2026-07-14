@@ -55,6 +55,26 @@ logger = logging.getLogger(__name__)
 
 @api_view(['GET'])
 @permission_classes([IsAuthenticated])
+def pay_in_checkout_gateways_view(request):
+    """GET /api/fund-management/pay-in/checkout-gateways/ — all gateways across assigned packages."""
+    assert_can_pay_in(request.user)
+    assert_module_available(MODULE_PAY_IN)
+    from apps.fund_management.package_gateways import list_payin_checkout_options_for_user
+
+    gateways = list_payin_checkout_options_for_user(request.user)
+    return Response(
+        {
+            'success': True,
+            'data': {'gateways': gateways},
+            'message': 'OK',
+            'errors': [],
+        },
+        status=status.HTTP_200_OK,
+    )
+
+
+@api_view(['GET'])
+@permission_classes([IsAuthenticated])
 def pay_in_package_gateways_view(request, package_id):
     """GET /api/fund-management/pay-in/packages/<id>/gateways/ — checkout rails for a package."""
     assert_can_pay_in(request.user)
@@ -99,6 +119,11 @@ def pay_in_quote_view(request):
         return Response(
             {'success': False, 'data': None, 'message': 'Package not found', 'errors': []},
             status=status.HTTP_404_NOT_FOUND,
+        )
+    if not get_user_accessible_packages(request.user).filter(pk=pkg.pk).exists():
+        return Response(
+            {'success': False, 'data': None, 'message': 'Package not available for your account', 'errors': []},
+            status=status.HTTP_403_FORBIDDEN,
         )
     try:
         q = quote_payin(pkg, ser.validated_data['amount'], request.user)

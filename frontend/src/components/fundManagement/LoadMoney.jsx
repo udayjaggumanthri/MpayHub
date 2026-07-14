@@ -46,12 +46,9 @@ const LoadMoney = () => {
   const { refreshWallets } = useWallet();
   const [customerSearch, setCustomerSearch] = useState('');
   const [customerDetails, setCustomerDetails] = useState(null);
-  const [packages, setPackages] = useState([]);
-  const [packagesLoading, setPackagesLoading] = useState(true);
-  const [selectedPackageId, setSelectedPackageId] = useState('');
-  const [packageGateways, setPackageGateways] = useState([]);
-  const [gatewaysLoading, setGatewaysLoading] = useState(false);
-  const [selectedGatewayId, setSelectedGatewayId] = useState('');
+  const [checkoutGateways, setCheckoutGateways] = useState([]);
+  const [gatewaysLoading, setGatewaysLoading] = useState(true);
+  const [selectedCheckoutKey, setSelectedCheckoutKey] = useState('');
   const [gatewayRetryMode, setGatewayRetryMode] = useState(false);
   const [amount, setAmount] = useState('');
   const [quote, setQuote] = useState(null);
@@ -85,55 +82,32 @@ const LoadMoney = () => {
   useEffect(() => {
     let cancelled = false;
     (async () => {
-      setPackagesLoading(true);
-      const res = await fundManagementAPI.listPayInPackages();
-      if (cancelled) return;
-      const list = res.success && res.data?.packages ? res.data.packages : [];
-      setPackages(list);
-      setSelectedPackageId((prev) => {
-        if (prev && list.some((p) => String(p.id) === String(prev))) return prev;
-        return list.length ? String(list[0].id) : '';
-      });
-      setPackagesLoading(false);
-    })();
-    return () => {
-      cancelled = true;
-    };
-  }, []);
-
-  const selectedPackage = packages.find((p) => String(p.id) === String(selectedPackageId)) || null;
-  const selectedGateway =
-    packageGateways.find((g) => String(g.id) === String(selectedGatewayId)) || null;
-
-  const pickDefaultGatewayId = (list) => {
-    if (!list?.length) return '';
-    const def = list.find((g) => g.is_default) || list[0];
-    return String(def.id);
-  };
-
-  useEffect(() => {
-    if (!selectedPackageId) {
-      setPackageGateways([]);
-      setSelectedGatewayId('');
-      return undefined;
-    }
-    let cancelled = false;
-    (async () => {
       setGatewaysLoading(true);
-      const res = await fundManagementAPI.listPayInPackageGateways(Number(selectedPackageId));
+      const res = await fundManagementAPI.listPayInCheckoutGateways();
       if (cancelled) return;
       const list = res.success && res.data?.gateways ? res.data.gateways : [];
-      setPackageGateways(list);
-      setSelectedGatewayId((prev) => {
-        if (prev && list.some((g) => String(g.id) === String(prev))) return prev;
-        return pickDefaultGatewayId(list);
+      setCheckoutGateways(list);
+      setSelectedCheckoutKey((prev) => {
+        if (prev && list.some((g) => g.option_key === prev)) return prev;
+        if (!list.length) return '';
+        const def = list.find((g) => g.is_default) || list[0];
+        return def.option_key;
       });
       setGatewaysLoading(false);
     })();
     return () => {
       cancelled = true;
     };
-  }, [selectedPackageId]);
+  }, []);
+
+  const selectedCheckout =
+    checkoutGateways.find((g) => g.option_key === selectedCheckoutKey) || null;
+  const selectedPackageId = selectedCheckout?.package_id
+    ? String(selectedCheckout.package_id)
+    : '';
+  const selectedGatewayId = selectedCheckout?.gateway_id
+    ? String(selectedCheckout.gateway_id)
+    : '';
 
   useEffect(() => {
     if (!selectedPackageId || !amount) {
@@ -164,7 +138,7 @@ const LoadMoney = () => {
       }
     }, 350);
     return () => clearTimeout(t);
-  }, [selectedPackageId, amount]);
+  }, [selectedCheckoutKey, selectedPackageId, amount]);
 
   useEffect(() => {
     if (!isAdminUser(user)) setShowPriceBreakdown(false);
@@ -251,16 +225,12 @@ const LoadMoney = () => {
       alert('Please search and select a customer first');
       return;
     }
-    if (!selectedPackageId) {
-      alert('Please select a pay-in package');
+    if (!selectedCheckoutKey || !selectedPackageId) {
+      alert('Please select a payment gateway');
       return;
     }
     if (quoteError || !quote) {
       alert(quoteError || 'Wait for a valid price quote, or adjust the amount.');
-      return;
-    }
-    if (packageGateways.length > 0 && !selectedGatewayId) {
-      alert('Please select a payment gateway');
       return;
     }
     setShowPaymentModal(true);
@@ -275,8 +245,8 @@ const LoadMoney = () => {
   };
 
   const handleProceedToPayment = async () => {
-    if (!customerDetails?.id || !selectedPackageId) return;
-    if (packageGateways.length > 0 && !selectedGatewayId) {
+    if (!customerDetails?.id || !selectedCheckoutKey || !selectedPackageId) return;
+    if (checkoutGateways.length > 0 && !selectedGatewayId) {
       alert('Please select a payment gateway');
       return;
     }
@@ -442,7 +412,7 @@ const LoadMoney = () => {
         <div>
           <h1 className="text-2xl sm:text-3xl font-bold text-gray-900">Load Money</h1>
           <p className="mt-1 sm:mt-2 text-sm sm:text-base text-gray-600">
-            Add funds using an admin-configured pay-in package (fees shown before you pay). Pay-in history lives under{' '}
+            Add funds using your assigned payment gateway (fees shown before you pay). Pay-in history lives under{' '}
             <span className="font-medium text-gray-800">Reports → Pay In</span>.
           </p>
         </div>
@@ -523,77 +493,59 @@ const LoadMoney = () => {
 
       {customerDetails && (
         <>
-          <Card title="Pay-in package" subtitle="Fees follow the package profile set by operations" padding="lg">
+          <Card title="Payment gateway" subtitle="Choose how you want to pay in" padding="lg">
             <div className="space-y-3">
-              <label className="block text-sm font-medium text-gray-700 mb-2">
-                Package <span className="text-red-500">*</span>
-              </label>
-              {packagesLoading ? (
-                <p className="text-sm text-gray-600">Loading packages…</p>
-              ) : packages.length === 0 ? (
+              {gatewaysLoading ? (
+                <p className="text-sm text-gray-600">Loading payment gateways…</p>
+              ) : checkoutGateways.length === 0 ? (
                 <div className="p-4 bg-yellow-50 border border-yellow-200 rounded-lg flex items-center gap-2">
                   <FaCircleExclamation className="text-yellow-600 flex-shrink-0" size={20} />
-                  <p className="text-yellow-800 text-sm">No pay-in packages configured. Contact your administrator.</p>
+                  <p className="text-yellow-800 text-sm">
+                    No payment gateways are available on your account. Contact your administrator.
+                  </p>
                 </div>
               ) : (
                 <>
+                  <label className="block text-sm font-medium text-gray-700">
+                    Payment gateway <span className="text-red-500">*</span>
+                  </label>
                   <select
-                    value={selectedPackageId}
+                    value={selectedCheckoutKey}
                     onChange={(e) => {
-                      setSelectedPackageId(e.target.value);
+                      setSelectedCheckoutKey(e.target.value);
                       setGatewayRetryMode(false);
                     }}
                     className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 text-gray-900 bg-white"
                   >
-                    {packages.map((p) => (
-                      <option key={p.id} value={p.id}>
-                        {p.display_name} ({p.provider})
+                    {checkoutGateways.map((g) => (
+                      <option
+                        key={g.option_key}
+                        value={g.option_key}
+                        disabled={g.status && g.status !== 'active'}
+                      >
+                        {g.name}
+                        {g.is_default ? ' (default)' : ''}
+                        {g.status && g.status !== 'active' ? ` — ${g.status}` : ''}
                       </option>
                     ))}
                   </select>
-                  {selectedPackage && (
+                  {selectedCheckout && (
                     <p className="text-sm text-gray-500">
-                      Allowed amount: {formatCurrency(parseFloat(selectedPackage.min_amount))} –{' '}
-                      {formatCurrency(parseFloat(selectedPackage.max_amount_per_txn))} per transaction
+                      Allowed amount: {formatCurrency(parseFloat(selectedCheckout.min_amount))} –{' '}
+                      {formatCurrency(parseFloat(selectedCheckout.max_amount_per_txn))} per transaction
                     </p>
                   )}
+                  {selectedCheckout?.status && selectedCheckout.status !== 'active' ? (
+                    <p className="text-xs text-amber-700">
+                      This gateway may be unavailable. Consider choosing another option.
+                    </p>
+                  ) : null}
                   {gatewayRetryMode && (
                     <div className="mt-3 p-3 rounded-lg border border-amber-300 bg-amber-50 text-sm text-amber-900">
                       The previous gateway did not complete payment. Choose another gateway below and tap{' '}
-                      <strong>PAY NOW</strong> to try again with the same package and amount.
+                      <strong>PAY NOW</strong> to try again with the same amount.
                     </div>
                   )}
-                  {gatewaysLoading ? (
-                    <p className="text-sm text-gray-600 mt-3">Loading payment gateways…</p>
-                  ) : packageGateways.length > 0 ? (
-                    <div className="mt-4 space-y-2">
-                      <label className="block text-sm font-medium text-gray-700">
-                        Payment gateway <span className="text-red-500">*</span>
-                      </label>
-                      <select
-                        value={selectedGatewayId}
-                        onChange={(e) => setSelectedGatewayId(e.target.value)}
-                        className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 text-gray-900 bg-white"
-                      >
-                        {packageGateways.map((g) => (
-                          <option key={g.id} value={g.id} disabled={g.status && g.status !== 'active'}>
-                            {g.name}
-                            {g.is_default ? ' (default)' : ''}
-                            {g.status && g.status !== 'active' ? ` — ${g.status}` : ''}
-                          </option>
-                        ))}
-                      </select>
-                      {selectedGateway?.status && selectedGateway.status !== 'active' ? (
-                        <p className="text-xs text-amber-700">
-                          This gateway may be unavailable. Consider choosing another option.
-                        </p>
-                      ) : null}
-                    </div>
-                  ) : selectedPackageId && !gatewaysLoading ? (
-                    <p className="text-sm text-amber-800 mt-3">
-                      No active payment gateways are linked to this package. Contact your administrator.
-                    </p>
-                  ) : null}
                 </>
               )}
             </div>
@@ -715,8 +667,7 @@ const LoadMoney = () => {
                   payInMaintenance ||
                   !amount ||
                   parseFloat(amount) <= 0 ||
-                  !selectedPackageId ||
-                  (packageGateways.length > 0 && !selectedGatewayId) ||
+                  !selectedCheckoutKey ||
                   gatewaysLoading ||
                   !quote ||
                   !!quoteError ||
@@ -747,16 +698,10 @@ const LoadMoney = () => {
                   <span className="text-gray-600">Customer</span>
                   <span className="font-semibold text-gray-900">{customerDetails.name}</span>
                 </div>
-                <div className="flex justify-between">
-                  <span className="text-gray-600">Package</span>
-                  <span className="font-semibold text-gray-900 text-right max-w-[60%]">
-                    {selectedPackage?.display_name}
-                  </span>
-                </div>
-                {selectedGateway ? (
+                {selectedCheckout ? (
                   <div className="flex justify-between">
                     <span className="text-gray-600">Gateway</span>
-                    <span className="font-semibold text-gray-900 text-right max-w-[60%]">{selectedGateway.name}</span>
+                    <span className="font-semibold text-gray-900 text-right max-w-[60%]">{selectedCheckout.name}</span>
                   </div>
                 ) : null}
                 <div className="flex justify-between">

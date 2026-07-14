@@ -145,33 +145,195 @@ def delete_user_account(*, actor: User, target: User) -> str:
 
 
 def sync_kyc_verification_status(kyc):
-    """Set verification_status to verified when both PAN and Aadhaar are verified."""
+    """
+    After both PAN and Aadhaar provider checks succeed, move KYC to
+    awaiting_approval (Admin must approve before account becomes active).
+
+    Never auto-promotes to verified — that is Admin-only via admin_approve_kyc.
+    Does not overwrite an existing verified or rejected decision.
+    """
     if not kyc:
         return
-    if kyc.pan_verified and kyc.aadhaar_verified and kyc.verification_status != 'verified':
-        kyc.verification_status = 'verified'
-        kyc.save(update_fields=['verification_status'])
-        try:
-            from apps.notifications.email_helpers import login_url_default, mask_pan, user_display_name
-            from apps.notifications.services.email_dispatch import EmailNotificationService
+    if not (kyc.pan_verified and kyc.aadhaar_verified):
+        return
+    if kyc.verification_status in ('verified', 'awaiting_approval', 'rejected'):
+        return
 
-            user = kyc.user
-            to_email = (getattr(user, 'email', None) or '').strip()
-            if to_email:
-                EmailNotificationService.dispatch(
-                    'kyc.verification.complete',
-                    to_email,
-                    {
-                        'name': user_display_name(user),
-                        'user_id': getattr(user, 'user_id', '') or '',
-                        'pan_masked': mask_pan(getattr(kyc, 'pan', '') or ''),
-                        'verification_status': 'verified',
-                    },
-                    user_id=user.pk,
-                    idempotency_key=f'kyc:verified:{user.pk}',
-                )
-        except Exception:
-            pass
+    kyc.verification_status = 'awaiting_approval'
+    kyc.save(update_fields=['verification_status'])
+    try:
+        from apps.notifications.email_helpers import mask_pan, user_display_name
+        from apps.notifications.services.email_dispatch import EmailNotificationService
+
+        user = kyc.user
+        to_email = (getattr(user, 'email', None) or '').strip()
+        if to_email:
+            EmailNotificationService.dispatch(
+                'kyc.submitted.for_approval',
+                to_email,
+                {
+                    'name': user_display_name(user),
+                    'user_id': getattr(user, 'user_id', '') or '',
+                    'pan_masked': mask_pan(getattr(kyc, 'pan', '') or ''),
+                    'verification_status': 'awaiting_approval',
+                },
+                user_id=user.pk,
+                idempotency_key=f'kyc:awaiting_approval:{user.pk}',
+            )
+    except Exception:
+        pass
+
+
+@transaction.atomic
+def admin_approve_kyc(actor, target_user, notes=''):
+    """
+    Admin-only: approve provider-complete KYC → verified (unlocks onboarding completion).
+    Idempotent if already verified. Creates an immutable approval audit row.
+    """
+    from apps.users.models import KycApprovalAudit
+
+    if getattr(actor, 'role', None) != 'Admin':
+        raise ValueError('Only administrators may approve KYC.')
+    if not target_user:
+        raise ValueError('Target user is required.')
+    if actor.pk == target_user.pk:
+        raise ValueError('Administrators cannot approve their own KYC.')
+
+    kyc = (
+        KYC.objects.select_for_update()
+        .filter(user=target_user)
+        .first()
+    )
+    if not kyc:
+        raise ValueError('No KYC record found for this user.')
+    if not (kyc.pan_verified and kyc.aadhaar_verified):
+        raise ValueError('User must complete PAN and Aadhaar verification before approval.')
+    if kyc.verification_status == 'verified':
+        return kyc
+    if kyc.verification_status not in ('awaiting_approval', 'rejected'):
+        raise ValueError(
+            f'KYC cannot be approved from status "{kyc.verification_status}". '
+            'Documents must be submitted and awaiting review.'
+        )
+
+    previous = kyc.verification_status
+    notes = (notes or '').strip()
+    from django.utils import timezone
+
+    kyc.verification_status = 'verified'
+    kyc.decided_by = actor
+    kyc.decided_at = timezone.now()
+    kyc.decision_notes = notes
+    kyc.save(update_fields=['verification_status', 'decided_by', 'decided_at', 'decision_notes'])
+
+    KycApprovalAudit.objects.create(
+        user=target_user,
+        kyc=kyc,
+        decision='approve',
+        previous_status=previous,
+        new_status='verified',
+        decided_by=actor,
+        notes=notes,
+    )
+
+    try:
+        from apps.notifications.email_helpers import mask_pan, user_display_name
+        from apps.notifications.services.email_dispatch import EmailNotificationService
+
+        to_email = (getattr(target_user, 'email', None) or '').strip()
+        if to_email:
+            EmailNotificationService.dispatch(
+                'kyc.verification.complete',
+                to_email,
+                {
+                    'name': user_display_name(target_user),
+                    'user_id': getattr(target_user, 'user_id', '') or '',
+                    'pan_masked': mask_pan(getattr(kyc, 'pan', '') or ''),
+                    'verification_status': 'verified',
+                },
+                user_id=target_user.pk,
+                idempotency_key=f'kyc:verified:{target_user.pk}:{kyc.decided_at.isoformat()}',
+            )
+    except Exception:
+        pass
+
+    return kyc
+
+
+@transaction.atomic
+def admin_reject_kyc(actor, target_user, notes=''):
+    """
+    Admin-only: reject KYC awaiting review. Account stays non-active (kyc_complete false).
+    """
+    from apps.users.models import KycApprovalAudit
+
+    if getattr(actor, 'role', None) != 'Admin':
+        raise ValueError('Only administrators may reject KYC.')
+    if not target_user:
+        raise ValueError('Target user is required.')
+    if actor.pk == target_user.pk:
+        raise ValueError('Administrators cannot reject their own KYC.')
+
+    kyc = (
+        KYC.objects.select_for_update()
+        .filter(user=target_user)
+        .first()
+    )
+    if not kyc:
+        raise ValueError('No KYC record found for this user.')
+    if kyc.verification_status == 'rejected':
+        return kyc
+    if kyc.verification_status not in ('awaiting_approval', 'verified'):
+        raise ValueError(
+            f'KYC cannot be rejected from status "{kyc.verification_status}".'
+        )
+
+    previous = kyc.verification_status
+    notes = (notes or '').strip()
+    if not notes:
+        raise ValueError('A rejection reason is required.')
+
+    from django.utils import timezone
+
+    kyc.verification_status = 'rejected'
+    kyc.decided_by = actor
+    kyc.decided_at = timezone.now()
+    kyc.decision_notes = notes
+    kyc.save(update_fields=['verification_status', 'decided_by', 'decided_at', 'decision_notes'])
+
+    KycApprovalAudit.objects.create(
+        user=target_user,
+        kyc=kyc,
+        decision='reject',
+        previous_status=previous,
+        new_status='rejected',
+        decided_by=actor,
+        notes=notes,
+    )
+
+    try:
+        from apps.notifications.email_helpers import mask_pan, user_display_name
+        from apps.notifications.services.email_dispatch import EmailNotificationService
+
+        to_email = (getattr(target_user, 'email', None) or '').strip()
+        if to_email:
+            EmailNotificationService.dispatch(
+                'kyc.verification.rejected',
+                to_email,
+                {
+                    'name': user_display_name(target_user),
+                    'user_id': getattr(target_user, 'user_id', '') or '',
+                    'pan_masked': mask_pan(getattr(kyc, 'pan', '') or ''),
+                    'verification_status': 'rejected',
+                    'reason': notes,
+                },
+                user_id=target_user.pk,
+                idempotency_key=f'kyc:rejected:{target_user.pk}:{kyc.decided_at.isoformat()}',
+            )
+    except Exception:
+        pass
+
+    return kyc
 
 
 @transaction.atomic
@@ -614,12 +776,14 @@ def self_service_verify_aadhaar_otp_only(user, otp_code):
 
 
 def setup_initial_mpin(user, mpin, confirm_mpin):
-    """First-time MPIN after KYC (hierarchy-onboarded users)."""
+    """First-time MPIN after Admin-approved KYC (hierarchy-onboarded users)."""
     if user.mpin_hash:
         raise ValueError('MPIN is already set. Use profile or support to reset.')
     kyc = KYC.objects.filter(user=user).first()
-    if not kyc or not (kyc.pan_verified and kyc.aadhaar_verified):
-        raise ValueError('Complete KYC before setting MPIN.')
+    if not kyc or kyc.verification_status != 'verified':
+        raise ValueError(
+            'KYC must be approved by an administrator before setting MPIN.'
+        )
     mpin = str(mpin).strip()
     confirm_mpin = str(confirm_mpin).strip()
     if len(mpin) != 6 or not mpin.isdigit():

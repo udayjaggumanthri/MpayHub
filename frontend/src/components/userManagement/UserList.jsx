@@ -284,6 +284,14 @@ const UserList = ({ role, onCreateNew, currentUserId, isAdmin = false }) => {
                   const kycStatus = user.kyc?.verification_status || 'pending';
                   const kycOk = kycStatus === 'verified';
                   const kycRejected = kycStatus === 'rejected';
+                  const kycAwaiting = kycStatus === 'awaiting_approval';
+                  const kycLabel = kycOk
+                    ? 'verified'
+                    : kycRejected
+                      ? 'rejected'
+                      : kycAwaiting
+                        ? 'awaiting approval'
+                        : 'pending';
                   const mpinOk = user.mpin_configured === true;
                   const activeOk = accountIsActive(user);
                   const isSelf = String(user.id) === String(currentUserId);
@@ -341,7 +349,7 @@ const UserList = ({ role, onCreateNew, currentUserId, isAdmin = false }) => {
                               <FaClock className="text-amber-500 shrink-0" size={14} aria-hidden />
                             )}
                             <span className="font-medium">
-                              KYC {kycOk ? 'verified' : kycRejected ? 'rejected' : 'pending'}
+                              KYC {kycLabel}
                             </span>
                           </div>
                           <div className="flex items-center gap-2 text-slate-700" title="MPIN">

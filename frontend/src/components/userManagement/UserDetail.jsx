@@ -102,6 +102,11 @@ const UserDetail = () => {
   const [walletsLoading, setWalletsLoading] = useState(false);
   const [walletsError, setWalletsError] = useState('');
 
+  const [kycDecisionSaving, setKycDecisionSaving] = useState(false);
+  const [kycDecisionMessage, setKycDecisionMessage] = useState('');
+  const [kycRejectNotes, setKycRejectNotes] = useState('');
+  const [kycRejectOpen, setKycRejectOpen] = useState(false);
+
   const loadUser = useCallback(async () => {
     setLoading(true);
     setError('');
@@ -439,6 +444,35 @@ const UserDetail = () => {
     requestAccessChange('payments_lock_on', { payments_locked: true });
   };
 
+  const handleKycDecision = async (decision) => {
+    if (!isAdmin || !user?.id) return;
+    if (String(user.id) === String(currentUserId)) return;
+    const notes = decision === 'reject' ? (kycRejectNotes || '').trim() : '';
+    if (decision === 'reject' && !notes) {
+      setKycDecisionMessage('Enter a rejection reason before rejecting KYC.');
+      return;
+    }
+    setKycDecisionSaving(true);
+    setKycDecisionMessage('');
+    try {
+      const res = await usersAPI.decideKycApproval(user.id, decision, notes);
+      if (res.success) {
+        const u = res.data?.user ?? res.data;
+        if (u && u.id != null) setUser(u);
+        setKycDecisionMessage(res.message || (decision === 'approve' ? 'KYC approved.' : 'KYC rejected.'));
+        setKycRejectOpen(false);
+        setKycRejectNotes('');
+      } else {
+        const msg = res.message || res.errors?.notes || 'KYC decision failed.';
+        setKycDecisionMessage(typeof msg === 'string' ? msg : 'KYC decision failed.');
+      }
+    } catch {
+      setKycDecisionMessage('KYC decision failed. Please try again.');
+    } finally {
+      setKycDecisionSaving(false);
+    }
+  };
+
   if (loading) {
     return (
       <div className="min-h-[calc(100vh-6rem)] bg-gradient-to-b from-slate-50 via-white to-slate-50/80 flex items-center justify-center">
@@ -471,6 +505,14 @@ const UserDetail = () => {
   const kycStatus = user.kyc?.verification_status || 'pending';
   const kycOk = kycStatus === 'verified';
   const kycRejected = kycStatus === 'rejected';
+  const kycAwaiting = kycStatus === 'awaiting_approval';
+  const kycStatusLabel = kycOk
+    ? 'Verified'
+    : kycRejected
+      ? 'Rejected'
+      : kycAwaiting
+        ? 'Awaiting Approval'
+        : 'Pending';
   const mpinOk = user.mpin_configured === true;
   const isSelf = String(user.id) === String(currentUserId);
   const showCommissionWallet = user.role && user.role !== 'Retailer';
@@ -738,11 +780,18 @@ const UserDetail = () => {
                     </div>
                     <div>
                       <p className="text-xs font-semibold uppercase tracking-wide text-slate-500 mb-1">KYC Status</p>
-                      <p className={`text-lg font-semibold capitalize ${
+                      <p className={`text-lg font-semibold ${
                         kycOk ? 'text-emerald-700' : kycRejected ? 'text-red-700' : 'text-amber-700'
                       }`}>
-                        {kycStatus}
+                        {kycStatusLabel}
                       </p>
+                      {user.kyc?.decided_at && (kycOk || kycRejected) ? (
+                        <p className="mt-1 text-xs text-slate-500">
+                          {kycOk ? 'Approved' : 'Rejected'}
+                          {user.kyc.decided_by_name ? ` by ${user.kyc.decided_by_name}` : ''}
+                          {user.kyc.decision_notes ? ` — ${user.kyc.decision_notes}` : ''}
+                        </p>
+                      ) : null}
                     </div>
                   </div>
                   <div className="flex items-start gap-3">
@@ -775,6 +824,78 @@ const UserDetail = () => {
                       }
                       showTechnicalDetails={isAdmin}
                     />
+                    {isAdmin && !isSelf && (kycAwaiting || kycRejected) ? (
+                      <div className="mt-6 rounded-xl border border-amber-200 bg-amber-50/60 px-4 py-4 space-y-3">
+                        <p className="text-sm font-semibold text-amber-950">
+                          {kycAwaiting
+                            ? 'Documents verified — Admin approval required before this account becomes active.'
+                            : 'KYC was rejected. You may approve after review if documents are acceptable.'}
+                        </p>
+                        <div className="flex flex-wrap gap-2">
+                          <Button
+                            onClick={() => handleKycDecision('approve')}
+                            disabled={kycDecisionSaving}
+                            variant="primary"
+                            size="md"
+                            icon={FaCircleCheck}
+                            iconPosition="left"
+                          >
+                            {kycDecisionSaving ? 'Saving…' : 'Approve KYC'}
+                          </Button>
+                          {kycAwaiting ? (
+                            <Button
+                              onClick={() => {
+                                setKycRejectOpen((open) => !open);
+                                setKycDecisionMessage('');
+                              }}
+                              disabled={kycDecisionSaving}
+                              variant="outline"
+                              size="md"
+                              icon={FaBan}
+                              iconPosition="left"
+                              className="border-red-200 text-red-800 hover:bg-red-50"
+                            >
+                              Reject
+                            </Button>
+                          ) : null}
+                        </div>
+                        {kycRejectOpen ? (
+                          <div className="space-y-2">
+                            <label htmlFor="kyc-reject-notes" className="block text-xs font-semibold uppercase tracking-wide text-slate-600">
+                              Rejection reason
+                            </label>
+                            <textarea
+                              id="kyc-reject-notes"
+                              value={kycRejectNotes}
+                              onChange={(e) => setKycRejectNotes(e.target.value)}
+                              rows={3}
+                              className="w-full rounded-xl border border-slate-200 px-3 py-2 text-sm focus:border-indigo-300 focus:ring-2 focus:ring-indigo-500/20"
+                              placeholder="Explain why KYC cannot be approved…"
+                            />
+                            <Button
+                              onClick={() => handleKycDecision('reject')}
+                              disabled={kycDecisionSaving || !kycRejectNotes.trim()}
+                              variant="outline"
+                              size="md"
+                              className="border-red-200 text-red-800 hover:bg-red-50"
+                            >
+                              Confirm reject
+                            </Button>
+                          </div>
+                        ) : null}
+                        {kycDecisionMessage ? (
+                          <p
+                            className={`text-sm ${
+                              /approv/i.test(kycDecisionMessage) && !/fail|cannot|required|error/i.test(kycDecisionMessage)
+                                ? 'text-emerald-700'
+                                : 'text-slate-700'
+                            }`}
+                          >
+                            {kycDecisionMessage}
+                          </p>
+                        ) : null}
+                      </div>
+                    ) : null}
                     {isAdmin && Array.isArray(user.profile_sync_audits) && user.profile_sync_audits.length > 0 ? (
                       <div className="mt-6">
                         <p className="text-xs font-semibold uppercase tracking-wide text-slate-600 mb-3">

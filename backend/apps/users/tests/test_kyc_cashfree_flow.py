@@ -90,6 +90,6 @@ class KycCashfreeFlowTests(TestCase):
             kyc, kyc_details = complete_digilocker_aadhaar(self.user, 'DLFLOW01')
             self.assertTrue(kyc_details.get('aadhaar_masked'))
             self.assertTrue(kyc.aadhaar_verified)
-            self.assertEqual(kyc.verification_status, 'verified')
+            self.assertEqual(kyc.verification_status, 'awaiting_approval')
             mock_dispatch.assert_called_once()
-            self.assertEqual(mock_dispatch.call_args[0][0], 'kyc.verification.complete')
+            self.assertEqual(mock_dispatch.call_args[0][0], 'kyc.submitted.for_approval')

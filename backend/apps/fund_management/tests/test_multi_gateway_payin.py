@@ -7,8 +7,9 @@ from django.test import TestCase
 
 from apps.admin_panel.models import PaymentGateway
 from apps.contacts.models import Contact
-from apps.fund_management.models import LoadMoney, PayInPackage
+from apps.fund_management.models import LoadMoney, PayInPackage, UserPackageAssignment
 from apps.fund_management.package_gateways import (
+    list_payin_checkout_options_for_user,
     resolve_payment_gateway_for_order,
     serialize_package_gateways,
     sync_package_gateway_links,
@@ -85,6 +86,26 @@ class MultiGatewayPayInTests(TestCase):
             [self.gw_a.id, self.gw_b.id],
             default_gateway_id=self.gw_a.id,
         )
+        UserPackageAssignment.objects.create(user=self.user, package=self.package)
+
+    def test_list_payin_checkout_options_across_assigned_packages(self):
+        pkg_b = _make_package('mgw_pkg_b')
+        gw_c = _make_gateway('Gateway C')
+        sync_package_gateway_links(pkg_b, [gw_c.id], default_gateway_id=gw_c.id)
+        UserPackageAssignment.objects.create(user=self.user, package=pkg_b)
+
+        options = list_payin_checkout_options_for_user(self.user)
+        keys = {row['option_key'] for row in options}
+        self.assertEqual(
+            keys,
+            {
+                f'{self.package.id}:{self.gw_a.id}',
+                f'{self.package.id}:{self.gw_b.id}',
+                f'{pkg_b.id}:{gw_c.id}',
+            },
+        )
+        names = {row['name'] for row in options}
+        self.assertEqual(names, {'Gateway A', 'Gateway B', 'Gateway C'})
 
     def test_serialize_package_gateways(self):
         data = serialize_package_gateways(self.package)
