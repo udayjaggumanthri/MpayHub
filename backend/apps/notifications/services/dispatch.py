@@ -14,6 +14,7 @@ from apps.notifications.providers.console import ConsoleAdapter
 from apps.notifications.providers.msg91 import Msg91Adapter
 from apps.notifications.services.idempotency import delivery_already_logged
 from apps.notifications.services.phone import mask_phone, normalize_phone
+from apps.notifications.services.variable_map import apply_variable_map
 
 logger = logging.getLogger(__name__)
 
@@ -211,7 +212,17 @@ class SmsNotificationService:
             )
             return {'status': 'skipped', 'skip_reason': ctx_err}
 
-        variables = {k: str(v) for k, v in (context or {}).items() if v is not None}
+        variables = apply_variable_map(context, getattr(template, 'variable_map', None) or {})
+        detected = list(getattr(template, 'msg91_detected_vars', None) or [])
+        if detected:
+            orphan = [k for k in variables.keys() if k not in detected]
+            if orphan:
+                logger.warning(
+                    'SMS event=%s variable_map targets %s not in MSG91 placeholders %s — re-sync template',
+                    event_key,
+                    orphan,
+                    detected,
+                )
         sender_id = (config.sender_id if config else '') or ''
         result = adapter.send_template(
             phone_e164,

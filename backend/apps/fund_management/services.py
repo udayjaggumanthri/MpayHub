@@ -358,6 +358,31 @@ def create_payin_order(
     if getattr(user, 'role', None) != 'Admin':
         response['fee_preview'] = {}
 
+    try:
+        from apps.notifications.services.dispatch import SmsNotificationService
+        from apps.notifications.email_helpers import dispatch_user_email
+
+        ctx = {
+            'amount': str(lm.amount),
+            'transaction_id': lm.transaction_id,
+            'reference': lm.transaction_id,
+        }
+        SmsNotificationService.dispatch(
+            'payin.pending',
+            user.phone,
+            ctx,
+            user_id=user.pk,
+            idempotency_key=f'payin:{lm.transaction_id}:PENDING',
+        )
+        dispatch_user_email(
+            'payin.pending',
+            user,
+            ctx,
+            idempotency_key=f'payin:{lm.transaction_id}:PENDING',
+        )
+    except Exception:
+        pass
+
     return lm, response
 
 
@@ -566,6 +591,7 @@ def process_load_money(user, amount, gateway_id):
 
             ctx = {
                 'amount': str(amount),
+                'transaction_id': load_money.transaction_id,
                 'reference': load_money.transaction_id,
                 'reason': str(e)[:200],
             }
@@ -634,6 +660,31 @@ def process_payout(user, bank_account_id, amount, gateway_id=None, transfer_mode
         ) from last_integrity
 
     try:
+        from apps.notifications.services.dispatch import SmsNotificationService
+        from apps.notifications.email_helpers import dispatch_user_email
+
+        pending_ctx = {
+            'amount': str(amount),
+            'transaction_id': payout.transaction_id,
+            'reference': payout.transaction_id,
+        }
+        SmsNotificationService.dispatch(
+            'payout.pending',
+            user.phone,
+            pending_ctx,
+            user_id=user.pk,
+            idempotency_key=f'payout:{payout.transaction_id}:PENDING',
+        )
+        dispatch_user_email(
+            'payout.pending',
+            user,
+            pending_ctx,
+            idempotency_key=f'payout:{payout.transaction_id}:PENDING',
+        )
+    except Exception:
+        pass
+
+    try:
         gateway_transaction_id = f'PTX{payout.transaction_id}'
         payout.gateway_transaction_id = gateway_transaction_id
         payout.status = 'SUCCESS'
@@ -691,10 +742,15 @@ def process_payout(user, bank_account_id, amount, gateway_id=None, transfer_mode
             from apps.notifications.services.dispatch import SmsNotificationService
             from apps.notifications.email_helpers import dispatch_user_email
 
+            acct = str(getattr(bank_account, 'account_number', '') or '')
+            account_masked = f'XXXX{acct[-4:]}' if len(acct) >= 4 else (acct or 'XXXX')
             ctx = {
                 'amount': str(amount),
+                'account': account_masked,
+                'utr': gateway_transaction_id,
                 'reference': gateway_transaction_id,
                 'transfer_mode': transfer_mode,
+                'transaction_id': payout.transaction_id,
             }
             SmsNotificationService.dispatch(
                 'payout.success',
@@ -731,9 +787,14 @@ def process_payout(user, bank_account_id, amount, gateway_id=None, transfer_mode
             from apps.notifications.services.dispatch import SmsNotificationService
             from apps.notifications.email_helpers import dispatch_user_email
 
+            acct = str(getattr(bank_account, 'account_number', '') or '')
+            account_masked = f'XXXX{acct[-4:]}' if len(acct) >= 4 else (acct or 'XXXX')
+            txn_id = getattr(payout, 'transaction_id', '') or ''
             ctx = {
                 'amount': str(amount),
-                'reference': getattr(payout, 'transaction_id', ''),
+                'account': account_masked,
+                'transaction_id': txn_id,
+                'reference': txn_id,
                 'reason': str(e)[:200],
             }
             SmsNotificationService.dispatch(
@@ -741,13 +802,13 @@ def process_payout(user, bank_account_id, amount, gateway_id=None, transfer_mode
                 user.phone,
                 ctx,
                 user_id=user.pk,
-                idempotency_key=f'payout:{getattr(payout, "transaction_id", "")}:FAILED',
+                idempotency_key=f'payout:{txn_id}:FAILED',
             )
             dispatch_user_email(
                 'payout.failed',
                 user,
                 ctx,
-                idempotency_key=f'payout:{getattr(payout, "transaction_id", "")}:FAILED',
+                idempotency_key=f'payout:{txn_id}:FAILED',
             )
         except Exception:
             pass

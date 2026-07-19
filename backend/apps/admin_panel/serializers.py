@@ -604,6 +604,21 @@ class SmsProviderConfigSerializer(serializers.ModelSerializer):
             raise serializers.ValidationError('A profile with this name already exists.')
         return name
 
+    def validate_provider(self, value):
+        # New profiles are MSG91-only; console is legacy and not offered in Admin UI.
+        provider = (value or 'msg91').strip().lower()
+        if provider not in ('msg91', 'console'):
+            raise serializers.ValidationError('Unsupported SMS provider.')
+        if not self.instance and provider == 'console':
+            raise serializers.ValidationError('Use MSG91 for new SMS profiles.')
+        return provider
+
+    def validate_sender_id(self, value):
+        sender = (value or '').strip()
+        if not sender:
+            raise serializers.ValidationError('DLT Sender ID is required.')
+        return sender
+
 
 class SmsSecretUpdateSerializer(serializers.Serializer):
     auth_key = serializers.CharField(required=False, allow_blank=True)
@@ -619,11 +634,53 @@ class SmsTemplateUpdateSerializer(serializers.Serializer):
     is_enabled = serializers.BooleanField(required=False)
     template_id = serializers.CharField(required=False, allow_blank=True)
     sample_variables = serializers.JSONField(required=False)
+    variable_map = serializers.JSONField(required=False)
+
+    def validate_variable_map(self, value):
+        if value is None:
+            return {}
+        if not isinstance(value, dict):
+            raise serializers.ValidationError('variable_map must be an object.')
+        cleaned = {}
+        for app_key, msg91_key in value.items():
+            ak = str(app_key or '').strip()
+            mk = str(msg91_key or '').strip()
+            if not ak:
+                continue
+            if mk and not mk.lower().startswith('var'):
+                # Allow any MSG91 key but prefer varN; still accept explicit names
+                pass
+            cleaned[ak] = mk
+        return cleaned
 
 
 class SmsTemplateTestSerializer(serializers.Serializer):
     phone = serializers.CharField(max_length=20)
     variables = serializers.JSONField(required=False)
+
+
+class SmsTemplateFetchSerializer(serializers.Serializer):
+    template_id = serializers.CharField(required=False, allow_blank=True)
+
+
+class SmsDeliveryLogSerializer(serializers.ModelSerializer):
+    class Meta:
+        from apps.notifications.models import SmsDeliveryLog
+
+        model = SmsDeliveryLog
+        fields = [
+            'id',
+            'event_key',
+            'phone_masked',
+            'template_id',
+            'status',
+            'skip_reason',
+            'provider_message_id',
+            'error_message',
+            'context_json',
+            'created_at',
+        ]
+        read_only_fields = fields
 
 
 class EmailNotificationTemplateSerializer(serializers.ModelSerializer):

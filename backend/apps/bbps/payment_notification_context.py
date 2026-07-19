@@ -180,18 +180,21 @@ def build_payment_notification_context(attempt: 'BbpsPaymentAttempt', status: st
         bill_type = str(attempt.bill_payment.bill_type or '')
 
     b_connect_txn_id = resolve_b_connect_txn_id(attempt)
+    consumer_id = resolve_consumer_id(attempt) or 'NA'
+    receipt_no = b_connect_txn_id or (attempt.service_id or '') or 'NA'
     context = {
         'name': resolve_user_display_name(attempt.user),
         'service': resolve_service_label(bill_type),
-        'consumer_id': resolve_consumer_id(attempt),
+        'consumer_id': consumer_id,
         'b_connect_txn_id': b_connect_txn_id,
         'status': status_display(status_upper),
         'biller': _biller_name(attempt),
         'amount': _amount_str(attempt),
         'service_id': attempt.service_id or '',
+        'receipt_no': receipt_no,
     }
     if status_upper in ('SUCCESS', 'AWAITED'):
-        context['txn_ref'] = b_connect_txn_id
+        context['txn_ref'] = b_connect_txn_id or receipt_no
     if status_upper == 'FAILED':
         context['reason'] = (attempt.last_error_message or '')[:200]
     return context

@@ -60,25 +60,42 @@ def notify_payment_attempt_status(attempt: 'BbpsPaymentAttempt', *, source: str 
 
 
 def notify_complaint_registered(complaint) -> None:
-    """Email after BBPS complaint registered with provider."""
+    """SMS + email after BBPS complaint registered with provider."""
+    context = {
+        'complaint_id': str(complaint.complaint_id or ''),
+        'txn_ref': str(complaint.txn_ref_id or ''),
+        'disposition': str(complaint.complaint_disposition or ''),
+        'status': str(complaint.complaint_status or ''),
+    }
+    user = complaint.user
+    idem = f'complaint:{complaint.pk}'
+
+    try:
+        from apps.notifications.services.dispatch import SmsNotificationService
+
+        phone = getattr(user, 'phone', '') or ''
+        SmsNotificationService.dispatch(
+            'complaint.registered',
+            phone,
+            context,
+            user_id=user.pk,
+            idempotency_key=idem,
+        )
+    except Exception:
+        pass
+
     try:
         from apps.notifications.services.email_dispatch import EmailNotificationService
 
-        user = complaint.user
         to_email = (getattr(user, 'email', None) or '').strip()
         if not to_email:
             return
         EmailNotificationService.dispatch(
             'complaint.registered',
             to_email,
-            {
-                'complaint_id': str(complaint.complaint_id or ''),
-                'txn_ref': str(complaint.txn_ref_id or ''),
-                'disposition': str(complaint.complaint_disposition or ''),
-                'status': str(complaint.complaint_status or ''),
-            },
+            context,
             user_id=user.pk,
-            idempotency_key=f'complaint:{complaint.pk}',
+            idempotency_key=f'email:{idem}',
         )
     except Exception:
         pass

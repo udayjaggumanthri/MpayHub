@@ -2622,6 +2622,27 @@ export const adminAPI = {
     }
   },
 
+  fetchSmsTemplateMsg91: async (eventKey, payload = {}) => {
+    try {
+      const response = await apiClient.post(
+        `/admin/sms-templates/${encodeURIComponent(eventKey)}/fetch-msg91/`,
+        payload
+      );
+      return extractData(response);
+    } catch (error) {
+      return handleError(error);
+    }
+  },
+
+  listSmsDeliveryLogs: async (params = {}) => {
+    try {
+      const response = await apiClient.get('/admin/sms-logs/', { params });
+      return extractData(response);
+    } catch (error) {
+      return handleError(error);
+    }
+  },
+
   listEmailTemplates: async () => {
     try {
       const response = await apiClient.get('/admin/email-templates/');

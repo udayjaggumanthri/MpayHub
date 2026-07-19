@@ -66,6 +66,17 @@ class SmsNotificationTemplate(BaseModel):
     template_id = models.CharField(max_length=64, blank=True, default='')
     variable_schema = models.JSONField(default=list, blank=True)
     sample_variables = models.JSONField(default=dict, blank=True)
+    # Maps app context keys → MSG91 Flow recipient keys, e.g. {"otp": "var1", "amount": "amount"}
+    variable_map = models.JSONField(default=dict, blank=True)
+    # How variable_map was last produced: auto (MSG91 fetch), manual (admin), default (catalog seed)
+    mapping_source = models.CharField(max_length=16, blank=True, default='', db_index=True)
+    # Cached MSG91 template metadata from last successful fetch (source of truth for placeholders)
+    msg91_template_name = models.CharField(max_length=200, blank=True, default='')
+    msg91_template_body = models.TextField(blank=True, default='')
+    msg91_detected_vars = models.JSONField(default=list, blank=True)
+    msg91_sender_id = models.CharField(max_length=32, blank=True, default='')
+    msg91_dlt_id = models.CharField(max_length=64, blank=True, default='')
+    msg91_synced_at = models.DateTimeField(null=True, blank=True)
 
     class Meta:
         db_table = 'sms_notification_templates'

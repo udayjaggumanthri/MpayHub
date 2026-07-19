@@ -27,7 +27,7 @@ const SmsProfileForm = () => {
       const c = res.data.config;
       setForm({
         name: c.name || '',
-        provider: c.provider || 'msg91',
+        provider: 'msg91',
         sender_id: c.sender_id || '',
         enabled: !!c.enabled,
         is_active: !!c.is_active,
@@ -53,18 +53,44 @@ const SmsProfileForm = () => {
       setBanner('error', 'Profile name is required.');
       return;
     }
+    if (isNew && !authKey.trim()) {
+      setBanner('error', 'MSG91 auth key is required to create a profile.');
+      return;
+    }
+    if (!form.sender_id?.trim()) {
+      setBanner('error', 'DLT Sender ID is required (e.g. MPAYHB).');
+      return;
+    }
     setSaving(true);
     setBanner('info', 'Saving profile...');
     const payload = {
-      ...form,
       name: form.name.trim(),
+      provider: 'msg91',
+      sender_id: form.sender_id.trim(),
+      enabled: !!form.enabled,
+      is_active: !!form.is_active,
+      api_base_url: (form.api_base_url || 'https://control.msg91.com').trim(),
+      route: (form.route || '').trim(),
       country_code: String(form.country_code || '91').replace(/\D/g, '') || '91',
     };
+    if (isNew) {
+      payload.auth_key = authKey.trim();
+    }
     const res = isNew
       ? await adminAPI.createSmsConfig(payload)
       : await adminAPI.updateSmsConfig(id, payload);
     if (res.success) {
       const saved = res.data?.config;
+      if (!isNew && authKey.trim()) {
+        const secretRes = await adminAPI.updateSmsSecrets(id, { auth_key: authKey.trim() });
+        if (!secretRes.success) {
+          setBanner('error', secretRes.message || 'Profile saved but auth key update failed');
+          setSaving(false);
+          return;
+        }
+        setAuthKey('');
+        setHasAuthKey(true);
+      }
       setBanner('success', res.message || 'Profile saved');
       if (isNew && saved?.id) {
         navigate(`/admin/sms-settings/${saved.id}/edit`, { replace: true });
@@ -80,7 +106,7 @@ const SmsProfileForm = () => {
 
   const saveAuthKey = async () => {
     if (isNew) {
-      setBanner('error', 'Save the profile first, then set the auth key.');
+      setBanner('error', 'Enter the auth key above and click Create profile.');
       return;
     }
     if (!authKey.trim()) {
@@ -102,6 +128,10 @@ const SmsProfileForm = () => {
   const sendTest = async () => {
     if (isNew) {
       setBanner('error', 'Save the profile before sending a test SMS.');
+      return;
+    }
+    if (!hasAuthKey && !authKey.trim()) {
+      setBanner('error', 'Set an MSG91 auth key before testing.');
       return;
     }
     if (!testPhone.trim() || !testTemplateId.trim()) {
@@ -158,7 +188,7 @@ const SmsProfileForm = () => {
           </h1>
           <p className="text-sm text-gray-500 mt-1">
             {isNew
-              ? 'Create an MSG91 account profile. Activate from the list when ready.'
+              ? 'Add your MSG91 auth key and DLT sender. Then map Flow templates under Event templates.'
               : form.is_active
                 ? 'This profile is active for all outbound SMS.'
                 : 'Not active — activate from the profile list when ready.'}
@@ -178,19 +208,54 @@ const SmsProfileForm = () => {
           </div>
           <div>
             <label className="block text-xs font-medium text-gray-600 mb-1">Provider</label>
-            <select
-              className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm bg-white"
-              value={form.provider}
-              onChange={(e) => setForm((p) => ({ ...p, provider: e.target.value }))}
-            >
-              <option value="msg91">MSG91</option>
-              <option value="console">Console (dev log only)</option>
-            </select>
+            <input
+              className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm bg-gray-50 text-gray-700"
+              value="MSG91"
+              readOnly
+            />
+          </div>
+          <div className="md:col-span-2">
+            <label className="block text-xs font-medium text-gray-600 mb-1">
+              MSG91 auth key {isNew ? <span className="text-red-600">*</span> : null}
+            </label>
+            <input
+              type="password"
+              className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm font-mono"
+              placeholder={
+                isNew
+                  ? 'Paste MSG91 authkey from control.msg91.com'
+                  : hasAuthKey
+                    ? '••••••••  (leave blank to keep current key)'
+                    : 'Paste MSG91 authkey'
+              }
+              value={authKey}
+              onChange={(e) => setAuthKey(e.target.value)}
+              autoComplete="new-password"
+              required={isNew}
+            />
+            <p className="text-xs text-gray-500 mt-1">
+              Stored encrypted. Never shown again after save.
+              {!isNew && hasAuthKey ? ' Key is already configured on this profile.' : ''}
+            </p>
+            {!isNew ? (
+              <button
+                type="button"
+                disabled={saving || !authKey.trim()}
+                onClick={saveAuthKey}
+                className="mt-2 text-xs px-3 py-1.5 rounded border border-gray-300 hover:bg-gray-50 disabled:opacity-50"
+              >
+                Update auth key only
+              </button>
+            ) : null}
           </div>
           <div>
-            <label className="block text-xs font-medium text-gray-600 mb-1">DLT Sender ID</label>
+            <label className="block text-xs font-medium text-gray-600 mb-1">
+              DLT Sender ID <span className="text-red-600">*</span>
+            </label>
             <input
+              required
               className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm"
+              placeholder="e.g. MPAYHB"
               value={form.sender_id}
               onChange={(e) => setForm((p) => ({ ...p, sender_id: e.target.value }))}
             />
@@ -215,6 +280,7 @@ const SmsProfileForm = () => {
             <label className="block text-xs font-medium text-gray-600 mb-1">Route (optional)</label>
             <input
               className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm"
+              placeholder="Leave blank unless MSG91 assigned a route"
               value={form.route}
               onChange={(e) => setForm((p) => ({ ...p, route: e.target.value }))}
             />
@@ -258,40 +324,11 @@ const SmsProfileForm = () => {
         </div>
       </form>
 
-      {!isNew && form.provider === 'msg91' && (
-        <div className="bg-white rounded-xl border border-gray-200 p-6 shadow-sm space-y-4">
-          <h2 className="text-lg font-semibold text-gray-900">MSG91 auth key</h2>
-          <p className="text-sm text-gray-500">
-            {hasAuthKey
-              ? 'Auth key stored (encrypted). Enter a new value to replace.'
-              : 'Required before you can activate or test this profile.'}
-          </p>
-          <div className="flex flex-col sm:flex-row gap-3">
-            <input
-              type="password"
-              className="flex-1 border border-gray-300 rounded-lg px-3 py-2 text-sm"
-              placeholder="MSG91 authkey"
-              value={authKey}
-              onChange={(e) => setAuthKey(e.target.value)}
-              autoComplete="new-password"
-            />
-            <button
-              type="button"
-              disabled={saving}
-              onClick={saveAuthKey}
-              className="px-4 py-2 rounded-lg border border-gray-300 text-sm font-medium hover:bg-gray-50 disabled:opacity-50"
-            >
-              Update auth key
-            </button>
-          </div>
-        </div>
-      )}
-
       {!isNew && (
         <div className="bg-white rounded-xl border border-gray-200 p-6 shadow-sm space-y-4">
           <h2 className="text-lg font-semibold text-gray-900">Test this profile</h2>
           <p className="text-sm text-gray-500">
-            Sends using this profile&apos;s credentials (not only if active). Use an approved DLT template ID.
+            Sends a real MSG91 Flow SMS with this profile&apos;s auth key. Use an approved DLT template ID.
           </p>
           <div className="flex flex-col sm:flex-row gap-3">
             <input
@@ -302,7 +339,7 @@ const SmsProfileForm = () => {
             />
             <input
               className="flex-1 border border-gray-300 rounded-lg px-3 py-2 text-sm"
-              placeholder="DLT template ID"
+              placeholder="MSG91 template_id"
               value={testTemplateId}
               onChange={(e) => setTestTemplateId(e.target.value)}
             />

@@ -441,7 +441,28 @@ def create_user(user_data, created_by):
     else:
         # Auto-assign default package for new users
         auto_assign_default_package(user, assigner=created_by)
-    
+
+    try:
+        from apps.notifications.services.dispatch import SmsNotificationService
+
+        display_name = (
+            f"{user_data.get('first_name', '')} {user_data.get('last_name', '')}".strip()
+            or (user.get_full_name() or '').strip()
+            or user.phone
+        )
+        SmsNotificationService.dispatch(
+            'onboarding.welcome',
+            user.phone,
+            {
+                'name': display_name,
+                'user_id': user.user_id or '',
+            },
+            user_id=user.pk,
+            idempotency_key=f'onboarding.welcome:{user.pk}',
+        )
+    except Exception:
+        pass
+
     return user, temporary_plain_password
 
 

@@ -1,5 +1,11 @@
 """
-SMS service integration — thin backward-compatible wrapper around SmsNotificationService.
+DEPRECATED: Do not use for new code.
+
+All transactional SMS must go through
+``apps.notifications.services.dispatch.SmsNotificationService``.
+
+Admin configures MSG91 authkey + per-event Flow template_id under
+``/admin/sms-settings``. This wrapper remains only for accidental legacy imports.
 """
 from django.conf import settings
 
@@ -9,9 +15,7 @@ from apps.notifications.services.dispatch import SmsNotificationService
 
 
 class SMSService(BaseIntegration):
-    """
-    Legacy SMS entry point; delegates OTP sends to admin-configured MSG91 dispatch.
-    """
+    """Legacy OTP wrapper → SmsNotificationService (prefer dispatch directly)."""
 
     def __init__(self):
         self.provider = getattr(settings, 'SMS_PROVIDER', 'console')

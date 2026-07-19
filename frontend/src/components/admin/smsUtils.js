@@ -11,7 +11,7 @@ export const defaultSmsForm = {
 
 export const providerLabel = (cfg) => {
   const p = (cfg?.provider || 'msg91').toLowerCase();
-  if (p === 'console') return 'Console (dev)';
+  if (p === 'console') return 'Legacy console (disabled)';
   return 'MSG91';
 };
 

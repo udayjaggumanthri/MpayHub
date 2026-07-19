@@ -112,13 +112,31 @@ def send_otp(phone, purpose='password-reset', channel='sms'):
     event_key = AUTH_OTP_PURPOSE_TO_EVENT.get(purpose)
     if event_key:
         try:
+            display_name = 'Customer'
+            user_id = None
+            user = User.objects.filter(phone=phone).select_related('profile').first()
+            if user:
+                user_id = user.pk
+                profile = getattr(user, 'profile', None)
+                if profile is not None:
+                    display_name = (
+                        f'{profile.first_name or ""} {profile.last_name or ""}'.strip()
+                        or display_name
+                    )
+                if display_name == 'Customer':
+                    display_name = (
+                        (user.get_full_name() or '').strip()
+                        or (user.first_name or '').strip()
+                        or display_name
+                    )
             SmsNotificationService.dispatch(
                 event_key,
                 phone,
                 {
+                    'name': display_name,
                     'otp': otp_code,
-                    'expiry_minutes': str(settings.OTP_EXPIRY_MINUTES),
                 },
+                user_id=user_id,
                 idempotency_key=f'otp:{purpose}:{phone}:{otp.pk}',
             )
         except Exception as e:

@@ -95,6 +95,7 @@ class PaymentNotificationContextTests(TestCase):
         self.assertEqual(ctx['name'], 'Tarun Iyer')
         self.assertEqual(ctx['b_connect_txn_id'], 'CC1234567890123456789012345678901234')
         self.assertEqual(ctx['txn_ref'], ctx['b_connect_txn_id'])
+        self.assertEqual(ctx['receipt_no'], ctx['b_connect_txn_id'])
         self.assertEqual(ctx['status'], 'Success')
 
     def test_failed_status_context(self):
@@ -137,7 +138,7 @@ class PaymentNotificationContextTests(TestCase):
         )
         notify_payment_attempt_status(attempt)
         mock_email_dispatch.assert_called_once()
-        _event, _email, context, _kwargs = mock_email_dispatch.call_args[0]
+        _event, _email, context = mock_email_dispatch.call_args[0]
         self.assertEqual(context['name'], 'Tarun Iyer')
         self.assertEqual(context['service'], 'Mobile Postpaid')
         self.assertEqual(context['consumer_id'], '9876543210')

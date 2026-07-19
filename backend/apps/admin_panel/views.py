@@ -616,7 +616,17 @@ def sms_config_list_view(request):
             status=status.HTTP_400_BAD_REQUEST,
         )
     cfg = ser.save()
-    if cfg.is_active:
+    # Optional authkey on create (MSG91) — never returned in responses
+    auth_key = (request.data.get('auth_key') or '').strip()
+    if auth_key:
+        cfg.set_auth_key(auth_key)
+        cfg.save(update_fields=['auth_key_encrypted', 'updated_at'])
+    if cfg.provider == 'msg91' and not cfg.get_auth_key():
+        # Allow create without key, but do not leave as active until key exists
+        if cfg.is_active:
+            cfg.is_active = False
+            cfg.save(update_fields=['is_active', 'updated_at'])
+    elif cfg.is_active:
         _deactivate_other_sms_configs(cfg.pk)
     return Response(
         {
@@ -882,16 +892,32 @@ def sms_templates_list_view(request):
     templates = []
     for entry in SMS_EVENT_CATALOG:
         row = db_rows.get(entry['event_key'])
+        health = {}
+        if row:
+            from apps.notifications.services.template_sync import mapping_health
+
+            health = mapping_health(row)
         templates.append(
             {
                 'event_key': entry['event_key'],
                 'module': entry['module'],
                 'label': entry['label'],
                 'description': entry.get('description', ''),
-                'variable_schema': entry.get('variable_schema', []),
+                'variable_schema': (row.variable_schema if row else entry.get('variable_schema', []))
+                or entry.get('variable_schema', []),
                 'is_enabled': bool(row.is_enabled) if row else False,
                 'template_id': (row.template_id if row else '') or '',
                 'sample_variables': (row.sample_variables if row else entry.get('sample_variables', {})) or {},
+                'variable_map': (row.variable_map if row else {}) or {},
+                'default_variable_map': entry.get('default_variable_map') or {},
+                'mapping_source': (row.mapping_source if row else '') or '',
+                'msg91_template_name': (row.msg91_template_name if row else '') or '',
+                'msg91_template_body': (row.msg91_template_body if row else '') or '',
+                'msg91_detected_vars': list((row.msg91_detected_vars if row else []) or []),
+                'msg91_sender_id': (row.msg91_sender_id if row else '') or '',
+                'msg91_dlt_id': (row.msg91_dlt_id if row else '') or '',
+                'msg91_synced_at': row.msg91_synced_at.isoformat() if row and row.msg91_synced_at else None,
+                'mapping_health': health,
             }
         )
     return Response(
@@ -941,7 +967,14 @@ def sms_template_update_view(request, event_key):
     if 'sample_variables' in val:
         template.sample_variables = val['sample_variables'] or {}
         update_fields.append('sample_variables')
+    if 'variable_map' in val:
+        template.variable_map = val['variable_map'] or {}
+        update_fields.append('variable_map')
+        template.mapping_source = 'manual'
+        update_fields.append('mapping_source')
     template.save(update_fields=update_fields)
+    from apps.notifications.services.template_sync import mapping_health
+
     return Response(
         {
             'success': True,
@@ -955,9 +988,140 @@ def sms_template_update_view(request, event_key):
                     'template_id': template.template_id,
                     'variable_schema': template.variable_schema,
                     'sample_variables': template.sample_variables,
+                    'variable_map': template.variable_map or {},
+                    'mapping_source': template.mapping_source or '',
+                    'msg91_detected_vars': list(template.msg91_detected_vars or []),
+                    'msg91_synced_at': template.msg91_synced_at.isoformat()
+                    if template.msg91_synced_at
+                    else None,
+                    'mapping_health': mapping_health(template),
                 }
             },
             'message': 'SMS template updated',
+            'errors': [],
+        },
+        status=status.HTTP_200_OK,
+    )
+
+
+@api_view(['POST'])
+@permission_classes([IsAuthenticated, IsAdmin])
+def sms_template_fetch_msg91_view(request, event_key):
+    """Fetch MSG91 getTemplateVersions for this event's template_id (or body.template_id)."""
+    from apps.admin_panel.serializers import SmsTemplateFetchSerializer
+    from apps.notifications.catalog import CATALOG_EVENT_KEYS
+    from apps.notifications.models import SmsNotificationTemplate
+    from apps.notifications.providers.msg91 import Msg91Adapter
+
+    if event_key not in CATALOG_EVENT_KEYS:
+        return Response(
+            {'success': False, 'data': None, 'message': 'Unknown event_key', 'errors': []},
+            status=status.HTTP_404_NOT_FOUND,
+        )
+    try:
+        template = SmsNotificationTemplate.objects.get(event_key=event_key, is_deleted=False)
+    except SmsNotificationTemplate.DoesNotExist:
+        return Response(
+            {'success': False, 'data': None, 'message': 'Template not seeded', 'errors': []},
+            status=status.HTTP_404_NOT_FOUND,
+        )
+
+    ser = SmsTemplateFetchSerializer(data=request.data or {})
+    if not ser.is_valid():
+        return Response(
+            {'success': False, 'data': None, 'message': 'Invalid input', 'errors': ser.errors},
+            status=status.HTTP_400_BAD_REQUEST,
+        )
+
+    tid = (ser.validated_data.get('template_id') or template.template_id or '').strip()
+    if not tid:
+        return Response(
+            {
+                'success': False,
+                'data': None,
+                'message': 'Provide template_id to fetch from MSG91',
+                'errors': [],
+            },
+            status=status.HTTP_400_BAD_REQUEST,
+        )
+
+    config = _get_sms_config()
+    if not config or config.provider != 'msg91':
+        return Response(
+            {
+                'success': False,
+                'data': None,
+                'message': 'Activate an MSG91 SMS profile with auth key first.',
+                'errors': [],
+            },
+            status=status.HTTP_400_BAD_REQUEST,
+        )
+    auth_key = config.get_auth_key()
+    if not auth_key:
+        return Response(
+            {
+                'success': False,
+                'data': None,
+                'message': 'MSG91 auth key is missing on the active profile.',
+                'errors': [],
+            },
+            status=status.HTTP_400_BAD_REQUEST,
+        )
+
+    adapter = Msg91Adapter(
+        auth_key=auth_key,
+        api_base_url=config.api_base_url or 'https://control.msg91.com',
+        route=config.route or '',
+    )
+    result = adapter.get_template_versions(tid)
+    if not result.get('success'):
+        return Response(
+            {
+                'success': False,
+                'data': {'template_id': tid},
+                'message': result.get('error') or 'Failed to fetch MSG91 template',
+                'errors': [],
+            },
+            status=status.HTTP_400_BAD_REQUEST,
+        )
+
+    # Persist template_id if caller fetched with a new id
+    if tid != (template.template_id or '').strip():
+        template.template_id = tid
+        template.save(update_fields=['template_id', 'updated_at'])
+
+    from apps.notifications.services.template_sync import apply_msg91_primary_to_template, mapping_health
+
+    primary = result.get('primary') or {}
+    sync = apply_msg91_primary_to_template(template, primary)
+
+    return Response(
+        {
+            'success': True,
+            'data': {
+                'event_key': event_key,
+                'template_id': tid,
+                'primary': {
+                    **(primary if isinstance(primary, dict) else {}),
+                    'detected_vars': sync.detected_vars,
+                },
+                'versions': result.get('versions') or [],
+                'variable_schema': template.variable_schema,
+                'variable_map': template.variable_map or {},
+                'suggested_variable_map': sync.variable_map,
+                'mapping_source': template.mapping_source,
+                'msg91_synced_at': template.msg91_synced_at.isoformat()
+                if template.msg91_synced_at
+                else None,
+                'unmapped_required': sync.unmapped_required,
+                'unused_placeholders': sync.unused_placeholders,
+                'mapping_health': mapping_health(template),
+            },
+            'message': (
+                f'Auto-mapped from MSG91 placeholders: {", ".join(sync.detected_vars) or "none"}'
+                if sync.detected_vars
+                else 'MSG91 template retrieved (no placeholders detected)'
+            ),
             'errors': [],
         },
         status=status.HTTP_200_OK,
@@ -971,6 +1135,7 @@ def sms_template_test_view(request, event_key):
     from apps.notifications.catalog import CATALOG_EVENT_KEYS
     from apps.notifications.models import SmsNotificationTemplate
     from apps.notifications.services.dispatch import SmsNotificationService
+    from apps.notifications.services.variable_map import apply_variable_map
 
     if event_key not in CATALOG_EVENT_KEYS:
         return Response(
@@ -1002,7 +1167,8 @@ def sms_template_test_view(request, event_key):
             status=status.HTTP_400_BAD_REQUEST,
         )
     phone = ser.validated_data['phone']
-    variables = ser.validated_data.get('variables') or template.sample_variables or {}
+    context = ser.validated_data.get('variables') or template.sample_variables or {}
+    variables = apply_variable_map(context, template.variable_map or {})
     active_cfg = _get_sms_config()
     if not active_cfg or not active_cfg.enabled:
         return Response(
@@ -1024,7 +1190,11 @@ def sms_template_test_view(request, event_key):
         return Response(
             {
                 'success': True,
-                'data': {'sent': True, 'provider_message_id': result.get('provider_message_id')},
+                'data': {
+                    'sent': True,
+                    'provider_message_id': result.get('provider_message_id'),
+                    'mapped_variables': variables,
+                },
                 'message': f'Test SMS sent for {event_key}',
                 'errors': [],
             },
@@ -1033,11 +1203,45 @@ def sms_template_test_view(request, event_key):
     return Response(
         {
             'success': False,
-            'data': {'sent': False, 'error': result.get('error')},
+            'data': {'sent': False, 'error': result.get('error'), 'mapped_variables': variables},
             'message': result.get('error') or 'Test SMS failed',
             'errors': [],
         },
         status=status.HTTP_400_BAD_REQUEST,
+    )
+
+
+@api_view(['GET'])
+@permission_classes([IsAuthenticated, IsAdmin])
+def sms_delivery_logs_view(request):
+    from apps.admin_panel.serializers import SmsDeliveryLogSerializer
+    from apps.notifications.models import SmsDeliveryLog
+
+    qs = SmsDeliveryLog.objects.filter(is_deleted=False).order_by('-created_at')
+    event_key = (request.query_params.get('event_key') or '').strip()
+    status_filter = (request.query_params.get('status') or '').strip().lower()
+    if event_key:
+        qs = qs.filter(event_key=event_key)
+    if status_filter in ('sent', 'failed', 'skipped'):
+        qs = qs.filter(status=status_filter)
+
+    try:
+        limit = min(max(int(request.query_params.get('limit') or 50), 1), 200)
+    except (TypeError, ValueError):
+        limit = 50
+
+    rows = list(qs[:limit])
+    return Response(
+        {
+            'success': True,
+            'data': {
+                'logs': SmsDeliveryLogSerializer(rows, many=True).data,
+                'count': len(rows),
+            },
+            'message': 'SMS delivery logs retrieved',
+            'errors': [],
+        },
+        status=status.HTTP_200_OK,
     )
 
 

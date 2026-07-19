@@ -31,6 +31,12 @@ urlpatterns = [
     path('sms-templates/', views.sms_templates_list_view, name='sms-templates'),
     path('sms-templates/<str:event_key>/', views.sms_template_update_view, name='sms-template-update'),
     path('sms-templates/<str:event_key>/test/', views.sms_template_test_view, name='sms-template-test'),
+    path(
+        'sms-templates/<str:event_key>/fetch-msg91/',
+        views.sms_template_fetch_msg91_view,
+        name='sms-template-fetch-msg91',
+    ),
+    path('sms-logs/', views.sms_delivery_logs_view, name='sms-logs'),
     path('email-templates/', views.email_templates_list_view, name='email-templates'),
     path('email-templates/<str:event_key>/', views.email_template_detail_view, name='email-template-detail'),
     path('email-templates/<str:event_key>/test/', views.email_template_test_view, name='email-template-test'),
