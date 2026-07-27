@@ -83,7 +83,44 @@ class ContactViewSet(viewsets.ModelViewSet):
     
     def perform_create(self, serializer):
         """Set user when creating contact."""
-        serializer.save(user=self.request.user)
+        contact = serializer.save(user=self.request.user)
+        try:
+            from apps.session_security.services.activity import record_contact_activity
+
+            record_contact_activity(user=self.request.user, action='created', contact=contact)
+        except Exception:  # noqa: BLE001
+            pass
+        return contact
+
+    def perform_update(self, serializer):
+        contact = serializer.save()
+        try:
+            from apps.session_security.services.activity import record_contact_activity
+
+            record_contact_activity(user=self.request.user, action='updated', contact=contact)
+        except Exception:  # noqa: BLE001
+            pass
+        return contact
+
+    def perform_destroy(self, instance):
+        contact_id = getattr(instance, 'id', None)
+        name = getattr(instance, 'name', '')
+        phone = getattr(instance, 'phone', '')
+        instance.delete()
+        try:
+            from apps.session_security.services.activity import record_contact_activity
+
+            # Pass a simple namespace so we don't use deleted instance
+            class _Tmp:
+                pass
+
+            tmp = _Tmp()
+            tmp.id = contact_id
+            tmp.name = name
+            tmp.phone = phone
+            record_contact_activity(user=self.request.user, action='deleted', contact=tmp)
+        except Exception:  # noqa: BLE001
+            pass
 
     @action(detail=False, methods=['get'], url_path='suggest')
     def suggest(self, request):

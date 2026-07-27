@@ -281,3 +281,46 @@ class UserHierarchy(BaseModel):
             subordinates.extend(cls.get_subordinates(child))
         
         return subordinates
+
+
+class UserRoleHistory(models.Model):
+    """
+    Append-only audit of Admin role changes.
+    Snapshots preserve member/display codes even if the user row is later hard-deleted.
+    """
+
+    user = models.ForeignKey(
+        User,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name='role_history',
+    )
+    actor = models.ForeignKey(
+        User,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name='role_change_actions',
+    )
+    user_pk_snapshot = models.PositiveBigIntegerField(null=True, blank=True, db_index=True)
+    member_number = models.PositiveBigIntegerField(null=True, blank=True, db_index=True)
+    member_id = models.CharField(max_length=24, blank=True, default='')
+    legacy_user_id = models.CharField(max_length=20, blank=True, default='')
+    old_role = models.CharField(max_length=40, blank=True, default='')
+    new_role = models.CharField(max_length=40, blank=True, default='')
+    old_display_code = models.CharField(max_length=24, blank=True, default='')
+    new_display_code = models.CharField(max_length=24, blank=True, default='')
+    reason = models.TextField(blank=True, default='')
+    created_at = models.DateTimeField(auto_now_add=True, db_index=True)
+
+    class Meta:
+        db_table = 'user_role_history'
+        ordering = ['-created_at']
+        indexes = [
+            models.Index(fields=['user', 'created_at']),
+            models.Index(fields=['member_id', 'created_at']),
+        ]
+
+    def __str__(self):
+        return f'{self.legacy_user_id or self.member_id}: {self.old_role} → {self.new_role}'

@@ -19,7 +19,7 @@ const DeleteUserConfirmModal = ({
   const displayName = user
     ? `${user.first_name || ''} ${user.last_name || ''}`.trim() || 'User'
     : '';
-  const userCode = user ? formatUserId(user.user_id || user.id) : '';
+  const userCode = user ? formatUserId(user.display_code || user.member_id || user.user_id || user.id) : '';
   const requiredToken = userCode;
 
   useEffect(() => {

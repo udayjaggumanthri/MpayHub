@@ -60,6 +60,7 @@ INSTALLED_APPS = [
     'apps.admin_panel',
     'apps.integrations',
     'apps.notifications',
+    'apps.session_security',
 ]
 
 MIDDLEWARE = [
@@ -69,6 +70,7 @@ MIDDLEWARE = [
     'django.middleware.common.CommonMiddleware',
     'django.middleware.csrf.CsrfViewMiddleware',
     'django.contrib.auth.middleware.AuthenticationMiddleware',
+    'apps.session_security.middleware.SessionSecurityRequestContextMiddleware',
     'django.contrib.messages.middleware.MessageMiddleware',
     'django.middleware.clickjacking.XFrameOptionsMiddleware',
 ]
@@ -262,6 +264,15 @@ BBPS_AUTO_PULL_PLANS_MAX_BILLERS = config('BBPS_AUTO_PULL_PLANS_MAX_BILLERS', de
 # - agt_cash_when_eligible: legacy fallback for AGT+Cash where business wants forced assisted counter mode.
 BBPS_ASSISTED_CARD_PAYMENT_UI = config('BBPS_ASSISTED_CARD_PAYMENT_UI', default='mdm_strict')
 BANK_VERIFICATION_CHARGE = config('BANK_VERIFICATION_CHARGE', default=3.00, cast=float)
+
+# Session security / GeoIP (IP-derived location on login)
+# GEOIP_PROVIDER: http (free ip-api.com + cache) | memory (tests) | maxmind (local MMDB)
+GEOIP_PROVIDER = config('GEOIP_PROVIDER', default='http')
+GEOIP_DB_PATH = config('GEOIP_DB_PATH', default=str(BASE_DIR / 'data' / 'GeoLite2-City.mmdb'))
+GEOIP_HTTP_TIMEOUT_SECONDS = config('GEOIP_HTTP_TIMEOUT_SECONDS', default=1.5, cast=float)
+GEOIP_CACHE_TTL_SECONDS = config('GEOIP_CACHE_TTL_SECONDS', default=604800, cast=int)
+# Prefer X-Real-IP / rightmost XFF hop (nginx). Spoofable left-most XFF is ignored.
+TRUST_X_FORWARDED_FOR = config('TRUST_X_FORWARDED_FOR', default=True, cast=bool)
 
 # Payout slab (addition model): amount ≤ PAYOUT_SLAB_LOW_MAX → low charge; else high charge
 PAYOUT_SLAB_LOW_MAX = Decimal(str(config('PAYOUT_SLAB_LOW_MAX', default='24999')))

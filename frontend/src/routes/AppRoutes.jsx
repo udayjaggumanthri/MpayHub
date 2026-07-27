@@ -39,6 +39,8 @@ import BankAccounts from '../components/bankManagement/BankAccounts';
 
 // Profile
 import ProfileSettings from '../components/profile/ProfileSettings';
+import LoginActivityPage from '../components/profile/LoginActivityPage';
+import AuditLogsPage from '../components/profile/AuditLogsPage';
 import OnboardingKYC from '../components/onboarding/OnboardingKYC';
 import OnboardingDigilockerCallback from '../components/onboarding/OnboardingDigilockerCallback';
 import OnboardingMPINSetup from '../components/onboarding/OnboardingMPINSetup';
@@ -57,6 +59,7 @@ import BbpsOpsConsole from '../components/admin/BbpsOpsConsole';
 import BbpsBillerDetails from '../components/admin/BbpsBillerDetails';
 import BbpsProviderGovernance from '../components/admin/BbpsProviderGovernance';
 import MaintenanceMode from '../components/admin/MaintenanceMode';
+import UserManagementSettings from '../components/admin/UserManagementSettings';
 import WalletHistoryPage from '../components/wallets/WalletHistoryPage';
 
 /** Old URL `/admin/users/:id` → canonical user profile (all roles that may view a profile). */
@@ -397,6 +400,26 @@ const AppRoutes = () => {
           </ProtectedRoute>
         }
       />
+      <Route
+        path="/profile/login-activity"
+        element={
+          <ProtectedRoute>
+            <Layout>
+              <LoginActivityPage />
+            </Layout>
+          </ProtectedRoute>
+        }
+      />
+      <Route
+        path="/audit-logs"
+        element={
+          <ProtectedRoute>
+            <Layout>
+              <AuditLogsPage />
+            </Layout>
+          </ProtectedRoute>
+        }
+      />
 
       {/* Admin - Announcement Management */}
       <Route
@@ -420,6 +443,20 @@ const AppRoutes = () => {
             <AdminRoute>
               <Layout>
                 <MaintenanceMode />
+              </Layout>
+            </AdminRoute>
+          </ProtectedRoute>
+        }
+      />
+
+      {/* Admin - User management session security settings */}
+      <Route
+        path="/admin/user-management-settings"
+        element={
+          <ProtectedRoute>
+            <AdminRoute>
+              <Layout>
+                <UserManagementSettings />
               </Layout>
             </AdminRoute>
           </ProtectedRoute>

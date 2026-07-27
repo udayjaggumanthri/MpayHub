@@ -235,7 +235,7 @@ const Dashboard = () => {
                   <span className="inline-flex items-center gap-1.5">
                     <FiUser className="text-slate-400" size={15} aria-hidden />
                     <span className="font-semibold text-slate-900">
-                      {user?.userId || user?.user_id || '—'}
+                      {user?.displayCode || user?.userId || user?.user_id || user?.memberId || '—'}
                     </span>
                   </span>
                   <span className="text-slate-300" aria-hidden>

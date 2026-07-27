@@ -17,13 +17,31 @@ class LoginSerializer(serializers.Serializer):
     """Serializer for user login."""
     phone = serializers.CharField(max_length=10)
     password = serializers.CharField(write_only=True)
-    
+    client_context = serializers.JSONField(required=False, allow_null=True)
+
     def validate_phone(self, value):
         """Validate phone number."""
         if not validate_phone(value):
             raise serializers.ValidationError("Invalid phone number format.")
         return value
-    
+
+    def validate_client_context(self, value):
+        """Optional bag — size-bound; deep sanitize happens in session_security."""
+        if value is None:
+            return None
+        if not isinstance(value, dict):
+            raise serializers.ValidationError('client_context must be an object.')
+        # Soft size guard to avoid oversized payloads
+        import json
+
+        try:
+            raw = json.dumps(value, default=str)
+        except (TypeError, ValueError) as exc:
+            raise serializers.ValidationError('client_context is not serializable.') from exc
+        if len(raw) > 12_000:
+            raise serializers.ValidationError('client_context is too large.')
+        return value
+
     def validate(self, attrs):
         """Validate credentials."""
         phone = attrs.get('phone')
@@ -183,20 +201,26 @@ class UserSerializer(serializers.ModelSerializer):
     kyc_verification = serializers.SerializerMethodField()
     profile = serializers.SerializerMethodField()
     profile_sync_pending = serializers.SerializerMethodField()
+    legacy_user_id = serializers.SerializerMethodField()
 
     class Meta:
         model = User
         fields = [
-            'id', 'user_id', 'phone', 'email', 'first_name', 'last_name',
+            'id', 'user_id', 'legacy_user_id', 'member_number', 'member_id', 'display_code',
+            'phone', 'email', 'first_name', 'last_name',
             'role', 'is_active', 'is_restricted', 'payments_locked',
-            'pay_in_allowed_when_disabled', 'access', 'profile', 'created_at',
-            'onboarding', 'kyc_verification', 'profile_sync_pending',
+            'pay_in_allowed_when_disabled', 'allow_concurrent_sessions', 'access', 'profile',
+            'created_at', 'onboarding', 'kyc_verification', 'profile_sync_pending',
         ]
         read_only_fields = [
-            'id', 'user_id', 'created_at', 'is_restricted', 'payments_locked',
-            'pay_in_allowed_when_disabled', 'access', 'kyc_verification', 'profile',
-            'profile_sync_pending',
+            'id', 'user_id', 'legacy_user_id', 'member_number', 'member_id', 'display_code',
+            'created_at', 'is_restricted', 'payments_locked',
+            'pay_in_allowed_when_disabled', 'allow_concurrent_sessions', 'access',
+            'kyc_verification', 'profile', 'profile_sync_pending',
         ]
+
+    def get_legacy_user_id(self, obj):
+        return getattr(obj, 'user_id', None) or ''
 
     def get_access(self, obj):
         from apps.core.financial_access import user_access_flags_snapshot

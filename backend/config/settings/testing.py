@@ -36,6 +36,9 @@ PASSWORD_HASHERS = [
 # Disable rate limiting in tests
 RATELIMIT_ENABLE = False
 
+# Session security tests use deterministic geo (no HTTP)
+GEOIP_PROVIDER = 'memory'
+
 # LocMem cache triggers django-ratelimit system checks; tests do not rely on shared Redis.
 SILENCED_SYSTEM_CHECKS = [
     'django_ratelimit.E003',

@@ -37,6 +37,9 @@ import { formatAdminAccessSuccessMessage } from '../../utils/accessControl';
 import HierarchyCard from './HierarchyCard';
 import PointOfContactCard from './PointOfContactCard';
 import KycVerificationPanel from '../onboarding/KycVerificationPanel';
+import ProfileTabs from './profile/ProfileTabs';
+import ProfileHeader from './profile/ProfileHeader';
+import ActivityAuditPanel from './profile/ActivityAuditPanel';
 
 const ADMIN_ASSIGNABLE_ROLES = [
   'Admin',
@@ -106,6 +109,9 @@ const UserDetail = () => {
   const [kycDecisionMessage, setKycDecisionMessage] = useState('');
   const [kycRejectNotes, setKycRejectNotes] = useState('');
   const [kycRejectOpen, setKycRejectOpen] = useState(false);
+
+  const [profileTab, setProfileTab] = useState('overview');
+
 
   const loadUser = useCallback(async () => {
     setLoading(true);
@@ -521,44 +527,52 @@ const UserDetail = () => {
   return (
     <div className="min-h-[calc(100vh-6rem)] bg-gradient-to-b from-slate-50 via-white to-slate-50/80">
       <div className="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8 py-8 space-y-6">
-        {/* Header */}
-        <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
-          <div className="flex items-center gap-4">
-            <button
-              onClick={() => navigate(-1)}
-              className="flex items-center justify-center h-10 w-10 rounded-xl border border-slate-200 bg-white text-slate-600 shadow-sm transition-colors hover:bg-slate-50 hover:text-slate-900"
-            >
-              <FaArrowLeft size={16} />
-            </button>
-            <div>
-              <p className="text-xs font-semibold uppercase tracking-wider text-indigo-600">User Profile</p>
-              <h1 className="text-2xl font-bold text-slate-900 tracking-tight">{fullName}</h1>
-            </div>
-          </div>
-          <div className="flex items-center gap-3">
-            <span className={`inline-flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-semibold ${roleBadgeClass(user.role)}`}>
-              {user.role}
-            </span>
-            <AccessStatusBadges user={user} className="justify-end" />
-          </div>
+        <ProfileHeader
+          fullName={fullName}
+          user={user}
+          onBack={() => navigate(-1)}
+        />
+
+        <div className="rounded-2xl border border-slate-200/90 bg-white px-2 pt-1 shadow-sm ring-1 ring-slate-900/5">
+          <ProfileTabs
+            tabs={[
+              { id: 'overview', label: 'Overview' },
+              { id: 'kyc', label: 'KYC' },
+              ...(isAdmin ? [{ id: 'activity', label: 'Activity' }] : []),
+            ]}
+            activeId={profileTab}
+            onChange={setProfileTab}
+          />
         </div>
 
+        {profileTab === 'activity' && isAdmin ? (
+              <ActivityAuditPanel mode="admin" userId={user.id} title="User activity" showDeviceColumns />
+        ) : null}
+
         {/* Main Content Grid */}
+        {profileTab !== 'activity' ? (
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
           {/* Left Column - User Info */}
           <div className="lg:col-span-2 space-y-6">
+            {profileTab === 'overview' ? (
+            <>
             {/* Identity Card */}
             <Card className="overflow-hidden">
-              <div className="bg-gradient-to-br from-indigo-500 to-violet-600 px-6 py-8 text-white">
-                <div className="flex items-start justify-between">
+              <div className="border-b border-slate-100 bg-slate-50/80 px-6 py-6">
+                <div className="flex items-start justify-between gap-4">
                   <div>
-                    <p className="text-indigo-200 text-sm font-medium mb-1">User ID</p>
-                    <p className="font-mono text-2xl font-bold tracking-wider">
-                      {formatUserId(user.user_id || user.id)}
+                    <p className="text-xs font-semibold uppercase tracking-wider text-slate-500 mb-1">Identifiers</p>
+                    <p className="font-mono text-2xl font-bold tracking-tight text-slate-900">
+                      {formatUserId(user)}
                     </p>
+                    {user.member_id ? (
+                      <p className="mt-2 font-mono text-sm text-slate-500">
+                        Member ID: {String(user.member_id).toUpperCase()}
+                      </p>
+                    ) : null}
                   </div>
-                  <div className="h-16 w-16 rounded-2xl bg-white/20 backdrop-blur-sm flex items-center justify-center">
-                    <FaUser className="text-white/90" size={28} />
+                  <div className="h-12 w-12 rounded-xl bg-slate-900 text-white flex items-center justify-center">
+                    <FaUser size={20} />
                   </div>
                 </div>
               </div>
@@ -753,7 +767,11 @@ const UserDetail = () => {
             {!isAdmin && user.point_of_contact != null && (
               <PointOfContactCard pointOfContact={user.point_of_contact} />
             )}
+            </>
+            ) : null}
 
+            {profileTab === 'kyc' ? (
+            <>
             {/* KYC Information */}
             <Card>
               <div className="px-6 py-4 border-b border-slate-100">
@@ -934,9 +952,12 @@ const UserDetail = () => {
                 )}
               </section>
             </Card>
+            </>
+            ) : null}
           </div>
 
           {/* Right Column - Actions & Packages */}
+          {profileTab === 'overview' ? (
           <div className="space-y-6">
             {/* Account Actions (Admin only) */}
             {isAdmin && !isSelf && (
@@ -986,6 +1007,11 @@ const UserDetail = () => {
                   <div className="pt-4 border-t border-slate-100">
                     <p className="text-xs font-semibold uppercase tracking-wide text-slate-600 mb-3">Account Access</p>
                     <AccessStatusBadges user={user} className="mb-3" />
+                    {user.allow_concurrent_sessions ? (
+                      <p className="mb-3 inline-flex rounded-full bg-sky-50 px-2.5 py-1 text-xs font-semibold text-sky-800 ring-1 ring-sky-200">
+                        Multi-session allowed
+                      </p>
+                    ) : null}
                     <AccountAccessSummary user={user} />
                     <div className="mt-4 flex gap-2">
                       <Button
@@ -1230,7 +1256,9 @@ const UserDetail = () => {
               </div>
             </Card>
           </div>
+          ) : null}
         </div>
+        ) : null}
       </div>
 
       {accessConfirm ? (

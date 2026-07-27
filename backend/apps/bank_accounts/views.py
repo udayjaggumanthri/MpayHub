@@ -89,7 +89,49 @@ class BankAccountViewSet(viewsets.ModelViewSet):
 
     def perform_create(self, serializer):
         """Set user when creating bank account."""
-        serializer.save(user=self.request.user)
+        account = serializer.save(user=self.request.user)
+        try:
+            from apps.session_security.services.activity import record_bank_account_activity
+
+            record_bank_account_activity(
+                user=self.request.user, action='created', account=account
+            )
+        except Exception:  # noqa: BLE001
+            pass
+        return account
+
+    def perform_update(self, serializer):
+        account = serializer.save()
+        try:
+            from apps.session_security.services.activity import record_bank_account_activity
+
+            record_bank_account_activity(
+                user=self.request.user, action='updated', account=account
+            )
+        except Exception:  # noqa: BLE001
+            pass
+        return account
+
+    def perform_destroy(self, instance):
+        aid = getattr(instance, 'id', None)
+        bank = getattr(instance, 'bank_name', '')
+        num = str(getattr(instance, 'account_number', '') or '')
+        instance.delete()
+        try:
+            from apps.session_security.services.activity import record_bank_account_activity
+
+            class _Tmp:
+                pass
+
+            tmp = _Tmp()
+            tmp.id = aid
+            tmp.bank_name = bank
+            tmp.account_number = num
+            record_bank_account_activity(
+                user=self.request.user, action='deleted', account=tmp
+            )
+        except Exception:  # noqa: BLE001
+            pass
 
     @action(detail=False, methods=['post'])
     @method_decorator(ratelimit(key='user', rate='5/m', method='POST'))

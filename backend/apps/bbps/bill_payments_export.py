@@ -31,7 +31,10 @@ def bill_payment_csv_rows(payments: Iterable[BillPayment]) -> list[list]:
                 balances['opening_balance'],
                 balances['closing_balance'],
                 p.status or '',
-                getattr(user, 'user_id', '') or '',
+                getattr(user, 'display_code', None)
+                or getattr(user, 'user_id', None)
+                or getattr(user, 'member_id', None)
+                or '',
                 getattr(user, 'phone', '') or '',
                 getattr(user, 'role', '') or '',
             ]

@@ -17,8 +17,14 @@ ACCESS_CONTROL_FIELDS = (
     'payments_locked',
     'pay_in_allowed_when_disabled',
 )
-from apps.users.models import UserProfile, KYC, UserHierarchy, KycVerificationAttempt
-from apps.core.utils import generate_user_id, validate_pan, validate_aadhaar
+from apps.users.models import UserProfile, KYC, UserHierarchy, KycVerificationAttempt, UserRoleHistory
+from apps.core.utils import validate_pan, validate_aadhaar
+from apps.users.identity import (
+    assign_identity_fields,
+    identity_payload,
+    public_display_code,
+    recompute_display_code,
+)
 from apps.core.exceptions import InvalidUserRole
 from apps.wallets.models import Wallet
 from apps.authentication.password_onboarding import issue_temporary_password
@@ -85,6 +91,17 @@ def apply_user_access_controls(*, actor: User, target: User, patch: dict) -> Use
                 default=str,
             ),
         )
+        try:
+            from apps.session_security.services.activity import record_admin_access_change
+
+            record_admin_access_change(
+                target=target,
+                actor=actor,
+                before=before,
+                after=after,
+            )
+        except Exception:
+            logger.exception('Failed to write access-control activity audit')
     return target
 
 
@@ -164,6 +181,7 @@ def sync_kyc_verification_status(kyc):
     try:
         from apps.notifications.email_helpers import mask_pan, user_display_name
         from apps.notifications.services.email_dispatch import EmailNotificationService
+        from apps.users.identity import public_display_code
 
         user = kyc.user
         to_email = (getattr(user, 'email', None) or '').strip()
@@ -173,7 +191,7 @@ def sync_kyc_verification_status(kyc):
                 to_email,
                 {
                     'name': user_display_name(user),
-                    'user_id': getattr(user, 'user_id', '') or '',
+                    'user_id': public_display_code(user),
                     'pan_masked': mask_pan(getattr(kyc, 'pan', '') or ''),
                     'verification_status': 'awaiting_approval',
                 },
@@ -247,7 +265,7 @@ def admin_approve_kyc(actor, target_user, notes=''):
                 to_email,
                 {
                     'name': user_display_name(target_user),
-                    'user_id': getattr(target_user, 'user_id', '') or '',
+                    'user_id': public_display_code(target_user),
                     'pan_masked': mask_pan(getattr(kyc, 'pan', '') or ''),
                     'verification_status': 'verified',
                 },
@@ -322,7 +340,7 @@ def admin_reject_kyc(actor, target_user, notes=''):
                 to_email,
                 {
                     'name': user_display_name(target_user),
-                    'user_id': getattr(target_user, 'user_id', '') or '',
+                    'user_id': public_display_code(target_user),
                     'pan_masked': mask_pan(getattr(kyc, 'pan', '') or ''),
                     'verification_status': 'rejected',
                     'reason': notes,
@@ -337,11 +355,17 @@ def admin_reject_kyc(actor, target_user, notes=''):
 
 
 @transaction.atomic
+@transaction.atomic
 def create_user(user_data, created_by):
     """
     Create a new user with profile, KYC, and wallets.
 
     Hierarchy users submit basic details only. MPIN and full KYC are completed later by the user.
+
+    Identity:
+      - Allocates immutable member_number / member_id
+      - Sets display_code from role + member_number
+      - Sets legacy user_id once to member_id for new accounts (compat)
 
     Args:
         user_data: Dictionary containing user data
@@ -358,33 +382,28 @@ def create_user(user_data, created_by):
     raw_password = (user_data.get('password') or '').strip()
     temporary_plain_password = None
 
-    # Allocate user_id against all rows sharing this prefix (user_id is globally unique).
-    user = None
-    last_integrity_error = None
-    for _attempt in range(5):
-        user_id = generate_user_id(target_role)
-        try:
-            user = User.objects.create_user(
-                phone=user_data['phone'],
-                email=user_data['email'],
-                password=raw_password if raw_password else None,
-                role=target_role,
-                user_id=user_id,
-                first_name=user_data.get('first_name', ''),
-                last_name=user_data.get('last_name', ''),
-            )
-            break
-        except Exception as exc:
-            from django.db import IntegrityError
+    identity = assign_identity_fields(User(role=target_role), role=target_role)
+    # New accounts: legacy user_id is set once to immutable member_id (never rewritten on role change).
+    legacy_code = identity['member_id']
 
-            if isinstance(exc, IntegrityError) and 'user_id' in str(exc).lower():
-                last_integrity_error = exc
-                continue
-            raise
-    if user is None:
-        if last_integrity_error is not None:
-            raise last_integrity_error
-        raise RuntimeError('Could not allocate a unique user_id.')
+    try:
+        user = User.objects.create_user(
+            phone=user_data['phone'],
+            email=user_data['email'],
+            password=raw_password if raw_password else None,
+            role=target_role,
+            user_id=legacy_code,
+            member_number=identity['member_number'],
+            member_id=identity['member_id'],
+            display_code=identity['display_code'],
+            first_name=user_data.get('first_name', ''),
+            last_name=user_data.get('last_name', ''),
+        )
+    except Exception:
+        # Roll back the allocated sequence only on hard failure after allocation is awkward
+        # (sequence must never reuse). Surface the error; number is intentionally skipped.
+        raise
+
     if not raw_password:
         temporary_plain_password = issue_temporary_password(user)
     
@@ -455,7 +474,8 @@ def create_user(user_data, created_by):
             user.phone,
             {
                 'name': display_name,
-                'user_id': user.user_id or '',
+                # Template var name remains user_id; value is the role-facing display_code.
+                'user_id': public_display_code(user),
             },
             user_id=user.pk,
             idempotency_key=f'onboarding.welcome:{user.pk}',
@@ -857,13 +877,19 @@ def _user_display_name(u: User) -> str:
 
 
 def _hierarchy_public_ref(u: User) -> str:
-    """Non-null string for lineage paths (join-safe). Some legacy rows have empty user_id."""
-    uid = getattr(u, 'user_id', None)
-    if uid is not None:
-        s = str(uid).strip()
-        if s:
-            return s
-    return str(u.pk)
+    """Non-null string for lineage paths (join-safe). Prefer display_code."""
+    return public_display_code(u)
+
+
+def _identity_node(u: User, *, linked_at=None, link_created_at=None) -> dict:
+    """Hierarchy/POC node with integer id + all public codes."""
+    node = identity_payload(u)
+    node['name'] = _user_display_name(u)
+    if linked_at is not None:
+        node['linked_at'] = linked_at
+    if link_created_at is not None:
+        node['link_created_at'] = link_created_at
+    return node
 
 
 def _direct_parent_contacts(user: User, *, include_pk: bool = False) -> list:
@@ -875,14 +901,13 @@ def _direct_parent_contacts(user: User, *, include_pk: bool = False) -> list:
         .order_by('created_at')
     ):
         p = rel.parent_user
-        entry = {
-            'user_id': p.user_id,
-            'role': p.role,
-            'name': _user_display_name(p),
-            'linked_at': rel.created_at.isoformat() if rel.created_at else None,
-        }
-        if include_pk:
-            entry['id'] = p.pk
+        entry = _identity_node(
+            p,
+            linked_at=rel.created_at.isoformat() if rel.created_at else None,
+        )
+        if not include_pk:
+            # Keep id always for navigation safety (plan requirement).
+            pass
         contacts.append(entry)
     return contacts
 
@@ -918,12 +943,10 @@ def build_user_lineage(user: User) -> dict:
             break
         p = rel.parent_user
         upline_steps.append(
-            {
-                'user_id': p.user_id,
-                'role': p.role,
-                'name': _user_display_name(p),
-                'link_created_at': rel.created_at.isoformat() if rel.created_at else None,
-            }
+            _identity_node(
+                p,
+                link_created_at=rel.created_at.isoformat() if rel.created_at else None,
+            )
         )
         upline_path_segments.append(_hierarchy_public_ref(p))
         current = p
@@ -944,12 +967,10 @@ def build_user_lineage(user: User) -> dict:
     ):
         c = rel.child_user
         direct_reports.append(
-            {
-                'user_id': c.user_id,
-                'role': c.role,
-                'name': _user_display_name(c),
-                'linked_at': rel.created_at.isoformat() if rel.created_at else None,
-            }
+            _identity_node(
+                c,
+                linked_at=rel.created_at.isoformat() if rel.created_at else None,
+            )
         )
 
     return {
@@ -965,7 +986,9 @@ def build_user_lineage(user: User) -> dict:
 def admin_change_user_role(*, actor: User, target: User, new_role: str) -> User:
     """
     Admin-only role change with hierarchy safety checks.
-    Does not regenerate user_id (stable identifiers).
+
+    Recomputes only display_code from immutable member_number.
+    Never changes id, member_number, member_id, or legacy user_id.
     """
     if getattr(actor, 'role', None) != 'Admin':
         raise ValueError('Only administrators may change user roles.')
@@ -974,6 +997,8 @@ def admin_change_user_role(*, actor: User, target: User, new_role: str) -> User:
     valid_roles = [c[0] for c in User.ROLE_CHOICES]
     if new_role not in valid_roles:
         raise ValueError('Invalid role.')
+
+    target = User.objects.select_for_update().get(pk=target.pk)
     if target.role == new_role:
         return target
 
@@ -987,7 +1012,7 @@ def admin_change_user_role(*, actor: User, target: User, new_role: str) -> User:
         child = rel.child_user
         if not UserHierarchy.can_parent_role_create_child_role(new_role, child.role):
             raise ValueError(
-                f'Cannot change role: subordinate {child.user_id} ({child.role}) is not allowed '
+                f'Cannot change role: subordinate {public_display_code(child)} ({child.role}) is not allowed '
                 f'under role {new_role}. Reassign or remove subordinates first.'
             )
 
@@ -997,10 +1022,49 @@ def admin_change_user_role(*, actor: User, target: User, new_role: str) -> User:
             parent = rel.parent_user
             if not UserHierarchy.can_create_role(parent, new_role):
                 raise ValueError(
-                    f'Cannot change role: parent {parent.user_id} ({parent.role}) cannot have a direct '
+                    f'Cannot change role: parent {public_display_code(parent)} ({parent.role}) cannot have a direct '
                     f'report with role {new_role}. Use hierarchy tools or promote/demote parents first.'
                 )
 
+    old_role = target.role
+    old_display = (getattr(target, 'display_code', None) or '') or ''
+    # Ensure member identity exists (backfill should have run; allocate only if missing).
+    if getattr(target, 'member_number', None) is None:
+        assign_identity_fields(target, role=new_role)
+        # Preserve legacy user_id; only fill missing identity fields.
+        target.save(
+            update_fields=['member_number', 'member_id', 'display_code', 'updated_at']
+        )
+        # Re-lock after save isn't required inside same atomic block for our use case.
+        new_display = target.display_code
+    else:
+        new_display = recompute_display_code(target, new_role)
+
     target.role = new_role
-    target.save(update_fields=['role', 'updated_at'])
+    target.save(update_fields=['role', 'display_code', 'updated_at'])
+
+    UserRoleHistory.objects.create(
+        user=target,
+        actor=actor,
+        user_pk_snapshot=target.pk,
+        member_number=getattr(target, 'member_number', None),
+        member_id=getattr(target, 'member_id', None) or '',
+        legacy_user_id=getattr(target, 'user_id', None) or '',
+        old_role=old_role,
+        new_role=new_role,
+        old_display_code=old_display,
+        new_display_code=new_display or '',
+        reason='admin_change_user_role',
+    )
+    try:
+        from apps.session_security.services.activity import record_role_change
+
+        record_role_change(
+            target=target,
+            actor=actor,
+            old_role=old_role,
+            new_role=new_role,
+        )
+    except Exception:
+        logger.exception('Failed to write role-change activity audit')
     return target

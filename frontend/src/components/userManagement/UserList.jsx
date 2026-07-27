@@ -68,6 +68,9 @@ const UserList = ({ role, onCreateNew, currentUserId, isAdmin = false }) => {
           const lastName = (u.last_name || '').toLowerCase();
           const fullName = `${firstName} ${lastName}`.trim();
           const userId = String(u.user_id ?? '').toLowerCase();
+          const displayCode = String(u.display_code ?? '').toLowerCase();
+          const memberId = String(u.member_id ?? '').toLowerCase();
+          const legacyId = String(u.legacy_user_id ?? u.user_id ?? '').toLowerCase();
           const phone = (u.phone || '').toLowerCase();
           const email = (u.email || '').toLowerCase();
           const businessName = (u.profile?.business_name || '').toLowerCase();
@@ -75,6 +78,9 @@ const UserList = ({ role, onCreateNew, currentUserId, isAdmin = false }) => {
           return (
             fullName.includes(searchLower) ||
             userId.includes(searchLower) ||
+            displayCode.includes(searchLower) ||
+            memberId.includes(searchLower) ||
+            legacyId.includes(searchLower) ||
             phone.includes(searchTerm) ||
             email.includes(searchLower) ||
             businessName.includes(searchLower)
@@ -171,7 +177,7 @@ const UserList = ({ role, onCreateNew, currentUserId, isAdmin = false }) => {
 
   const confirmUserName = accountConfirm
     ? `${accountConfirm.user.first_name || ''} ${accountConfirm.user.last_name || ''} (${formatUserId(
-        accountConfirm.user.user_id || accountConfirm.user.id,
+        accountConfirm.user,
       )})`.trim()
     : '';
 
@@ -190,7 +196,7 @@ const UserList = ({ role, onCreateNew, currentUserId, isAdmin = false }) => {
               type="search"
               value={searchTerm}
               onChange={(e) => setSearchTerm(e.target.value)}
-              placeholder="Search by name, user ID, phone, email, or business…"
+              placeholder="Search by name, display code, member ID, legacy ID, phone, email…"
               className="w-full rounded-xl border border-slate-200 bg-slate-50/80 py-3 pl-11 pr-4 text-sm text-slate-900 placeholder:text-slate-400 transition-shadow focus:border-indigo-300 focus:bg-white focus:outline-none focus:ring-2 focus:ring-indigo-500/20"
               aria-label="Search users"
             />
@@ -277,7 +283,7 @@ const UserList = ({ role, onCreateNew, currentUserId, isAdmin = false }) => {
               </thead>
               <tbody className="divide-y divide-slate-100">
                 {users.map((user) => {
-                  const userId = user.user_id || user.id;
+                  const userId = user.display_code || user.user_id || user.member_id || user.id;
                   const fullName =
                     `${user.first_name || ''} ${user.last_name || ''}`.trim() || '—';
                   const businessName = user.profile?.business_name || '—';
@@ -304,7 +310,7 @@ const UserList = ({ role, onCreateNew, currentUserId, isAdmin = false }) => {
                       <td className="px-5 py-4 align-top">
                         <div className="font-semibold text-slate-900 capitalize tracking-tight">{fullName}</div>
                         <div className="mt-1 font-mono text-xs font-medium text-indigo-600 tabular-nums">
-                          {formatUserId(userId)}
+                          {formatUserId(user)}
                         </div>
                       </td>
                       <td className="px-5 py-4 align-top text-sm text-slate-700">

@@ -655,7 +655,7 @@ def user_packages_view(request, user_id):
                 'success': True,
                 'data': {
                     'user_id': target_user.pk,
-                    'user_code': str(target_user.user_id),
+                    'user_code': str(getattr(target_user, 'display_code', None) or target_user.user_id or target_user.member_id or ''),
                     'assigned_packages': PayInPackageSerializer(assigned_packages, many=True).data,
                     'accessible_packages': PayInPackageSerializer(accessible_packages, many=True).data,
                 },

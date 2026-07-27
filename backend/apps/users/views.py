@@ -98,6 +98,8 @@ class UserViewSet(viewsets.ModelViewSet):
                 models.Q(first_name__icontains=search) |
                 models.Q(last_name__icontains=search) |
                 models.Q(user_id__icontains=search) |
+                models.Q(display_code__icontains=search) |
+                models.Q(member_id__icontains=search) |
                 models.Q(phone__icontains=search) |
                 models.Q(email__icontains=search) |
                 models.Q(profile__business_name__icontains=search)
@@ -133,6 +135,7 @@ class UserViewSet(viewsets.ModelViewSet):
                 try:
                     from apps.notifications.email_helpers import login_url_default, user_display_name
                     from apps.notifications.services.email_dispatch import EmailNotificationService
+                    from apps.users.identity import public_display_code
 
                     to_email = (user.email or '').strip()
                     if to_email:
@@ -141,7 +144,7 @@ class UserViewSet(viewsets.ModelViewSet):
                             to_email,
                             {
                                 'name': user_display_name(user),
-                                'user_id': user.user_id or '',
+                                'user_id': public_display_code(user),
                                 'phone': user.phone or '',
                                 'email': to_email,
                                 'temporary_password': temporary_password or '',

@@ -5,8 +5,19 @@ import { getPostLoginPath } from '../../utils/onboardingPaths';
 import { FaEye, FaEyeSlash, FaCircleExclamation, FaUserSlash } from 'react-icons/fa6';
 import { FaPhone, FaLock } from 'react-icons/fa6';
 import { parseLoginFailure, stripErrorFieldPrefix } from '../../utils/loginErrors';
+import {
+  getLoginClientContext,
+  startLoginContextCapture,
+} from '../../services/loginContext';
+import SessionPausedNotice from './SessionPausedNotice';
 
 const LOGO_SRC = `${process.env.PUBLIC_URL || ''}/images/logo.svg`;
+
+const SESSION_NOTICE_CODES = new Set([
+  'SESSION_IDLE',
+  'SESSION_REPLACED',
+  'SESSION_INVALID',
+]);
 
 const Login = () => {
   const navigate = useNavigate();
@@ -17,9 +28,11 @@ const Login = () => {
   const [showPassword, setShowPassword] = useState(false);
   const [rememberMe, setRememberMe] = useState(false);
   const [error, setError] = useState(null);
+  const [sessionNotice, setSessionNotice] = useState(null);
   const [loading, setLoading] = useState(false);
 
   const showLoginError = (payload) => {
+    setSessionNotice(null);
     if (!payload) {
       setError(null);
       return;
@@ -36,17 +49,42 @@ const Login = () => {
       parseLoginFailure({ success: false, ...payload }) ||
       (payload.message
         ? {
-            title: payload.errorTitle || 'Unable to sign in',
+            title: payload.errorTitle || payload.title || 'Unable to sign in',
             message: stripErrorFieldPrefix(payload.message),
-            variant: payload.errorVariant || 'generic',
+            variant: payload.errorVariant || payload.variant || 'generic',
           }
         : null);
     setError(parsed);
   };
 
+  // Request browser location once on visit (native prompt; non-blocking for login)
+  React.useEffect(() => {
+    startLoginContextCapture();
+  }, []);
+
+  React.useEffect(() => {
+    const params = new URLSearchParams(location.search);
+    const sessionCode = params.get('session');
+    if (!sessionCode) return;
+    if (SESSION_NOTICE_CODES.has(sessionCode)) {
+      setError(null);
+      setSessionNotice(sessionCode);
+    } else {
+      setSessionNotice(null);
+      showLoginError({
+        title: 'Session ended',
+        message: 'Your session is no longer valid. Please sign in again.',
+        variant: 'generic',
+      });
+    }
+    navigate('/login', { replace: true });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
   const handleSubmit = async (e) => {
     e.preventDefault();
     setError(null);
+    setSessionNotice(null);
     setLoading(true);
 
     // Validate phone number (10 digits)
@@ -64,7 +102,13 @@ const Login = () => {
     }
 
     try {
-      const result = await login(phone, password);
+      let clientContext = null;
+      try {
+        clientContext = await getLoginClientContext();
+      } catch {
+        clientContext = null;
+      }
+      const result = await login(phone, password, clientContext);
       if (result.success) {
         // Store remember me preference
         if (rememberMe) {
@@ -230,10 +274,20 @@ const Login = () => {
             <div className="hidden lg:block">
               <h2 className="text-3xl sm:text-4xl font-bold text-gray-900 mb-2">LOGIN</h2>
               <p className="text-gray-600 text-base sm:text-lg">Please Log into your account</p>
+              <p className="mt-2 text-xs text-gray-500">
+                Location may be requested for account security. You can allow or deny — login still works either way.
+              </p>
             </div>
 
             <form onSubmit={handleSubmit} className="space-y-6">
-              {error ? (
+              {sessionNotice ? (
+                <SessionPausedNotice
+                  code={sessionNotice}
+                  onDismiss={() => setSessionNotice(null)}
+                />
+              ) : null}
+
+              {error && !sessionNotice ? (
                 <div
                   role="alert"
                   className={`rounded-xl border p-4 shadow-sm animate-fadeIn ${

@@ -28,7 +28,6 @@ from apps.authentication.serializers import (
 )
 from apps.authentication.password_onboarding import clear_must_change_password
 from apps.authentication.services import (
-    create_jwt_tokens,
     send_otp,
     verify_otp,
     reset_password,
@@ -59,18 +58,58 @@ def login_view(request):
     User login endpoint.
     POST /api/auth/login/
     """
+    from apps.session_security.exceptions import SessionSecurityError
+    from apps.session_security.services.facade import get_facade
+
+    def _phone_from_request():
+        if isinstance(request.data, dict):
+            return str(request.data.get('phone') or '')
+        return ''
+
     serializer = LoginSerializer(data=request.data)
-    if serializer.is_valid():
+    try:
+        is_valid = serializer.is_valid()
+    except InvalidCredentials as exc:
+        try:
+            ctx = None
+            if isinstance(request.data, dict):
+                ctx = request.data.get('client_context')
+            get_facade().record_login_failure(
+                request,
+                phone=_phone_from_request(),
+                message=str(exc) or 'Invalid credentials',
+                client_context=ctx if isinstance(ctx, dict) else None,
+            )
+        except Exception:
+            pass
+        raise
+
+    if is_valid:
         user = serializer.validated_data['user']
+
+        try:
+            tokens, _session = get_facade().complete_login(
+                request,
+                user,
+                client_context=serializer.validated_data.get('client_context'),
+            )
+        except SessionSecurityError as exc:
+            return Response(
+                {
+                    'success': False,
+                    'data': None,
+                    'message': exc.message,
+                    'errors': [exc.code],
+                    'error': {'code': exc.code},
+                },
+                status=exc.status_code,
+            )
 
         # Update last login
         user.last_login = timezone.now()
         user.save(update_fields=['last_login'])
 
         user = User.objects.select_related('kyc').get(pk=user.pk)
-
-        # Create JWT tokens
-        tokens = create_jwt_tokens(user)
 
         # Serialize user data (includes onboarding for post-login routing)
         user_data = UserSerializer(user).data
@@ -86,7 +125,7 @@ def login_view(request):
             'message': 'Login successful',
             'errors': []
         }, status=status.HTTP_200_OK)
-    
+
     errors = serializer.errors
     message = 'Invalid phone number or password.'
     error_meta = None
@@ -99,6 +138,12 @@ def login_view(request):
             error_meta = {'code': 'USER_DISABLED'}
         elif text and 'invalid' not in text.lower():
             message = text
+
+    try:
+        get_facade().record_login_failure(request, phone=_phone_from_request(), message=message)
+    except Exception:
+        pass
+
     return Response(
         {
             'success': False,
@@ -451,6 +496,9 @@ def refresh_token_view(request):
     No auth header required (used when access token is expired).
     """
     from rest_framework_simplejwt.tokens import RefreshToken
+    from apps.core.financial_access import user_may_login
+    from apps.session_security.exceptions import SessionSecurityError
+    from apps.session_security.services.facade import get_facade
 
     refresh_token = request.data.get('refresh')
     if not refresh_token:
@@ -462,10 +510,9 @@ def refresh_token_view(request):
         }, status=status.HTTP_400_BAD_REQUEST)
 
     try:
-        from apps.core.financial_access import user_may_login
-
         refresh = RefreshToken(refresh_token)
         uid = refresh.payload.get('user_id')
+        u = None
         if uid is not None:
             u = User.objects.filter(pk=uid).first()
             if not u or not user_may_login(u):
@@ -475,16 +522,21 @@ def refresh_token_view(request):
                     'message': 'User account is disabled.',
                     'errors': ['user_inactive'],
                 }, status=status.HTTP_401_UNAUTHORIZED)
-        tokens = {
-            'access': str(refresh.access_token),
-            'refresh': str(refresh),
-        }
+        tokens = get_facade().refresh(request, refresh, u)
         return Response({
             'success': True,
             'data': {'tokens': tokens},
             'message': 'Token refreshed successfully',
             'errors': []
         }, status=status.HTTP_200_OK)
+    except SessionSecurityError as exc:
+        return Response({
+            'success': False,
+            'data': None,
+            'message': exc.message,
+            'errors': [exc.code],
+            'error': {'code': exc.code},
+        }, status=exc.status_code)
     except Exception as e:
         return Response({
             'success': False,
@@ -501,14 +553,102 @@ def logout_view(request):
     Logout endpoint.
     POST /api/auth/logout/
     """
-    # Invalidate refresh token (if using token blacklist)
-    # For now, just return success
+    try:
+        from apps.session_security.services.facade import get_facade
+
+        get_facade().logout(request, request.user)
+    except Exception:
+        pass
     return Response({
         'success': True,
         'data': None,
         'message': 'Logged out successfully',
         'errors': []
     }, status=status.HTTP_200_OK)
+
+
+@api_view(['GET'])
+@permission_classes([IsAuthenticated])
+def session_policy_view(request):
+    """
+    Session policy for client idle UX.
+    GET /api/auth/session-policy/
+    """
+    from apps.session_security.services.settings import get_settings
+
+    s = get_settings()
+    return Response({
+        'success': True,
+        'data': {
+            'idle_timeout_minutes': int(s.idle_timeout_minutes),
+            'single_session_enforcement_enabled': bool(s.single_session_enforcement_enabled),
+            'ip_location_enforcement_enabled': bool(s.ip_location_enforcement_enabled),
+        },
+        'message': 'OK',
+        'errors': [],
+    })
+
+
+@api_view(['GET'])
+@permission_classes([IsAuthenticated])
+def my_activity_view(request):
+    """
+    Authenticated user's own activity audit.
+    GET /api/auth/my-activity/?category=&event_type=&date_from=&date_to=&page=&page_size=
+    """
+    from apps.session_security.services.audit_query import (
+        filter_audit_queryset,
+        paginate_queryset,
+        serialize_audit_row,
+    )
+
+    qs = filter_audit_queryset(
+        user_id=request.user.id,
+        event_type=request.query_params.get('event_type') or '',
+        category=request.query_params.get('category') or 'all',
+        date_from=request.query_params.get('date_from'),
+        date_to=request.query_params.get('date_to'),
+    )
+    try:
+        page = int(request.query_params.get('page', 1))
+    except (TypeError, ValueError):
+        page = 1
+    try:
+        page_size = int(request.query_params.get('page_size', 25))
+    except (TypeError, ValueError):
+        page_size = 25
+    rows, pagination = paginate_queryset(qs, page=page, page_size=page_size)
+    return Response({
+        'success': True,
+        'data': {
+            'results': [serialize_audit_row(r) for r in rows],
+            'pagination': pagination,
+        },
+        'message': 'OK',
+        'errors': [],
+    })
+
+
+@api_view(['GET'])
+@permission_classes([IsAuthenticated])
+def my_activity_export_view(request):
+    """GET /api/auth/my-activity/export/ → Excel of own activity."""
+    from apps.session_security.services.audit_query import (
+        build_audit_xlsx,
+        export_limit_default,
+        filter_audit_queryset,
+    )
+
+    qs = filter_audit_queryset(
+        user_id=request.user.id,
+        event_type=request.query_params.get('event_type') or '',
+        category=request.query_params.get('category') or 'all',
+        date_from=request.query_params.get('date_from'),
+        date_to=request.query_params.get('date_to'),
+    )
+    rows = list(qs.select_related('user')[: export_limit_default()])
+    code = getattr(request.user, 'display_code', None) or request.user.id
+    return build_audit_xlsx(rows, filename=f'my-activity-{code}.xlsx')
 
 
 @api_view(['GET'])

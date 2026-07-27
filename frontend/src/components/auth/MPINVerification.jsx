@@ -113,7 +113,7 @@ const MPINVerification = () => {
           </p>
           {user && (
             <p className="text-sm text-gray-500 mt-2">
-              Logged in as: {user.name} ({user.userId || user.user_id})
+              Logged in as: {user.name} ({user.displayCode || user.userId || user.user_id || user.memberId})
             </p>
           )}
         </div>

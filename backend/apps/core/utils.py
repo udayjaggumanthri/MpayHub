@@ -49,18 +49,10 @@ def _role_user_id_prefix(role: str) -> str:
 
 def generate_user_id(role, existing_user_ids=None):
     """
-    Generate the next sequential user_id for a role.
+    DEPRECATED: legacy per-role prefix allocator (ADMIN/SD/MD/DT/R).
 
-    ``user_id`` is globally unique in the database (not per role). When
-    ``existing_user_ids`` is omitted, all rows with this role's prefix are
-    considered — including users whose role was changed but user_id kept stable.
-
-    Format:
-    - Admin: ADMIN{number}
-    - Super Distributor: SD{number}
-    - Master Distributor: MD{number}
-    - Distributor: DT{number}
-    - Retailer: R{number}
+    New accounts use apps.users.identity (member_number / member_id / display_code).
+    Kept only for older tests and transitional tooling — do not call from create_user.
     """
     prefix = _role_user_id_prefix(role)
 

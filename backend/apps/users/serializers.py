@@ -378,6 +378,7 @@ class UserListSerializer(serializers.ModelSerializer):
     profile = serializers.SerializerMethodField()
     kyc = serializers.SerializerMethodField()
     mpin_configured = serializers.SerializerMethodField()
+    legacy_user_id = serializers.SerializerMethodField()
 
     def get_profile(self, obj):
         try:
@@ -394,14 +395,20 @@ class UserListSerializer(serializers.ModelSerializer):
     def get_mpin_configured(self, obj):
         return bool(obj.mpin_hash)
 
+    def get_legacy_user_id(self, obj):
+        return getattr(obj, 'user_id', None) or ''
+
     class Meta:
         model = User
         fields = [
-            'id', 'user_id', 'phone', 'email', 'first_name', 'last_name',
+            'id', 'user_id', 'legacy_user_id', 'member_number', 'member_id', 'display_code',
+            'phone', 'email', 'first_name', 'last_name',
             'role', 'is_active', 'is_restricted', 'payments_locked',
             'pay_in_allowed_when_disabled', 'profile', 'kyc', 'mpin_configured', 'created_at',
         ]
-        read_only_fields = ['id', 'user_id', 'created_at']
+        read_only_fields = [
+            'id', 'user_id', 'legacy_user_id', 'member_number', 'member_id', 'display_code', 'created_at',
+        ]
 
 
 class UserRoleChangeSerializer(serializers.Serializer):
@@ -459,21 +466,27 @@ class UserDetailSerializer(serializers.ModelSerializer):
     point_of_contact = serializers.SerializerMethodField()
     mpin_configured = serializers.SerializerMethodField()
     profile_sync_audits = serializers.SerializerMethodField()
+    legacy_user_id = serializers.SerializerMethodField()
 
     class Meta:
         model = User
         fields = [
-            'id', 'user_id', 'phone', 'email', 'first_name', 'last_name',
+            'id', 'user_id', 'legacy_user_id', 'member_number', 'member_id', 'display_code',
+            'phone', 'email', 'first_name', 'last_name',
             'role', 'is_active', 'is_restricted', 'payments_locked',
-            'pay_in_allowed_when_disabled', 'profile', 'kyc', 'kyc_verification',
-            'hierarchy_lineage', 'point_of_contact', 'mpin_configured',
+            'pay_in_allowed_when_disabled', 'allow_concurrent_sessions', 'profile', 'kyc',
+            'kyc_verification', 'hierarchy_lineage', 'point_of_contact', 'mpin_configured',
             'profile_sync_audits', 'created_at', 'updated_at',
         ]
         read_only_fields = [
-            'id', 'user_id', 'created_at', 'updated_at',
+            'id', 'user_id', 'legacy_user_id', 'member_number', 'member_id', 'display_code',
+            'created_at', 'updated_at', 'allow_concurrent_sessions',
             'hierarchy_lineage', 'point_of_contact', 'kyc_verification',
             'profile_sync_audits',
         ]
+
+    def get_legacy_user_id(self, obj):
+        return getattr(obj, 'user_id', None) or ''
 
     def _viewer_is_admin(self):
         request = self.context.get('request')

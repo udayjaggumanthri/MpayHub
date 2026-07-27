@@ -1,13 +1,14 @@
 import React, { useState, useEffect, useCallback } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { Link, useNavigate } from 'react-router-dom';
 import { useAuth } from '../../context/AuthContext';
 import { walletsAPI, authAPI } from '../../services/api';
 import { formatUserId, formatCurrency } from '../../utils/formatters';
 import { validateMPIN } from '../../utils/validators';
-import { FiUser, FiMail, FiPhone, FiLock, FiKey, FiEdit2, FiSave, FiX, FiShield, FiRefreshCw } from 'react-icons/fi';
+import { FiUser, FiMail, FiPhone, FiLock, FiKey, FiEdit2, FiSave, FiX, FiShield, FiRefreshCw, FiActivity } from 'react-icons/fi';
 import { FaCircleCheck, FaClock } from 'react-icons/fa6';
 import KycVerificationPanel from '../onboarding/KycVerificationPanel';
 import KycProfileSyncAlert from '../onboarding/KycProfileSyncAlert';
+import ActivityAuditPanel from '../userManagement/profile/ActivityAuditPanel';
 
 const ProfileSettings = () => {
   const navigate = useNavigate();
@@ -209,6 +210,7 @@ const ProfileSettings = () => {
   const tabs = [
     { id: 'profile', name: 'Profile', icon: FiUser },
     { id: 'verification', name: 'Verification', icon: FiShield },
+    { id: 'activity', name: 'My activity', icon: FiActivity },
     { id: 'password', name: 'Change Password', icon: FiLock },
     { id: 'mpin', name: 'Change MPIN', icon: FiKey },
   ];
@@ -234,7 +236,7 @@ const ProfileSettings = () => {
           </div>
           <div>
             <h2 className="text-2xl font-bold text-gray-900">{user?.name}</h2>
-            <p className="text-gray-600">User ID: {formatUserId(user?.userId || user?.user_id)}</p>
+            <p className="text-gray-600">User ID: {formatUserId(user?.displayCode || user?.userId || user?.user_id || user?.memberId)}</p>
             <p className="text-sm text-gray-500">{user?.role}</p>
           </div>
         </div>
@@ -477,7 +479,7 @@ const ProfileSettings = () => {
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-2">User ID</label>
                   <div className="px-4 py-3 bg-gray-50 border border-gray-300 rounded-lg">
-                    <p className="text-gray-900 font-semibold">{formatUserId(user?.userId || user?.user_id)}</p>
+                    <p className="text-gray-900 font-semibold">{formatUserId(user?.displayCode || user?.userId || user?.user_id || user?.memberId)}</p>
                   </div>
                 </div>
 
@@ -536,6 +538,28 @@ const ProfileSettings = () => {
                   </p>
                 </div>
               </div>
+            </div>
+          )}
+
+          {activeTab === 'activity' && (
+            <div
+              id="profile-tab-activity"
+              role="tabpanel"
+              aria-labelledby="profile-tab-btn-activity"
+              className="space-y-4"
+            >
+              <div className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-slate-200 bg-slate-50 px-4 py-3">
+                <p className="text-sm text-slate-600">
+                  Review every login and session event for this account.
+                </p>
+                <Link
+                  to="/profile/login-activity"
+                  className="text-sm font-semibold text-indigo-600 hover:text-indigo-800"
+                >
+                  Open login activity →
+                </Link>
+              </div>
+              <ActivityAuditPanel mode="self" title="My activity" defaultCategory="all" />
             </div>
           )}
 

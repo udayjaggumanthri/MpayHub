@@ -283,7 +283,7 @@ const Sidebar = () => {
                 <div className="min-w-0 flex-1">
                   <p className="text-xs sm:text-sm font-medium text-gray-900 truncate">{user.name}</p>
                   <p className="text-xs text-gray-500 truncate">
-                    {user.userId || user.user_id}
+                    {user.displayCode || user.userId || user.user_id || user.memberId}
                   </p>
                 </div>
               </div>

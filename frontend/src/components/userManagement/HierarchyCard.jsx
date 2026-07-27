@@ -37,10 +37,10 @@ const HierarchyCard = ({ lineage, user }) => {
       <div className="p-6 space-y-6">
         <div className="flex flex-wrap items-center gap-2">
           {(lineage.upline || []).map((node, idx) => (
-            <React.Fragment key={`${node.user_id}-${idx}`}>
+            <React.Fragment key={`${node.id || node.display_code || node.user_id}-${idx}`}>
               {idx > 0 && <FaChevronRight className="text-slate-300" size={12} />}
               <div className="inline-flex flex-col items-center rounded-xl border border-slate-200 bg-slate-50 px-3 py-2">
-                <span className="font-mono text-sm font-bold text-indigo-700">{formatUserId(node.user_id)}</span>
+                <span className="font-mono text-sm font-bold text-indigo-700">{formatUserId(node)}</span>
                 <span className="text-[10px] uppercase text-slate-500 mt-0.5">{node.role}</span>
               </div>
             </React.Fragment>
@@ -50,7 +50,7 @@ const HierarchyCard = ({ lineage, user }) => {
           )}
           <div className="inline-flex flex-col items-center rounded-xl border-2 border-indigo-400 bg-indigo-50 px-3 py-2">
             <span className="font-mono text-sm font-bold text-indigo-800">
-              {formatUserId(user.user_id || user.id)}
+              {formatUserId(user)}
             </span>
             <span className="text-[10px] uppercase text-indigo-600 mt-0.5">{user.role}</span>
           </div>
@@ -71,8 +71,8 @@ const HierarchyCard = ({ lineage, user }) => {
                 </thead>
                 <tbody className="divide-y divide-slate-100">
                   {lineage.direct_parents.map((p) => (
-                    <tr key={p.user_id} className="bg-white">
-                      <td className="px-4 py-3 font-mono text-indigo-700 font-medium">{formatUserId(p.user_id)}</td>
+                    <tr key={p.id || p.display_code || p.user_id} className="bg-white">
+                      <td className="px-4 py-3 font-mono text-indigo-700 font-medium">{formatUserId(p)}</td>
                       <td className="px-4 py-3 text-slate-700">{p.role}</td>
                       <td className="px-4 py-3 text-slate-900">{p.name}</td>
                       <td className="px-4 py-3 text-slate-500 text-xs">
@@ -95,11 +95,11 @@ const HierarchyCard = ({ lineage, user }) => {
               <div className="divide-y divide-slate-100">
                 {(lineage.direct_reports || []).map((c) => (
                   <Link
-                    key={c.user_id}
-                    to={`/user-management/users/${c.id ?? c.user_id}`}
+                    key={c.id || c.display_code || c.user_id}
+                    to={`/user-management/users/${c.id}`}
                     className="flex items-center gap-4 px-4 py-3 hover:bg-slate-50 transition-colors"
                   >
-                    <span className="font-mono text-sm font-semibold text-indigo-700">{formatUserId(c.user_id)}</span>
+                    <span className="font-mono text-sm font-semibold text-indigo-700">{formatUserId(c)}</span>
                     <span className={`text-xs font-medium px-2 py-0.5 rounded-md ${roleBadgeClass(c.role)}`}>{c.role}</span>
                     <span className="text-slate-700 text-sm">{c.name}</span>
                   </Link>

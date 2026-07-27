@@ -1,12 +1,16 @@
-import React, { createContext, useState, useContext, useEffect, useCallback } from 'react';
+import React, { createContext, useState, useContext, useEffect, useCallback, useRef } from 'react';
 import { authAPI, systemAPI } from '../services/api';
 import { normalizeAuthUser } from '../utils/authUser';
 import { DEFAULT_MAINTENANCE, normalizeMaintenance } from '../utils/maintenanceMode';
 import { userMayLogin } from '../utils/userAccess';
 import { parseLoginFailure } from '../utils/loginErrors';
 import { SESSION_POST_MPIN_ANNOUNCE } from '../utils/announcements';
+import SessionTimeoutModal from '../components/auth/SessionTimeoutModal';
 
 const AuthContext = createContext();
+
+const DEFAULT_IDLE_MINUTES = 5;
+const IDLE_EVENTS = ['mousemove', 'mousedown', 'keydown', 'touchstart', 'scroll', 'click'];
 
 export const useAuth = () => {
   const context = useContext(AuthContext);
@@ -22,10 +26,96 @@ export const AuthProvider = ({ children }) => {
   const [isAuthenticated, setIsAuthenticated] = useState(false);
   const [mpinVerified, setMpinVerified] = useState(false);
   const [loading, setLoading] = useState(true);
+  const [idleTimeoutMinutes, setIdleTimeoutMinutes] = useState(DEFAULT_IDLE_MINUTES);
+  /** Mixpanel-style gate: keep UI frozen under modal until user clicks Login */
+  const [sessionGate, setSessionGate] = useState(null);
+  const idleTimerRef = useRef(null);
+  const logoutRef = useRef(null);
+  const sessionGateRef = useRef(null);
+  const openSessionGateRef = useRef(null);
 
   const applyMaintenanceFromPayload = useCallback((payload) => {
     if (payload?.maintenance) {
       setMaintenance(normalizeMaintenance(payload.maintenance));
+    }
+  }, []);
+
+  const clearIdleTimer = useCallback(() => {
+    if (idleTimerRef.current) {
+      clearTimeout(idleTimerRef.current);
+      idleTimerRef.current = null;
+    }
+  }, []);
+
+  const clearClientTokens = useCallback(() => {
+    localStorage.removeItem('access_token');
+    localStorage.removeItem('refresh_token');
+  }, []);
+
+  /** Soft-end session: revoke server session + clear tokens, keep UI for modal. */
+  const openSessionGate = useCallback(
+    async (code = 'SESSION_IDLE') => {
+      if (sessionGateRef.current) return;
+      sessionGateRef.current = code;
+      setSessionGate(code);
+      clearIdleTimer();
+      try {
+        await authAPI.logout();
+      } catch {
+        /* ignore — tokens may already be invalid */
+      }
+      clearClientTokens();
+    },
+    [clearIdleTimer, clearClientTokens]
+  );
+
+  openSessionGateRef.current = openSessionGate;
+
+  // Bridge for API interceptor (401 session-end → same modal)
+  useEffect(() => {
+    window.__mpayhubOpenSessionGate = (code) => {
+      openSessionGateRef.current?.(code || 'SESSION_INVALID');
+    };
+    return () => {
+      if (window.__mpayhubOpenSessionGate) {
+        delete window.__mpayhubOpenSessionGate;
+      }
+    };
+  }, []);
+
+  const acknowledgeSessionGate = useCallback(() => {
+    sessionGateRef.current = null;
+    setSessionGate(null);
+    sessionStorage.removeItem(SESSION_POST_MPIN_ANNOUNCE);
+    sessionStorage.removeItem('mpayhub_user');
+    sessionStorage.removeItem('mpayhub_mpin_verified');
+    clearClientTokens();
+    setUser(null);
+    setMaintenance(DEFAULT_MAINTENANCE);
+    setIsAuthenticated(false);
+    setMpinVerified(false);
+    window.location.href = '/login';
+  }, [clearClientTokens]);
+
+  const resetIdleTimer = useCallback(() => {
+    clearIdleTimer();
+    if (!isAuthenticated || sessionGateRef.current) return;
+    const ms = Math.max(1, Number(idleTimeoutMinutes) || DEFAULT_IDLE_MINUTES) * 60 * 1000;
+    idleTimerRef.current = setTimeout(() => {
+      if (openSessionGateRef.current) {
+        openSessionGateRef.current('SESSION_IDLE');
+      }
+    }, ms);
+  }, [clearIdleTimer, idleTimeoutMinutes, isAuthenticated]);
+
+  const loadSessionPolicy = useCallback(async () => {
+    try {
+      const result = await authAPI.getSessionPolicy();
+      if (result.success && result.data?.idle_timeout_minutes) {
+        setIdleTimeoutMinutes(Number(result.data.idle_timeout_minutes) || DEFAULT_IDLE_MINUTES);
+      }
+    } catch {
+      /* keep default */
     }
   }, []);
 
@@ -59,6 +149,7 @@ export const AuthProvider = ({ children }) => {
               sessionStorage.setItem('mpayhub_user', JSON.stringify(u));
               setIsAuthenticated(true);
               setMpinVerified(storedMpinVerified === 'true');
+              await loadSessionPolicy();
             }
           } else {
             // Token invalid, clear session
@@ -73,12 +164,32 @@ export const AuthProvider = ({ children }) => {
     };
 
     checkSession();
-  }, []);
+  }, [applyMaintenanceFromPayload, loadSessionPolicy]);
 
-  // Login function
-  const login = async (phone, password) => {
+  // Idle activity listeners (paused while session gate modal is open)
+  useEffect(() => {
+    if (!isAuthenticated || sessionGate) {
+      clearIdleTimer();
+      return undefined;
+    }
+    resetIdleTimer();
+    const onActivity = () => resetIdleTimer();
+    IDLE_EVENTS.forEach((evt) => window.addEventListener(evt, onActivity, { passive: true }));
+    const onVisibility = () => {
+      if (document.visibilityState === 'visible') resetIdleTimer();
+    };
+    document.addEventListener('visibilitychange', onVisibility);
+    return () => {
+      IDLE_EVENTS.forEach((evt) => window.removeEventListener(evt, onActivity));
+      document.removeEventListener('visibilitychange', onVisibility);
+      clearIdleTimer();
+    };
+  }, [isAuthenticated, sessionGate, resetIdleTimer, clearIdleTimer]);
+
+  // Login function (optional clientContext: browser geo + device facts)
+  const login = async (phone, password, clientContext = null) => {
     try {
-      const result = await authAPI.login(phone, password);
+      const result = await authAPI.login(phone, password, clientContext);
       if (result.success && result.data?.user) {
         const u = normalizeAuthUser(result.data.user);
         if (u && !userMayLogin(u)) {
@@ -101,6 +212,7 @@ export const AuthProvider = ({ children }) => {
         setMpinVerified(false); // Session MPIN gate after account is fully ready
         sessionStorage.removeItem('mpayhub_mpin_verified');
         sessionStorage.removeItem(SESSION_POST_MPIN_ANNOUNCE);
+        await loadSessionPolicy();
         return { success: true, user: u };
       }
       const parsed = parseLoginFailure({ success: false, ...result });
@@ -193,7 +305,10 @@ export const AuthProvider = ({ children }) => {
   };
 
   // Logout function
-  const logout = async () => {
+  const logout = useCallback(async () => {
+    clearIdleTimer();
+    sessionGateRef.current = null;
+    setSessionGate(null);
     try {
       await authAPI.logout();
     } catch (error) {
@@ -205,7 +320,9 @@ export const AuthProvider = ({ children }) => {
       setIsAuthenticated(false);
       setMpinVerified(false);
     }
-  };
+  }, [clearIdleTimer]);
+
+  logoutRef.current = logout;
 
   const value = {
     user,
@@ -213,13 +330,24 @@ export const AuthProvider = ({ children }) => {
     isAuthenticated,
     mpinVerified,
     loading,
+    idleTimeoutMinutes,
+    sessionGate,
     login,
     verifyMPIN,
     refreshUser,
     refreshMaintenance,
     markMpinSessionVerified,
     logout,
+    openSessionGate,
+    acknowledgeSessionGate,
   };
 
-  return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
+  return (
+    <AuthContext.Provider value={value}>
+      {children}
+      {sessionGate ? (
+        <SessionTimeoutModal code={sessionGate} onLogin={acknowledgeSessionGate} />
+      ) : null}
+    </AuthContext.Provider>
+  );
 };

@@ -1,4 +1,6 @@
 import React, { useState } from 'react';
+import { Link } from 'react-router-dom';
+import { FaGear } from 'react-icons/fa6';
 import { useAuth } from '../../context/AuthContext';
 import { creatableRolesFor } from '../../utils/rolePermissions';
 import UserList from './UserList';
@@ -9,6 +11,7 @@ const UserManagement = () => {
   const [activeRole, setActiveRole] = useState('all');
   const [showAddUser, setShowAddUser] = useState(false);
   const [targetRole, setTargetRole] = useState('');
+  const isAdmin = user?.role === 'Admin';
 
   // Get available roles based on current user's role
   const availableRoles = React.useMemo(() => {
@@ -58,15 +61,26 @@ const UserManagement = () => {
                 Onboard hierarchy users, review KYC readiness, and control account access (admin).
               </p>
             </div>
-            {availableRoles.length > 0 && activeRole === 'all' && (
-              <button
-                type="button"
-                onClick={() => handleCreateNew()}
-                className="inline-flex shrink-0 items-center justify-center rounded-xl bg-indigo-600 px-5 py-3 text-sm font-semibold text-white shadow-md shadow-indigo-600/20 transition hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:ring-offset-2"
-              >
-                Add new user
-              </button>
-            )}
+            <div className="flex shrink-0 flex-wrap items-center gap-3">
+              {isAdmin ? (
+                <Link
+                  to="/admin/user-management-settings"
+                  className="inline-flex items-center justify-center gap-2 rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm font-semibold text-slate-700 shadow-sm transition hover:border-indigo-200 hover:bg-indigo-50 hover:text-indigo-800 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:ring-offset-2"
+                >
+                  <FaGear size={14} />
+                  Session settings
+                </Link>
+              ) : null}
+              {availableRoles.length > 0 && activeRole === 'all' && (
+                <button
+                  type="button"
+                  onClick={() => handleCreateNew()}
+                  className="inline-flex shrink-0 items-center justify-center rounded-xl bg-indigo-600 px-5 py-3 text-sm font-semibold text-white shadow-md shadow-indigo-600/20 transition hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:ring-offset-2"
+                >
+                  Add new user
+                </button>
+              )}
+            </div>
           </div>
         </div>
 

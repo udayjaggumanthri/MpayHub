@@ -55,7 +55,32 @@ class User(AbstractUser, TimestampedModel):
     email = models.EmailField(unique=True, db_index=True)
     role = models.CharField(max_length=20, choices=ROLE_CHOICES, default='Retailer')
     mpin_hash = models.CharField(max_length=255, blank=True, null=True)
+    # Legacy public code (role-prefixed historically). Preserved for search/history.
     user_id = models.CharField(max_length=20, unique=True, db_index=True, null=True, blank=True)
+    # Immutable global member identity (additive; see users.identity)
+    member_number = models.PositiveBigIntegerField(
+        null=True,
+        blank=True,
+        unique=True,
+        db_index=True,
+        help_text='Immutable global serial. Never reused.',
+    )
+    member_id = models.CharField(
+        max_length=24,
+        null=True,
+        blank=True,
+        unique=True,
+        db_index=True,
+        help_text='Immutable public id MPH######.',
+    )
+    display_code = models.CharField(
+        max_length=24,
+        null=True,
+        blank=True,
+        unique=True,
+        db_index=True,
+        help_text='Role-prefix + member_number (prefix updates on role change).',
+    )
     is_active = models.BooleanField(default=True)
     # Admin access controls (see apps.core.financial_access)
     is_restricted = models.BooleanField(
@@ -75,6 +100,11 @@ class User(AbstractUser, TimestampedModel):
         db_index=True,
         help_text='User must complete OTP password reset before using the portal (onboarding).',
     )
+    allow_concurrent_sessions = models.BooleanField(
+        default=False,
+        db_index=True,
+        help_text='When True, user may keep multiple active sessions (admin exception).',
+    )
     last_login = models.DateTimeField(null=True, blank=True)
     
     USERNAME_FIELD = 'phone'
@@ -87,7 +117,13 @@ class User(AbstractUser, TimestampedModel):
         ordering = ['-created_at']
     
     def __str__(self):
-        return f"{self.user_id} - {self.get_full_name() or self.phone}"
+        label = (
+            (self.display_code or '').strip()
+            or (self.member_id or '').strip()
+            or (self.user_id or '').strip()
+            or self.phone
+        )
+        return f"{label} - {self.get_full_name() or self.phone}"
     
     def set_mpin(self, mpin):
         """Set and encrypt MPIN."""
@@ -155,23 +191,67 @@ class OTP(TimestampedModel):
 class UserSession(TimestampedModel):
     """
     User session model for tracking active sessions.
+
+    ``jti`` stores the opaque session id embedded in JWT claim ``sid``.
+    ``token`` mirrors ``jti`` for backward compatibility with older admin tooling.
     """
+    TERMINATION_REASON_CHOICES = [
+        ('replaced', 'Replaced by new login'),
+        ('logout', 'Logout'),
+        ('idle', 'Idle timeout'),
+        ('admin', 'Admin terminated'),
+    ]
+
     user = models.ForeignKey(User, on_delete=models.CASCADE, related_name='sessions')
     token = models.CharField(max_length=255, db_index=True)
+    jti = models.CharField(max_length=64, unique=True, null=True, blank=True, db_index=True)
+    ip_address = models.GenericIPAddressField(null=True, blank=True)
+    location = models.JSONField(default=dict, blank=True)
+    user_agent = models.TextField(blank=True, default='')
     device_info = models.JSONField(default=dict, blank=True)
     expires_at = models.DateTimeField(db_index=True)
     is_active = models.BooleanField(default=True)
-    
+    last_activity_at = models.DateTimeField(null=True, blank=True, db_index=True)
+    terminated_at = models.DateTimeField(null=True, blank=True)
+    termination_reason = models.CharField(
+        max_length=20,
+        choices=TERMINATION_REASON_CHOICES,
+        blank=True,
+        default='',
+    )
+
     class Meta:
         db_table = 'user_sessions'
         ordering = ['-created_at']
         indexes = [
             models.Index(fields=['user', 'is_active']),
+            models.Index(fields=['jti', 'is_active']),
         ]
-    
+
     def __str__(self):
-        return f"Session for {self.user.user_id}"
-    
+        label = (
+            getattr(self.user, 'display_code', None)
+            or getattr(self.user, 'user_id', None)
+            or str(self.user_id)
+        )
+        return f"Session for {label}"
+
     def is_valid(self):
-        """Check if session is valid."""
+        """Check if session is valid (active and not past absolute expiry)."""
         return self.is_active and timezone.now() < self.expires_at
+
+
+class MemberNumberSequence(TimestampedModel):
+    """
+    Singleton row-locked counter for global member_number allocation.
+    Survives user hard-deletes without number reuse.
+    """
+
+    key = models.CharField(max_length=32, unique=True, default='global')
+    next_value = models.PositiveBigIntegerField(default=1)
+
+    class Meta:
+        db_table = 'member_number_sequences'
+
+    def __str__(self):
+        return f'{self.key} next={self.next_value}'

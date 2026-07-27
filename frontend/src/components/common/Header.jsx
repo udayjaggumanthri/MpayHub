@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { Link } from 'react-router-dom';
 import { useAuth } from '../../context/AuthContext';
-import { FaUser, FaRightFromBracket } from 'react-icons/fa6';
+import { FaUser, FaRightFromBracket, FaClipboardList, FaGear } from 'react-icons/fa6';
 import NotificationBell from '../dashboard/NotificationBell';
 
 const LOGO_SRC = `${process.env.PUBLIC_URL || ''}/images/logo.svg`;
@@ -32,10 +32,8 @@ const Header = () => {
 
           {/* Right: keep clear of fixed hamburger (≈48px); sit above centered logo for hit targets */}
           <div className="relative z-10 ml-auto flex w-full items-center justify-end space-x-2 pl-12 sm:space-x-4 lg:pl-0">
-            {/* Notification Bell */}
             <NotificationBell />
 
-            {/* Profile Dropdown */}
             <div className="relative">
               <button
                 onClick={() => setShowProfileMenu(!showProfileMenu)}
@@ -50,7 +48,6 @@ const Header = () => {
                 <FaUser className="text-gray-600 hidden sm:block" size={18} />
               </button>
 
-              {/* Profile Dropdown Menu */}
               {showProfileMenu && (
                 <>
                   <div
@@ -60,9 +57,27 @@ const Header = () => {
                   <div className="absolute right-0 mt-2 w-48 sm:w-56 bg-white rounded-lg shadow-lg border border-gray-200 py-2 z-20">
                     <div className="px-4 py-2 border-b border-gray-200">
                       <p className="text-sm font-medium text-gray-900">{user?.name}</p>
-                      <p className="text-xs text-gray-500">{user?.userId || user?.user_id || '—'}</p>
+                      <p className="text-xs text-gray-500">
+                        {user?.displayCode || user?.userId || user?.user_id || user?.memberId || '—'}
+                      </p>
                       <p className="text-xs text-gray-500">{user?.role}</p>
                     </div>
+                    <Link
+                      to="/profile"
+                      onClick={() => setShowProfileMenu(false)}
+                      className="flex w-full items-center space-x-2 px-4 py-2 text-sm text-gray-700 hover:bg-gray-100 transition-colors"
+                    >
+                      <FaGear size={14} />
+                      <span>Profile &amp; settings</span>
+                    </Link>
+                    <Link
+                      to="/audit-logs"
+                      onClick={() => setShowProfileMenu(false)}
+                      className="flex w-full items-center space-x-2 px-4 py-2 text-sm text-gray-700 hover:bg-gray-100 transition-colors"
+                    >
+                      <FaClipboardList size={14} />
+                      <span>Audit logs</span>
+                    </Link>
                     <button
                       onClick={() => {
                         setShowProfileMenu(false);

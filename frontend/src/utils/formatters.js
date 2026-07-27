@@ -102,7 +102,19 @@ export const getStatusColor = (status) => {
 };
 
 // Format user ID for display
+// Format public user identity code for display
 export const formatUserId = (userId) => {
-  if (userId === null || userId === undefined) return '';
+  if (userId === null || userId === undefined || userId === '') return '';
+  if (typeof userId === 'object') {
+    const code =
+      userId.display_code ||
+      userId.displayCode ||
+      userId.user_id ||
+      userId.userId ||
+      userId.member_id ||
+      userId.memberId ||
+      '';
+    return String(code).toUpperCase();
+  }
   return String(userId).toUpperCase();
 };

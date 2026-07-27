@@ -46,7 +46,7 @@ const PointOfContactCard = ({ pointOfContact }) => {
                 <div className="flex flex-wrap items-center justify-between gap-4 rounded-xl border border-indigo-100 bg-indigo-50/60 px-4 py-4">
                   <div className="space-y-1">
                     <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">User ID</p>
-                    <p className="font-mono text-lg font-bold text-indigo-800">{formatUserId(contact.user_id)}</p>
+                    <p className="font-mono text-lg font-bold text-indigo-800">{formatUserId(contact)}</p>
                   </div>
                   <div className="space-y-1 min-w-[120px]">
                     <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Role</p>

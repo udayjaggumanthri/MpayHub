@@ -32,9 +32,14 @@ class KYCInline(admin.StackedInline):
 @admin.register(User)
 class UserAdmin(BaseUserAdmin):
     """Enhanced User admin with profile and KYC inline editing."""
-    list_display = ['user_id', 'phone', 'email', 'get_full_name', 'role', 'is_active', 'created_at', 'view_actions']
+    list_display = [
+        'display_code', 'member_id', 'user_id', 'phone', 'email', 'get_full_name',
+        'role', 'is_active', 'created_at', 'view_actions',
+    ]
     list_filter = ['role', 'is_active', 'is_staff', 'is_superuser', 'created_at']
-    search_fields = ['user_id', 'phone', 'email', 'first_name', 'last_name']
+    search_fields = [
+        'display_code', 'member_id', 'user_id', 'phone', 'email', 'first_name', 'last_name',
+    ]
     list_editable = ['is_active']  # Allow quick editing of is_active
     ordering = ['-created_at']
     
@@ -43,7 +48,10 @@ class UserAdmin(BaseUserAdmin):
     
     fieldsets = (
         ('Authentication', {
-            'fields': ('phone', 'email', 'password', 'user_id', 'mpin_status')
+            'fields': (
+                'phone', 'email', 'password',
+                'display_code', 'member_id', 'member_number', 'user_id', 'mpin_status',
+            )
         }),
         ('Personal Information', {
             'fields': ('first_name', 'last_name')
@@ -65,8 +73,11 @@ class UserAdmin(BaseUserAdmin):
     )
     
     def get_readonly_fields(self, request, obj=None):
-        """Make user_id readonly, but allow editing other fields."""
-        readonly = ['user_id', 'created_at', 'updated_at', 'last_login', 'mpin_status']
+        """Make identity fields readonly, but allow editing other fields."""
+        readonly = [
+            'user_id', 'member_number', 'member_id', 'display_code',
+            'created_at', 'updated_at', 'last_login', 'mpin_status',
+        ]
         if obj:  # Editing an existing object
             readonly.append('phone')  # Don't allow changing phone after creation
         return readonly

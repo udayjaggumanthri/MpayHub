@@ -1,5 +1,6 @@
 """
-JWT / session auth that rejects users who may not log in (disabled without pay-in exception).
+JWT / session auth that rejects users who may not log in (disabled without pay-in exception)
+and enforces server-side UserSession (sid claim) + idle timeout.
 """
 from django.utils.translation import gettext_lazy as _
 from rest_framework.authentication import SessionAuthentication
@@ -18,7 +19,26 @@ class ActiveUserJWTAuthentication(JWTAuthentication):
 
     Does not call ``JWTAuthentication.get_user`` directly — the parent rejects any
     ``is_active=False`` user before pay-in exception can apply.
+
+    Also validates the opaque session id claim (``sid``) against ``UserSession``.
     """
+
+    def authenticate(self, request):
+        result = super().authenticate(request)
+        if result is None:
+            return None
+        user, validated_token = result
+        try:
+            from apps.session_security.exceptions import SessionSecurityError
+            from apps.session_security.services.facade import get_facade
+
+            get_facade().authenticate_access(request, validated_token, user)
+        except SessionSecurityError as exc:
+            raise AuthenticationFailed(
+                detail={'code': exc.code, 'message': exc.message},
+                code=exc.code,
+            ) from exc
+        return user, validated_token
 
     def get_user(self, validated_token):
         try:

@@ -4,6 +4,7 @@ from __future__ import annotations
 from typing import Any
 
 from apps.authentication.models import User
+from apps.users.identity import public_display_code, public_member_id
 
 
 def display_name_for_user(user: User) -> str:
@@ -21,7 +22,7 @@ def display_name_for_user(user: User) -> str:
     if not name:
         name = (getattr(user, 'email', None) or '') or ''
     if not name:
-        name = str(getattr(user, 'user_id', None) or user.pk)
+        name = public_display_code(user)
     return name.strip()
 
 
@@ -34,13 +35,19 @@ def agent_row_from_user(user: User | None) -> dict[str, Any]:
             'role': '',
             'mobile': '',
             'user_code': '',
+            'member_id': '',
+            'display_code': '',
         }
+    code = public_display_code(user)
     return {
         'id': user.pk,
         'name': display_name_for_user(user),
         'role': getattr(user, 'role', '') or '',
         'mobile': getattr(user, 'phone', '') or '',
-        'user_code': str(getattr(user, 'user_id', None) or ''),
+        # user_code remains the human-facing snapshot (display_code preferred).
+        'user_code': code,
+        'member_id': public_member_id(user),
+        'display_code': code,
     }
 
 
@@ -56,7 +63,7 @@ def transaction_agent_db_fields(user: User | None) -> dict[str, Any]:
     return {
         'agent_user': user,
         'agent_role_at_time': getattr(user, 'role', '') or '',
-        'agent_user_code': str(getattr(user, 'user_id', None) or ''),
+        'agent_user_code': public_display_code(user)[:30],
         'agent_name_snapshot': display_name_for_user(user),
     }
 
@@ -72,7 +79,7 @@ def passbook_initiator_db_fields(user: User | None) -> dict[str, Any]:
     return {
         'initiator_user': user,
         'initiator_role_at_time': getattr(user, 'role', '') or '',
-        'initiator_user_code': str(getattr(user, 'user_id', None) or ''),
+        'initiator_user_code': public_display_code(user)[:30],
         'initiator_name_snapshot': display_name_for_user(user),
     }
 

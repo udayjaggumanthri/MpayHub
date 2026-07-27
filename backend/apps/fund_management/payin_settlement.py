@@ -49,7 +49,8 @@ def _payin_source_agent_meta(payer: Optional[User]) -> dict:
         name = ''
     if not name:
         name = (getattr(payer, 'email', None) or '') or ''
-    code = getattr(payer, 'user_id', None) or ''
+    from apps.users.identity import public_display_code
+    code = public_display_code(payer)
     return {
         'source_user_id': payer.pk,
         'source_user_code': str(code),

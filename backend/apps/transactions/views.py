@@ -50,6 +50,15 @@ from apps.transactions.analytics_summary import get_gateway_analytics_summary
 from apps.transactions.dashboard_stats import get_dashboard_transaction_status
 
 
+def _audit_report_view(request, report_type: str, scope: str = ''):
+    try:
+        from apps.session_security.services.activity import record_report_viewed
+
+        record_report_viewed(user=request.user, report_type=report_type, scope=scope or '')
+    except Exception:  # noqa: BLE001
+        pass
+
+
 @api_view(['GET'])
 @permission_classes([IsAuthenticated])
 def transactions_list_view(request):
@@ -348,6 +357,7 @@ def payin_report_view(request):
         slice_qs = list(qs[start : start + page_size])
         tx_data = TransactionSerializer(slice_qs, many=True).data
         rows = payin_rows_for_transactions(request, slice_qs)
+    _audit_report_view(request, 'payin', scope)
     return Response(
         {
             'success': True,
@@ -410,6 +420,7 @@ def payout_report_view(request):
         slice_qs = list(qs[start : start + page_size])
         tx_data = TransactionSerializer(slice_qs, many=True).data
         rows = payout_rows_for_transactions(request, slice_qs)
+    _audit_report_view(request, 'payout', scope)
     return Response(
         {
             'success': True,
@@ -472,6 +483,7 @@ def bbps_report_view(request):
         slice_qs = list(qs[start : start + page_size])
         tx_data = TransactionSerializer(slice_qs, many=True).data
         rows = bbps_rows_for_transactions(request, slice_qs, serial_offset=start)
+    _audit_report_view(request, 'bbps', scope)
     return Response(
         {
             'success': True,
@@ -539,6 +551,7 @@ def commission_report_view(request):
 
         serializer = WalletTransactionSerializer(transactions[:500], many=True)
 
+        _audit_report_view(request, 'commission', get_report_scope(request))
         return Response(
             {
                 'success': True,

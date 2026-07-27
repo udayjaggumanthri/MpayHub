@@ -17,7 +17,7 @@ def _dec4(v):
 class TransactionSerializer(serializers.ModelSerializer):
     """Serializer for Transaction model."""
 
-    actor_user_id = serializers.CharField(source='user.user_id', read_only=True)
+    actor_user_id = serializers.SerializerMethodField()
     amount = serializers.SerializerMethodField()
     charge = serializers.SerializerMethodField()
     platform_fee = serializers.SerializerMethodField()
@@ -50,6 +50,12 @@ class TransactionSerializer(serializers.ModelSerializer):
         ]
         read_only_fields = fields
 
+    def get_actor_user_id(self, obj):
+        from apps.users.identity import public_display_code
+
+        user = getattr(obj, 'user', None)
+        return public_display_code(user) if user else ''
+
     def get_amount(self, obj):
         return _dec4(obj.amount)
 
@@ -66,7 +72,7 @@ class TransactionSerializer(serializers.ModelSerializer):
 class PassbookEntrySerializer(serializers.ModelSerializer):
     """Serializer for PassbookEntry model."""
 
-    owner_user_id = serializers.CharField(source='user.user_id', read_only=True)
+    owner_user_id = serializers.SerializerMethodField()
     debit_amount = serializers.SerializerMethodField()
     credit_amount = serializers.SerializerMethodField()
     opening_balance = serializers.SerializerMethodField()
@@ -96,6 +102,12 @@ class PassbookEntrySerializer(serializers.ModelSerializer):
             'initiator_name_snapshot',
         ]
         read_only_fields = fields
+
+    def get_owner_user_id(self, obj):
+        from apps.users.identity import public_display_code
+
+        user = getattr(obj, 'user', None)
+        return public_display_code(user) if user else ''
 
     def get_debit_amount(self, obj):
         return _dec4(obj.debit_amount)

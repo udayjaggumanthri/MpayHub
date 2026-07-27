@@ -139,7 +139,8 @@ const AddUser = ({ onCancel, onSuccess, initialRole = '' }) => {
           ? `Unique temporary password: ${temp}\n(Sent by email when configured. Share securely if email is unavailable.)`
           : 'Password was set as you provided.';
         const lines = [
-          `User ID: ${newUser.user_id ?? '—'}`,
+          `User ID: ${newUser.display_code || newUser.user_id || '—'}`,
+          newUser.member_id ? `Member ID: ${newUser.member_id}` : null,
           `Name: ${newUser.first_name ?? ''} ${newUser.last_name ?? ''}`.trim(),
           `Role: ${newUser.role}`,
           `Login: registered mobile number + password`,
@@ -148,7 +149,7 @@ const AddUser = ({ onCancel, onSuccess, initialRole = '' }) => {
           temp
             ? 'On first login they must reset their password via OTP, then complete KYC and MPIN.'
             : 'The user must log in and complete KYC, then set MPIN, before the account is fully active.',
-        ];
+        ].filter(Boolean);
         setSuccessModal({
           open: true,
           title: 'User created',

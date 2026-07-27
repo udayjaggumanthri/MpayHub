@@ -94,7 +94,12 @@ def payin_rows_for_transactions(
         customer_name = ''
         customer_email = ''
         customer_phone = ''
-        customer_user_code = str(getattr(t.user, 'user_id', None) or '')
+        customer_user_code = str(
+            getattr(t.user, 'display_code', None)
+            or getattr(t.user, 'user_id', None)
+            or getattr(t.user, 'member_id', None)
+            or ''
+        )
         provider_order_id = ''
         provider_payment_id = ''
         gateway_transaction_id = ''
@@ -362,7 +367,12 @@ def payin_rows_from_load_money(request, items: list[LoadMoney]) -> list[dict[str
         opening_balance = balances['opening_balance']
         closing_balance = balances['closing_balance']
 
-        customer_user_code = str(getattr(lm.user, 'user_id', None) or '')
+        customer_user_code = str(
+            getattr(lm.user, 'display_code', None)
+            or getattr(lm.user, 'user_id', None)
+            or getattr(lm.user, 'member_id', None)
+            or ''
+        )
         if not customer_email:
             customer_email = (gateway_meta.get('rzp_email') or '').strip()
         if not customer_phone:
@@ -557,7 +567,12 @@ def passbook_rows(request, entries: list[PassbookEntry]) -> list[dict[str, Any]]
                 'service_charge': money_str(e.service_charge),
                 'principal_amount': money_str(e.principal_amount) if e.principal_amount is not None else '',
                 'agent_details': agent_row_from_user(agent_u),
-                'owner_user_code': getattr(e.user, 'user_id', '') or '',
+                'owner_user_code': (
+                    getattr(e.user, 'display_code', None)
+                    or getattr(e.user, 'user_id', None)
+                    or getattr(e.user, 'member_id', None)
+                    or ''
+                ),
                 'direct_subordinate': is_direct_subordinate(viewer, e.user)
                 if getattr(viewer, 'role', '') == 'Super Distributor'
                 else None,

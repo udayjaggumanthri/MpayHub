@@ -91,12 +91,63 @@ const skipTokenRefreshForUrl = (config) => {
 };
 
 // Response interceptor - Handle token refresh and errors
+const SESSION_END_CODES = new Set([
+  'SESSION_IDLE',
+  'SESSION_REPLACED',
+  'SESSION_INVALID',
+  'GEO_CAPTURE_FAILED',
+  'IP_CAPTURE_FAILED',
+]);
+
+const extractSessionEndCode = (error) => {
+  const data = error?.response?.data;
+  if (!data) return null;
+  const errObj = data.error;
+  if (errObj?.code && SESSION_END_CODES.has(errObj.code)) return errObj.code;
+  const detail = data.detail;
+  if (detail && typeof detail === 'object' && detail.code && SESSION_END_CODES.has(detail.code)) {
+    return detail.code;
+  }
+  if (Array.isArray(data.errors)) {
+    const hit = data.errors.find((c) => SESSION_END_CODES.has(String(c)));
+    if (hit) return String(hit);
+  }
+  return null;
+};
+
+const clearClientSessionAndRedirect = (reasonCode) => {
+  localStorage.removeItem('access_token');
+  localStorage.removeItem('refresh_token');
+  // Prefer Mixpanel-style in-app modal when AuthProvider is mounted
+  if (
+    typeof window !== 'undefined' &&
+    typeof window.__mpayhubOpenSessionGate === 'function' &&
+    !window.location.pathname.startsWith('/login')
+  ) {
+    window.__mpayhubOpenSessionGate(reasonCode || 'SESSION_INVALID');
+    return;
+  }
+  sessionStorage.removeItem('mpayhub_user');
+  sessionStorage.removeItem('mpayhub_mpin_verified');
+  const params = reasonCode ? `?session=${encodeURIComponent(reasonCode)}` : '';
+  if (!window.location.pathname.startsWith('/login')) {
+    window.location.href = `/login${params}`;
+  }
+};
+
 apiClient.interceptors.response.use(
   (response) => {
     return response;
   },
   async (error) => {
     const originalRequest = error.config;
+    const sessionCode = extractSessionEndCode(error);
+
+    // Session revoked / idle — do not attempt refresh
+    if (error.response?.status === 401 && sessionCode) {
+      clearClientSessionAndRedirect(sessionCode);
+      return Promise.reject(error);
+    }
 
     // Handle 401 Unauthorized - Token expired
     if (
@@ -126,12 +177,8 @@ apiClient.interceptors.response.use(
           }
         }
       } catch (refreshError) {
-        // Refresh failed - logout user
-        localStorage.removeItem('access_token');
-        localStorage.removeItem('refresh_token');
-        sessionStorage.removeItem('mpayhub_user');
-        sessionStorage.removeItem('mpayhub_mpin_verified');
-        window.location.href = '/login';
+        const refreshSessionCode = extractSessionEndCode(refreshError);
+        clearClientSessionAndRedirect(refreshSessionCode || 'SESSION_INVALID');
         return Promise.reject(refreshError);
       }
     }
@@ -318,12 +365,16 @@ export const authAPI = {
    * Login user
    * POST /api/auth/login/
    */
-  login: async (phone, password) => {
+  login: async (phone, password, clientContext = null) => {
     try {
-      const response = await apiClient.post('/auth/login/', {
+      const body = {
         phone: String(phone ?? '').trim(),
         password,
-      });
+      };
+      if (clientContext && typeof clientContext === 'object') {
+        body.client_context = clientContext;
+      }
+      const response = await apiClient.post('/auth/login/', body);
       const result = extractData(response);
       
       if (result.success && result.data?.tokens) {
@@ -670,6 +721,49 @@ export const authAPI = {
       sessionStorage.removeItem('mpayhub_user');
       sessionStorage.removeItem('mpayhub_mpin_verified');
       sessionStorage.removeItem('mpayhub_post_mpin_dashboard');
+    }
+  },
+
+  /**
+   * Session policy for idle UX
+   * GET /api/auth/session-policy/
+   */
+  getSessionPolicy: async () => {
+    try {
+      const response = await apiClient.get('/auth/session-policy/');
+      return extractData(response);
+    } catch (error) {
+      return handleError(error);
+    }
+  },
+
+  getMyActivity: async (params = {}) => {
+    try {
+      const response = await apiClient.get('/auth/my-activity/', { params });
+      return extractData(response);
+    } catch (error) {
+      return handleError(error);
+    }
+  },
+
+  exportMyActivity: async (params = {}) => {
+    try {
+      const response = await apiClient.get('/auth/my-activity/export/', {
+        params,
+        responseType: 'blob',
+      });
+      const blob = response.data;
+      const url = window.URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = 'my-activity.xlsx';
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      window.URL.revokeObjectURL(url);
+      return { success: true };
+    } catch (error) {
+      return handleError(error);
     }
   },
 
@@ -2783,6 +2877,93 @@ export const adminAPI = {
   updateMaintenanceConfig: async (payload) => {
     try {
       const response = await apiClient.patch('/admin/maintenance/', payload);
+      return extractData(response);
+    } catch (error) {
+      return handleError(error);
+    }
+  },
+
+  /**
+   * Session security settings (User Management)
+   * GET/PATCH /api/admin/session-security/settings/
+   */
+  getSessionSecuritySettings: async () => {
+    try {
+      const response = await apiClient.get('/admin/session-security/settings/');
+      return extractData(response);
+    } catch (error) {
+      return handleError(error);
+    }
+  },
+
+  updateSessionSecuritySettings: async (payload) => {
+    try {
+      const response = await apiClient.patch('/admin/session-security/settings/', payload);
+      return extractData(response);
+    } catch (error) {
+      return handleError(error);
+    }
+  },
+
+  getSessionSecurityAuditLogs: async (params = {}) => {
+    try {
+      const response = await apiClient.get('/admin/session-security/audit-logs/', { params });
+      return extractData(response);
+    } catch (error) {
+      return handleError(error);
+    }
+  },
+
+  exportSessionSecurityAuditLogs: async (params = {}) => {
+    try {
+      const response = await apiClient.get('/admin/session-security/audit-logs/export/', {
+        params,
+        responseType: 'blob',
+      });
+      const blob = response.data;
+      const url = window.URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      const uid = params.user_id || 'all';
+      a.download = `user-activity-${uid}.xlsx`;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      window.URL.revokeObjectURL(url);
+      return { success: true };
+    } catch (error) {
+      return handleError(error);
+    }
+  },
+
+  getConcurrentSessionExceptions: async (params = {}) => {
+    try {
+      const response = await apiClient.get('/admin/session-security/concurrent-exceptions/', {
+        params,
+      });
+      return extractData(response);
+    } catch (error) {
+      return handleError(error);
+    }
+  },
+
+  setConcurrentSessionException: async ({ user_id, allow_concurrent_sessions }) => {
+    try {
+      const response = await apiClient.post('/admin/session-security/concurrent-exceptions/', {
+        user_id,
+        allow_concurrent_sessions,
+      });
+      return extractData(response);
+    } catch (error) {
+      return handleError(error);
+    }
+  },
+
+  searchUsersForSessionException: async (q) => {
+    try {
+      const response = await apiClient.get('/admin/session-security/users/search/', {
+        params: { q },
+      });
       return extractData(response);
     } catch (error) {
       return handleError(error);
