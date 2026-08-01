@@ -1,0 +1,44 @@
+function hit($json,$dc=""){
+        $post = json_decode($json); // Request String
+        $method = "POST"; // Method
+
+/* Rendom kye for encryption */
+        $key = '';
+        $mt_rand = array(0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15);
+        foreach ($mt_rand as $chr) {
+            $key .= chr($chr);
+        }
+
+$iv =   '06f2f04cc530364f';
+        $ciphertext_raw = openssl_encrypt(json_encode($post), 'AES-128-CBC', $key, $options=OPENSSL_RAW_DATA, $iv); // generate cipher text
+        $request = base64_encode($ciphertext_raw);// Encodes data with MIME base64
+       
+        $fp = fopen("fingpay_public_production.cer","r");
+        $pub_key_string = fread($fp,8192);
+        fclose($fp);
+        openssl_public_encrypt($key,$crypttext,$pub_key_string);
+
+        $header = [
+        'Content-Type: text/xml',    
+        'trnTimestamp:'.date('d/m/Y H:i:s'),
+        'hash:'.base64_encode(hash("sha256",json_encode($post), True)),
+        'deviceIMEI:'.$dc,
+        'eskey:'.base64_encode($crypttext)
+        ];
+
+        $curl = curl_init();
+        curl_setopt_array($curl, array(
+        CURLOPT_URL => 'https://fingpayap.tapits.in/fpaepsservice/api/cashWithdrawal/merchant/php/withdrawal',
+        CURLOPT_RETURNTRANSFER => true,
+        CURLOPT_SSL_VERIFYPEER => true,
+        CURLOPT_SSL_VERIFYHOST => 2,
+        CURLOPT_TIMEOUT => $this->timeout,
+        CURLOPT_HTTP_VERSION => CURL_HTTP_VERSION_1_1,
+        CURLOPT_CUSTOMREQUEST => $method,
+        CURLOPT_POSTFIELDS => $request,
+        CURLOPT_HTTPHEADER => $header
+        ));
+        $result = curl_exec($curl);
+        $array = json_decode($result, true);
+        return $array;
+    }

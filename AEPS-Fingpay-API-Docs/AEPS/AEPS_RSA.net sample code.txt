@@ -1,0 +1,96 @@
+ public string GenerateSessionKey()
+ {
+     try
+     {
+         SecureRandom random = new SecureRandom();
+         KeyGenerationParameters parameters = new KeyGenerationParameters(random,
+         SYMMETRIC_KEY_SIZE);
+         CipherKeyGenerator keyGenerator = GeneratorUtilities.GetKeyGenerator("AES");
+
+         keyGenerator.Init(parameters);
+         return Convert.ToBase64String(keyGenerator.GenerateKey());
+     }
+     catch (Exception ex)
+     {
+         throw new Exception(ex.ToString());
+     }
+ }
+ 
+ 
+ public string GenerateSha256Hash(byte[] message)
+ {
+     try
+     {
+         IDigest digest = new Sha256Digest();
+         digest.Reset();
+         byte[] buffer = new byte[digest.GetDigestSize()];
+         digest.BlockUpdate(message, 0, message.Length);
+         digest.DoFinal(buffer, 0);
+
+         return Convert.ToBase64String(buffer);
+     }
+     catch (Exception ex)
+     {
+         throw new Exception(ex.ToString());
+     }
+ }
+ 
+ 
+ public string EncryptUsingPublicKey(byte[] data)
+ {
+     try
+     {
+         IBufferedCipher cipher = CipherUtilities.GetCipher(ASYMMETRIC_ALGO);
+         cipher.Init(true, this.publicKey);
+         return Convert.ToBase64String(cipher.DoFinal(data));
+     }
+     catch (Exception ex)
+     {
+         throw new Exception(ex.ToString());
+     }
+ }
+ 
+ 
+ public string EncryptUsingSessionKey(byte[] skey, byte[] data)
+ {
+     try
+     {
+         PaddedBufferedBlockCipher cipher = new PaddedBufferedBlockCipher(new AesEngine());
+         
+         cipher.Init(true, new KeyParameter(skey));
+         byte[] sourceArray = new byte[cipher.GetOutputSize(data.Length)];
+         int num2 = cipher.ProcessBytes(data, 0, data.Length, sourceArray, 0);
+         int num3 = cipher.DoFinal(sourceArray, num2);
+         byte[] destinationArray = new byte[num2 + num3];
+         Array.Copy(sourceArray, 0, destinationArray, 0, destinationArray.Length);
+         return Convert.ToBase64String(destinationArray);
+     }
+     catch (Exception ex)
+     {
+         throw new Exception(ex.ToString());
+     }
+ }
+ 
+ 
+ //Method to posting data to server
+  public async Task<HttpResponseMessage> CashWithdrawalAsync(CashWithdrawalModel model,Dictionary<string, string> dictionary)
+  {
+      string json = Converter.JsonSerializer(model);// JsonConvert.SerializeObject(model);
+
+      string url = "fpaepsservice/api/cashWithdrawal/merchant/withdrawal";
+      var client = new HttpClient();
+
+
+      client.DefaultRequestHeaders.TryAddWithoutValidation(Constants.TransactionTimestamp, dictionary[Constants.TransactionTimestamp]);
+      client.DefaultRequestHeaders.TryAddWithoutValidation(Constants.Hash, dictionary[Constants.Hash]);
+      client.DefaultRequestHeaders.TryAddWithoutValidation(Constants.DeviceIMEI, dictionary[Constants.DeviceIMEI]);
+      client.DefaultRequestHeaders.TryAddWithoutValidation(Constants.Eskey, dictionary[Constants.Eskey]);
+
+      var response = await _apiManagerService.PostAsync(AppSettings.AepsBaseUrl, url, dictionary[Constants.EncryptedJson], client);
+
+      return response;
+  }
+ 
+ 
+ 
+ 
