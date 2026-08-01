@@ -124,6 +124,8 @@ class UserCreateSerializer(serializers.Serializer):
     mpin = serializers.CharField(max_length=6, write_only=True, required=False, allow_blank=True)
     pan = serializers.CharField(max_length=10, required=False, allow_blank=True)
     aadhaar = serializers.CharField(max_length=12, required=False, allow_blank=True)
+    package_ids = serializers.ListField(child=serializers.IntegerField(), required=False, allow_empty=True)
+    enable_aeps = serializers.BooleanField(required=False, default=False)
     
     def to_internal_value(self, data):
         """Convert camelCase to snake_case for compatibility."""

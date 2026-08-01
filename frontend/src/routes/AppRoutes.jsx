@@ -61,6 +61,25 @@ import BbpsProviderGovernance from '../components/admin/BbpsProviderGovernance';
 import MaintenanceMode from '../components/admin/MaintenanceMode';
 import UserManagementSettings from '../components/admin/UserManagementSettings';
 import WalletHistoryPage from '../components/wallets/WalletHistoryPage';
+import AepsLayout from '../modules/aeps/pages/AepsLayout';
+import AepsOverview from '../modules/aeps/pages/AepsOverview';
+import AepsSetup from '../modules/aeps/pages/AepsSetup';
+import AepsDevice from '../modules/aeps/pages/AepsDevice';
+import AepsHistory from '../modules/aeps/pages/AepsHistory';
+import AepsReports from '../modules/aeps/pages/AepsReports';
+import {
+  AepsWithdraw,
+  AepsBalance,
+  AepsMiniStatement,
+  AepsAadhaarPay,
+  AepsDeposit,
+} from '../modules/aeps/pages/AepsProductPages';
+import {
+  AepsAdminProvider,
+  AepsAdminRequests,
+  AepsAdminMerchants,
+  AepsAdminRecon,
+} from '../modules/aeps/admin/AepsAdminPages';
 
 /** Old URL `/admin/users/:id` → canonical user profile (all roles that may view a profile). */
 function LegacyAdminUserDetailRedirect() {
@@ -589,6 +608,176 @@ const AppRoutes = () => {
             <AdminRoute>
               <Layout>
                 <BbpsBillerDetails />
+              </Layout>
+            </AdminRoute>
+          </ProtectedRoute>
+        }
+      />
+
+      {/* AEPS module (independent; reports stay inside AEPS) */}
+      <Route
+        path="/aeps"
+        element={
+          <ProtectedRoute>
+            <Layout>
+              <AepsLayout>
+                <AepsOverview />
+              </AepsLayout>
+            </Layout>
+          </ProtectedRoute>
+        }
+      />
+      <Route
+        path="/aeps/setup"
+        element={
+          <ProtectedRoute>
+            <Layout>
+              <AepsLayout>
+                <AepsSetup />
+              </AepsLayout>
+            </Layout>
+          </ProtectedRoute>
+        }
+      />
+      <Route
+        path="/aeps/device"
+        element={
+          <ProtectedRoute>
+            <Layout>
+              <AepsLayout>
+                <AepsDevice />
+              </AepsLayout>
+            </Layout>
+          </ProtectedRoute>
+        }
+      />
+      <Route
+        path="/aeps/withdraw"
+        element={
+          <ProtectedRoute>
+            <Layout>
+              <AepsLayout>
+                <AepsWithdraw />
+              </AepsLayout>
+            </Layout>
+          </ProtectedRoute>
+        }
+      />
+      <Route
+        path="/aeps/balance"
+        element={
+          <ProtectedRoute>
+            <Layout>
+              <AepsLayout>
+                <AepsBalance />
+              </AepsLayout>
+            </Layout>
+          </ProtectedRoute>
+        }
+      />
+      <Route
+        path="/aeps/mini-statement"
+        element={
+          <ProtectedRoute>
+            <Layout>
+              <AepsLayout>
+                <AepsMiniStatement />
+              </AepsLayout>
+            </Layout>
+          </ProtectedRoute>
+        }
+      />
+      <Route
+        path="/aeps/aadhaar-pay"
+        element={
+          <ProtectedRoute>
+            <Layout>
+              <AepsLayout>
+                <AepsAadhaarPay />
+              </AepsLayout>
+            </Layout>
+          </ProtectedRoute>
+        }
+      />
+      <Route
+        path="/aeps/deposit"
+        element={
+          <ProtectedRoute>
+            <Layout>
+              <AepsLayout>
+                <AepsDeposit />
+              </AepsLayout>
+            </Layout>
+          </ProtectedRoute>
+        }
+      />
+      <Route
+        path="/aeps/history"
+        element={
+          <ProtectedRoute>
+            <Layout>
+              <AepsLayout>
+                <AepsHistory />
+              </AepsLayout>
+            </Layout>
+          </ProtectedRoute>
+        }
+      />
+      <Route
+        path="/aeps/reports"
+        element={
+          <ProtectedRoute>
+            <Layout>
+              <AepsLayout>
+                <AepsReports />
+              </AepsLayout>
+            </Layout>
+          </ProtectedRoute>
+        }
+      />
+      <Route
+        path="/admin/aeps/provider"
+        element={
+          <ProtectedRoute>
+            <AdminRoute>
+              <Layout>
+                <AepsAdminProvider />
+              </Layout>
+            </AdminRoute>
+          </ProtectedRoute>
+        }
+      />
+      <Route
+        path="/admin/aeps/requests"
+        element={
+          <ProtectedRoute>
+            <AdminRoute>
+              <Layout>
+                <AepsAdminRequests />
+              </Layout>
+            </AdminRoute>
+          </ProtectedRoute>
+        }
+      />
+      <Route
+        path="/admin/aeps/merchants"
+        element={
+          <ProtectedRoute>
+            <AdminRoute>
+              <Layout>
+                <AepsAdminMerchants />
+              </Layout>
+            </AdminRoute>
+          </ProtectedRoute>
+        }
+      />
+      <Route
+        path="/admin/aeps/recon"
+        element={
+          <ProtectedRoute>
+            <AdminRoute>
+              <Layout>
+                <AepsAdminRecon />
               </Layout>
             </AdminRoute>
           </ProtectedRoute>

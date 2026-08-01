@@ -461,6 +461,15 @@ def create_user(user_data, created_by):
         # Auto-assign default package for new users
         auto_assign_default_package(user, assigner=created_by)
 
+    # Optional AEPS entitlement at create (Admin only; no hierarchy inheritance)
+    if creator_role == 'Admin' and user_data.get('enable_aeps'):
+        try:
+            from apps.aeps.services.entitlement import enable_entitlement
+
+            enable_entitlement(actor=created_by, user=user, source='on_create')
+        except Exception:
+            pass
+
     try:
         from apps.notifications.services.dispatch import SmsNotificationService
 

@@ -1,0 +1,35 @@
+from django.urls import path
+
+from apps.aeps import views
+
+urlpatterns = [
+    path('me/status/', views.me_status, name='aeps-me-status'),
+    path('access-requests/', views.access_request_create, name='aeps-access-request'),
+    path('onboarding/draft/', views.onboarding_draft, name='aeps-onboarding-draft'),
+    path('onboarding/submit/', views.onboarding_submit, name='aeps-onboarding-submit'),
+    path('device/register/', views.device_register, name='aeps-device-register'),
+    path('ekyc/start/', views.ekyc_start, name='aeps-ekyc-start'),
+    path('ekyc/otp/', views.ekyc_otp, name='aeps-ekyc-otp'),
+    path('ekyc/biometric/', views.ekyc_biometric, name='aeps-ekyc-biometric'),
+    path('2fa/complete/', views.twofa_complete, name='aeps-2fa-complete'),
+    path('banks/', views.banks_list, name='aeps-banks'),
+    path('banks/sync/', views.banks_sync, name='aeps-banks-sync'),
+    path('transactions/', views.transactions_list, name='aeps-transactions'),
+    path('transactions/cw/', views.txn_cw, name='aeps-txn-cw'),
+    path('transactions/be/', views.txn_be, name='aeps-txn-be'),
+    path('transactions/ms/', views.txn_ms, name='aeps-txn-ms'),
+    path('transactions/ap/', views.txn_ap, name='aeps-txn-ap'),
+    path('transactions/cd/', views.txn_cd, name='aeps-txn-cd'),
+    path('transactions/<str:merchant_tran_id>/status-check/', views.txn_status_check, name='aeps-txn-status'),
+    path('reports/summary/', views.reports_summary, name='aeps-reports-summary'),
+    path('admin/provider-config/', views.admin_provider_config, name='aeps-admin-provider'),
+    path('admin/entitlements/enable/', views.admin_entitlement_enable, name='aeps-admin-entitle'),
+    path('admin/entitlements/disable/', views.admin_entitlement_disable, name='aeps-admin-entitle-off'),
+    path('admin/entitlements/user/<int:user_id>/', views.admin_entitlements_for_user, name='aeps-admin-entitle-user'),
+    path('admin/access-requests/', views.admin_access_requests, name='aeps-admin-requests'),
+    path('admin/access-requests/<int:request_id>/decide/', views.admin_access_request_decide, name='aeps-admin-request-decide'),
+    path('admin/merchants/', views.admin_merchants, name='aeps-admin-merchants'),
+    path('admin/recon/', views.admin_recon_batches, name='aeps-admin-recon'),
+    path('webhooks/fingpay/three-way-recon/', views.webhook_three_way_recon, name='aeps-webhook-recon'),
+    path('webhooks/fingpay/callback/', views.webhook_callback, name='aeps-webhook-callback'),
+]

@@ -3,21 +3,27 @@ export const DEFAULT_MAINTENANCE = {
   pay_in: { enabled: true, message: '' },
   payout: { enabled: true, message: '' },
   bbps: { enabled: true, message: '' },
+  aeps: { enabled: false, message: '' },
 };
 
 export function normalizeMaintenance(raw) {
   if (!raw || typeof raw !== 'object') return { ...DEFAULT_MAINTENANCE };
-  const pick = (key) => {
+  const pick = (key, defaultEnabled = true) => {
     const block = raw[key] || {};
+    const enabled =
+      block.enabled === undefined || block.enabled === null
+        ? defaultEnabled
+        : block.enabled !== false;
     return {
-      enabled: block.enabled !== false,
+      enabled,
       message: String(block.message || '').trim(),
     };
   };
   return {
-    pay_in: pick('pay_in'),
-    payout: pick('payout'),
-    bbps: pick('bbps'),
+    pay_in: pick('pay_in', true),
+    payout: pick('payout', true),
+    bbps: pick('bbps', true),
+    aeps: pick('aeps', false),
     updated_at: raw.updated_at || null,
     reason_internal: raw.reason_internal || '',
     updated_by: raw.updated_by || null,
@@ -56,6 +62,12 @@ export const MODULE_META = {
     title: 'Bill payments paused',
     reportLabel: 'BBPS reports',
     reportPath: '/reports/bbps',
+  },
+  aeps: {
+    label: 'AEPS',
+    title: 'AEPS paused',
+    reportLabel: 'AEPS reports',
+    reportPath: '/aeps/reports',
   },
 };
 

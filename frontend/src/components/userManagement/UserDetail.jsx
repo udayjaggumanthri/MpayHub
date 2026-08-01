@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { useParams, useNavigate, Link } from 'react-router-dom';
 import { usersAPI, fundManagementAPI } from '../../services/api';
+import aepsAPI from '../../modules/aeps/services/aepsApi';
 import { formatUserId, formatCurrency } from '../../utils/formatters';
 import { validateEmail, validatePhone } from '../../utils/validators';
 import { useAuth } from '../../context/AuthContext';
@@ -99,6 +100,9 @@ const UserDetail = () => {
   const [assignablePackages, setAssignablePackages] = useState([]);
   const [packagesLoading, setPackagesLoading] = useState(false);
   const [packageAssigning, setPackageAssigning] = useState(null);
+  const [aepsEntitlement, setAepsEntitlement] = useState(null);
+  const [aepsBusy, setAepsBusy] = useState(false);
+  const [aepsMessage, setAepsMessage] = useState('');
   const [packageMessage, setPackageMessage] = useState('');
 
   const [userWallets, setUserWallets] = useState({ main: 0, commission: 0, bbps: 0, profit: 0 });
@@ -205,6 +209,13 @@ const UserDetail = () => {
       loadUserPackages();
     }
   }, [user, loadUserPackages, isAdmin]);
+
+  useEffect(() => {
+    if (!isAdmin || !userId) return;
+    aepsAPI.adminUserEntitlement(userId).then((res) => {
+      if (res.success) setAepsEntitlement(res.data);
+    });
+  }, [isAdmin, userId]);
 
   useEffect(() => {
     if (isAdmin && userId) {
@@ -1228,6 +1239,70 @@ const UserDetail = () => {
                 )}
               </div>
             </Card>
+            )}
+
+            {isAdmin && !isSelf && (
+              <Card>
+                <div className="px-6 py-4 border-b border-slate-100">
+                  <div className="flex items-center gap-3">
+                    <div className="h-10 w-10 rounded-xl bg-blue-100 flex items-center justify-center">
+                      <FaShieldHalved className="text-blue-600" size={18} />
+                    </div>
+                    <div>
+                      <h2 className="text-lg font-bold text-slate-900">AEPS access</h2>
+                      <p className="text-xs text-slate-500">Admin-only. Does not cascade to downline.</p>
+                    </div>
+                  </div>
+                </div>
+                <div className="p-6 space-y-3">
+                  <p className="text-sm text-slate-700">
+                    Status:{' '}
+                    <span className="font-semibold">
+                      {aepsEntitlement?.enabled ? 'Enabled' : 'Disabled'}
+                    </span>
+                    {aepsEntitlement?.merchant_stage
+                      ? ` · Merchant: ${aepsEntitlement.merchant_stage}`
+                      : ''}
+                  </p>
+                  <div className="flex flex-wrap gap-2">
+                    <Button
+                      size="sm"
+                      variant="primary"
+                      disabled={aepsBusy || aepsEntitlement?.enabled}
+                      onClick={async () => {
+                        setAepsBusy(true);
+                        const res = await aepsAPI.adminEnable(user.id);
+                        setAepsMessage(res.success ? 'AEPS enabled.' : res.message);
+                        if (res.success) {
+                          const fresh = await aepsAPI.adminUserEntitlement(userId);
+                          if (fresh.success) setAepsEntitlement(fresh.data);
+                        }
+                        setAepsBusy(false);
+                      }}
+                    >
+                      Enable AEPS
+                    </Button>
+                    <Button
+                      size="sm"
+                      variant="secondary"
+                      disabled={aepsBusy || !aepsEntitlement?.enabled}
+                      onClick={async () => {
+                        setAepsBusy(true);
+                        const res = await aepsAPI.adminDisable(user.id, 'Disabled from user profile');
+                        setAepsMessage(res.success ? 'AEPS disabled.' : res.message);
+                        if (res.success) {
+                          const fresh = await aepsAPI.adminUserEntitlement(userId);
+                          if (fresh.success) setAepsEntitlement(fresh.data);
+                        }
+                        setAepsBusy(false);
+                      }}
+                    >
+                      Disable AEPS
+                    </Button>
+                  </div>
+                  {aepsMessage ? <p className="text-sm text-slate-600">{aepsMessage}</p> : null}
+                </div>
+              </Card>
             )}
 
             {/* Account Info */}

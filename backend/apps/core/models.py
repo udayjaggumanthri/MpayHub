@@ -56,9 +56,11 @@ class SystemMaintenanceConfig(models.Model):
     pay_in_enabled = models.BooleanField(default=True, db_index=True)
     payout_enabled = models.BooleanField(default=True, db_index=True)
     bbps_enabled = models.BooleanField(default=True, db_index=True)
+    aeps_enabled = models.BooleanField(default=False, db_index=True)
     pay_in_message = models.TextField(blank=True, default='')
     payout_message = models.TextField(blank=True, default='')
     bbps_message = models.TextField(blank=True, default='')
+    aeps_message = models.TextField(blank=True, default='')
     reason_internal = models.TextField(blank=True, default='')
     updated_by = models.ForeignKey(
         'authentication.User',
@@ -89,6 +91,7 @@ class SystemMaintenanceAuditLog(TimestampedModel):
         ('pay_in', 'Pay-in'),
         ('payout', 'Payout'),
         ('bbps', 'BBPS'),
+        ('aeps', 'AEPS'),
         ('all', 'All modules'),
     ]
 

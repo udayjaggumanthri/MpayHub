@@ -10,6 +10,7 @@ class SystemMaintenanceConfigAdmin(admin.ModelAdmin):
         'pay_in_enabled',
         'payout_enabled',
         'bbps_enabled',
+        'aeps_enabled',
         'updated_at',
         'updated_by',
     )

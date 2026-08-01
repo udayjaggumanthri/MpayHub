@@ -66,11 +66,29 @@ export const roleMenus = {
         { name: 'BBPS Ops Console', path: '/admin/bbps-ops' },
       ],
     },
+    {
+      name: 'AEPS',
+      path: '/aeps',
+      icon: 'dashboard',
+      submenu: [
+        { name: 'Workspace', path: '/aeps' },
+        { name: 'Provider', path: '/admin/aeps/provider' },
+        { name: 'Access requests', path: '/admin/aeps/requests' },
+        { name: 'Merchants', path: '/admin/aeps/merchants' },
+        { name: 'Reports', path: '/aeps/reports' },
+        { name: 'Recon', path: '/admin/aeps/recon' },
+      ],
+    },
   ],
   'Super Distributor': [
     {
       name: 'Dashboard',
       path: '/dashboard',
+      icon: 'dashboard',
+    },
+    {
+      name: 'AEPS',
+      path: '/aeps',
       icon: 'dashboard',
     },
     {
@@ -119,6 +137,11 @@ export const roleMenus = {
       icon: 'dashboard',
     },
     {
+      name: 'AEPS',
+      path: '/aeps',
+      icon: 'dashboard',
+    },
+    {
       name: 'Bill Payment',
       path: '/bill-payments',
       icon: 'bbps-mnemonic',
@@ -157,6 +180,11 @@ export const roleMenus = {
       icon: 'dashboard',
     },
     {
+      name: 'AEPS',
+      path: '/aeps',
+      icon: 'dashboard',
+    },
+    {
       name: 'Bill Payment',
       path: '/bill-payments',
       icon: 'bbps-mnemonic',
@@ -192,6 +220,11 @@ export const roleMenus = {
     {
       name: 'Dashboard',
       path: '/dashboard',
+      icon: 'dashboard',
+    },
+    {
+      name: 'AEPS',
+      path: '/aeps',
       icon: 'dashboard',
     },
     {

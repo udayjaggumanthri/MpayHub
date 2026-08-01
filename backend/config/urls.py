@@ -29,6 +29,7 @@ urlpatterns = [
     path('api/fund-management/', include('apps.fund_management.urls')),
     path('api/integrations/', include('apps.integrations.urls')),
     path('api/bbps/', include('apps.bbps.urls')),
+    path('api/aeps/', include('apps.aeps.urls')),
     path('api/contacts/', include('apps.contacts.urls')),
     path('api/bank-accounts/', include('apps.bank_accounts.urls')),
     path('api/transactions/', include('apps.transactions.urls')),

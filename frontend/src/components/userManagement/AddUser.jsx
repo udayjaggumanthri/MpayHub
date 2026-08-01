@@ -37,6 +37,7 @@ const AddUser = ({ onCancel, onSuccess, initialRole = '' }) => {
   const [availablePackages, setAvailablePackages] = useState([]);
   const [selectedPackageIds, setSelectedPackageIds] = useState([]);
   const [packagesLoading, setPackagesLoading] = useState(false);
+  const [enableAeps, setEnableAeps] = useState(false);
 
   const loadAssignablePackages = useCallback(async () => {
     setPackagesLoading(true);
@@ -128,6 +129,7 @@ const AddUser = ({ onCancel, onSuccess, initialRole = '' }) => {
         businessAddress: formData.businessAddress,
         package_ids:
           canConfigurePackages && selectedPackageIds.length > 0 ? selectedPackageIds : undefined,
+        enable_aeps: canConfigurePackages ? enableAeps : undefined,
       };
 
       const result = await usersAPI.createUser(userData);
@@ -328,25 +330,41 @@ const AddUser = ({ onCancel, onSuccess, initialRole = '' }) => {
                           : 'bg-white border border-gray-300 text-gray-700 hover:border-violet-400 hover:bg-violet-50'
                       }`}
                     >
-                      {pkg.is_default && <FaStar className="text-amber-400" size={12} />}
+                      {pkg.is_default ? <FaStar className="text-amber-300" size={12} /> : null}
                       {pkg.display_name}
-                      {isSelected && <FaTimes size={12} className="ml-1" />}
                     </button>
                   );
                 })}
               </div>
             )}
-            {selectedPackageIds.length > 0 && (
-              <p className="mt-2 text-xs text-violet-600">
-                {selectedPackageIds.length} package{selectedPackageIds.length > 1 ? 's' : ''} selected
-              </p>
-            )}
           </div>
-          ) : (
+          ) : null}
+
+          {canConfigurePackages ? (
+            <div className="border border-blue-200 rounded-lg p-4 bg-blue-50/50">
+              <label className="flex items-start gap-3 cursor-pointer">
+                <input
+                  type="checkbox"
+                  className="mt-1 h-4 w-4 rounded border-slate-300 text-blue-600 focus:ring-blue-500"
+                  checked={enableAeps}
+                  onChange={(e) => setEnableAeps(e.target.checked)}
+                />
+                <span>
+                  <span className="block text-sm font-medium text-slate-800">Enable AEPS</span>
+                  <span className="block text-xs text-slate-500 mt-0.5">
+                    Admin-only. Does not cascade to downline users. They still complete Fingpay
+                    onboarding & eKYC inside AEPS.
+                  </span>
+                </span>
+              </label>
+            </div>
+          ) : null}
+
+          {!canConfigurePackages ? (
             <p className="text-xs text-gray-500 border border-gray-200 rounded-lg p-4 bg-slate-50">
               Pay-in packages for new users are chosen by an administrator. The default package will apply when none is explicitly assigned.
             </p>
-          )}
+          ) : null}
 
           {errors.submit && (
             <p className="text-sm text-red-600 whitespace-pre-line">{errors.submit}</p>

@@ -54,6 +54,7 @@ INSTALLED_APPS = [
     'apps.wallets',
     'apps.fund_management',
     'apps.bbps',
+    'apps.aeps',
     'apps.contacts',
     'apps.bank_accounts',
     'apps.transactions',
