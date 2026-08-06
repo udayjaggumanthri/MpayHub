@@ -1,4 +1,4 @@
-"""AEPS product flows: 2FA, BE, MS, CW, AP, CD + status check / ack."""
+"""AEPS product flows: 2FA, BE, MS, CW, AP, CD + status mid-points / ack."""
 from __future__ import annotations
 
 from decimal import Decimal
@@ -17,24 +17,61 @@ from apps.aeps.services.ids import generate_merchant_tran_id, merchant_pin_plain
 from apps.integrations.fingpay.crypto import mask_aadhaar, md5_hex, scrub_sensitive, trn_timestamp_now
 from apps.integrations.fingpay.registry import get_active_provider, get_fingpay_client
 
-# Paths from Fingpay PHP-style endpoints (web)
+# Product txn paths (aeps_base_url + path) — PHP per Fingpay Services API Doc
 PATH_CW = 'fpaepsservice/api/cashWithdrawal/merchant/php/withdrawal'
 PATH_BE = 'fpaepsservice/api/balanceInquiry/merchant/php/getBalance'
 PATH_MS = 'fpaepsservice/api/miniStatement/merchant/php/statement'
 PATH_AP = 'fpaepsservice/api/aadhaarPay/merchant/php/pay'
 PATH_CD = 'fpaepsservice/api/CashDeposit/merchant/php/deposit'
-PATH_STATUS = 'fpaepsservice/api/statusCheck/merchant/php/status'
-PATH_2FA = 'fpaepsservice/api/twoFactor/merchant/php/auth'
+PATH_CD_OTP_GENERATE = 'fpaepsservice/api/CashDeposit/merchant/php/generate/otp'
+PATH_CD_OTP_VALIDATE = 'fpaepsservice/api/CashDeposit/merchant/php/validate/otp'
+PATH_CD_OTP_TXN = 'fpaepsservice/api/CashDeposit/merchant/php/transaction'
+
+# Daily 2FA — Two Factor Authentication Biometric 2.1
+PATH_2FA = 'fpaepsservice/auth/tfauth/merchant/php/validate/aadhar'
+
+# Acknowledgements (aeps host)
+ACK_CW = 'fpaepsservice/api/cashWithdrawal/merchant/php/acknowledgement'
+ACK_CD = 'fpaepsservice/api/CashDeposit/merchant/deposit/acknowledgement'
+ACK_CD_OTP = 'fpaepsservice/api/CashDeposit/otp/merchant/acknowledgement'
+
+# Status mid-points live on onboarding host (fpaepsweb), not fpaepsservice
+STATUS_PATHS = {
+    'CW': 'api/auth/merchantInfo/statusCheckV2/merchantLoginId/cashWithdrawal/v2',
+    'CD': 'api/auth/merchantInfo/statusCheckV2/merchantLoginId/cashDeposit',
+    'CD_OTP': 'api/auth/merchantInfo/statusCheck/cashDepositWithOtp',
+    'AP': 'api/auth/merchantInfo/statusCheckV3/aadhaarPay/merchantLoginId',
+    # BE/MS/2FA/ONB: fall back to CW-style mid-point when needed
+    'BE': 'api/auth/merchantInfo/statusCheckV2/merchantLoginId/cashWithdrawal/v2',
+    'MS': 'api/auth/merchantInfo/statusCheckV2/merchantLoginId/cashWithdrawal/v2',
+}
+
+ACK_PATHS = {
+    'CW': ACK_CW,
+    'AP': ACK_CW,  # Aadhaar Pay uses CW-style ack in practice when success
+    'CD': ACK_CD,
+    'CD_OTP': ACK_CD_OTP,
+}
+
+
+def status_path_for_product(product: str, *, otp_mode: bool = False) -> str:
+    if otp_mode or product == 'CD_OTP':
+        return STATUS_PATHS['CD_OTP']
+    return STATUS_PATHS.get(product, STATUS_PATHS['CW'])
+
+
+def ack_path_for_product(product: str, *, otp_mode: bool = False) -> str:
+    if otp_mode or product == 'CD_OTP':
+        return ACK_PATHS['CD_OTP']
+    return ACK_PATHS.get(product, ACK_CW)
 
 
 def _is_success(resp: dict, data: dict | None = None) -> bool:
     data = data or (resp.get('data') if isinstance(resp.get('data'), dict) else {}) or {}
     code = str(data.get('responseCode') or data.get('bankResponseCode') or '')
     rrn = str(data.get('bankRRN') or data.get('bankRrn') or data.get('rrn') or '')
-    # Fingpay rule: success only with responseCode 00 and bank RRN (for money products)
     if code == '00' and rrn:
         return True
-    # Soft pending
     if str(data.get('transactionStatusCode') or '') == 'FP009':
         return False
     api_ok = bool(resp.get('status') is True or str(resp.get('statusCode')) == '10000')
@@ -56,12 +93,13 @@ def _base_merchant_fields(merchant, client) -> dict:
 
 
 @transaction.atomic
-def complete_daily_2fa(*, user, capture_response: dict, latitude, longitude) -> dict:
+def complete_daily_2fa(*, user, capture_response: dict, latitude, longitude, payload: dict | None = None) -> dict:
     merchant = assert_merchant_active(user)
     assert_device_ready(merchant)
     client = get_fingpay_client()
     today = timezone.localdate()
     row, _ = AepsDaily2FA.objects.get_or_create(merchant=merchant, for_date=today, defaults={'status': 'pending'})
+    payload = payload or {}
     body = {
         **_base_merchant_fields(merchant, client),
         'captureResponse': capture_response,
@@ -69,6 +107,15 @@ def complete_daily_2fa(*, user, capture_response: dict, latitude, longitude) -> 
         'longitude': float(longitude),
         'transactionType': '2FA',
         'merchantTranId': generate_merchant_tran_id('2FA'),
+        'mobileNumber': payload.get('mobileNumber') or '',
+        'cardnumberORUID': payload.get('cardnumberORUID')
+        or {
+            'adhaarNumber': payload.get('aadhaarNumber') or payload.get('adhaarNumber') or '',
+            'indicatorforUID': payload.get('indicatorforUID', 0),
+            'nationalBankIdentificationNumber': payload.get('nationalBankIdentificationNumber')
+            or payload.get('iin')
+            or '',
+        },
     }
     txn = AepsTransaction.objects.create(
         user=user,
@@ -79,6 +126,10 @@ def complete_daily_2fa(*, user, capture_response: dict, latitude, longitude) -> 
         latitude=latitude,
         longitude=longitude,
         device_imei=merchant.device_imei,
+        masked_aadhaar=mask_aadhaar(
+            (body.get('cardnumberORUID') or {}).get('adhaarNumber') or ''
+        ),
+        bank_iin=str((body.get('cardnumberORUID') or {}).get('nationalBankIdentificationNumber') or ''),
     )
     try:
         resp = client.aeps_post(PATH_2FA, body, device_imei=merchant.device_imei)
@@ -189,7 +240,6 @@ def _run_product(
         'captureResponse': capture_response,
         'transactionAmount': float(amount or 0),
     }
-    # Field name differs for BE vs CW in doc
     if product == 'BE':
         body['merchantTransactionId'] = txn.merchant_tran_id
     else:
@@ -211,7 +261,6 @@ def _run_product(
             success=False,
             error_message=str(exc)[:500],
         )
-        # Caller should status-check
         return {'transaction': serialize_txn(txn), 'needs_status_check': True, 'error': str(exc)}
 
     data = resp.get('data') if isinstance(resp.get('data'), dict) else {}
@@ -269,10 +318,11 @@ def apply_provider_result(txn: AepsTransaction, resp: dict, data: dict) -> None:
     txn.save()
 
 
-def acknowledge_transaction(txn: AepsTransaction) -> None:
+def acknowledge_transaction(txn: AepsTransaction, *, otp_mode: bool = False) -> None:
     if txn.acknowledged or txn.status != 'success':
         return
     client = get_fingpay_client()
+    path = ack_path_for_product(txn.product, otp_mode=otp_mode)
     body = {
         'merchantTransactionId': txn.merchant_tran_id,
         'fingpayTransactionId': txn.fp_transaction_id,
@@ -281,40 +331,38 @@ def acknowledge_transaction(txn: AepsTransaction) -> None:
         'responseCode': txn.response_code or '00',
     }
     try:
-        client.aeps_post(
-            'fpaepsservice/api/cashWithdrawal/merchant/php/acknowledgement',
-            body,
-            device_imei=txn.device_imei or 'UNKNOWN',
-        )
+        client.aeps_post(path, body, device_imei=txn.device_imei or 'UNKNOWN')
     except Exception:
-        # Best-effort; still mark locally if provider path differs per product
         pass
     txn.acknowledged = True
     txn.acknowledged_at = timezone.now()
     txn.save(update_fields=['acknowledged', 'acknowledged_at', 'updated_at'])
 
 
-def status_check(*, user, merchant_tran_id: str) -> dict:
+def status_check(*, user, merchant_tran_id: str, otp_mode: bool = False) -> dict:
     merchant = assert_merchant_active(user)
     try:
         txn = AepsTransaction.objects.get(user=user, merchant_tran_id=merchant_tran_id, is_deleted=False)
     except AepsTransaction.DoesNotExist as exc:
         raise ValidationError({'message': 'Transaction not found'}) from exc
     client = get_fingpay_client()
+    path = status_path_for_product(txn.product, otp_mode=otp_mode)
     body = {
         **_base_merchant_fields(merchant, client),
         'merchantTranId': txn.merchant_tran_id,
+        'merchantTransactionId': txn.merchant_tran_id,
         'transactionType': txn.product,
+        'fingpayTransactionId': txn.fp_transaction_id or '',
     }
     try:
-        resp = client.aeps_post(PATH_STATUS, body, device_imei=merchant.device_imei)
+        resp = client.onboarding_post(path, body, device_imei=merchant.device_imei)
     except Exception as exc:
         raise ValidationError({'code': 'PROVIDER_REJECTED', 'message': str(exc)}) from exc
     data = resp.get('data') if isinstance(resp.get('data'), dict) else {}
     apply_provider_result(txn, resp, data)
     if txn.status == 'success':
-        acknowledge_transaction(txn)
-    return {'transaction': serialize_txn(txn)}
+        acknowledge_transaction(txn, otp_mode=otp_mode or txn.product == 'CD_OTP')
+    return {'transaction': serialize_txn(txn), 'status_path': path}
 
 
 def cash_withdrawal(**kwargs):
@@ -335,6 +383,141 @@ def aadhaar_pay(**kwargs):
 
 def cash_deposit(**kwargs):
     return _run_product(product='CD', path=PATH_CD, require_2fa=True, **kwargs)
+
+
+def cash_deposit_otp_generate(*, user, payload: dict, latitude, longitude, ip: str) -> dict:
+    """CD OTP step 1 — generate OTP (no biometric)."""
+    merchant = assert_merchant_active(user)
+    assert_device_ready(merchant)
+    assert_daily_2fa(merchant)
+    client = get_fingpay_client()
+    amount = payload.get('transactionAmount') or payload.get('amount') or 0
+    try:
+        amt = float(amount)
+    except (TypeError, ValueError) as exc:
+        raise ValidationError({'message': 'Invalid amount'}) from exc
+    if amt <= 0 or amt > 10000:
+        raise ValidationError({'message': 'Amount must be between 1 and 10000'})
+
+    txn = _create_pending_txn(
+        user=user,
+        merchant=merchant,
+        product='CD',
+        amount=amount,
+        payload=payload,
+        latitude=latitude,
+        longitude=longitude,
+        ip=ip,
+    )
+    card = payload.get('cardnumberORUID') or {
+        'adhaarNumber': payload.get('aadhaarNumber') or payload.get('adhaarNumber'),
+        'indicatorforUID': payload.get('indicatorforUID', 0),
+        'nationalBankIdentificationNumber': payload.get('nationalBankIdentificationNumber') or payload.get('iin'),
+    }
+    body = {
+        **_base_merchant_fields(merchant, client),
+        'cardnumberORUID': card,
+        'mobileNumber': payload.get('mobileNumber') or '',
+        'transactionType': 'CD',
+        'latitude': float(latitude),
+        'longitude': float(longitude),
+        'merchantTranId': txn.merchant_tran_id,
+        'transactionAmount': float(amt),
+    }
+    txn.status = 'pending'
+    meta = {'cd_otp_mode': True, 'cd_otp_step': 'generate'}
+    txn.provider_meta = meta
+    txn.save(update_fields=['status', 'provider_meta', 'updated_at'])
+    try:
+        resp = client.aeps_post(PATH_CD_OTP_GENERATE, body, device_imei=merchant.device_imei)
+    except Exception as exc:
+        txn.status = 'failed'
+        txn.response_message = str(exc)[:500]
+        txn.save()
+        raise ValidationError({'code': 'PROVIDER_REJECTED', 'message': str(exc)}) from exc
+    data = resp.get('data') if isinstance(resp.get('data'), dict) else {}
+    ok = bool(resp.get('status') is True or str(resp.get('statusCode')) == '10000')
+    txn.fp_transaction_id = str(
+        data.get('fpTransactionId') or data.get('fingpayTransactionId') or data.get('txnId') or ''
+    )
+    txn.response_message = str(resp.get('message') or '')[:500]
+    txn.provider_meta = {**meta, 'generate_response': scrub_sensitive(resp), 'cd_otp_step': 'otp_sent' if ok else 'generate_failed'}
+    txn.save()
+    if not ok:
+        txn.status = 'failed'
+        txn.save(update_fields=['status', 'updated_at'])
+        raise ValidationError({'code': 'PROVIDER_REJECTED', 'message': txn.response_message or 'OTP generate failed'})
+    return {'transaction': serialize_txn(txn), 'otp_sent': True}
+
+
+def cash_deposit_otp_validate(*, user, merchant_tran_id: str, otp: str) -> dict:
+    merchant = assert_merchant_active(user)
+    try:
+        txn = AepsTransaction.objects.get(user=user, merchant_tran_id=merchant_tran_id, product='CD', is_deleted=False)
+    except AepsTransaction.DoesNotExist as exc:
+        raise ValidationError({'message': 'Transaction not found'}) from exc
+    client = get_fingpay_client()
+    body = {
+        **_base_merchant_fields(merchant, client),
+        'merchantTranId': txn.merchant_tran_id,
+        'otp': str(otp or '').strip(),
+        'fingpayTransactionId': txn.fp_transaction_id or '',
+    }
+    try:
+        resp = client.aeps_post(PATH_CD_OTP_VALIDATE, body, device_imei=merchant.device_imei)
+    except Exception as exc:
+        raise ValidationError({'code': 'PROVIDER_REJECTED', 'message': str(exc)}) from exc
+    ok = bool(resp.get('status') is True or str(resp.get('statusCode')) == '10000')
+    meta = dict(txn.provider_meta or {})
+    meta['cd_otp_step'] = 'otp_validated' if ok else 'otp_invalid'
+    meta['validate_response'] = scrub_sensitive(resp)
+    txn.provider_meta = meta
+    txn.response_message = str(resp.get('message') or '')[:500]
+    txn.save()
+    if not ok:
+        raise ValidationError({'code': 'PROVIDER_REJECTED', 'message': txn.response_message or 'OTP invalid'})
+    return {'transaction': serialize_txn(txn), 'otp_validated': True}
+
+
+def cash_deposit_otp_submit(*, user, merchant_tran_id: str, latitude, longitude) -> dict:
+    """CD OTP final transaction after OTP validated."""
+    merchant = assert_merchant_active(user)
+    assert_daily_2fa(merchant)
+    try:
+        txn = AepsTransaction.objects.get(user=user, merchant_tran_id=merchant_tran_id, product='CD', is_deleted=False)
+    except AepsTransaction.DoesNotExist as exc:
+        raise ValidationError({'message': 'Transaction not found'}) from exc
+    meta = dict(txn.provider_meta or {})
+    if meta.get('cd_otp_step') != 'otp_validated':
+        raise ValidationError({'message': 'Validate OTP before submitting the deposit transaction'})
+    client = get_fingpay_client()
+    body = {
+        **_base_merchant_fields(merchant, client),
+        'merchantTranId': txn.merchant_tran_id,
+        'fingpayTransactionId': txn.fp_transaction_id or '',
+        'transactionType': 'CD',
+        'latitude': float(latitude),
+        'longitude': float(longitude),
+        'transactionAmount': float(txn.amount or 0),
+        'mobileNumber': txn.customer_mobile or '',
+    }
+    try:
+        resp = client.aeps_post(PATH_CD_OTP_TXN, body, device_imei=merchant.device_imei)
+    except Exception as exc:
+        txn.status = 'timeout'
+        txn.response_message = str(exc)[:500]
+        txn.save()
+        return {'transaction': serialize_txn(txn), 'needs_status_check': True, 'error': str(exc)}
+    data = resp.get('data') if isinstance(resp.get('data'), dict) else {}
+    apply_provider_result(txn, resp, data)
+    meta = dict(txn.provider_meta or {})
+    meta['cd_otp_mode'] = True
+    meta['cd_otp_step'] = 'completed'
+    txn.provider_meta = meta
+    txn.save(update_fields=['provider_meta', 'updated_at'])
+    if txn.status == 'success':
+        acknowledge_transaction(txn, otp_mode=True)
+    return {'transaction': serialize_txn(txn), 'needs_status_check': txn.status == 'pending'}
 
 
 def sync_bank_iin_cache() -> int:
@@ -382,6 +565,7 @@ def list_banks(list_type: str = 'aeps'):
 
 
 def serialize_txn(txn: AepsTransaction) -> dict:
+    meta = txn.provider_meta if isinstance(txn.provider_meta, dict) else {}
     return {
         'id': txn.pk,
         'merchant_tran_id': txn.merchant_tran_id,
@@ -401,5 +585,7 @@ def serialize_txn(txn: AepsTransaction) -> dict:
         'balance_amount': str(txn.balance_amount) if txn.balance_amount is not None else None,
         'mini_statement': txn.mini_statement or [],
         'acknowledged': txn.acknowledged,
+        'cd_otp_mode': bool(meta.get('cd_otp_mode')),
+        'cd_otp_step': meta.get('cd_otp_step') or '',
         'created_at': txn.created_at.isoformat() if txn.created_at else None,
     }

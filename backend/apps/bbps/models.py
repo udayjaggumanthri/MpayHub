@@ -87,9 +87,18 @@ class BillPayment(BaseModel):
 
 
 class BbpsBillerMaster(BaseModel):
-    """Cached BillAvenue biller (MDM) master."""
+    """Cached BillAvenue biller (MDM) master, scoped by BillAvenue environment."""
 
-    biller_id = models.CharField(max_length=20, unique=True, db_index=True)
+    ENVIRONMENT_CHOICES = [('uat', 'UAT'), ('prod', 'Production')]
+
+    environment = models.CharField(
+        max_length=10,
+        choices=ENVIRONMENT_CHOICES,
+        default='uat',
+        db_index=True,
+        help_text='BillAvenue environment this MDM row was synced from (uat|prod).',
+    )
+    biller_id = models.CharField(max_length=20, db_index=True)
     biller_name = models.CharField(max_length=255, blank=True, default='')
     biller_alias_name = models.CharField(max_length=255, blank=True, default='')
     biller_category = models.CharField(max_length=120, blank=True, default='', db_index=True)
@@ -123,9 +132,20 @@ class BbpsBillerMaster(BaseModel):
     class Meta:
         db_table = 'bbps_biller_master'
         ordering = ['biller_name']
+        constraints = [
+            models.UniqueConstraint(
+                fields=['environment', 'biller_id'],
+                condition=models.Q(is_deleted=False),
+                name='uniq_bbps_biller_id_per_environment',
+            ),
+        ]
+        indexes = [
+            models.Index(fields=['environment', 'biller_category']),
+            models.Index(fields=['environment', 'is_active_local']),
+        ]
 
     def __str__(self):
-        return f'{self.biller_id} - {self.biller_name}'
+        return f'{self.environment}:{self.biller_id} - {self.biller_name}'
 
 
 class BbpsServiceCategory(BaseModel):
@@ -378,9 +398,17 @@ class BbpsApiAuditLog(BaseModel):
 
 
 class BbpsSyncUsageLog(BaseModel):
-    """Per-day sync usage tracker for BillAvenue MDM calls."""
+    """Per-day, per-environment sync usage tracker for BillAvenue MDM calls."""
+
+    ENVIRONMENT_CHOICES = [('uat', 'UAT'), ('prod', 'Production')]
 
     usage_date = models.DateField(db_index=True)
+    environment = models.CharField(
+        max_length=10,
+        choices=ENVIRONMENT_CHOICES,
+        default='uat',
+        db_index=True,
+    )
     call_count = models.PositiveIntegerField(default=0)
     requested_ids_count = models.PositiveIntegerField(default=0)
     requested_by = models.ForeignKey(
@@ -396,11 +424,90 @@ class BbpsSyncUsageLog(BaseModel):
         ordering = ['-usage_date', '-updated_at']
         constraints = [
             models.UniqueConstraint(
-                fields=['usage_date'],
+                fields=['usage_date', 'environment'],
                 condition=models.Q(is_deleted=False),
-                name='uniq_bbps_sync_usage_per_day',
+                name='uniq_bbps_sync_usage_per_day_env',
             )
         ]
+
+
+class BbpsMdmImportJob(BaseModel):
+    """Admin Excel MDM import job with quota-aware batch queue."""
+
+    ENVIRONMENT_CHOICES = [('uat', 'UAT'), ('prod', 'Production')]
+    STATUS_CHOICES = [
+        ('queued', 'Queued'),
+        ('processing', 'Processing'),
+        ('partial', 'Partial'),
+        ('completed', 'Completed'),
+        ('failed', 'Failed'),
+        ('cancelled', 'Cancelled'),
+    ]
+
+    environment = models.CharField(max_length=10, choices=ENVIRONMENT_CHOICES, db_index=True)
+    original_filename = models.CharField(max_length=255, blank=True, default='')
+    status = models.CharField(max_length=20, choices=STATUS_CHOICES, default='queued', db_index=True)
+    total_ids = models.PositiveIntegerField(default=0)
+    synced_ids = models.PositiveIntegerField(default=0)
+    failed_ids = models.PositiveIntegerField(default=0)
+    pending_ids = models.PositiveIntegerField(default=0)
+    uploaded_by = models.ForeignKey(
+        User,
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        related_name='bbps_mdm_import_jobs',
+    )
+    error_summary = models.TextField(blank=True, default='')
+    started_at = models.DateTimeField(null=True, blank=True)
+    completed_at = models.DateTimeField(null=True, blank=True)
+
+    class Meta:
+        db_table = 'bbps_mdm_import_job'
+        ordering = ['-created_at']
+        indexes = [
+            models.Index(fields=['environment', 'status']),
+        ]
+
+    def __str__(self):
+        return f'{self.environment}:{self.original_filename} ({self.status})'
+
+
+class BbpsMdmImportItem(BaseModel):
+    """One biller ID row from an Excel MDM import job."""
+
+    STATUS_CHOICES = [
+        ('pending', 'Pending'),
+        ('synced', 'Synced'),
+        ('failed', 'Failed'),
+        ('skipped', 'Skipped'),
+    ]
+
+    job = models.ForeignKey(BbpsMdmImportJob, on_delete=models.CASCADE, related_name='items')
+    biller_id = models.CharField(max_length=40, db_index=True)
+    biller_name = models.CharField(max_length=255, blank=True, default='')
+    biller_category = models.CharField(max_length=120, blank=True, default='')
+    biller_coverage = models.CharField(max_length=80, blank=True, default='')
+    status = models.CharField(max_length=20, choices=STATUS_CHOICES, default='pending', db_index=True)
+    last_error = models.TextField(blank=True, default='')
+    last_synced_at = models.DateTimeField(null=True, blank=True)
+
+    class Meta:
+        db_table = 'bbps_mdm_import_item'
+        ordering = ['id']
+        constraints = [
+            models.UniqueConstraint(
+                fields=['job', 'biller_id'],
+                condition=models.Q(is_deleted=False),
+                name='uniq_bbps_mdm_import_item_per_job',
+            )
+        ]
+        indexes = [
+            models.Index(fields=['job', 'status']),
+        ]
+
+    def __str__(self):
+        return f'{self.job_id}:{self.biller_id} ({self.status})'
 
 
 class BbpsFetchSession(BaseModel):
@@ -554,20 +661,42 @@ class BbpsPlanPullRun(BaseModel):
 
 
 class BbpsDepositEnquirySnapshot(BaseModel):
-    """Deposit enquiry snapshots for admin operations panel."""
+    """Deposit enquiry snapshots for admin operations panel / reporting."""
+
+    STATUS_CHOICES = [
+        ('SUCCESS', 'Success'),
+        ('FAILED', 'Failed'),
+        ('PARTIAL', 'Partial'),
+    ]
 
     request_id = models.CharField(max_length=50, blank=True, default='', db_index=True)
+    environment = models.CharField(max_length=10, blank=True, default='', db_index=True)
     from_date = models.CharField(max_length=25, blank=True, default='')
     to_date = models.CharField(max_length=25, blank=True, default='')
     trans_type = models.CharField(max_length=10, blank=True, default='')
+    agents = models.JSONField(default=list, blank=True)
     current_balance = models.DecimalField(max_digits=18, decimal_places=4, default=Decimal('0'))
     currency = models.CharField(max_length=10, blank=True, default='INR')
+    response_code = models.CharField(max_length=20, blank=True, default='', db_index=True)
     response_payload = models.JSONField(default=dict, blank=True)
+    transaction_count = models.PositiveIntegerField(default=0)
+    status = models.CharField(max_length=20, choices=STATUS_CHOICES, default='SUCCESS', db_index=True)
     error_message = models.TextField(blank=True, default='')
+    performed_by = models.ForeignKey(
+        User,
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        related_name='bbps_deposit_enquiries',
+    )
 
     class Meta:
         db_table = 'bbps_deposit_enquiry_snapshot'
         ordering = ['-created_at']
+        indexes = [
+            models.Index(fields=['environment', 'created_at']),
+            models.Index(fields=['from_date', 'to_date']),
+        ]
 
 
 class BbpsPushWebhookEvent(BaseModel):
@@ -586,3 +715,106 @@ class BbpsPushWebhookEvent(BaseModel):
     class Meta:
         db_table = 'bbps_push_webhook_event'
         ordering = ['-created_at']
+
+
+class BbpsProviderFloat(BaseModel):
+    """
+    Admin-tracked BillAvenue company prepaid float (per UAT/PROD mode).
+
+    There is no reliable BillAvenue API for this balance; admins set/override it
+    manually after checking the BillAvenue dashboard. Payment gating and auto
+    debit/credit keep the tracked balance aligned with real spend.
+    """
+
+    ENVIRONMENT_CHOICES = [('uat', 'UAT'), ('prod', 'Production')]
+
+    environment = models.CharField(
+        max_length=10,
+        choices=ENVIRONMENT_CHOICES,
+        unique=True,
+        db_index=True,
+    )
+    balance = models.DecimalField(max_digits=18, decimal_places=4, default=Decimal('0'))
+    low_balance_threshold = models.DecimalField(
+        max_digits=18,
+        decimal_places=4,
+        default=Decimal('0'),
+        help_text='Admin warning when tracked balance falls at or below this value.',
+    )
+    enforcement_enabled = models.BooleanField(
+        default=True,
+        db_index=True,
+        help_text='When True, BBPS payments are blocked if float is insufficient.',
+    )
+    updated_by = models.ForeignKey(
+        User,
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        related_name='bbps_provider_float_updates',
+    )
+    last_manual_set_at = models.DateTimeField(null=True, blank=True)
+
+    class Meta:
+        db_table = 'bbps_provider_float'
+        ordering = ['environment']
+
+    def __str__(self):
+        return f'{self.environment} float ₹{self.balance}'
+
+
+class BbpsProviderFloatLedger(BaseModel):
+    """Append-only audit of provider float manual sets and auto debit/credit."""
+
+    ENTRY_TYPE_CHOICES = [
+        ('MANUAL_SET', 'Manual set'),
+        ('AUTO_DEBIT', 'Auto debit'),
+        ('AUTO_CREDIT', 'Auto credit'),
+    ]
+
+    float_row = models.ForeignKey(
+        BbpsProviderFloat,
+        on_delete=models.CASCADE,
+        related_name='ledger_entries',
+    )
+    environment = models.CharField(max_length=10, db_index=True)
+    entry_type = models.CharField(max_length=20, choices=ENTRY_TYPE_CHOICES, db_index=True)
+    amount = models.DecimalField(max_digits=18, decimal_places=4, default=Decimal('0'))
+    balance_before = models.DecimalField(max_digits=18, decimal_places=4)
+    balance_after = models.DecimalField(max_digits=18, decimal_places=4)
+    service_id = models.CharField(max_length=100, blank=True, default='', db_index=True)
+    payment_attempt = models.ForeignKey(
+        'BbpsPaymentAttempt',
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        related_name='provider_float_ledger',
+    )
+    remarks = models.TextField(blank=True, default='')
+    performed_by = models.ForeignKey(
+        User,
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        related_name='bbps_provider_float_ledger',
+    )
+    performed_by_name = models.CharField(max_length=255, blank=True, default='')
+
+    class Meta:
+        db_table = 'bbps_provider_float_ledger'
+        ordering = ['-created_at']
+        indexes = [
+            models.Index(fields=['environment', 'created_at']),
+            models.Index(fields=['entry_type', 'created_at']),
+            models.Index(fields=['service_id', 'entry_type']),
+        ]
+        constraints = [
+            models.UniqueConstraint(
+                fields=['service_id', 'entry_type'],
+                condition=models.Q(is_deleted=False) & ~models.Q(service_id=''),
+                name='uniq_bbps_provider_float_ledger_service_entry',
+            ),
+        ]
+
+    def __str__(self):
+        return f'{self.entry_type} ₹{self.amount} ({self.environment})'

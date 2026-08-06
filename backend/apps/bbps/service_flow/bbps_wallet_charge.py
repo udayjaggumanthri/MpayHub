@@ -10,13 +10,12 @@ from decimal import Decimal, ROUND_HALF_UP
 
 from django.conf import settings
 
-from apps.integrations.models import BillAvenueConfig
+from apps.integrations.billavenue.registry import get_active_billavenue_config
 
 _TWO_DP = Decimal('0.01')
 
-
-def get_active_billavenue_config() -> BillAvenueConfig | None:
-    return BillAvenueConfig.objects.filter(is_deleted=False, enabled=True, is_active=True).first()
+# Re-export for callers that import from this module.
+__all__ = ['get_active_billavenue_config', 'resolve_bbps_wallet_service_charge']
 
 
 def resolve_bbps_wallet_service_charge(*, amount: Decimal) -> dict:

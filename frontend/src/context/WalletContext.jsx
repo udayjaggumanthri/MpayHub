@@ -20,6 +20,12 @@ export const WalletProvider = ({ children }) => {
     bbps: 0,
     profit: 0,
   });
+  const [walletMeta, setWalletMeta] = useState({
+    main: {},
+    commission: {},
+    bbps: {},
+    profit: {},
+  });
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
 
@@ -39,6 +45,24 @@ export const WalletProvider = ({ children }) => {
           commission: parseFloat(walletData.commission?.balance || walletData.commission || 0) || 0,
           bbps: parseFloat(walletData.bbps?.balance || walletData.bbps || 0) || 0,
           profit: parseFloat(walletData.profit?.balance || walletData.profit || 0) || 0,
+        });
+        setWalletMeta({
+          main: {
+            source: walletData.main?.source || null,
+            networkUserCount: walletData.main?.network_user_count ?? null,
+          },
+          commission: {
+            source: walletData.commission?.source || null,
+            networkUserCount: walletData.commission?.network_user_count ?? null,
+          },
+          bbps: {
+            source: walletData.bbps?.source || null,
+            networkUserCount: walletData.bbps?.network_user_count ?? null,
+          },
+          profit: {
+            source: walletData.profit?.source || null,
+            networkUserCount: walletData.profit?.network_user_count ?? null,
+          },
         });
       } else {
         setError(result.message || 'Failed to load wallets');
@@ -67,6 +91,7 @@ export const WalletProvider = ({ children }) => {
 
   const value = {
     wallets,
+    walletMeta,
     loading,
     error,
     loadWallets,

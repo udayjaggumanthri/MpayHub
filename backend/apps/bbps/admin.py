@@ -21,6 +21,8 @@ from apps.bbps.models import (
     BbpsFetchSession,
     BbpsPaymentAttempt,
     BbpsPlanPullRun,
+    BbpsProviderFloat,
+    BbpsProviderFloatLedger,
     BbpsPushWebhookEvent,
     BbpsProviderBillerMap,
     BbpsServiceCategory,
@@ -198,8 +200,91 @@ class BbpsPlanPullRunAdmin(admin.ModelAdmin):
 
 @admin.register(BbpsDepositEnquirySnapshot)
 class BbpsDepositEnquirySnapshotAdmin(admin.ModelAdmin):
-    list_display = ['request_id', 'from_date', 'to_date', 'trans_type', 'current_balance', 'created_at']
-    search_fields = ['request_id']
+    list_display = [
+        'id',
+        'environment',
+        'request_id',
+        'from_date',
+        'to_date',
+        'trans_type',
+        'current_balance',
+        'transaction_count',
+        'status',
+        'response_code',
+        'created_at',
+    ]
+    list_filter = ['environment', 'status', 'trans_type']
+    search_fields = ['request_id', 'error_message']
+    readonly_fields = [
+        'request_id',
+        'environment',
+        'from_date',
+        'to_date',
+        'trans_type',
+        'agents',
+        'current_balance',
+        'currency',
+        'response_code',
+        'response_payload',
+        'transaction_count',
+        'status',
+        'error_message',
+        'performed_by',
+        'created_at',
+        'updated_at',
+    ]
+
+
+@admin.register(BbpsProviderFloat)
+class BbpsProviderFloatAdmin(admin.ModelAdmin):
+    list_display = [
+        'environment',
+        'balance',
+        'low_balance_threshold',
+        'enforcement_enabled',
+        'last_manual_set_at',
+        'updated_at',
+    ]
+    list_filter = ['environment', 'enforcement_enabled']
+    readonly_fields = ['last_manual_set_at', 'created_at', 'updated_at']
+
+
+@admin.register(BbpsProviderFloatLedger)
+class BbpsProviderFloatLedgerAdmin(admin.ModelAdmin):
+    list_display = [
+        'id',
+        'environment',
+        'entry_type',
+        'amount',
+        'balance_before',
+        'balance_after',
+        'service_id',
+        'performed_by_name',
+        'created_at',
+    ]
+    list_filter = ['environment', 'entry_type']
+    search_fields = ['service_id', 'remarks', 'performed_by_name']
+    readonly_fields = [
+        'float_row',
+        'environment',
+        'entry_type',
+        'amount',
+        'balance_before',
+        'balance_after',
+        'service_id',
+        'payment_attempt',
+        'remarks',
+        'performed_by',
+        'performed_by_name',
+        'created_at',
+        'updated_at',
+    ]
+
+    def has_add_permission(self, request):
+        return False
+
+    def has_change_permission(self, request, obj=None):
+        return False
 
 
 @admin.register(BbpsPushWebhookEvent)

@@ -1,6 +1,10 @@
 class BillAvenueClientError(Exception):
     """Base integration error for BillAvenue API failures."""
 
+    def __init__(self, message: str = '', *, provider_code: str = ''):
+        super().__init__(message)
+        self.provider_code = str(provider_code or '').strip().upper()
+
 
 class BillAvenueValidationError(BillAvenueClientError):
     """Request validation error before or after provider call."""

@@ -32,6 +32,7 @@ from apps.integrations.billavenue.parsers import (
     parse_payload_text,
 )
 from apps.integrations.models import BillAvenueConfig
+from apps.integrations.billavenue.registry import normalize_billavenue_mode
 from apps.bbps.models import BbpsApiAuditLog
 
 logger = logging.getLogger(__name__)
@@ -63,10 +64,12 @@ def _extract_enc_response_field(data: dict) -> str:
 
 
 def _retry_parse_if_only_raw(normalized, plain: str):
-    """If parse_payload_text fell back to {'raw': ...}, try JSON-in-string and second parse pass."""
+    """If parse_payload_text fell back to {'raw': ...}, try JSON/XML recovery on the raw blob."""
     if not isinstance(normalized, dict) or set(normalized.keys()) != {'raw'}:
         return normalized
     inner = str(normalized.get('raw') or '').strip()
+    if not inner:
+        return normalized
     if inner.startswith('"'):
         try:
             unwrapped = json.loads(inner)
@@ -76,10 +79,14 @@ def _retry_parse_if_only_raw(normalized, plain: str):
                 return unwrapped
         except Exception:
             pass
+    # Always re-parse raw (XML plaintext errors, JSON-in-string, etc.).
+    retry = parse_payload_text(inner)
+    if isinstance(retry, dict) and retry and set(retry.keys()) != {'raw'}:
+        return retry
     if inner and inner != plain:
-        retry = parse_payload_text(inner)
-        if isinstance(retry, dict) and set(retry.keys()) != {'raw'}:
-            return retry
+        retry2 = parse_payload_text(inner)
+        if isinstance(retry2, dict) and retry2 and set(retry2.keys()) != {'raw'}:
+            return retry2
     return normalized
 
 
@@ -141,22 +148,11 @@ def _extract_complaint_response_reason(normalized) -> str:
 
 def _has_invalid_enc_request(normalized: dict) -> bool:
     text = _normalized_text(normalized).lower()
-    return 'de001' in text or 'invalid enc request' in text
-
-
-def _error_message_from_normalized(normalized: dict) -> str:
-    """Extract provider error text from normalized payload for operator-facing diagnostics."""
-    text = _normalized_text(normalized)
-    if not text:
-        return ''
-    low = text.lower()
-    if 'invalid enc request' in low:
-        return 'Invalid ENC request'
-    if 'access denied' in low or 'unauthorized access detected' in low:
-        return 'Access denied'
-    if 'errorcode' in low or 'errormessage' in low:
-        return text[:220]
-    return ''
+    return (
+        'de001' in text
+        or 'invalid enc request' in text
+        or 'pp002' in text
+    )
 
 
 def _extract_error_block(normalized: dict) -> dict:
@@ -186,9 +182,99 @@ def _extract_error_block(normalized: dict) -> dict:
         code = str(normalized.get('errorCode') or '').strip()
     if not message and isinstance(normalized.get('errorMessage'), str):
         message = str(normalized.get('errorMessage') or '').strip()
+    # BillAvenue validate/fetch often returns complianceCode / complianceReason instead of errorInfo.
+    if not code:
+        for ck in ('complianceCode', 'ComplianceCode', 'compliance_code'):
+            v = normalized.get(ck)
+            if isinstance(v, str) and v.strip():
+                code = v.strip()
+                break
+    if not message:
+        for mk in ('complianceReason', 'ComplianceReason', 'compliance_reason'):
+            v = normalized.get(mk)
+            if isinstance(v, str) and v.strip():
+                message = v.strip()
+                break
     if not code and not message:
         return {}
     return {'errorCode': code, 'errorMessage': message}
+
+
+def _extract_error_block_deep(normalized: dict) -> dict:
+    """Walk nested BillAvenue wrappers for the first errorCode/errorMessage block."""
+    if not isinstance(normalized, dict):
+        return {}
+    direct = _extract_error_block(normalized)
+    if direct.get('errorCode') or direct.get('errorMessage'):
+        return direct
+    for val in normalized.values():
+        if isinstance(val, dict):
+            hit = _extract_error_block_deep(val)
+            if hit.get('errorCode') or hit.get('errorMessage'):
+                return hit
+        elif isinstance(val, list):
+            for item in val:
+                if isinstance(item, dict):
+                    hit = _extract_error_block_deep(item)
+                    if hit.get('errorCode') or hit.get('errorMessage'):
+                        return hit
+    return {}
+
+
+def _error_message_from_normalized(normalized: dict) -> str:
+    """Extract provider error text from normalized payload for operator-facing diagnostics."""
+    if not isinstance(normalized, dict):
+        return ''
+
+    blk = _extract_error_block_deep(normalized)
+    code = str(blk.get('errorCode') or '').strip()
+    message = str(blk.get('errorMessage') or '').strip()
+    if code or message:
+        if code and message:
+            return f'{code} — {message}'
+        return message or code
+
+    def _pick(*keys: str) -> str:
+        for key in keys:
+            val = normalized.get(key)
+            if isinstance(val, str) and val.strip():
+                return val.strip()
+            for k, v in normalized.items():
+                if str(k).lower() == key.lower() and isinstance(v, str) and v.strip():
+                    return v.strip()
+        return ''
+
+    compliance = _pick('complianceReason', 'compliance_reason')
+    reason = _pick('responseReason', 'response_reason')
+    compliance_code = _pick('complianceCode', 'compliance_code')
+    if compliance or reason:
+        parts = []
+        if compliance_code:
+            parts.append(compliance_code)
+        if compliance:
+            parts.append(compliance)
+        elif reason:
+            parts.append(reason)
+        return ' — '.join(parts) if len(parts) > 1 else (parts[0] if parts else '')
+
+    for val in normalized.values():
+        if isinstance(val, dict):
+            nested = _error_message_from_normalized(val)
+            if nested:
+                return nested
+
+    text_blob = _normalized_text(normalized)
+    if not text_blob:
+        return ''
+    low = text_blob.lower()
+    if 'invalid enc request' in low:
+        return 'Invalid ENC request'
+    if 'access denied' in low or 'unauthorized access detected' in low:
+        return 'Access denied'
+    # Never dump raw JSON containing errorCode into the exception suffix.
+    if 'errorcode' in low or 'errormessage' in low or 'compliancereason' in low:
+        return ''
+    return ''
 
 
 _ENDPOINTS_BY_KEY = {
@@ -387,11 +473,29 @@ class BillAvenueClient:
         key_derivation_override: str | None = None,
         enc_request_encoding_override: str | None = None,
         _enc_retry_attempted: bool = False,
+        _force_json: bool = False,
+        _json_fallback_attempted: bool = False,
     ) -> BillAvenueResult:
         if not self.config.enabled:
             raise BillAvenueClientError('BillAvenue integration is disabled by admin configuration.')
 
-        payload_text = self._inner_plaintext_for_post(endpoint_name, payload_obj)
+        working_key = str(self.config.get_working_key() or '').strip()
+        if not working_key or len(working_key) < 16:
+            env_label = normalize_billavenue_mode(getattr(self.config, 'mode', None)).upper()
+            raise BillAvenueAuthError(
+                f'BillAvenue {env_label} Working Key is not configured correctly. '
+                'Open BBPS Console → BillAvenue Settings → Encrypted secrets, then retry.'
+            )
+        # IV: invalid/missing values fall back to BILLAVENUE_STANDARD_IV_HEX in crypto.py (PHP sample).
+
+        working_payload = dict(payload_obj or {})
+        plan_pull_raw_body = bool(working_payload.pop('_mpayhub_plan_pull_raw_body', False))
+
+        use_json_body = bool(_force_json) or self._variant() == 'json'
+        if use_json_body and endpoint_name not in ('complaint_register', 'complaint_track'):
+            payload_text = json.dumps(working_payload or {}, separators=(',', ':'))
+        else:
+            payload_text = self._inner_plaintext_for_post(endpoint_name, working_payload)
         env = build_encrypted_envelope(
             payload_text=payload_text,
             access_code=self.config.access_code,
@@ -412,7 +516,11 @@ class BillAvenueClient:
             ),
         )
 
-        endpoint = self._endpoint_for(endpoint_name)
+        if _force_json and endpoint_name == 'plan_pull':
+            mapping = _ENDPOINTS_BY_KEY.get(endpoint_name) or {}
+            endpoint = str(mapping.get('json') or mapping.get('xml') or '').strip()
+        else:
+            endpoint = self._endpoint_for(endpoint_name)
         if not endpoint:
             raise BillAvenueValidationError(f"Unknown BillAvenue endpoint for '{endpoint_name}'")
         url = f"{self.config.base_url.rstrip('/')}/{endpoint.lstrip('/')}"
@@ -420,7 +528,8 @@ class BillAvenueClient:
         request_meta = {
             'url': url,
             'transport': 'json-envelope',
-            'variant': self._variant(),
+            'variant': 'json' if use_json_body else self._variant(),
+            'force_json': bool(_force_json),
             'crypto_key_derivation': str(
                 key_derivation_override
                 or getattr(self.config, 'crypto_key_derivation', '')
@@ -460,6 +569,31 @@ class BillAvenueClient:
                     headers={'Content-Type': 'text/plain; charset=utf-8'},
                     timeout=timeout,
                 )
+            elif endpoint_name == 'plan_pull':
+                # Plan MDM: Postman uses form urlencoded; some stacks also accept raw body like biller_info.
+                if plan_pull_raw_body:
+                    query = {
+                        'accessCode': env['accessCode'],
+                        'requestId': env['requestId'],
+                        'ver': env['ver'],
+                        'instituteId': env['instituteId'],
+                    }
+                    request_meta = {
+                        **request_meta,
+                        'url': url,
+                        'transport': 'raw-encRequest-body',
+                        'query': query,
+                    }
+                    resp = requests.post(
+                        url,
+                        params=query,
+                        data=env['encRequest'],
+                        headers={'Content-Type': 'text/plain; charset=utf-8'},
+                        timeout=timeout,
+                    )
+                else:
+                    request_meta = {**request_meta, 'transport': 'form-post-params'}
+                    resp = requests.post(url, data=env, timeout=timeout)
             elif endpoint_name in ('complaint_register', 'complaint_track'):
                 # BillAvenue (2026): extComplaints expects accessCode, requestId, instituteId, ver, encRequest
                 # as query parameters — not as x-www-form-urlencoded POST body.
@@ -532,10 +666,14 @@ class BillAvenueClient:
                     normalized = rescued
         else:
             # Some XML endpoints return ciphertext as whole-body, not as encResponse field.
+            # Others (errors) return plaintext XML/JSON — decrypt fails; parse as plaintext.
             raw_text = ''
             if isinstance(data, dict):
-                raw_text = str(data.get('raw') or '')
-            if raw_text:
+                raw_text = str(data.get('raw') or data.get('encResponse') or '')
+            if not raw_text and isinstance(data, dict) and data:
+                # Unexpected JSON shape without encResponse — keep as-is for code extraction.
+                normalized = data
+            elif raw_text:
                 try:
                     plain = decrypt_payload_auto(
                         raw_text,
@@ -547,7 +685,10 @@ class BillAvenueClient:
                     decrypted_plain = str(plain or '')
                     normalized = _retry_parse_if_only_raw(parse_payload_text(plain), plain)
                 except Exception:
-                    normalized = data if isinstance(data, dict) else {'raw': data}
+                    normalized = _retry_parse_if_only_raw(parse_payload_text(raw_text), raw_text)
+                    if isinstance(normalized, dict) and set(normalized.keys()) == {'raw'}:
+                        # Keep original envelope for diagnostics if plaintext parse also failed.
+                        normalized = data if isinstance(data, dict) else {'raw': raw_text}
             else:
                 normalized = data if isinstance(data, dict) else {'raw': data}
 
@@ -555,11 +696,16 @@ class BillAvenueClient:
         # alternate key-derivation interpretation despite configured mode.
         raw_text = ''
         if isinstance(normalized, dict):
-            raw_text = str(normalized.get('raw') or '')
+            raw_text = str(normalized.get('raw') or '').strip()
         if self._looks_like_hex_cipher(raw_text):
             rescued = self._decrypt_and_parse_best_effort(raw_text)
             if rescued:
                 normalized = rescued
+        elif raw_text and isinstance(normalized, dict) and set(normalized.keys()) == {'raw'}:
+            # Plaintext XML/JSON stuck in raw (common for gateway error bodies).
+            rescued_plain = _retry_parse_if_only_raw(normalized, raw_text)
+            if isinstance(rescued_plain, dict) and rescued_plain and set(rescued_plain.keys()) != {'raw'}:
+                normalized = rescued_plain
 
         raw_text = ''
         if isinstance(normalized, dict):
@@ -576,11 +722,35 @@ class BillAvenueClient:
                 _attach_billavenue_request_id(ae, env.get('requestId', ''))
                 raise ae
 
+        # MDM XML can occasionally be mis-parsed as a bare JSON list (e.g. ``[12]`` fragment).
+        # Also accept a list of biller dicts as a successful MDM shape.
+        if isinstance(normalized, list):
+            if normalized and all(isinstance(x, dict) for x in normalized):
+                normalized = {
+                    'billerInfoResponse': {
+                        'responseCode': '000',
+                        'biller': normalized,
+                    }
+                }
+            else:
+                normalized = {
+                    'raw': json.dumps(normalized, ensure_ascii=False),
+                    '_mpayhub_parse_note': 'list_payload_without_biller_dicts',
+                }
+
         code = extract_complaint_api_outcome_code(normalized) if endpoint_name in ('complaint_register', 'complaint_track') else extract_response_code(normalized)
-        # Some providers return decrypted JSON text as a string; recover code from it.
+        # Some providers return decrypted JSON/XML text as a string under raw; recover code from it.
         if not code and isinstance(normalized, dict):
             raw = str(normalized.get('raw') or '').strip()
-            if raw.startswith('{') or raw.startswith('['):
+            if raw:
+                rescued = _retry_parse_if_only_raw({'raw': raw}, raw)
+                if isinstance(rescued, dict) and set(rescued.keys()) != {'raw'}:
+                    normalized = rescued
+                    if endpoint_name in ('complaint_register', 'complaint_track'):
+                        code = extract_complaint_api_outcome_code(normalized)
+                    else:
+                        code = extract_response_code(normalized)
+            if not code and (raw.startswith('{') or raw.startswith('[')):
                 try:
                     parsed_raw = json.loads(raw)
                     if isinstance(parsed_raw, dict):
@@ -594,9 +764,9 @@ class BillAvenueClient:
                 except Exception:
                     pass
 
-        # UAT safety net: retry bill-pay once with md5+hex if upstream says Invalid ENC request.
+        # UAT safety net: retry with alternate crypto if upstream says Invalid ENC.
         if (
-            endpoint_name == 'bill_pay'
+            endpoint_name in ('bill_pay', 'plan_pull', 'bill_fetch', 'bill_validate')
             and not _enc_retry_attempted
             and _has_invalid_enc_request(normalized if isinstance(normalized, dict) else {})
         ):
@@ -621,7 +791,8 @@ class BillAvenueClient:
                 if kd == current_kd and enc == current_enc:
                     continue
                 logger.warning(
-                    "BillAvenue bill_pay returned DE001; retrying with %s+%s (requestId=%s).",
+                    "BillAvenue %s returned Invalid ENC; retrying with %s+%s (requestId=%s).",
+                    endpoint_name,
                     kd,
                     enc,
                     env.get('requestId', ''),
@@ -635,12 +806,40 @@ class BillAvenueClient:
                         key_derivation_override=kd,
                         enc_request_encoding_override=enc,
                         _enc_retry_attempted=True,
+                        _force_json=_force_json,
+                        # Prevent each crypto retry from also spawning JSON fallbacks.
+                        _json_fallback_attempted=True,
                     )
                 except BillAvenueClientError as exc:
                     last_exc = exc
                     continue
-            if last_exc:
+            if last_exc and endpoint_name != 'plan_pull':
                 raise last_exc
+            # plan_pull: fall through to JSON path fallback below when still failing.
+
+        # Plan MDM Postman samples use /json; if XML+ENC still fails, retry once as JSON.
+        if (
+            endpoint_name == 'plan_pull'
+            and not _json_fallback_attempted
+            and not _force_json
+            and self._variant() == 'xml'
+            and _has_invalid_enc_request(normalized if isinstance(normalized, dict) else {})
+        ):
+            logger.warning(
+                "BillAvenue plan_pull still Invalid ENC on XML; retrying JSON path (requestId=%s).",
+                env.get('requestId', ''),
+            )
+            return self._post(
+                payload_obj=payload_obj,
+                endpoint_name=endpoint_name,
+                request_id=request_id,
+                ver_override=ver_override,
+                key_derivation_override=key_derivation_override,
+                enc_request_encoding_override=enc_request_encoding_override,
+                _enc_retry_attempted=False,
+                _force_json=True,
+                _json_fallback_attempted=True,
+            )
 
         response_meta = {'normalized': normalized}
         if endpoint_name in ('complaint_register', 'complaint_track'):
@@ -680,7 +879,15 @@ class BillAvenueClient:
             if provider_err and len(provider_err) > 1800:
                 provider_err = provider_err[:1800] + '…'
             suffix = f' ({provider_err})' if provider_err else ''
-            pe = exc_cls(f'BillAvenue API failed ({endpoint_name}) code={c}{suffix}')
+            blk = _extract_error_block_deep(normalized if isinstance(normalized, dict) else {})
+            provider_code = str(blk.get('errorCode') or '').strip()
+            if not provider_code and provider_err:
+                # e.g. "E135 — Mandatory ..."
+                provider_code = provider_err.split('—', 1)[0].strip() if '—' in provider_err else ''
+            pe = exc_cls(
+                f'BillAvenue API failed ({endpoint_name}) code={c}{suffix}',
+                provider_code=provider_code,
+            )
             _attach_billavenue_request_id(pe, env.get('requestId', ''))
             raise pe
         if endpoint_name == 'bill_fetch' and decrypted_plain.strip() and isinstance(normalized, dict):
@@ -737,7 +944,53 @@ class BillAvenueClient:
         )
 
     def plan_pull(self, payload: dict, *, request_id: str | None = None) -> BillAvenueResult:
-        return self._post(payload_obj=payload, endpoint_name='plan_pull', request_id=request_id)
+        """
+        Plan MDM pull. Prefer JSON (Postman sample) with billerId only; fall back to XML/raw body.
+        """
+        base = dict(payload or {})
+        # Internal transport hint must not go into encrypted plaintext.
+        base.pop('_mpayhub_plan_pull_raw_body', None)
+
+        attempts = []
+        # 1) JSON + form (Postman)
+        attempts.append({'force_json': True, 'raw_body': False, 'drop_agent': True})
+        # 2) JSON + form with agentId kept
+        attempts.append({'force_json': True, 'raw_body': False, 'drop_agent': False})
+        # 3) Config variant (often XML) + form
+        attempts.append({'force_json': False, 'raw_body': False, 'drop_agent': True})
+        # 4) JSON + raw body (like biller_info)
+        attempts.append({'force_json': True, 'raw_body': True, 'drop_agent': True})
+
+        last_exc = None
+        for idx, attempt in enumerate(attempts):
+            req = dict(base)
+            if attempt['drop_agent']:
+                req.pop('agentId', None)
+            if attempt['raw_body']:
+                req['_mpayhub_plan_pull_raw_body'] = True
+            try:
+                return self._post(
+                    payload_obj=req,
+                    endpoint_name='plan_pull',
+                    request_id=request_id,
+                    _force_json=bool(attempt['force_json']),
+                    _enc_retry_attempted=False,
+                    _json_fallback_attempted=True,  # avoid nested JSON fallback; we drive attempts here
+                )
+            except BillAvenueClientError as exc:
+                last_exc = exc
+                low = str(exc or '').lower()
+                if 'pp002' not in low and 'invalid enc' not in low and 'de001' not in low:
+                    raise
+                logger.warning(
+                    "BillAvenue plan_pull attempt %s failed (%s); trying next strategy.",
+                    idx + 1,
+                    str(exc)[:160],
+                )
+                continue
+        if last_exc:
+            raise last_exc
+        raise BillAvenueClientError('BillAvenue plan_pull failed with no attempts executed.')
 
     def deposit_enquiry(self, payload: dict, *, request_id: str | None = None) -> BillAvenueResult:
         return self._post(payload_obj=payload, endpoint_name='deposit_enquiry', request_id=request_id)

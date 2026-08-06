@@ -22,6 +22,7 @@ class Command(BaseCommand):
                 if not biller_id:
                     continue
                 _, was_created = BbpsBillerMaster.objects.update_or_create(
+                    environment='uat',
                     biller_id=biller_id,
                     defaults={
                         'biller_name': (row.get('biller_name') or row.get('billerName') or '').strip(),

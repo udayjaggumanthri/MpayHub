@@ -63,6 +63,8 @@ def parse_payload_text(payload_text: str):
     s = normalize_decrypted_plaintext(payload_text)
     if not s:
         return {}
+
+    # Clear JSON document (whole body is JSON).
     if s.startswith('{') or s.startswith('['):
         try:
             return json.loads(s)
@@ -70,14 +72,18 @@ def parse_payload_text(payload_text: str):
             recovered = _try_json_raw_decode(s)
             if recovered is not None:
                 return recovered
-    else:
-        recovered = _try_json_raw_decode(s)
-        if recovered is not None:
-            return recovered
 
-    xml_dict = _try_xml_document_to_dict(s)
-    if xml_dict is not None:
-        return xml_dict
+    # Prefer XML when the payload looks like XML. Opportunistic JSON recovery below can
+    # falsely match fragments like ``[12]`` inside XML text/attributes and return a list,
+    # which then surfaces as ``missing responseCode`` (PARSE) on MDM sync.
+    if '<' in s and '>' in s:
+        xml_dict = _try_xml_document_to_dict(s)
+        if xml_dict is not None:
+            return xml_dict
+
+    recovered = _try_json_raw_decode(s)
+    if recovered is not None:
+        return recovered
 
     return {'raw': s}
 

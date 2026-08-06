@@ -5,8 +5,9 @@ import Input from '../common/Input';
  * Renders biller input fields from GET /bbps/billers/:id/schema/ input_schema (MDM-driven).
  *
  * @param {string} [formGuidance] - Optional server hint (e.g. BillAvenue placeholder param names).
+ * @param {Record<string, string>} [fieldErrors] - Per-param validation messages.
  */
-const BbpsDynamicFieldSet = ({ fields, values, onChange, formGuidance }) => {
+const BbpsDynamicFieldSet = ({ fields, values, onChange, formGuidance, fieldErrors }) => {
   if (!Array.isArray(fields) || fields.length === 0) return null;
 
   const helperLine = (f) =>
@@ -27,6 +28,8 @@ const BbpsDynamicFieldSet = ({ fields, values, onChange, formGuidance }) => {
       </div>
     ) : null;
 
+  const errors = fieldErrors && typeof fieldErrors === 'object' ? fieldErrors : {};
+
   return (
     <div className="space-y-4">
       {formGuidance ? (
@@ -42,6 +45,7 @@ const BbpsDynamicFieldSet = ({ fields, values, onChange, formGuidance }) => {
           const labelText = String(f.display_label || f.label || f.param_name || '').trim() || name;
           const label = `${labelText}${f.is_optional ? '' : ' *'}`;
           const hLine = helperLine(f);
+          const fieldError = errors[name] || '';
 
           if (f.input_kind === 'select' && Array.isArray(f.choices) && f.choices.length > 0) {
             return (
@@ -49,7 +53,9 @@ const BbpsDynamicFieldSet = ({ fields, values, onChange, formGuidance }) => {
                 <label className="block text-sm font-medium text-gray-700 mb-2">{label}</label>
                 {hLine ? <p className="text-xs text-gray-600 mb-2">{hLine}</p> : null}
                 <select
-                  className="w-full px-4 py-3 border border-gray-300 rounded-lg"
+                  className={`w-full px-4 py-3 border rounded-lg ${
+                    fieldError ? 'border-red-400 focus:ring-red-200' : 'border-gray-300'
+                  }`}
                   value={val}
                   required={!f.is_optional}
                   onChange={(e) => onChange(name, e.target.value)}
@@ -61,6 +67,7 @@ const BbpsDynamicFieldSet = ({ fields, values, onChange, formGuidance }) => {
                     </option>
                   ))}
                 </select>
+                {fieldError ? <p className="mt-1 text-xs text-red-600">{fieldError}</p> : null}
                 {helpCallout(f)}
               </div>
             );
@@ -82,6 +89,7 @@ const BbpsDynamicFieldSet = ({ fields, values, onChange, formGuidance }) => {
                 helperText={hLine || undefined}
                 type={inputType}
                 value={val}
+                error={fieldError || undefined}
                 onChange={(e) => {
                   const raw = e.target.value;
                   let next = raw;

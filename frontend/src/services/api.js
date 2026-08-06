@@ -1384,6 +1384,30 @@ export const bbpsAPI = {
       return handleError(error);
     }
   },
+  getBillerPlans: async (billerId, { circle = '', limit = 200 } = {}) => {
+    try {
+      const params = {};
+      if (circle) params.circle = circle;
+      if (limit) params.limit = limit;
+      const response = await apiClient.get(`/bbps/billers/${encodeURIComponent(billerId)}/plans/`, {
+        params,
+      });
+      return extractData(response);
+    } catch (error) {
+      return handleError(error);
+    }
+  },
+  refreshBillerPlans: async (billerId, { circle = '' } = {}) => {
+    try {
+      const response = await apiClient.post(
+        `/bbps/billers/${encodeURIComponent(billerId)}/plans/refresh/`,
+        circle ? { circle } : {}
+      );
+      return extractData(response);
+    } catch (error) {
+      return handleError(error);
+    }
+  },
   getQuote: async (payload) => {
     try {
       const response = await apiClient.post('/bbps/quote/', payload);
@@ -1470,17 +1494,20 @@ export const bbpsAPI = {
     }
   },
 
-  syncBillers: async (billerIds = []) => {
+  syncBillers: async (billerIds = [], environment) => {
     try {
-      const response = await apiClient.post('/bbps/admin/sync-billers/', { biller_ids: billerIds });
+      const body = { biller_ids: billerIds };
+      if (environment) body.environment = environment;
+      const response = await apiClient.post('/bbps/admin/sync-billers/', body);
       return extractData(response);
     } catch (error) {
       return handleError(error);
     }
   },
-  getSyncUsageToday: async () => {
+  getSyncUsageToday: async (environment) => {
     try {
-      const response = await apiClient.get('/bbps/admin/sync-usage/today/');
+      const params = environment ? { environment } : {};
+      const response = await apiClient.get('/bbps/admin/sync-usage/today/', { params });
       return extractData(response);
     } catch (error) {
       return handleError(error);
@@ -1489,6 +1516,68 @@ export const bbpsAPI = {
   getSyncUsageHistory: async () => {
     try {
       const response = await apiClient.get('/bbps/admin/sync-usage/history/');
+      return extractData(response);
+    } catch (error) {
+      return handleError(error);
+    }
+  },
+
+  uploadMdmImport: async (file, environment, { autoDrain = true } = {}) => {
+    try {
+      const formData = new FormData();
+      formData.append('file', file);
+      formData.append('environment', environment);
+      formData.append('auto_drain', autoDrain ? 'true' : 'false');
+      const response = await apiClient.post(
+        '/bbps/admin/mdm-import/upload/',
+        formData,
+        formDataRequestConfig(formData),
+      );
+      return extractData(response);
+    } catch (error) {
+      return handleError(error);
+    }
+  },
+  listMdmImportJobs: async (environment) => {
+    try {
+      const params = environment ? { environment } : {};
+      const response = await apiClient.get('/bbps/admin/mdm-import/jobs/', { params });
+      return extractData(response);
+    } catch (error) {
+      return handleError(error);
+    }
+  },
+  getMdmImportJob: async (jobId) => {
+    try {
+      const response = await apiClient.get(`/bbps/admin/mdm-import/jobs/${jobId}/`);
+      return extractData(response);
+    } catch (error) {
+      return handleError(error);
+    }
+  },
+  processMdmImportJob: async (jobId) => {
+    try {
+      const response = await apiClient.post(`/bbps/admin/mdm-import/jobs/${jobId}/process/`);
+      return extractData(response);
+    } catch (error) {
+      return handleError(error);
+    }
+  },
+  destroyMdmImportJob: async (jobId, reason = '') => {
+    try {
+      const response = await apiClient.post(`/bbps/admin/mdm-import/jobs/${jobId}/destroy/`, {
+        reason: reason || 'Destroyed by admin from Provider Governance',
+      });
+      return extractData(response);
+    } catch (error) {
+      return handleError(error);
+    }
+  },
+  processPendingMdmImports: async (environment, maxJobs = 5) => {
+    try {
+      const body = { max_jobs: maxJobs };
+      if (environment) body.environment = environment;
+      const response = await apiClient.post('/bbps/admin/mdm-import/process-pending/', body);
       return extractData(response);
     } catch (error) {
       return handleError(error);
@@ -1572,12 +1661,54 @@ export const bbpsAPI = {
       return handleError(error);
     }
   },
+  getDepositEnquiryHistory: async (params = {}) => {
+    try {
+      const response = await apiClient.get('/bbps/admin/deposit-enquiry/history/', { params });
+      return extractData(response);
+    } catch (error) {
+      return handleError(error);
+    }
+  },
+  getDepositEnquiryDetail: async (snapshotId) => {
+    try {
+      const response = await apiClient.get(`/bbps/admin/deposit-enquiry/${snapshotId}/`);
+      return extractData(response);
+    } catch (error) {
+      return handleError(error);
+    }
+  },
+
+  getProviderFloat: async (params = {}) => {
+    try {
+      const response = await apiClient.get('/bbps/admin/provider-float/', { params });
+      return extractData(response);
+    } catch (error) {
+      return handleError(error);
+    }
+  },
+  setProviderFloat: async (payload) => {
+    try {
+      const response = await apiClient.post('/bbps/admin/provider-float/set/', payload);
+      return extractData(response);
+    } catch (error) {
+      return handleError(error);
+    }
+  },
+  updateProviderFloatSettings: async (payload) => {
+    try {
+      const response = await apiClient.patch('/bbps/admin/provider-float/settings/', payload);
+      return extractData(response);
+    } catch (error) {
+      return handleError(error);
+    }
+  },
 };
 
 export const billAvenueAdminAPI = {
-  getConfig: async () => {
+  getConfig: async (mode) => {
     try {
-      const response = await apiClient.get('/bbps/admin/config/');
+      const params = mode ? { mode } : {};
+      const response = await apiClient.get('/bbps/admin/config/', { params });
       return extractData(response);
     } catch (error) {
       return handleError(error);
@@ -1591,6 +1722,14 @@ export const billAvenueAdminAPI = {
       return handleError(error);
     }
   },
+  activateLiveEnvironment: async (mode) => {
+    try {
+      const response = await apiClient.post('/bbps/admin/config/activate/', { mode });
+      return extractData(response);
+    } catch (error) {
+      return handleError(error);
+    }
+  },
   updateSecrets: async (payload) => {
     try {
       const response = await apiClient.post('/bbps/admin/config/secrets/', payload);
@@ -1599,9 +1738,10 @@ export const billAvenueAdminAPI = {
       return handleError(error);
     }
   },
-  listAgentProfiles: async () => {
+  listAgentProfiles: async (configId) => {
     try {
-      const response = await apiClient.get('/bbps/admin/agent-profiles/');
+      const params = configId ? { config: configId } : {};
+      const response = await apiClient.get('/bbps/admin/agent-profiles/', { params });
       return extractData(response);
     } catch (error) {
       return handleError(error);
@@ -1610,6 +1750,14 @@ export const billAvenueAdminAPI = {
   createAgentProfile: async (payload) => {
     try {
       const response = await apiClient.post('/bbps/admin/agent-profiles/', payload);
+      return extractData(response);
+    } catch (error) {
+      return handleError(error);
+    }
+  },
+  deleteAgentProfile: async (id) => {
+    try {
+      const response = await apiClient.delete('/bbps/admin/agent-profiles/', { params: { id } });
       return extractData(response);
     } catch (error) {
       return handleError(error);
@@ -1711,9 +1859,28 @@ export const billAvenueAdminAPI = {
       return handleError(error);
     }
   },
-  clearAllBillerMaster: async () => {
+  getBillerCategoryCounts: async (params = {}) => {
     try {
-      const response = await apiClient.post('/bbps/admin/biller-master/clear-all/');
+      const response = await apiClient.get('/bbps/admin/biller-master/category-counts/', { params });
+      return extractData(response);
+    } catch (error) {
+      return handleError(error);
+    }
+  },
+  clearAllBillerMaster: async (environment) => {
+    try {
+      const response = await apiClient.post('/bbps/admin/biller-master/clear-all/', environment ? { environment } : {});
+      return extractData(response);
+    } catch (error) {
+      return handleError(error);
+    }
+  },
+  bulkDeleteBillerMaster: async ({ environment, billerIds = [] } = {}) => {
+    try {
+      const response = await apiClient.post('/bbps/admin/biller-master/bulk-delete/', {
+        environment,
+        biller_ids: billerIds,
+      });
       return extractData(response);
     } catch (error) {
       return handleError(error);
@@ -3011,6 +3178,63 @@ export const systemAPI = {
     try {
       const response = await apiClient.get('/system/maintenance-status/');
       return extractData(response);
+    } catch (error) {
+      return handleError(error);
+    }
+  },
+};
+
+/**
+ * Admin Wallet Adjustments
+ * POST/GET /api/admin/wallet-adjustments/
+ */
+export const walletAdjustmentsAPI = {
+  create: async (payload) => {
+    try {
+      const response = await apiClient.post('/admin/wallet-adjustments/', payload);
+      return extractData(response);
+    } catch (error) {
+      return handleError(error);
+    }
+  },
+
+  list: async (params = {}) => {
+    try {
+      const response = await apiClient.get('/admin/wallet-adjustments/', { params });
+      return extractData(response);
+    } catch (error) {
+      return handleError(error);
+    }
+  },
+
+  userLookup: async (q) => {
+    try {
+      const response = await apiClient.get('/admin/wallet-adjustments/user-lookup/', {
+        params: { q },
+      });
+      return extractData(response);
+    } catch (error) {
+      return handleError(error);
+    }
+  },
+
+  exportExcel: async (params = {}) => {
+    try {
+      const response = await apiClient.get('/admin/wallet-adjustments/export.xlsx', {
+        params,
+        responseType: 'blob',
+      });
+      const blob = response.data;
+      const url = window.URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      const stamp = new Date().toISOString().slice(0, 10).replace(/-/g, '');
+      a.download = `wallet-adjustments-${stamp}.xlsx`;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      window.URL.revokeObjectURL(url);
+      return { success: true };
     } catch (error) {
       return handleError(error);
     }

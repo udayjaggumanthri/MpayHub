@@ -150,6 +150,11 @@ class BillAvenueConfig(BaseModel):
                 condition=Q(is_active=True, is_deleted=False),
                 name='uniq_billavenue_active_config',
             ),
+            models.UniqueConstraint(
+                fields=['mode'],
+                condition=Q(is_deleted=False, mode__in=['uat', 'prod']),
+                name='uniq_billavenue_mode_uat_prod',
+            ),
         ]
 
     def __str__(self):

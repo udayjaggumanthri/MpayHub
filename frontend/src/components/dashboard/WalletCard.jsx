@@ -3,7 +3,7 @@ import { formatCurrency } from '../../utils/formatters';
 import { FiArrowRight } from 'react-icons/fi';
 import { FaWallet, FaChartLine, FaReceipt, FaBuildingColumns } from 'react-icons/fa6';
 
-const WalletCard = ({ type, amount, onClick }) => {
+const WalletCard = ({ type, amount, onClick, subtitle }) => {
   const config = {
     main: {
       title: 'Main Wallet',
@@ -61,6 +61,7 @@ const WalletCard = ({ type, amount, onClick }) => {
 
   const cardConfig = config[type] || config.main;
   const Icon = cardConfig.icon;
+  const displaySubtitle = subtitle || cardConfig.subtitle;
 
   return (
     <div
@@ -107,7 +108,7 @@ const WalletCard = ({ type, amount, onClick }) => {
           <p className={`text-xs font-semibold uppercase tracking-wider ${cardConfig.textColor}`}>
             {cardConfig.title}
           </p>
-          <p className="mt-0.5 text-[11px] text-slate-500">{cardConfig.subtitle}</p>
+          <p className="mt-0.5 text-[11px] text-slate-500">{displaySubtitle}</p>
           <p className={`mt-3 text-3xl font-bold tabular-nums tracking-tight ${cardConfig.amountColor}`}>
             {formatCurrency(amount)}
           </p>

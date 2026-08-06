@@ -44,6 +44,11 @@ export const roleMenus = {
       icon: 'profile',
     },
     {
+      name: 'Wallet Adjustments',
+      path: '/admin/wallet-adjustments',
+      icon: 'profile',
+    },
+    {
       name: 'Gateways & pay-in',
       path: '/admin/gateways',
       icon: 'profile',
@@ -57,13 +62,16 @@ export const roleMenus = {
       ],
     },
     {
-      name: 'BBPS Configuration',
-      path: '/admin/billavenue-settings',
+      name: 'BBPS Console',
+      path: '/admin/bbps',
       icon: 'profile',
       submenu: [
-        { name: 'BillAvenue Settings', path: '/admin/billavenue-settings' },
-        { name: 'Provider Governance', path: '/admin/bbps-governance' },
-        { name: 'BBPS Ops Console', path: '/admin/bbps-ops' },
+        { name: 'Overview', path: '/admin/bbps' },
+        { name: 'Biller Directory', path: '/admin/bbps/directory' },
+        { name: 'Catalog & Sync', path: '/admin/bbps/catalog' },
+        { name: 'Provider Float', path: '/admin/bbps/float' },
+        { name: 'Ops Tools', path: '/admin/bbps/ops' },
+        { name: 'BillAvenue Settings', path: '/admin/bbps/settings' },
       ],
     },
     {

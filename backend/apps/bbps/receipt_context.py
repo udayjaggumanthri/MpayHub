@@ -3,7 +3,8 @@ Normalize BBPS bill-payment rows for receipt / transaction-detail UIs.
 """
 from __future__ import annotations
 
-from apps.bbps.models import BbpsBillerMaster, BillPayment
+from apps.bbps.catalog.env import get_biller_master
+from apps.bbps.models import BillPayment
 from apps.integrations.bbps_client import (
     _scalar_field,
     extract_biller_response_dict,
@@ -26,11 +27,7 @@ def _latest_attempt(payment: BillPayment):
 def _biller_display_name(payment: BillPayment) -> str:
     biller_id = str(payment.biller_id or '').strip()
     if biller_id:
-        master = (
-            BbpsBillerMaster.objects.filter(biller_id=biller_id, is_deleted=False)
-            .only('biller_name')
-            .first()
-        )
+        master = get_biller_master(biller_id)
         if master and str(master.biller_name or '').strip():
             return str(master.biller_name).strip()
     stored = str(payment.biller or '').strip()

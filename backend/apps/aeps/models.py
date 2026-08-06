@@ -18,7 +18,7 @@ class AepsProviderConfig(BaseModel):
     ]
 
     name = models.CharField(max_length=100, unique=True, default='default', db_index=True)
-    environment = models.CharField(max_length=10, choices=ENV_CHOICES, default='uat', db_index=True)
+    environment = models.CharField(max_length=10, choices=ENV_CHOICES, default='prod', db_index=True)
     is_active = models.BooleanField(default=False, db_index=True)
 
     super_merchant_id = models.CharField(max_length=64, blank=True, default='')

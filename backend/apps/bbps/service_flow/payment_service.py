@@ -8,6 +8,7 @@ from django.conf import settings
 from django.db import transaction as db_transaction
 from django.utils import timezone
 
+from apps.bbps.catalog.env import get_biller_master
 from apps.bbps.models import (
     BillPayment,
     BbpsApiAuditLog,
@@ -26,6 +27,7 @@ from apps.bbps.service_flow.compliance import (
 )
 from apps.bbps.service_flow.bbps_wallet_charge import resolve_bbps_wallet_service_charge
 from apps.bbps.service_flow.commission_service import resolve_commission_for_payment
+from apps.bbps.service_flow.provider_float import assert_float_available, debit_float_for_payment
 from apps.core.exceptions import InsufficientBalance, TransactionFailed
 from apps.integrations.bbps_client import BBPSClient, extract_biller_response_dict
 from apps.integrations.models import BillAvenueConfig, BillAvenueModeChannelPolicy
@@ -149,7 +151,7 @@ def process_bill_payment_flow(*, user, bill_data: dict) -> dict:
     biller_id = str(bill_data.get('biller_id') or '').strip()
     if not biller_id:
         raise TransactionFailed('biller_id is required for BillAvenue payment flow.')
-    biller = BbpsBillerMaster.objects.filter(biller_id=biller_id, is_deleted=False).first()
+    biller = get_biller_master(biller_id)
     if not biller:
         raise TransactionFailed(f'Biller {biller_id} not found in MDM cache. Run sync first.')
     if str(biller.biller_status or '').upper() not in ('ACTIVE', 'ENABLED', 'FLUCTUATING'):
@@ -184,17 +186,52 @@ def process_bill_payment_flow(*, user, bill_data: dict) -> dict:
         fetch_rid = str(fetch_session.request_id).strip()
         bill_data['request_id'] = fetch_rid
     # Keep bill-pay request aligned with bill-fetch snapshot (order + flags matter for BillAvenue E211).
+    # Keep bill-pay request aligned with bill-fetch snapshot (order + flags matter for BillAvenue E211).
+    replayed_from_fetch = False
+    plan_id = str(bill_data.get('plan_id') or '').strip()
     if fetch_session and isinstance(getattr(fetch_session, 'input_params', None), dict):
         inp = fetch_session.input_params or {}
         stored_in = inp.get('input')
         if isinstance(stored_in, list) and stored_in and all(isinstance(r, dict) for r in stored_in):
             bill_data['input_params'] = [dict(r) for r in stored_in]
+            replayed_from_fetch = True
+        if not plan_id:
+            plan_id = str(inp.get('planId') or inp.get('plan_id') or '').strip()
+            if plan_id:
+                bill_data['plan_id'] = plan_id
         if not isinstance(bill_data.get('agent_device_info'), dict) or not bill_data.get('agent_device_info'):
             bill_data['agent_device_info'] = inp.get('agentDeviceInfo') or {}
         incoming_ci = bill_data.get('customer_info') if isinstance(bill_data.get('customer_info'), dict) else {}
         fetch_ci = inp.get('customerInfo') if isinstance(inp.get('customerInfo'), dict) else {}
         if fetch_ci or incoming_ci:
             bill_data['customer_info'] = {**incoming_ci, **fetch_ci}
+    from apps.bbps.service_flow.validation_service import (
+        inject_plan_id_into_wire_list,
+        validate_biller_inputs,
+    )
+
+    if not replayed_from_fetch:
+        # No trusted fetch session inputs — enforce MDM rules before pay (QuickPay / direct).
+        raw_inputs = bill_data.get('input_params') or []
+        input_map = {}
+        if isinstance(raw_inputs, list):
+            for row in raw_inputs:
+                if not isinstance(row, dict):
+                    continue
+                key = str(row.get('paramName') or row.get('param_name') or '').strip()
+                val = row.get('paramValue') if 'paramValue' in row else row.get('param_value')
+                if key and val not in (None, ''):
+                    input_map[key] = str(val)
+        elif isinstance(raw_inputs, dict):
+            input_map = {str(k): str(v) for k, v in raw_inputs.items() if k and v not in (None, '')}
+        wire = validate_biller_inputs(biller_id=biller_id, input_map=input_map, plan_id=plan_id)
+        bill_data['input_params'] = wire
+    elif plan_id:
+        bill_data['input_params'] = inject_plan_id_into_wire_list(
+            biller_id=biller_id,
+            wire=bill_data.get('input_params') or [],
+            plan_id=plan_id,
+        )
     if fetch_session and isinstance(getattr(fetch_session, 'biller_response', None), dict):
         raw_fetch = fetch_session.biller_response or {}
         lit = raw_fetch.get('__mpayhub_biller_response_xml')
@@ -238,6 +275,9 @@ def process_bill_payment_flow(*, user, bill_data: dict) -> dict:
         raise InsufficientBalance(
             f'Insufficient BBPS wallet balance. Available: Rs {bbps_wallet.balance}, Required: Rs {total}'
         )
+
+    # Company BillAvenue float gate (admin-tracked). Blocks before any BA call / attempt create.
+    assert_float_available(amount)
 
     service_id = bill_data.get('service_id') or ''
     BbpsApiAuditLog.objects.create(
@@ -390,6 +430,12 @@ def process_bill_payment_flow(*, user, bill_data: dict) -> dict:
         attempt.response_payload = _json_safe(payment_result.get('response_payload') or {})
         attempt.settled_at = timezone.now()
         attempt.save(update_fields=['status', 'txn_ref_id', 'approval_ref_number', 'response_payload', 'settled_at', 'updated_at'])
+        debit_float_for_payment(
+            bill_payment.service_id,
+            amount,
+            payment_attempt=attempt,
+            remarks=f'BBPS SUCCESS {bill_payment.service_id}',
+        )
         from apps.bbps.notifications import notify_payment_attempt_status
 
         notify_payment_attempt_status(attempt, source='payment_service')

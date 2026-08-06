@@ -78,6 +78,9 @@ def build_biller_info_plain_xml(payload: dict) -> str:
 def build_plan_pull_plain_xml(payload: dict) -> str:
     """Plan MDM inner body for /extPlanMDM/planMdmRequest/xml."""
     root = Element('planDetailsRequest')
+    agent_id = str((payload or {}).get('agentId') or '').strip()
+    if agent_id:
+        SubElement(root, 'agentId').text = agent_id
     bids = (payload or {}).get('billerId')
     if isinstance(bids, (list, tuple)):
         for bid in bids:
@@ -101,6 +104,9 @@ def build_bill_fetch_plain_xml(payload: dict) -> str:
     agent_id = str(p.get('agentId') or '').strip()
     if agent_id:
         SubElement(root, 'agentId').text = agent_id
+
+    if 'billerAdhoc' in p:
+        SubElement(root, 'billerAdhoc').text = 'true' if bool(p.get('billerAdhoc')) else 'false'
 
     dev = p.get('agentDeviceInfo') or {}
     if isinstance(dev, dict):
@@ -183,6 +189,10 @@ def build_bill_pay_plain_xml(payload: dict) -> str:
     biller_id = str(p.get('billerId') or '').strip()
     if biller_id:
         SubElement(root, 'billerId').text = biller_id
+
+    plan_id = str(p.get('planId') or '').strip()
+    if plan_id:
+        SubElement(root, 'planId').text = plan_id
 
     input_params = p.get('inputParams') or {}
     rows = input_params.get('input') if isinstance(input_params, dict) else []

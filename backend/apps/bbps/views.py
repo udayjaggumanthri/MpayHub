@@ -39,6 +39,8 @@ from apps.bbps.models import (
     BbpsServiceCategory,
     BbpsServiceProvider,
     BbpsSyncUsageLog,
+    BbpsMdmImportJob,
+    BbpsMdmImportItem,
 )
 from apps.bbps.api_response import bbps_error_response
 from apps.bbps.serializers import (
@@ -54,6 +56,8 @@ from apps.bbps.serializers import (
     BbpsBillerMasterAdminSerializer,
     BbpsProviderBillerMapSerializer,
     BbpsSyncUsageLogSerializer,
+    BbpsMdmImportJobSerializer,
+    BbpsMdmImportItemSerializer,
     BbpsServiceCategorySerializer,
     BbpsServiceProviderSerializer,
     BillerSyncRequestSerializer,
@@ -80,8 +84,31 @@ from apps.bbps.services import (
     normalize_category_code,
 )
 from apps.bbps.mdm_param_utils import is_placeholder_style_param_name
+from apps.bbps.catalog.env import (
+    active_bbps_environment,
+    biller_master_qs_for_env,
+    catalog_cache_env_key,
+    catalog_counts_by_environment,
+    get_biller_master,
+)
 from apps.bbps.service_flow.bbps_wallet_charge import resolve_bbps_wallet_service_charge
+from apps.integrations.billavenue.registry import (
+    MODE_PRESETS,
+    activate_billavenue_config,
+    billavenue_credentials_missing,
+    environments_summary,
+    get_active_billavenue_config,
+    get_billavenue_config_for_mode,
+    get_or_create_billavenue_mode_row,
+    normalize_billavenue_mode,
+)
 from apps.bbps.service_flow.commission_service import resolve_commission_for_payment
+from apps.bbps.service_flow.mdm_sync_batch import (
+    MdmSyncBatchError,
+    MdmSyncQuotaExhausted,
+    run_mdm_sync_batch,
+    sync_quota_snapshot,
+)
 from apps.bbps.service_flow import (
     enquire_deposits,
     fetch_bill_with_cache,
@@ -93,6 +120,9 @@ from apps.bbps.service_flow import (
     track_complaint,
     validate_biller_inputs,
 )
+from apps.bbps.service_flow.validation_service import BbpsInputValidationError
+from apps.bbps.service_flow.provider_float import BbpsProviderFloatInsufficient
+from apps.bbps.error_catalog import provider_code_from_exception, resolve_bbps_error
 from apps.bbps.service_flow.provider_policy import bootstrap_default_biller_policy_if_missing
 from apps.bbps.service_flow.compliance import (
     bbps_channel_accepts_payment_mode,
@@ -119,7 +149,7 @@ from apps.integrations.models import (
 
 
 def _default_agent_id() -> str:
-    cfg = BillAvenueConfig.objects.filter(is_deleted=False, enabled=True, is_active=True).first()
+    cfg = get_active_billavenue_config()
     if not cfg:
         return ''
     row = (
@@ -192,6 +222,11 @@ def _friendly_fetch_error_message(raw_message: str) -> str:
         return 'Provider response timed out. Please retry in a few seconds.'
     if 'connection error' in low or 'max retries exceeded' in low or 'name or service not known' in low:
         return 'Provider network is temporarily unavailable. Please retry shortly.'
+    if 've003' in low or 'agent id invalid' in low or 'agentid invalid' in low:
+        return (
+            'BillAvenue rejected the Agent ID for this live environment (VE003). '
+            'Open BillAvenue Settings → edit the live environment → set the correct Production Agent ID from your BillAvenue pack, then retry.'
+        )
     if 'errorcode": "bfr004' in low or 'no bill due' in low:
         return 'No bill is currently due for this account.'
     if 'errorcode": "bfr001' in low or 'invalid customer account' in low:
@@ -203,6 +238,10 @@ def _friendly_fetch_error_message(raw_message: str) -> str:
         if provider_msg:
             return provider_msg.group(1).strip() or 'Bill fetch failed.'
         return 'Unable to fetch bill for this account right now.'
+    # Prefer provider suffix already attached by BillAvenue client: code=200 (VE003 — Agent ID invalid)
+    m = re.search(r'code=\S+\s*\((.+)\)\s*$', msg)
+    if m and m.group(1).strip():
+        return m.group(1).strip()
     return msg
 
 
@@ -216,7 +255,15 @@ def _friendly_plan_pull_error_message(raw_message: str) -> str:
     if 'connection error' in low or 'max retries exceeded' in low or 'name or service not known' in low:
         return 'Unable to reach plan service right now. Please retry and verify provider connectivity.'
     if 'code=205' in low or 'entitlement' in low:
-        return 'Plan pull is not enabled for this BillAvenue profile. Check agent/profile entitlement in admin.'
+        return (
+            'Plan pull is not enabled for this BillAvenue profile. '
+            'Ask BillAvenue to enable Plan MDM (extPlanMDM) for your institute.'
+        )
+    if 'pp002' in low and 'invalid enc' in low:
+        return (
+            'BillAvenue rejected plan pull (PP002 Invalid ENC). '
+            'Confirm Plan MDM is enabled for this institute, or re-check working key / IV with BillAvenue.'
+        )
     if 'pp002' in low:
         return 'No plan data is available for this biller right now.'
     if 'agentid is required' in low:
@@ -338,15 +385,22 @@ def get_providers_view(request, category):
 def biller_schema_view(request, biller_id):
     schema = get_biller_input_schema(biller_id)
     payment_ui = get_biller_payment_ui_options(biller_id)
-    master = BbpsBillerMaster.objects.filter(biller_id=biller_id, is_deleted=False).first()
+    master = get_biller_master(biller_id)
     plan_req = str(getattr(master, 'plan_mdm_requirement', '') or '').strip() if master else ''
     fetch_req = str(getattr(master, 'biller_fetch_requirement', '') or '').strip() if master else ''
-    fetch_req_upper = fetch_req.upper()
-    quickpay_only = 'QUICKPAY' in fetch_req_upper and (
-        'ONLY' in fetch_req_upper or 'NOT SUPPORTED' in fetch_req_upper or 'UNSUPPORTED' in fetch_req_upper
+    fetch_req_upper = fetch_req.upper().replace('-', '_').replace(' ', '_')
+    quickpay_only = fetch_req_upper in (
+        'NOT_SUPPORTED',
+        'UNSUPPORTED',
+        'QUICKPAY',
+        'QUICKPAY_ONLY',
+    ) or (
+        'QUICKPAY' in fetch_req_upper
+        and ('ONLY' in fetch_req_upper or 'NOT_SUPPORTED' in fetch_req_upper or 'UNSUPPORTED' in fetch_req_upper)
     )
     additional_info_schema = get_biller_additional_info_schema(biller_id)
-    plans_lite, plans_truncated = get_biller_plans_lite(biller_id, limit=100)
+    circle_q = str(request.query_params.get('circle') or request.query_params.get('Circle') or '').strip()
+    plans_lite, plans_truncated = get_biller_plans_lite(biller_id, limit=100, circle=circle_q)
     input_guidance = None
     if schema and all(is_placeholder_style_param_name(str(r.get('param_name') or '')) for r in schema):
         input_guidance = (
@@ -380,6 +434,94 @@ def biller_schema_view(request, biller_id):
         },
         status=status.HTTP_200_OK,
     )
+
+
+@api_view(['GET'])
+@permission_classes([IsAuthenticated])
+def biller_plans_view(request, biller_id):
+    """Partner: list cached plans for a biller (optional circle filter)."""
+    circle_q = str(request.query_params.get('circle') or request.query_params.get('Circle') or '').strip()
+    limit = 200
+    try:
+        limit = min(max(int(request.query_params.get('limit') or 200), 1), 500)
+    except (TypeError, ValueError):
+        limit = 200
+    plans_lite, plans_truncated = get_biller_plans_lite(biller_id, limit=limit, circle=circle_q)
+    master = get_biller_master(biller_id)
+    return Response(
+        {
+            'success': True,
+            'data': {
+                'biller_id': biller_id,
+                'plan_mdm_requirement': str(getattr(master, 'plan_mdm_requirement', '') or '').strip() if master else '',
+                'circle': circle_q,
+                'plans': plans_lite,
+                'plans_truncated': plans_truncated,
+                'plan_count': len(plans_lite),
+            },
+            'message': 'Plans retrieved successfully',
+            'errors': [],
+        },
+        status=status.HTTP_200_OK,
+    )
+
+
+@api_view(['POST'])
+@permission_classes([IsAuthenticated])
+def biller_plans_refresh_view(request, biller_id):
+    """Partner: pull latest plans from BillAvenue for one plan-enabled biller."""
+    bid = str(biller_id or '').strip()
+    master = get_biller_master(bid)
+    if not master:
+        return Response(
+            {'success': False, 'data': None, 'message': 'Biller not found in catalog.', 'errors': []},
+            status=404,
+        )
+    req = str(getattr(master, 'plan_mdm_requirement', '') or '').strip().upper()
+    if req not in ('OPTIONAL', 'MANDATORY', 'SUPPORTED', 'Y', 'YES', 'TRUE', '1'):
+        return Response(
+            {
+                'success': False,
+                'data': None,
+                'message': 'This biller does not use plan MDM.',
+                'errors': [],
+            },
+            status=400,
+        )
+    try:
+        out = pull_biller_plans(biller_ids=[bid])
+        circle_q = str(
+            (request.data or {}).get('circle')
+            or request.query_params.get('circle')
+            or ''
+        ).strip()
+        plans_lite, plans_truncated = get_biller_plans_lite(bid, limit=200, circle=circle_q)
+        return Response(
+            {
+                'success': True,
+                'data': {
+                    'biller_id': bid,
+                    'pull': out,
+                    'plans': plans_lite,
+                    'plans_truncated': plans_truncated,
+                    'plan_count': len(plans_lite),
+                },
+                'message': 'Plans refreshed successfully',
+                'errors': [],
+            },
+            status=200,
+        )
+    except BillAvenueClientError as e:
+        msg = str(e or '')
+        return Response(
+            {
+                'success': False,
+                'data': None,
+                'message': _friendly_plan_pull_error_message(msg),
+                'errors': [],
+            },
+            status=400,
+        )
 
 
 @api_view(['POST'])
@@ -501,20 +643,46 @@ def fetch_bill_view(request):
             if not derived_mobile:
                 derived_mobile = str(getattr(request.user, 'phone', '') or '').strip()
             derived_customer = str(serializer.validated_data.get('customer_number') or _extract_customer_number_from_input_map(input_map) or '').strip()
-            validate_biller_inputs(biller_id=biller_id, input_map=input_map)
-            fetch_master = BbpsBillerMaster.objects.filter(biller_id=biller_id, is_deleted=False).first()
+            plan_id = str(serializer.validated_data.get('plan_id') or '').strip()
+            fetch_master = get_biller_master(biller_id)
+            plan_req = str(getattr(fetch_master, 'plan_mdm_requirement', '') or '').strip().upper() if fetch_master else ''
+            if plan_req == 'MANDATORY' and not plan_id:
+                return bbps_error_response(
+                    'Please select a plan before continuing.',
+                    code='BBPS_PLAN_REQUIRED',
+                    retryable=False,
+                    errors=[{'param': 'plan_id', 'code': 'RPD053', 'message': 'Please select a plan before continuing.'}],
+                    provider_code='RPD053',
+                    action_hint='Load plans for this biller, select one, then validate again.',
+                    http_status=status.HTTP_400_BAD_REQUEST,
+                )
+            try:
+                wire_inputs = validate_biller_inputs(
+                    biller_id=biller_id, input_map=input_map, plan_id=plan_id
+                )
+            except BbpsInputValidationError as ve:
+                return bbps_error_response(
+                    str(ve) or 'Invalid biller inputs',
+                    code='BBPS_INPUT_INVALID',
+                    retryable=False,
+                    errors=list(getattr(ve, 'field_errors', []) or []),
+                    provider_code='E135',
+                    action_hint='Verify each required field matches what this biller expects.',
+                    http_status=status.HTTP_400_BAD_REQUEST,
+                )
             biller_adhoc_flag = bool(getattr(fetch_master, 'biller_adhoc', False)) if fetch_master else False
             flow = fetch_bill_with_cache(
                 user=request.user,
                 biller_id=biller_id,
                 customer_info={'customerMobile': derived_mobile},
-                input_params=[{'paramName': k, 'paramValue': v} for k, v in input_map.items()],
+                input_params=wire_inputs,
                 agent_device_info={
                     'initChannel': 'AGT',
                     'ip': request.META.get('REMOTE_ADDR') or '',
                 },
                 agent_id=_default_agent_id(),
                 biller_adhoc=biller_adhoc_flag,
+                plan_id=plan_id,
             )
             result = flow['bill_result']
             return Response({
@@ -531,50 +699,64 @@ def fetch_bill_view(request):
                 'errors': []
             }, status=status.HTTP_200_OK)
         except BillAvenueTransportError as e:
-            msg = _friendly_fetch_error_message(str(e))
-            is_timeout = 'TIMEOUT' in str(e).upper() or 'TIMED OUT' in str(e).upper()
+            info = resolve_bbps_error(str(e), endpoint='bill_fetch')
+            is_timeout = info.retryable and info.provider_code == 'TIMEOUT'
             http_status = status.HTTP_503_SERVICE_UNAVAILABLE if is_timeout else status.HTTP_400_BAD_REQUEST
             return bbps_error_response(
-                msg,
-                code='BBPS_FETCH_TIMEOUT' if is_timeout else 'BBPS_FETCH_TRANSPORT',
-                retryable=bool(is_timeout),
+                info.user_message,
+                code=info.app_code or ('BBPS_FETCH_TIMEOUT' if is_timeout else 'BBPS_FETCH_TRANSPORT'),
+                retryable=bool(info.retryable),
+                provider_code=info.provider_code or provider_code_from_exception(e),
+                action_hint=info.action_hint,
                 http_status=http_status,
             )
         except BillAvenueClientError as e:
             raw = str(e)
-            low = raw.lower()
-            if 'timeout' in low or 'timed out' in low:
+            info = resolve_bbps_error(raw, endpoint='bill_fetch')
+            if info.provider_code == 'TIMEOUT' or 'timeout' in raw.lower() or 'timed out' in raw.lower():
                 return bbps_error_response(
-                    _friendly_fetch_error_message(raw),
+                    info.user_message,
                     code='BBPS_FETCH_TIMEOUT',
                     retryable=True,
+                    provider_code=info.provider_code or provider_code_from_exception(e),
+                    action_hint=info.action_hint,
                     http_status=status.HTTP_503_SERVICE_UNAVAILABLE,
                 )
-            if 'errorcode": "brp046' in low or 'only quickpay permitted' in low or 'quickpay permitted' in low:
+            if info.app_code == 'BBPS_FETCH_QUICKPAY_ONLY' or info.provider_code == 'BRP046':
                 return bbps_error_response(
-                    _friendly_fetch_error_message(raw),
+                    info.user_message,
                     code='BBPS_FETCH_QUICKPAY_ONLY',
                     retryable=False,
+                    provider_code=info.provider_code or provider_code_from_exception(e),
+                    action_hint=info.action_hint,
                     http_status=status.HTTP_400_BAD_REQUEST,
                 )
             return bbps_error_response(
-                _friendly_fetch_error_message(raw),
-                code='BBPS_FETCH_PROVIDER',
-                retryable=False,
+                info.user_message,
+                code=info.app_code or 'BBPS_FETCH_PROVIDER',
+                retryable=bool(info.retryable),
+                provider_code=info.provider_code or provider_code_from_exception(e),
+                action_hint=info.action_hint,
                 http_status=status.HTTP_400_BAD_REQUEST,
             )
         except TransactionFailed as e:
+            info = resolve_bbps_error(str(e), endpoint='bill_fetch')
             return bbps_error_response(
-                _friendly_fetch_error_message(str(e)),
-                code='BBPS_FETCH_VALIDATION',
-                retryable=False,
+                info.user_message,
+                code=info.app_code or 'BBPS_FETCH_VALIDATION',
+                retryable=bool(info.retryable),
+                provider_code=info.provider_code,
+                action_hint=info.action_hint,
                 http_status=status.HTTP_400_BAD_REQUEST,
             )
         except Exception as e:
+            info = resolve_bbps_error(str(e), endpoint='bill_fetch')
             return bbps_error_response(
-                _friendly_fetch_error_message(str(e)),
-                code='BBPS_FETCH_FAILED',
-                retryable=False,
+                info.user_message,
+                code=info.app_code or 'BBPS_FETCH_FAILED',
+                retryable=bool(info.retryable),
+                provider_code=info.provider_code,
+                action_hint=info.action_hint,
                 http_status=status.HTTP_400_BAD_REQUEST,
             )
     
@@ -662,42 +844,70 @@ def pay_bill_view(request):
                 retryable=False,
                 http_status=status.HTTP_400_BAD_REQUEST,
             )
+        except BbpsProviderFloatInsufficient as e:
+            return bbps_error_response(
+                str(e) or 'Bill payment service is temporarily unavailable. Please try again shortly.',
+                code='BBPS_PROVIDER_FLOAT_INSUFFICIENT',
+                retryable=True,
+                http_status=status.HTTP_503_SERVICE_UNAVAILABLE,
+            )
+        except BbpsInputValidationError as ve:
+            return bbps_error_response(
+                str(ve) or 'Invalid biller inputs',
+                code='BBPS_INPUT_INVALID',
+                retryable=False,
+                errors=list(getattr(ve, 'field_errors', []) or []),
+                provider_code='E135',
+                action_hint='Verify each required field matches what this biller expects.',
+                http_status=status.HTTP_400_BAD_REQUEST,
+            )
         except TransactionFailed as e:
             raw = str(e)
-            low = raw.lower()
-            if 'timeout' in low or 'timed out' in low:
+            info = resolve_bbps_error(raw, endpoint='bill_pay')
+            if info.provider_code == 'TIMEOUT' or 'timeout' in raw.lower() or 'timed out' in raw.lower():
                 return bbps_error_response(
-                    _friendly_pay_error_message(raw),
+                    info.user_message,
                     code='BBPS_PAY_TIMEOUT',
                     retryable=True,
+                    provider_code=info.provider_code,
+                    action_hint=info.action_hint,
                     http_status=status.HTTP_503_SERVICE_UNAVAILABLE,
                 )
-            if ('e204' in low and 'already been used' in low) or 'request id is already been used' in low:
+            if info.provider_code == 'E204' or info.app_code == 'BBPS_PAY_REF_USED':
                 return bbps_error_response(
-                    _friendly_pay_error_message(raw),
+                    info.user_message,
                     code='BBPS_PAY_REQUEST_ID_REUSED',
                     retryable=True,
+                    provider_code=info.provider_code,
+                    action_hint=info.action_hint,
                     http_status=status.HTTP_400_BAD_REQUEST,
                 )
-            if 'e212' in low or 'additionalinfo value mismatch' in low:
+            if info.provider_code == 'E212' or info.app_code == 'BBPS_PAY_ADDITIONAL_INFO':
                 return bbps_error_response(
-                    _friendly_pay_error_message(raw),
+                    info.user_message,
                     code='BBPS_PAY_ADDITIONAL_INFO_MISMATCH',
                     retryable=True,
+                    provider_code=info.provider_code,
+                    action_hint=info.action_hint,
                     http_status=status.HTTP_400_BAD_REQUEST,
                 )
             return bbps_error_response(
-                _friendly_pay_error_message(raw),
-                code='BBPS_PAY_DECLINED',
-                retryable=False,
+                info.user_message,
+                code=info.app_code or 'BBPS_PAY_DECLINED',
+                retryable=bool(info.retryable),
+                provider_code=info.provider_code,
+                action_hint=info.action_hint,
                 http_status=status.HTTP_400_BAD_REQUEST,
             )
         except Exception as e:
             logger.exception('pay-bill unexpected failure: %s', e)
+            info = resolve_bbps_error(str(e), endpoint='bill_pay')
             return bbps_error_response(
-                _friendly_pay_error_message(str(e)),
-                code='BBPS_PAY_FAILED',
-                retryable=False,
+                info.user_message,
+                code=info.app_code or 'BBPS_PAY_FAILED',
+                retryable=bool(info.retryable),
+                provider_code=info.provider_code,
+                action_hint=info.action_hint,
                 http_status=status.HTTP_400_BAD_REQUEST,
             )
     
@@ -836,50 +1046,218 @@ def bill_payment_detail_view(request, payment_id):
 @api_view(['GET', 'POST'])
 @permission_classes([IsAuthenticated, IsAdmin])
 def billavenue_config_view(request):
-    config = BillAvenueConfig.objects.filter(is_deleted=False, is_active=True).order_by('-updated_at').first() or BillAvenueConfig.objects.filter(is_deleted=False).order_by('-updated_at').first()
+    """Load/save BillAvenue config by mode (uat|prod). One active live row."""
+    mode_param = (
+        request.query_params.get('mode')
+        or request.data.get('mode')
+        or ''
+    )
+    mode_param = str(mode_param or '').strip().lower()
+    if mode_param not in ('uat', 'prod'):
+        active = get_active_billavenue_config()
+        if active:
+            mode_param = normalize_billavenue_mode(active.mode)
+        else:
+            any_active = (
+                BillAvenueConfig.objects.filter(is_deleted=False, is_active=True, mode__in=['uat', 'prod'])
+                .order_by('-updated_at')
+                .first()
+            )
+            mode_param = normalize_billavenue_mode(any_active.mode if any_active else 'uat')
+
     if request.method == 'GET':
+        config = (
+            BillAvenueConfig.objects.filter(mode=mode_param, is_deleted=False)
+            .order_by('-is_active', '-updated_at')
+            .first()
+        )
         return Response(
             {
                 'success': True,
-                'data': {'config': BillAvenueConfigSerializer(config).data if config else None},
+                'data': {
+                    'config': BillAvenueConfigSerializer(config).data if config else None,
+                    'environments': environments_summary(),
+                    'presets': MODE_PRESETS,
+                    'live_mode': active_bbps_environment(),
+                },
                 'message': 'BillAvenue config retrieved successfully',
                 'errors': [],
             },
             status=status.HTTP_200_OK,
         )
 
-    data = dict(request.data)
-    if config:
-        ser = BillAvenueConfigSerializer(config, data=data, partial=True)
-    else:
-        ser = BillAvenueConfigSerializer(data=data)
+    data = dict(request.data or {})
+    mode = normalize_billavenue_mode(data.get('mode') or mode_param)
+    if str(data.get('mode') or '').lower() == 'mock' or mode not in ('uat', 'prod'):
+        if str(data.get('mode') or '').lower() == 'mock':
+            return Response(
+                {
+                    'success': False,
+                    'data': None,
+                    'message': 'Mock mode is disabled. Use UAT or PROD mode.',
+                    'errors': [],
+                },
+                status=400,
+            )
+    data['mode'] = mode
+    data['name'] = MODE_PRESETS[mode]['name']
+    if not str(data.get('base_url') or '').strip():
+        data['base_url'] = MODE_PRESETS[mode]['base_url']
+
+    config = get_or_create_billavenue_mode_row(mode)
+    # Never allow POST to flip this row into the other environment.
+    data['mode'] = mode
+    data['name'] = MODE_PRESETS[mode]['name']
+
+    make_active = bool(data.pop('make_active', False) or data.pop('activate', False))
+    # is_active alone also activates when true
+    want_active = make_active or bool(data.get('is_active'))
+
+    ser = BillAvenueConfigSerializer(config, data=data, partial=True)
     if not ser.is_valid():
         return Response({'success': False, 'data': None, 'message': 'Invalid config', 'errors': ser.errors}, status=400)
-    incoming_mode = str(ser.validated_data.get('mode') or '').lower()
-    if incoming_mode == 'mock':
+    cfg = ser.save()
+    cfg.mode = mode
+    cfg.name = MODE_PRESETS[mode]['name']
+    cfg.save(update_fields=['mode', 'name', 'updated_at'])
+
+    if want_active:
+        missing = billavenue_credentials_missing(cfg)
+        if missing:
+            labels = {
+                'working_key': 'Working Key',
+                'iv': 'IV',
+                'access_code': 'Access code',
+                'institute_id': 'Institute ID',
+                'base_url': 'Base URL',
+            }
+            pretty = ', '.join(labels.get(m, m) for m in missing)
+            return Response(
+                {
+                    'success': False,
+                    'data': {'missing_fields': missing, 'environments': environments_summary()},
+                    'message': (
+                        f'Cannot make {mode.upper()} live: {pretty} not saved. '
+                        'Save credentials and Encrypted secrets for this environment first.'
+                    ),
+                    'errors': missing,
+                },
+                status=400,
+            )
+        activate_billavenue_config(cfg, user=request.user)
+        cfg.refresh_from_db()
+        _invalidate_bbps_user_catalog_cache()
+    elif 'is_active' in data and not bool(data.get('is_active')):
+        # Explicit deactivate of this row only — do not wipe secrets.
+        if cfg.is_active:
+            cfg.is_active = False
+            cfg.save(update_fields=['is_active', 'updated_at'])
+
+    # Ensure at least one active row when possible.
+    if not BillAvenueConfig.objects.filter(is_deleted=False, is_active=True, mode__in=['uat', 'prod']).exists():
+        activate_billavenue_config(cfg, user=request.user)
+        cfg.refresh_from_db()
+
+    return Response(
+        {
+            'success': True,
+            'data': {
+                'config': BillAvenueConfigSerializer(cfg).data,
+                'environments': environments_summary(),
+                'presets': MODE_PRESETS,
+                'live_mode': active_bbps_environment(),
+            },
+            'message': 'BillAvenue config saved',
+            'errors': [],
+        },
+        status=200,
+    )
+
+
+@api_view(['POST'])
+@permission_classes([IsAuthenticated, IsAdmin])
+def billavenue_config_activate_view(request):
+    """Switch partner live environment (UAT|PROD) without rewriting credentials."""
+    mode = str(
+        (request.data or {}).get('mode')
+        or (request.data or {}).get('environment')
+        or request.query_params.get('mode')
+        or ''
+    ).strip().lower()
+    if mode not in ('uat', 'prod'):
         return Response(
             {
                 'success': False,
                 'data': None,
-                'message': 'Mock mode is disabled. Use UAT or PROD mode.',
-                'errors': [],
+                'message': 'mode must be uat or prod',
+                'errors': ['mode'],
             },
             status=400,
         )
-    cfg = ser.save()
-    if cfg.is_active:
-        BillAvenueConfig.objects.exclude(pk=cfg.pk).update(is_active=False)
-        if cfg.activated_at is None:
-            cfg.activated_at = timezone.now()
-            cfg.activated_by = request.user
-            cfg.save(update_fields=['activated_at', 'activated_by'])
-    return Response({'success': True, 'data': {'config': BillAvenueConfigSerializer(cfg).data}, 'message': 'BillAvenue config saved', 'errors': []}, status=200)
+    cfg = get_or_create_billavenue_mode_row(mode)
+    if not str(cfg.base_url or '').strip():
+        cfg.base_url = MODE_PRESETS[mode]['base_url']
+        cfg.save(update_fields=['base_url', 'updated_at'])
+    missing = billavenue_credentials_missing(cfg)
+    if missing:
+        labels = {
+            'working_key': 'Working Key',
+            'working_key_invalid': 'Working Key (too short — paste full key from BillAvenue)',
+            'iv': 'IV',
+            'iv_invalid': 'IV (invalid — paste full IV from BillAvenue pack, not the label "IV")',
+            'access_code': 'Access code',
+            'institute_id': 'Institute ID',
+            'base_url': 'Base URL',
+        }
+        pretty = ', '.join(labels.get(m, m) for m in missing)
+        return Response(
+            {
+                'success': False,
+                'data': {
+                    'missing_fields': missing,
+                    'environments': environments_summary(),
+                },
+                'message': (
+                    f'Cannot switch to {mode.upper()}: {pretty} not saved for this environment. '
+                    'Open BillAvenue Settings, select this environment, save credentials and Encrypted secrets, then retry.'
+                ),
+                'errors': missing,
+            },
+            status=400,
+        )
+    activate_billavenue_config(cfg, user=request.user)
+    cfg.refresh_from_db()
+    _invalidate_bbps_user_catalog_cache()
+    return Response(
+        {
+            'success': True,
+            'data': {
+                'config': BillAvenueConfigSerializer(cfg).data,
+                'environments': environments_summary(),
+                'presets': MODE_PRESETS,
+                'live_mode': active_bbps_environment(),
+            },
+            'message': f'{mode.upper()} is now live for partners',
+            'errors': [],
+        },
+        status=200,
+    )
 
 
 @api_view(['POST'])
 @permission_classes([IsAuthenticated, IsAdmin])
 def billavenue_config_secrets_view(request):
-    config = BillAvenueConfig.objects.filter(is_deleted=False, is_active=True).order_by('-updated_at').first() or BillAvenueConfig.objects.filter(is_deleted=False).order_by('-updated_at').first()
+    mode = str(request.data.get('mode') or request.query_params.get('mode') or '').strip().lower()
+    config_id = request.data.get('config_id') or request.data.get('config')
+    config = None
+    if config_id:
+        config = BillAvenueConfig.objects.filter(pk=config_id, is_deleted=False).first()
+    if config is None and mode in ('uat', 'prod'):
+        config = get_or_create_billavenue_mode_row(mode)
+    if config is None:
+        config = get_active_billavenue_config() or BillAvenueConfig.objects.filter(is_deleted=False).order_by(
+            '-is_active', '-updated_at'
+        ).first()
     if not config:
         return Response({'success': False, 'data': None, 'message': 'Create config first', 'errors': []}, status=400)
     ser = BillAvenueSecretUpdateSerializer(data=request.data)
@@ -897,7 +1275,11 @@ def billavenue_config_secrets_view(request):
     return Response(
         {
             'success': True,
-            'data': {'config': BillAvenueConfigSerializer(config).data},
+            'data': {
+                'config': BillAvenueConfigSerializer(config).data,
+                'environments': environments_summary(),
+                'live_mode': active_bbps_environment(),
+            },
             'message': 'BillAvenue secrets updated',
             'errors': [],
         },
@@ -905,12 +1287,39 @@ def billavenue_config_secrets_view(request):
     )
 
 
-@api_view(['GET', 'POST'])
+@api_view(['GET', 'POST', 'DELETE'])
 @permission_classes([IsAuthenticated, IsAdmin])
 def billavenue_agent_profiles_view(request):
     if request.method == 'GET':
-        rows = BillAvenueAgentProfile.objects.filter(is_deleted=False).order_by('-created_at')
-        return Response({'success': True, 'data': {'profiles': BillAvenueAgentProfileSerializer(rows, many=True).data}, 'message': 'Agent profiles retrieved successfully', 'errors': []}, status=200)
+        cfg_id = request.query_params.get('config') or request.query_params.get('config_id')
+        qs = BillAvenueAgentProfile.objects.filter(is_deleted=False)
+        if cfg_id:
+            qs = qs.filter(config_id=cfg_id)
+        else:
+            active = get_active_billavenue_config()
+            if active:
+                qs = qs.filter(config_id=active.pk)
+        rows = qs.order_by('-created_at')
+        return Response(
+            {
+                'success': True,
+                'data': {'profiles': BillAvenueAgentProfileSerializer(rows, many=True).data},
+                'message': 'Agent profiles retrieved successfully',
+                'errors': [],
+            },
+            status=200,
+        )
+    if request.method == 'DELETE':
+        req_id = request.query_params.get('id') or (request.data or {}).get('id')
+        obj = BillAvenueAgentProfile.objects.filter(pk=req_id, is_deleted=False).first() if req_id else None
+        if not obj:
+            return Response({'success': False, 'data': None, 'message': 'Agent profile not found', 'errors': []}, status=404)
+        now = timezone.now()
+        obj.is_deleted = True
+        obj.deleted_at = now
+        obj.enabled = False
+        obj.save(update_fields=['is_deleted', 'deleted_at', 'enabled', 'updated_at'])
+        return Response({'success': True, 'data': {'id': obj.pk}, 'message': 'Agent profile removed', 'errors': []}, status=200)
     obj = None
     req_id = request.data.get('id')
     if req_id:
@@ -969,10 +1378,10 @@ def biller_payment_mapping_view(request, biller_id: str):
     from apps.bbps.service_flow.provider_policy import provider_policy_decision_for_combo
 
     bid = str(biller_id or '').strip()
-    master = BbpsBillerMaster.objects.filter(is_deleted=False, biller_id=bid).first()
+    master = get_biller_master(bid)
     if not master:
         return Response({'success': False, 'data': None, 'message': 'Biller not found', 'errors': []}, status=404)
-    cfg = BillAvenueConfig.objects.filter(is_deleted=False, enabled=True, is_active=True).first()
+    cfg = get_active_billavenue_config()
     if not cfg:
         return Response({'success': False, 'data': None, 'message': 'Active BillAvenue config not found', 'errors': []}, status=400)
 
@@ -1096,9 +1505,12 @@ def _as_audit_snapshot(rule: BbpsCategoryCommissionRule) -> dict:
     }
 
 
-def _invalidate_provider_cache(*category_codes: str):
+def _invalidate_provider_cache(*category_codes: str, environment: str | None = None):
+    env = catalog_cache_env_key(environment)
     for code in category_codes:
         if code:
+            cache.delete(f"bbps:providers:{env}:{normalize_category_code(code)}")
+            # Legacy key (pre-env) — clear to avoid stale partner browse.
             cache.delete(f"bbps:providers:{normalize_category_code(code)}")
 
 
@@ -1110,7 +1522,7 @@ def _invalidate_bbps_user_catalog_cache():
     )
     category_codes.update(
         str(code or '').strip()
-        for code in BbpsBillerMaster.objects.filter(is_deleted=False).values_list('biller_category', flat=True)
+        for code in biller_master_qs_for_env().values_list('biller_category', flat=True)
     )
     _invalidate_provider_cache(*[c for c in category_codes if c])
 
@@ -1150,7 +1562,7 @@ def _error_payload(*, code: str, message: str, hint: str = '', errors=None) -> d
 @api_view(['GET'])
 @permission_classes([IsAuthenticated, IsAdmin])
 def integration_health_view(request):
-    cfg = BillAvenueConfig.objects.filter(is_deleted=False, enabled=True, is_active=True).first()
+    cfg = get_active_billavenue_config()
     profile_count = BillAvenueAgentProfile.objects.filter(
         is_deleted=False,
         enabled=True,
@@ -1161,8 +1573,8 @@ def integration_health_view(request):
     has_institute_id = bool(str(getattr(cfg, 'institute_id', '') or '').strip()) if cfg else False
     has_working_key = bool(str(getattr(cfg, 'working_key_encrypted', '') or '').strip()) if cfg else False
     has_iv = bool(str(getattr(cfg, 'iv_encrypted', '') or '').strip()) if cfg else False
-    stale_billers = BbpsBillerMaster.objects.filter(is_deleted=False, is_stale=True).count()
-    unmapped_billers = BbpsBillerMaster.objects.filter(is_deleted=False).exclude(
+    stale_billers = biller_master_qs_for_env().filter(is_stale=True).count()
+    unmapped_billers = biller_master_qs_for_env().exclude(
         provider_maps__is_deleted=False,
         provider_maps__is_active=True,
     ).count()
@@ -1197,7 +1609,7 @@ def integration_health_view(request):
                 payload['agentId'] = str(probe_agent.agent_id or '').strip()
             # Agent-only biller_info often returns code=001; reuse latest cached biller so the probe matches sync MDM.
             cached_biller = (
-                BbpsBillerMaster.objects.filter(is_deleted=False)
+                biller_master_qs_for_env()
                 .exclude(biller_id='')
                 .order_by('-updated_at', '-id')
                 .values_list('biller_id', flat=True)
@@ -1282,8 +1694,8 @@ def refresh_provider_cache_view(request):
 @api_view(['GET'])
 @permission_classes([IsAuthenticated, IsAdmin])
 def governance_ops_summary_view(request):
-    stale_billers = BbpsBillerMaster.objects.filter(is_deleted=False, is_stale=True).count()
-    unmapped_billers = BbpsBillerMaster.objects.filter(is_deleted=False).exclude(
+    stale_billers = biller_master_qs_for_env().filter(is_stale=True).count()
+    unmapped_billers = biller_master_qs_for_env().exclude(
         provider_maps__is_deleted=False,
         provider_maps__is_active=True,
     ).count()
@@ -1561,7 +1973,10 @@ def provider_biller_maps_view(request):
 def biller_master_admin_view(request):
     if not getattr(settings, 'BBPS_PROVIDER_GOVERNANCE_ENABLED', True):
         return Response({'success': False, 'data': None, 'message': 'Provider governance is disabled', 'errors': []}, status=503)
+    live_mode = active_bbps_environment()
     if request.method == 'GET':
+        env_param = str(request.query_params.get('environment') or request.query_params.get('mode') or '').strip().lower()
+        catalog_env = normalize_billavenue_mode(env_param) if env_param in ('uat', 'prod') else live_mode
         category = request.query_params.get('category')
         q = str(request.query_params.get('q') or '').strip()
         active = str(request.query_params.get('active') or '').strip().lower()
@@ -1570,10 +1985,11 @@ def biller_master_admin_view(request):
         except (TypeError, ValueError):
             page = 1
         try:
-            page_size = max(1, min(100, int(request.query_params.get('page_size') or 25)))
+            # Admin directory may request "All" (up to 50k) for bulk select/sync.
+            page_size = max(1, min(50000, int(request.query_params.get('page_size') or 25)))
         except (TypeError, ValueError):
             page_size = 25
-        qs = BbpsBillerMaster.objects.filter(is_deleted=False).order_by('biller_name')
+        qs = biller_master_qs_for_env(catalog_env).filter(soft_deleted_at__isnull=True).order_by('biller_name')
         if category:
             qs = qs.filter(biller_category__icontains=category)
         if q:
@@ -1584,11 +2000,16 @@ def biller_master_admin_view(request):
         start = (page - 1) * page_size
         end = start + page_size
         rows = qs[start:end]
+        counts = catalog_counts_by_environment()
         return Response(
             {
                 'success': True,
                 'data': {
                     'billers': BbpsBillerMasterLiteSerializer(rows, many=True).data,
+                    'live_mode': live_mode,
+                    'catalog_environment': catalog_env,
+                    'catalog_counts': counts,
+                    'quota': _sync_quota_snapshot(),
                     'pagination': {
                         'page': page,
                         'page_size': page_size,
@@ -1601,14 +2022,106 @@ def biller_master_admin_view(request):
             },
             status=200,
         )
+    # Manual create always lands in the live env (credentials/catalog alignment).
     ser = BbpsBillerMasterAdminSerializer(data=request.data)
     if not ser.is_valid():
         return Response({'success': False, 'data': None, 'message': 'Invalid biller payload', 'errors': ser.errors}, status=400)
-    row = ser.save(source_type='manual', is_active_local=True, updated_by_admin_at=timezone.now(), version=1)
+    row = ser.save(
+        source_type='manual',
+        is_active_local=True,
+        environment=live_mode,
+        updated_by_admin_at=timezone.now(),
+        version=1,
+    )
     bootstrap_default_biller_policy_if_missing(biller=row)
     auto_plan_pull = _maybe_auto_pull_plans_for_billers([row.biller_id])
     _invalidate_bbps_user_catalog_cache()
-    return Response({'success': True, 'data': {'biller': BbpsBillerMasterAdminSerializer(row).data, 'auto_plan_pull': auto_plan_pull}, 'message': 'Biller created', 'errors': []}, status=201)
+    return Response(
+        {
+            'success': True,
+            'data': {
+                'biller': BbpsBillerMasterAdminSerializer(row).data,
+                'auto_plan_pull': auto_plan_pull,
+                'live_mode': live_mode,
+                'catalog_environment': live_mode,
+            },
+            'message': f'Biller created in {live_mode.upper()} catalog',
+            'errors': [],
+        },
+        status=201,
+    )
+
+
+@api_view(['GET'])
+@permission_classes([IsAuthenticated, IsAdmin])
+def biller_master_category_counts_view(request):
+    """
+    GET /api/bbps/admin/biller-master/category-counts/?environment=uat|prod
+    Aggregate biller counts per category for the BBPS Console directory sidebar.
+    """
+    if not getattr(settings, 'BBPS_PROVIDER_GOVERNANCE_ENABLED', True):
+        return Response({'success': False, 'data': None, 'message': 'Provider governance is disabled', 'errors': []}, status=503)
+    live_mode = active_bbps_environment()
+    env_param = str(request.query_params.get('environment') or request.query_params.get('mode') or '').strip().lower()
+    catalog_env = normalize_billavenue_mode(env_param) if env_param in ('uat', 'prod') else live_mode
+
+    qs = biller_master_qs_for_env(catalog_env).filter(soft_deleted_at__isnull=True)
+    raw = (
+        qs.values('biller_category')
+        .annotate(
+            total=Count('id'),
+            visible=Count('id', filter=Q(is_active_local=True)),
+        )
+        .order_by('-total')
+    )
+    categories = []
+    totals = {'total': 0, 'visible': 0, 'hidden': 0}
+    for row in raw:
+        name = str(row.get('biller_category') or '').strip() or 'Uncategorized'
+        total = int(row.get('total') or 0)
+        visible = int(row.get('visible') or 0)
+        categories.append(
+            {
+                'category': name,
+                'total': total,
+                'visible': visible,
+                'hidden': total - visible,
+            }
+        )
+    for c in categories:
+        totals['total'] += c['total']
+        totals['visible'] += c['visible']
+        totals['hidden'] += c['hidden']
+    return Response(
+        {
+            'success': True,
+            'data': {
+                'live_mode': live_mode,
+                'catalog_environment': catalog_env,
+                'categories': categories,
+                'totals': totals,
+                'catalog_counts': catalog_counts_by_environment(),
+            },
+            'message': 'Biller category counts retrieved',
+            'errors': [],
+        },
+        status=200,
+    )
+
+
+def _admin_delete_biller_rows(qs):
+    """Mark biller master rows deleted for admin directory (same semantics as clear-all)."""
+    now = timezone.now()
+    count = qs.count()
+    qs.update(
+        is_deleted=True,
+        deleted_at=now,
+        soft_deleted_at=now,
+        is_active_local=False,
+        updated_by_admin_at=now,
+        updated_at=now,
+    )
+    return count
 
 
 @api_view(['PATCH', 'DELETE'])
@@ -1618,12 +2131,17 @@ def biller_master_admin_detail_view(request, pk: int):
     if not row:
         return Response({'success': False, 'data': None, 'message': 'Biller not found', 'errors': []}, status=404)
     if request.method == 'DELETE':
-        row.soft_deleted_at = timezone.now()
-        row.is_active_local = False
-        row.updated_by_admin_at = timezone.now()
-        row.save(update_fields=['soft_deleted_at', 'is_active_local', 'updated_by_admin_at', 'updated_at'])
+        _admin_delete_biller_rows(BbpsBillerMaster.objects.filter(pk=row.pk))
         _invalidate_bbps_user_catalog_cache()
-        return Response({'success': True, 'data': {'id': row.pk}, 'message': 'Biller deleted', 'errors': []}, status=200)
+        return Response(
+            {
+                'success': True,
+                'data': {'id': row.pk, 'biller_id': row.biller_id, 'environment': row.environment},
+                'message': 'Biller deleted',
+                'errors': [],
+            },
+            status=200,
+        )
     ser = BbpsBillerMasterAdminSerializer(row, data=request.data, partial=True)
     if not ser.is_valid():
         return Response({'success': False, 'data': None, 'message': 'Invalid biller update', 'errors': ser.errors}, status=400)
@@ -1772,7 +2290,7 @@ def _maybe_auto_pull_plans_for_billers(biller_ids: list[str]) -> dict:
     cap = max(1, cap)
     masters = {
         m.biller_id: m
-        for m in BbpsBillerMaster.objects.filter(is_deleted=False, biller_id__in=cleaned)
+        for m in biller_master_qs_for_env().filter(biller_id__in=cleaned)
     }
     eligible = [bid for bid in cleaned if masters.get(bid) and _suggest_plan_pull_from_master(masters[bid])][:cap]
     if not eligible:
@@ -1791,7 +2309,7 @@ def _maybe_auto_pull_plans_for_billers(biller_ids: list[str]) -> dict:
 @permission_classes([IsAuthenticated, IsAdmin])
 def biller_catalog_summary_view(request, biller_id: str):
     bid = str(biller_id or '').strip()
-    master = BbpsBillerMaster.objects.filter(biller_id=bid, is_deleted=False).first()
+    master = get_biller_master(bid)
     if not master:
         return Response({'success': False, 'data': None, 'message': 'Biller not found', 'errors': []}, status=404)
     params_count = BbpsBillerInputParam.objects.filter(is_deleted=False, biller=master).count()
@@ -1867,22 +2385,79 @@ def biller_catalog_summary_view(request, biller_id: str):
 @api_view(['POST'])
 @permission_classes([IsAuthenticated, IsAdmin])
 def biller_master_admin_clear_all_view(request):
-    now = timezone.now()
-    count = BbpsBillerMaster.objects.filter(is_deleted=False).count()
-    BbpsBillerMaster.objects.filter(is_deleted=False).update(
-        is_deleted=True,
-        deleted_at=now,
-        soft_deleted_at=now,
-        is_active_local=False,
-        updated_by_admin_at=now,
-        updated_at=now,
-    )
+    live_mode = active_bbps_environment()
+    env_param = str(
+        (request.data or {}).get('environment')
+        or request.query_params.get('environment')
+        or live_mode
+    ).strip().lower()
+    env = normalize_billavenue_mode(env_param) if env_param in ('uat', 'prod') else live_mode
+    qs = biller_master_qs_for_env(env)
+    count = _admin_delete_biller_rows(qs)
     _invalidate_bbps_user_catalog_cache()
     return Response(
         {
             'success': True,
-            'data': {'cleared_count': count},
-            'message': 'All billers removed from active database view',
+            'data': {
+                'cleared_count': count,
+                'environment': env,
+                'live_mode': live_mode,
+                'catalog_counts': catalog_counts_by_environment(),
+            },
+            'message': f'All {env.upper()} billers removed from that catalog (other environment preserved)',
+            'errors': [],
+        },
+        status=200,
+    )
+
+
+@api_view(['POST'])
+@permission_classes([IsAuthenticated, IsAdmin])
+def biller_master_admin_bulk_delete_view(request):
+    """Delete selected billers from one catalog environment (UAT or PROD)."""
+    live_mode = active_bbps_environment()
+    data = request.data or {}
+    env_param = str(data.get('environment') or data.get('mode') or live_mode).strip().lower()
+    env = normalize_billavenue_mode(env_param) if env_param in ('uat', 'prod') else live_mode
+
+    raw_ids = data.get('biller_ids')
+    if raw_ids is None:
+        raw_ids = data.get('ids') or []
+    if isinstance(raw_ids, str):
+        raw_ids = [x.strip() for x in re.split(r'[\s,\n]+', raw_ids) if x.strip()]
+    if not isinstance(raw_ids, (list, tuple)):
+        return Response(
+            {'success': False, 'data': None, 'message': 'biller_ids must be a list', 'errors': ['biller_ids']},
+            status=400,
+        )
+    biller_ids = [str(x or '').strip() for x in raw_ids if str(x or '').strip()]
+    biller_ids = list(dict.fromkeys(biller_ids))
+    if not biller_ids:
+        return Response(
+            {'success': False, 'data': None, 'message': 'Select at least one biller to delete', 'errors': ['biller_ids']},
+            status=400,
+        )
+    if len(biller_ids) > 2000:
+        return Response(
+            {'success': False, 'data': None, 'message': 'Maximum 2000 billers per delete', 'errors': []},
+            status=400,
+        )
+
+    qs = biller_master_qs_for_env(env).filter(soft_deleted_at__isnull=True, biller_id__in=biller_ids)
+    deleted_ids = list(qs.values_list('biller_id', flat=True))
+    count = _admin_delete_biller_rows(qs)
+    _invalidate_bbps_user_catalog_cache()
+    return Response(
+        {
+            'success': True,
+            'data': {
+                'deleted_count': count,
+                'biller_ids': deleted_ids,
+                'environment': env,
+                'live_mode': live_mode,
+                'catalog_counts': catalog_counts_by_environment(),
+            },
+            'message': f'Deleted {count} {env.upper()} biller(s)',
             'errors': [],
         },
         status=200,
@@ -2275,20 +2850,8 @@ def mdm_catalog_publish_view(request):
     )
 
 
-def _sync_quota_snapshot():
-    cfg = BillAvenueConfig.objects.filter(is_deleted=False, enabled=True, is_active=True).first()
-    max_calls = int(getattr(cfg, 'mdm_max_calls_per_day', 15) or 15)
-    today = timezone.localdate()
-    row = BbpsSyncUsageLog.objects.filter(is_deleted=False, usage_date=today).first()
-    used = int(getattr(row, 'call_count', 0) or 0)
-    return {
-        'usage_date': today,
-        'max_calls_per_day': max_calls,
-        'used_calls_today': used,
-        'remaining_calls_today': max(0, max_calls - used),
-        'last_sync_at': row.updated_at if row else None,
-        'last_sync_result': str(getattr(row, 'last_status', '') or ''),
-    }
+def _sync_quota_snapshot(environment: str | None = None):
+    return sync_quota_snapshot(environment)
 
 
 @api_view(['POST'])
@@ -2310,51 +2873,57 @@ def sync_billers_view(request):
             status=400,
         )
     biller_ids = ser.validated_data.get('biller_ids') or []
-    quota = _sync_quota_snapshot()
-    if quota['remaining_calls_today'] <= 0:
+    live_mode = active_bbps_environment()
+    requested_env = str((request.data or {}).get('environment') or '').strip().lower()
+    sync_env = normalize_billavenue_mode(requested_env) if requested_env in ('uat', 'prod') else live_mode
+    try:
+        out = run_mdm_sync_batch(
+            biller_ids,
+            environment=sync_env,
+            user=request.user,
+            invalidate_cache=_invalidate_bbps_user_catalog_cache,
+        )
+        return Response(
+            {'success': True, 'data': out, 'message': f'{sync_env.upper()} biller sync completed', 'errors': []},
+            status=200,
+        )
+    except MdmSyncQuotaExhausted as e:
         return Response(
             {
                 'success': False,
-                'data': quota,
-                'message': 'Daily BBPS sync quota exhausted',
+                'data': e.quota or sync_quota_snapshot(sync_env),
+                'message': str(e),
                 'errors': [],
             },
             status=status.HTTP_429_TOO_MANY_REQUESTS,
         )
-    request_id = f"SYNC{timezone.now().strftime('%Y%m%d%H%M%S')}{uuid.uuid4().hex[:8].upper()}"
-    usage_date = quota['usage_date']
-    try:
-        with transaction.atomic():
-            usage, _ = BbpsSyncUsageLog.objects.select_for_update().get_or_create(
-                usage_date=usage_date,
-                is_deleted=False,
-                defaults={
-                    'call_count': 0,
-                    'requested_ids_count': 0,
-                    'requested_by': request.user if request.user and request.user.is_authenticated else None,
-                    'request_id': request_id,
-                },
+    except MdmSyncBatchError as e:
+        live = active_bbps_environment()
+        code = e.code
+        data = dict(e.data or {})
+        if code in ('001', '205', 'PARSE', '202'):
+            hint = (
+                f'BillAvenue returned a malformed/partial MDM payload (missing responseCode). '
+                f'Existing {live.upper()} synced catalog remains usable; retry with a smaller ID list '
+                f'(e.g. 25 at a time) or verify upstream gateway response format.'
+                if code == 'PARSE'
+                else (
+                    f'BillAvenue rejected the MDM request size/format (code {code}). '
+                    f'Try syncing fewer biller IDs per call (25–40). Existing {live.upper()} catalog remains usable.'
+                    if code == '202'
+                    else (
+                        f'BillAvenue blocked live MDM call for this {live.upper()} config/agent at this moment. '
+                        f'Existing {live.upper()} synced catalog remains usable; complete prerequisites and retry sync later.'
+                    )
+                )
             )
-            if usage.call_count >= quota['max_calls_per_day']:
-                q = _sync_quota_snapshot()
-                return Response({'success': False, 'data': q, 'message': 'Daily BBPS sync quota exhausted', 'errors': []}, status=429)
-            usage.call_count = F('call_count') + 1
-            usage.requested_ids_count = F('requested_ids_count') + len(biller_ids)
-            usage.requested_by = request.user if request.user and request.user.is_authenticated else None
-            usage.request_id = request_id
-            usage.last_status = 'started'
-            usage.last_error = ''
-            usage.meta = {'requested_ids': len(biller_ids)}
-            usage.save(update_fields=['call_count', 'requested_ids_count', 'requested_by', 'request_id', 'last_status', 'last_error', 'meta', 'updated_at'])
-
-        out = sync_biller_info(biller_ids, request_id=request_id)
-        BbpsSyncUsageLog.objects.filter(is_deleted=False, usage_date=usage_date).update(last_status='success', meta={'requested_ids': len(biller_ids), 'synced': out.get('updated_count', 0)})
-        _invalidate_bbps_user_catalog_cache()
-        quota_out = _sync_quota_snapshot()
-        out['quota'] = quota_out
-        return Response({'success': True, 'data': out, 'message': 'Biller sync completed', 'errors': []}, status=200)
+            data['hint'] = hint
+            return Response(
+                {'success': False, 'data': data, 'message': str(e), 'errors': []},
+                status=200,
+            )
+        return Response({'success': False, 'data': data or None, 'message': str(e), 'errors': []}, status=400)
     except BillAvenueEntitlementError as e:
-        BbpsSyncUsageLog.objects.filter(is_deleted=False, usage_date=usage_date).update(last_status='failed', last_error=str(e))
         logger.warning('sync-billers BillAvenue entitlement (205): %s', e)
         return Response(
             {
@@ -2372,54 +2941,221 @@ def sync_billers_view(request):
             status=status.HTTP_422_UNPROCESSABLE_ENTITY,
         )
     except BillAvenueClientError as e:
-        BbpsSyncUsageLog.objects.filter(is_deleted=False, usage_date=usage_date).update(last_status='failed', last_error=str(e))
-        msg = str(e or '')
-        code = ''
-        if 'code=001' in msg:
-            code = '001'
-        elif 'code=205' in msg:
-            code = '205'
-        elif 'missing responsecode' in msg.lower() or 'missing responseCode' in msg:
-            code = 'PARSE'
-        if code:
-            cached_count = BbpsBillerMaster.objects.filter(is_deleted=False).count()
-            logger.info('sync-billers BillAvenue upstream code=%s (non-fatal when cache exists): %s', code, msg)
-            hint = (
-                'BillAvenue returned a malformed/partial MDM payload (missing responseCode). '
-                'Existing synced catalog remains usable; retry sync later or verify upstream gateway response format.'
-                if code == 'PARSE'
-                else (
-                    'BillAvenue blocked live MDM call for this config/agent at this moment. '
-                    'Existing synced catalog remains usable; complete prerequisites and retry sync later.'
-                )
-            )
-            return Response(
-                {
-                    'success': False,
-                    'data': {
-                        'billavenue_code': code,
-                        'mdm_cached_count': cached_count,
-                        'quota': _sync_quota_snapshot(),
-                        'hint': hint,
-                    },
-                    'message': msg,
-                    'errors': [],
-                },
-                status=200,
-            )
-        return Response({'success': False, 'data': None, 'message': msg, 'errors': []}, status=400)
+        return Response({'success': False, 'data': None, 'message': str(e), 'errors': []}, status=400)
+
+
+def _serialize_import_job(job: BbpsMdmImportJob) -> dict:
+    data = BbpsMdmImportJobSerializer(job).data
+    data['quota'] = sync_quota_snapshot(job.environment)
+    return data
+
+
+@api_view(['POST'])
+@permission_classes([IsAuthenticated, IsAdmin])
+def mdm_import_upload_view(request):
+    """Upload BillAvenue MDM Excel and queue/sync biller IDs for one catalog env."""
+    upload = request.FILES.get('file') or request.FILES.get('excel')
+    if not upload:
+        return Response(
+            {'success': False, 'data': None, 'message': 'Excel file is required (field: file)', 'errors': ['file']},
+            status=400,
+        )
+    env_param = str(request.data.get('environment') or request.data.get('mode') or '').strip().lower()
+    if env_param not in ('uat', 'prod'):
+        return Response(
+            {'success': False, 'data': None, 'message': 'environment must be uat or prod', 'errors': ['environment']},
+            status=400,
+        )
+    auto_drain = str(request.data.get('auto_drain', 'true')).strip().lower() not in ('0', 'false', 'no')
+    try:
+        from apps.bbps.catalog.mdm_import.processor import create_job_from_upload
+
+        result = create_job_from_upload(
+            file_obj=upload,
+            filename=getattr(upload, 'name', '') or 'upload.xlsx',
+            environment=env_param,
+            user=request.user,
+            auto_drain=auto_drain,
+            invalidate_cache=_invalidate_bbps_user_catalog_cache,
+        )
+    except ValueError as exc:
+        return Response({'success': False, 'data': None, 'message': str(exc), 'errors': []}, status=400)
+    except Exception as exc:
+        logger.exception('mdm-import upload failed')
+        return Response({'success': False, 'data': None, 'message': f'Import failed: {exc}', 'errors': []}, status=400)
+
+    job = result['job']
+    return Response(
+        {
+            'success': True,
+            'data': {
+                'job': _serialize_import_job(job),
+                'seed': result.get('seed') or {},
+                'drain': result.get('drain') or {},
+                'quota': result.get('quota') or sync_quota_snapshot(env_param),
+            },
+            'message': (
+                f'Imported {job.total_ids} biller ID(s) into {env_param.upper()} queue'
+                + (f'; {job.synced_ids} synced today, {job.pending_ids} pending' if job.pending_ids else '')
+            ),
+            'errors': [],
+        },
+        status=201,
+    )
+
+
+@api_view(['GET'])
+@permission_classes([IsAuthenticated, IsAdmin])
+def mdm_import_jobs_list_view(request):
+    env_param = str(request.query_params.get('environment') or request.query_params.get('mode') or '').strip().lower()
+    qs = BbpsMdmImportJob.objects.filter(is_deleted=False).order_by('-created_at')
+    if env_param in ('uat', 'prod'):
+        qs = qs.filter(environment=env_param)
+    rows = list(qs[:30])
+    return Response(
+        {
+            'success': True,
+            'data': {
+                'jobs': [_serialize_import_job(j) for j in rows],
+                'quota': sync_quota_snapshot(env_param if env_param in ('uat', 'prod') else None),
+            },
+            'message': 'MDM import jobs retrieved',
+            'errors': [],
+        },
+        status=200,
+    )
+
+
+@api_view(['GET', 'DELETE'])
+@permission_classes([IsAuthenticated, IsAdmin])
+def mdm_import_job_detail_view(request, pk: int):
+    job = BbpsMdmImportJob.objects.filter(pk=pk, is_deleted=False).first()
+    if not job:
+        return Response({'success': False, 'data': None, 'message': 'Import job not found', 'errors': []}, status=404)
+
+    if request.method == 'DELETE':
+        from apps.bbps.catalog.mdm_import.processor import destroy_job
+
+        reason = str((request.data or {}).get('reason') or request.query_params.get('reason') or '').strip()
+        try:
+            out = destroy_job(job.pk, reason=reason or 'Destroyed by admin from Provider Governance')
+        except ValueError as exc:
+            return Response({'success': False, 'data': None, 'message': str(exc), 'errors': []}, status=400)
+        return Response(
+            {
+                'success': True,
+                'data': out,
+                'message': f'Import job #{pk} destroyed. Pending IDs will not be processed.',
+                'errors': [],
+            },
+            status=200,
+        )
+
+    items = BbpsMdmImportItem.objects.filter(job=job, is_deleted=False).order_by('id')[:200]
+    failed = BbpsMdmImportItem.objects.filter(job=job, is_deleted=False, status='failed').order_by('-updated_at')[:50]
+    return Response(
+        {
+            'success': True,
+            'data': {
+                'job': _serialize_import_job(job),
+                'sample_items': BbpsMdmImportItemSerializer(items, many=True).data,
+                'failed_items': BbpsMdmImportItemSerializer(failed, many=True).data,
+            },
+            'message': 'MDM import job retrieved',
+            'errors': [],
+        },
+        status=200,
+    )
+
+
+@api_view(['POST'])
+@permission_classes([IsAuthenticated, IsAdmin])
+def mdm_import_job_destroy_view(request, pk: int):
+    """POST alias for destroy (same as DELETE) for simpler frontend clients."""
+    from apps.bbps.catalog.mdm_import.processor import destroy_job
+
+    job = BbpsMdmImportJob.objects.filter(pk=pk, is_deleted=False).first()
+    if not job:
+        return Response({'success': False, 'data': None, 'message': 'Import job not found', 'errors': []}, status=404)
+    reason = str((request.data or {}).get('reason') or '').strip()
+    try:
+        out = destroy_job(job.pk, reason=reason or 'Destroyed by admin from Provider Governance')
+    except ValueError as exc:
+        return Response({'success': False, 'data': None, 'message': str(exc), 'errors': []}, status=400)
+    return Response(
+        {
+            'success': True,
+            'data': out,
+            'message': f'Import job #{pk} destroyed. Pending IDs will not be processed.',
+            'errors': [],
+        },
+        status=200,
+    )
+
+
+@api_view(['POST'])
+@permission_classes([IsAuthenticated, IsAdmin])
+def mdm_import_job_process_view(request, pk: int):
+    from apps.bbps.catalog.mdm_import.processor import drain_job
+
+    job = BbpsMdmImportJob.objects.filter(pk=pk, is_deleted=False).first()
+    if not job:
+        return Response({'success': False, 'data': None, 'message': 'Import job not found', 'errors': []}, status=404)
+    try:
+        drain = drain_job(job.pk, user=request.user, invalidate_cache=_invalidate_bbps_user_catalog_cache)
+    except ValueError as exc:
+        return Response({'success': False, 'data': None, 'message': str(exc), 'errors': []}, status=400)
+    job.refresh_from_db()
+    return Response(
+        {
+            'success': True,
+            'data': {'job': _serialize_import_job(job), 'drain': drain},
+            'message': f'Processed job #{job.pk}',
+            'errors': [],
+        },
+        status=200,
+    )
+
+
+@api_view(['POST'])
+@permission_classes([IsAuthenticated, IsAdmin])
+def mdm_import_process_pending_view(request):
+    from apps.bbps.catalog.mdm_import.processor import process_pending_jobs
+
+    env_param = str((request.data or {}).get('environment') or request.query_params.get('environment') or '').strip().lower()
+    env = env_param if env_param in ('uat', 'prod') else None
+    out = process_pending_jobs(
+        environment=env,
+        max_jobs=int((request.data or {}).get('max_jobs') or 5),
+        user=request.user,
+        invalidate_cache=_invalidate_bbps_user_catalog_cache,
+    )
+    return Response(
+        {
+            'success': True,
+            'data': {**out, 'quota': sync_quota_snapshot(env)},
+            'message': f'Processed {out.get("processed", 0)} pending import job(s)',
+            'errors': [],
+        },
+        status=200,
+    )
 
 
 @api_view(['GET'])
 @permission_classes([IsAuthenticated, IsAdmin])
 def sync_usage_today_view(request):
-    return Response({'success': True, 'data': _sync_quota_snapshot(), 'message': 'Sync usage retrieved', 'errors': []}, status=200)
+    env_param = str(request.query_params.get('environment') or request.query_params.get('mode') or '').strip().lower()
+    env = env_param if env_param in ('uat', 'prod') else None
+    return Response(
+        {'success': True, 'data': _sync_quota_snapshot(env), 'message': 'Sync usage retrieved', 'errors': []},
+        status=200,
+    )
 
 
 @api_view(['GET'])
 @permission_classes([IsAuthenticated, IsAdmin])
 def sync_usage_history_view(request):
-    rows = BbpsSyncUsageLog.objects.filter(is_deleted=False).order_by('-usage_date')[:30]
+    rows = BbpsSyncUsageLog.objects.filter(is_deleted=False).order_by('-usage_date', '-environment')[:60]
     return Response(
         {
             'success': True,
@@ -2812,7 +3548,7 @@ def plan_pull_view(request):
     requested_ids = [str(x or '').strip() for x in (ser.validated_data.get('biller_ids') or []) if str(x or '').strip()]
     masters = {
         m.biller_id: m
-        for m in BbpsBillerMaster.objects.filter(is_deleted=False, biller_id__in=requested_ids)
+        for m in biller_master_qs_for_env().filter(biller_id__in=requested_ids)
     } if requested_ids else {}
     eligible_ids = []
     skipped_ids = []
@@ -2874,17 +3610,224 @@ def plan_pull_view(request):
         return Response({'success': False, 'data': None, 'message': _friendly_plan_pull_error_message(msg), 'errors': []}, status=400)
 
 
+@api_view(['GET'])
+@permission_classes([IsAuthenticated, IsAdmin])
+def provider_float_view(request):
+    """GET /api/bbps/admin/provider-float/ — status + paginated ledger."""
+    from datetime import datetime
+
+    from apps.bbps.service_flow.provider_float import get_float_status, list_ledger
+
+    env_param = str(request.query_params.get('environment') or request.query_params.get('mode') or '').strip().lower()
+    env = normalize_billavenue_mode(env_param) if env_param in ('uat', 'prod') else active_bbps_environment()
+
+    def _parse_date(raw):
+        if not raw:
+            return None
+        raw = str(raw).strip()
+        for fmt in ('%Y-%m-%d', '%d-%m-%Y'):
+            try:
+                return datetime.strptime(raw, fmt).date()
+            except ValueError:
+                continue
+        return None
+
+    try:
+        page = int(request.query_params.get('page') or 1)
+    except (TypeError, ValueError):
+        page = 1
+    try:
+        page_size = int(request.query_params.get('page_size') or 50)
+    except (TypeError, ValueError):
+        page_size = 50
+
+    status_data = get_float_status(env)
+    ledger = list_ledger(
+        environment=env,
+        entry_type=str(request.query_params.get('entry_type') or ''),
+        date_from=_parse_date(request.query_params.get('date_from')),
+        date_to=_parse_date(request.query_params.get('date_to')),
+        page=page,
+        page_size=page_size,
+    )
+    return Response(
+        {
+            'success': True,
+            'data': {'float': status_data, 'ledger': ledger},
+            'message': 'Provider float retrieved',
+            'errors': [],
+        },
+        status=200,
+    )
+
+
+@api_view(['POST'])
+@permission_classes([IsAuthenticated, IsAdmin])
+def provider_float_set_view(request):
+    """POST /api/bbps/admin/provider-float/set/ — override tracked balance."""
+    from apps.bbps.service_flow.provider_float import set_float_balance
+
+    data = request.data or {}
+    env_param = str(data.get('environment') or data.get('mode') or '').strip().lower()
+    env = normalize_billavenue_mode(env_param) if env_param in ('uat', 'prod') else active_bbps_environment()
+    try:
+        out = set_float_balance(
+            admin_user=request.user,
+            new_balance=data.get('new_balance'),
+            remarks=str(data.get('remarks') or ''),
+            environment=env,
+        )
+    except ValueError as exc:
+        return Response(
+            {'success': False, 'data': None, 'message': str(exc), 'errors': [str(exc)]},
+            status=400,
+        )
+    return Response(
+        {
+            'success': True,
+            'data': {'float': out},
+            'message': f"Provider float updated to ₹{out.get('balance')}",
+            'errors': [],
+        },
+        status=200,
+    )
+
+
+@api_view(['PATCH'])
+@permission_classes([IsAuthenticated, IsAdmin])
+def provider_float_settings_view(request):
+    """PATCH /api/bbps/admin/provider-float/settings/ — threshold + enforcement."""
+    from apps.bbps.service_flow.provider_float import update_float_settings
+
+    data = request.data or {}
+    env_param = str(data.get('environment') or data.get('mode') or '').strip().lower()
+    env = normalize_billavenue_mode(env_param) if env_param in ('uat', 'prod') else active_bbps_environment()
+    kwargs = {'admin_user': request.user, 'environment': env}
+    if 'low_balance_threshold' in data:
+        kwargs['low_balance_threshold'] = data.get('low_balance_threshold')
+    if 'enforcement_enabled' in data:
+        kwargs['enforcement_enabled'] = data.get('enforcement_enabled')
+    try:
+        out = update_float_settings(**kwargs)
+    except ValueError as exc:
+        return Response(
+            {'success': False, 'data': None, 'message': str(exc), 'errors': [str(exc)]},
+            status=400,
+        )
+    return Response(
+        {
+            'success': True,
+            'data': {'float': out},
+            'message': 'Provider float settings updated',
+            'errors': [],
+        },
+        status=200,
+    )
+
+
 @api_view(['POST'])
 @permission_classes([IsAuthenticated, IsAdmin])
 def deposit_enquiry_view(request):
+    """Run BillAvenue deposit enquiry and persist a snapshot for reporting."""
+    from apps.bbps.service_flow.deposit_service import enquire_deposits as run_deposit_enquiry
+
     ser = DepositEnquirySerializer(data=request.data)
     if not ser.is_valid():
-        return Response({'success': False, 'data': None, 'message': 'Invalid deposit enquiry request', 'errors': ser.errors}, status=400)
+        return Response(
+            {'success': False, 'data': None, 'message': 'Invalid deposit enquiry request', 'errors': ser.errors},
+            status=400,
+        )
     try:
-        out = enquire_deposits(**ser.validated_data)
-        return Response({'success': True, 'data': out, 'message': 'Deposit enquiry completed', 'errors': []}, status=200)
+        out = run_deposit_enquiry(**ser.validated_data, admin_user=request.user)
+        return Response(
+            {
+                'success': True,
+                'data': out,
+                'message': (
+                    f"Deposit enquiry completed — balance {out.get('currency', 'INR')} "
+                    f"{out.get('current_balance')} · {len(out.get('transactions') or [])} txn(s)"
+                ),
+                'errors': [],
+            },
+            status=200,
+        )
+    except ValueError as e:
+        return Response({'success': False, 'data': None, 'message': str(e), 'errors': [str(e)]}, status=400)
     except BillAvenueClientError as e:
-        return Response({'success': False, 'data': None, 'message': str(e), 'errors': []}, status=400)
+        # Failed runs are still stored; surface latest matching snapshot if present.
+        from apps.bbps.models import BbpsDepositEnquirySnapshot
+        from apps.bbps.service_flow.deposit_service import serialize_snapshot
+
+        shot = (
+            BbpsDepositEnquirySnapshot.objects.filter(
+                is_deleted=False, status='FAILED', performed_by=request.user
+            )
+            .order_by('-created_at')
+            .first()
+        )
+        data = {'snapshot': serialize_snapshot(shot, include_payload=True)} if shot else None
+        return Response(
+            {'success': False, 'data': data, 'message': str(e), 'errors': [str(e)]},
+            status=400,
+        )
+
+
+@api_view(['GET'])
+@permission_classes([IsAuthenticated, IsAdmin])
+def deposit_enquiry_history_view(request):
+    """Paginated deposit enquiry history + agent options for the ops form."""
+    from datetime import datetime
+
+    from apps.bbps.service_flow.deposit_service import list_deposit_enquiries
+
+    def _parse_date(raw):
+        if not raw:
+            return ''
+        raw = str(raw).strip()
+        for fmt in ('%Y-%m-%d', '%d-%m-%Y'):
+            try:
+                return datetime.strptime(raw, fmt).date().isoformat()
+            except ValueError:
+                continue
+        return ''
+
+    try:
+        page = int(request.query_params.get('page') or 1)
+    except (TypeError, ValueError):
+        page = 1
+    try:
+        page_size = int(request.query_params.get('page_size') or 25)
+    except (TypeError, ValueError):
+        page_size = 25
+
+    env_param = str(request.query_params.get('environment') or '').strip().lower()
+    data = list_deposit_enquiries(
+        environment=env_param if env_param in ('uat', 'prod') else None,
+        page=page,
+        page_size=page_size,
+        date_from=_parse_date(request.query_params.get('date_from')),
+        date_to=_parse_date(request.query_params.get('date_to')),
+        status=str(request.query_params.get('status') or ''),
+    )
+    return Response(
+        {'success': True, 'data': data, 'message': 'Deposit enquiry history retrieved', 'errors': []},
+        status=200,
+    )
+
+
+@api_view(['GET'])
+@permission_classes([IsAuthenticated, IsAdmin])
+def deposit_enquiry_detail_view(request, snapshot_id: int):
+    from apps.bbps.service_flow.deposit_service import get_deposit_enquiry
+
+    try:
+        data = get_deposit_enquiry(snapshot_id)
+    except LookupError as e:
+        return Response({'success': False, 'data': None, 'message': str(e), 'errors': []}, status=404)
+    return Response(
+        {'success': True, 'data': {'snapshot': data}, 'message': 'Deposit enquiry detail retrieved', 'errors': []},
+        status=200,
+    )
 
 
 @api_view(['GET'])
@@ -2987,6 +3930,7 @@ def billavenue_callback_view(request):
     ).order_by('-created_at').first()
     if attempt:
         code = str(raw.get('responseCode') or '')
+        prior_status = str(attempt.status or '').upper()
         if code == '000':
             attempt.status = 'SUCCESS'
             if attempt.bill_payment:
@@ -3006,6 +3950,20 @@ def billavenue_callback_view(request):
                 attempt.bill_payment.save(update_fields=['status', 'failure_reason'])
         attempt.settled_at = timezone.now()
         attempt.save(update_fields=['status', 'settled_at', 'updated_at'])
+
+        try:
+            from apps.bbps.service_flow.provider_float import credit_float_for_refund, debit_float_for_payment
+            from apps.bbps.service_flow.status_service import _float_amount_for_attempt
+
+            sid = attempt.service_id or (attempt.bill_payment.service_id if attempt.bill_payment_id else '')
+            amt = _float_amount_for_attempt(attempt)
+            if code == '000' and prior_status != 'SUCCESS':
+                debit_float_for_payment(sid, amt, payment_attempt=attempt, remarks=f'Webhook SUCCESS {sid}')
+            elif code == '300' and prior_status not in ('REFUNDED', 'REVERSED'):
+                credit_float_for_refund(sid, amt, payment_attempt=attempt, remarks=f'Webhook REFUNDED {sid}')
+        except Exception:
+            logger.exception('provider float webhook hook failed attempt=%s', attempt.pk)
+
         from apps.bbps.notifications import notify_payment_attempt_status
 
         notify_payment_attempt_status(attempt, source='webhook_callback')

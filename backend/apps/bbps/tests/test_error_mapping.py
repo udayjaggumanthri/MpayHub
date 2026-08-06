@@ -1,5 +1,6 @@
 from django.test import SimpleTestCase
 
+from apps.bbps.error_catalog import resolve_bbps_error
 from apps.bbps.views import (
     _friendly_complaint_error_message,
     _friendly_fetch_error_message,
@@ -21,11 +22,12 @@ class BbpsErrorMappingTests(SimpleTestCase):
         )
         self.assertEqual(msg, 'Provider response timed out. Please retry in a few seconds.')
 
-    def test_fetch_bfr004_keeps_no_due_mapping(self):
+    def test_fetch_agent_id_invalid_is_friendly(self):
         msg = _friendly_fetch_error_message(
-            '{"billFetchResponse":{"errorInfo":{"error":{"errorCode":"BFR004","errorMessage":"Payment received for the billing period - no bill due"}}}}'
+            'BillAvenue API failed (bill_validate) code=200 (VE003 — Agent ID invalid)'
         )
-        self.assertEqual(msg, 'No bill is currently due for this account.')
+        self.assertIn('Agent ID', msg)
+        self.assertIn('BillAvenue Settings', msg)
 
     def test_plan_pull_timeout_message_is_friendly(self):
         msg = _friendly_plan_pull_error_message('requests.exceptions.Timeout: timed out')
@@ -84,3 +86,39 @@ class BbpsErrorMappingTests(SimpleTestCase):
         msg = _friendly_complaint_error_message('BillAvenue API failed (complaint_register) code=205 (FAILURE)')
         self.assertIn('205', msg)
         self.assertIn('BillAvenue', msg)
+
+    def test_e135_raw_json_never_leaks(self):
+        raw = '{"errorCode":"E135","errorMessage":"Mandatory Input Parameter Not Present or mismatch"}'
+        info = resolve_bbps_error(raw, endpoint='bill_fetch')
+        self.assertEqual(info.provider_code, 'E135')
+        self.assertEqual(info.category, 'input_validation')
+        self.assertNotIn('{"errorCode"', info.user_message)
+        self.assertIn('highlighted fields', info.user_message.lower())
+
+    def test_um001_and_bfr006_and_ve_codes(self):
+        um = resolve_bbps_error('{"errorCode":"UM001","errorMessage":"Invalid Request"}', endpoint='bill_fetch')
+        self.assertEqual(um.provider_code, 'UM001')
+        self.assertNotIn('{"errorCode"', um.user_message)
+
+        bfr = resolve_bbps_error(
+            'BillAvenue API failed (bill_fetch) code=200 ({"errorCode":"BFR006","errorMessage":"Unable to get bill details"})',
+            endpoint='bill_fetch',
+        )
+        self.assertEqual(bfr.provider_code, 'BFR006')
+        self.assertEqual(bfr.category, 'account')
+
+        ve9 = resolve_bbps_error('VE009', endpoint='bill_fetch')
+        self.assertEqual(ve9.provider_code, 'VE009')
+        self.assertEqual(ve9.category, 'input_validation')
+        ve10 = resolve_bbps_error('code=200 (VE010 — param too long)', endpoint='bill_fetch')
+        self.assertEqual(ve10.provider_code, 'VE010')
+
+    def test_ve013_mandatory_param_not_mapped_as_duplicate(self):
+        raw = (
+            'BillAvenue API failed (bill_validate) code=200 '
+            '(VE013 — Mandatory Input Parameter Not Present or mismatch)'
+        )
+        info = resolve_bbps_error(raw, endpoint='bill_fetch')
+        self.assertEqual(info.category, 'input_validation')
+        self.assertNotIn('Duplicate request', info.user_message)
+        self.assertIn('highlighted fields', info.user_message.lower())

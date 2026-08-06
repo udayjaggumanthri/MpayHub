@@ -607,11 +607,22 @@ class BBPSClient(BaseIntegration):
         if payer_email and not str(ci_merged.get('customerEmail') or '').strip():
             ci_merged['customerEmail'] = payer_email
         corr = _billavenue_correlation_ref(bill_data=bill_data, request_id=str(request_id or ''), service_id=str(service_id or ''))
+        plan_id = str(bill_data.get('plan_id') or '').strip()
+        wire_inputs = list(input_params) if isinstance(input_params, list) else []
+        if plan_id:
+            try:
+                from apps.bbps.service_flow.validation_service import inject_plan_id_into_wire_list
+
+                wire_inputs = inject_plan_id_into_wire_list(
+                    biller_id=biller_id, wire=wire_inputs, plan_id=plan_id
+                )
+            except Exception:
+                pass
         payload = {
             'agentId': str(bill_data.get('agent_id') or self._default_agent_id()),
             'billerId': biller_id,
             'customerInfo': ci_merged,
-            'inputParams': {'input': input_params},
+            'inputParams': {'input': wire_inputs},
             'agentDeviceInfo': bill_data.get('agent_device_info') or {'initChannel': str(bill_data.get('init_channel') or '').strip() or 'AGT'},
             'billerAdhoc': bool(bill_data.get('biller_adhoc', False)),
             # Match BillAvenue XML sample object shape to avoid UM001 Invalid XML request.
@@ -626,6 +637,8 @@ class BBPSClient(BaseIntegration):
                 'splitPay': 'N',
             },
         }
+        if plan_id:
+            payload['planId'] = plan_id
         if corr:
             payload['requestId'] = corr
             payload['paymentRefId'] = corr
@@ -714,10 +727,14 @@ class BBPSClient(BaseIntegration):
                 req['billerId'] = biller_id
             else:
                 req.pop('billerId', None)
+        # Postman plan pull uses {billerId:[...]} only. Keep agentId optional for stacks that need it.
         agent_id = str(req.get('agentId') or self._default_agent_id()).strip()
         if agent_id:
             req['agentId'] = agent_id
         return client.plan_pull(req).normalized
 
     def enquire_deposits(self, payload: dict):
-        return self._require_live_client().deposit_enquiry(payload).normalized
+        client = self._require_live_client()
+        # Outer HTTP requestId must match encrypted payload requestId (BillAvenue E009).
+        rid = str((payload or {}).get('requestId') or (payload or {}).get('request_id') or '').strip()
+        return client.deposit_enquiry(payload or {}, request_id=rid or None).normalized

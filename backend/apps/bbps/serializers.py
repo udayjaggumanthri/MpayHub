@@ -11,6 +11,8 @@ from apps.bbps.models import (
     BillPayment,
     BbpsBillerMaster,
     BbpsCategoryCommissionRule,
+    BbpsMdmImportItem,
+    BbpsMdmImportJob,
     BbpsProviderBillerMap,
     BbpsServiceCategory,
     BbpsServiceProvider,
@@ -188,6 +190,7 @@ class FetchBillSerializer(serializers.Serializer):
         required=False,
         default=list,
     )
+    plan_id = serializers.CharField(max_length=60, required=False, allow_blank=True)
 
 
 class BillPaymentCreateSerializer(serializers.Serializer):
@@ -314,6 +317,30 @@ class BillAvenueSecretUpdateSerializer(serializers.Serializer):
     working_key = serializers.CharField(required=False, allow_blank=True)
     iv = serializers.CharField(required=False, allow_blank=True)
     callback_secret = serializers.CharField(required=False, allow_blank=True)
+
+    def validate_working_key(self, value):
+        v = str(value or '').strip()
+        if not v:
+            return v
+        if len(v) < 16:
+            raise serializers.ValidationError(
+                'Working key is too short. Paste the full key from your BillAvenue credential pack (usually 32 characters).'
+            )
+        return v
+
+    def validate_iv(self, value):
+        v = str(value or '').strip()
+        if not v:
+            return v
+        if v.upper() == 'IV':
+            raise serializers.ValidationError(
+                'Enter the IV value from BillAvenue (e.g. 16-character or 32-hex string), not the word "IV".'
+            )
+        if len(v) < 8:
+            raise serializers.ValidationError(
+                'IV is too short. BillAvenue IV is usually 16 characters or a 32-character hex string from your PI39/UAT pack.'
+            )
+        return v
 
 
 class BillAvenueAgentProfileSerializer(serializers.ModelSerializer):
@@ -495,9 +522,36 @@ class DepositEnquirySerializer(serializers.Serializer):
     from_date = serializers.CharField(max_length=25)
     to_date = serializers.CharField(max_length=25)
     trans_type = serializers.CharField(max_length=10, required=False, allow_blank=True, default='')
-    agents = serializers.ListField(child=serializers.CharField(max_length=30), required=False, default=list)
+    agents = serializers.ListField(child=serializers.CharField(max_length=40), required=False, default=list)
     request_id = serializers.CharField(max_length=50, required=False, allow_blank=True, default='')
     transaction_id = serializers.CharField(max_length=50, required=False, allow_blank=True, default='')
+
+    def validate_trans_type(self, value):
+        v = str(value or '').strip().upper()
+        if v and v not in ('CR', 'DR'):
+            raise serializers.ValidationError('Must be CR, DR, or blank.')
+        return v
+
+    def validate(self, attrs):
+        from datetime import datetime
+
+        for key in ('from_date', 'to_date'):
+            raw = str(attrs.get(key) or '').strip()
+            parsed = None
+            for fmt in ('%Y-%m-%d', '%d-%m-%Y', '%d/%m/%Y'):
+                try:
+                    parsed = datetime.strptime(raw, fmt).date()
+                    break
+                except ValueError:
+                    continue
+            if not parsed:
+                raise serializers.ValidationError({key: 'Use YYYY-MM-DD.'})
+            attrs[key] = parsed.isoformat()
+        if attrs['from_date'] > attrs['to_date']:
+            raise serializers.ValidationError({'to_date': 'to_date must be on or after from_date.'})
+        agents = attrs.get('agents') or []
+        attrs['agents'] = [str(a).strip() for a in agents if str(a).strip()]
+        return attrs
 
 
 class BbpsServiceCategorySerializer(serializers.ModelSerializer):
@@ -511,7 +565,7 @@ class BbpsBillerMasterLiteSerializer(serializers.ModelSerializer):
     class Meta:
         model = BbpsBillerMaster
         fields = [
-            'id', 'biller_id', 'biller_name', 'biller_category', 'biller_status',
+            'id', 'environment', 'biller_id', 'biller_name', 'biller_category', 'biller_status',
             'last_synced_at', 'is_active_local', 'source_type', 'last_sync_status',
             'last_sync_error', 'soft_deleted_at', 'version',
         ]
@@ -541,6 +595,47 @@ class BbpsSyncUsageLogSerializer(serializers.ModelSerializer):
     class Meta:
         model = BbpsSyncUsageLog
         fields = '__all__'
+
+
+class BbpsMdmImportJobSerializer(serializers.ModelSerializer):
+    uploaded_by_name = serializers.CharField(source='uploaded_by.username', read_only=True, default='')
+
+    class Meta:
+        model = BbpsMdmImportJob
+        fields = [
+            'id',
+            'environment',
+            'original_filename',
+            'status',
+            'total_ids',
+            'synced_ids',
+            'failed_ids',
+            'pending_ids',
+            'uploaded_by',
+            'uploaded_by_name',
+            'error_summary',
+            'started_at',
+            'completed_at',
+            'created_at',
+            'updated_at',
+        ]
+        read_only_fields = fields
+
+
+class BbpsMdmImportItemSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = BbpsMdmImportItem
+        fields = [
+            'id',
+            'biller_id',
+            'biller_name',
+            'biller_category',
+            'biller_coverage',
+            'status',
+            'last_error',
+            'last_synced_at',
+        ]
+        read_only_fields = fields
 
 
 class BbpsServiceProviderSerializer(serializers.ModelSerializer):

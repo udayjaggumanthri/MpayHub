@@ -14,6 +14,7 @@ from apps.wallets.serializers import (
     MainToBbpsTransferSerializer,
 )
 from apps.wallets.services import transfer_main_to_bbps
+from apps.wallets.presentation import present_wallet_summary_for_viewer
 from apps.core.financial_access import assert_can_pay_out
 from apps.core.maintenance_mode import MODULE_BBPS, assert_module_available
 from apps.core.exceptions import InsufficientBalance
@@ -135,8 +136,12 @@ def get_wallets_view(request):
     """
     Get all wallets for the authenticated user.
     GET /api/wallets/
+
+    Admin viewers see main/bbps as live network totals (non-Admin users);
+    commission/profit remain personal. Money movement paths are unchanged.
     """
-    wallet_data = build_wallet_summary(request.user)
+    personal = build_wallet_summary(request.user)
+    wallet_data = present_wallet_summary_for_viewer(request.user, personal)
     return Response({
         'success': True,
         'data': {'wallets': wallet_data},

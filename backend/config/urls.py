@@ -37,6 +37,7 @@ urlpatterns = [
     path('api/reports/', include('apps.transactions.urls_reports')),
     path('api/admin/', include('apps.admin_panel.urls')),
     path('api/admin/session-security/', include('apps.session_security.urls')),
+    path('api/admin/wallet-adjustments/', include('apps.wallet_adjustments.urls')),
     path('api/system/', include('apps.core.urls')),
 ]
 

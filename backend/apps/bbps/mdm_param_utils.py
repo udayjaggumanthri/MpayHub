@@ -73,6 +73,54 @@ def mdm_input_param_wire_name(param_row: dict) -> str:
     ).strip()
 
 
+_CSV_SPLIT_RE = re.compile(r'[,|;]')
+# Pure LOV-style regex: ^(Token)$|^(Token 2)$|...
+_REGEX_ALT_TOKEN_RE = re.compile(r'\^\(([^)]+)\)\$')
+
+
+def _choices_from_delimited_string(raw: str) -> list[dict]:
+    """Split BillAvenue comma/pipe/semicolon value lists into schema choices."""
+    out: list[dict] = []
+    seen: set[str] = set()
+    for tok in _CSV_SPLIT_RE.split(str(raw or '')):
+        val = tok.strip()
+        if not val or val in seen:
+            continue
+        seen.add(val)
+        out.append({'value': val, 'label': val})
+    return out
+
+
+def _choices_from_regex_alternation(regex: str) -> list[dict]:
+    """
+    When MDM only ships LOV inside regEx as ^(A)$|^(B)$|..., extract tokens as choices.
+    Skip patterns that look like character classes or free-form validation (e.g. ^[6-9]).
+    """
+    rx = str(regex or '').strip()
+    if not rx or '[' in rx or '{' in rx or '*' in rx or '+' in rx or '?' in rx:
+        return []
+    tokens = _REGEX_ALT_TOKEN_RE.findall(rx)
+    if len(tokens) < 2:
+        return []
+    # Require the whole pattern to be only these alternations (optional outer grouping).
+    rebuilt = '|'.join(f'^({t})$' for t in tokens)
+    compact = re.sub(r'\s+', '', rx)
+    rebuilt_c = re.sub(r'\s+', '', rebuilt)
+    if compact != rebuilt_c and compact != f'({rebuilt_c})':
+        # Allow missing outer grouping; still accept if every ^(...) $ appears in order
+        if not all(f'^({t})$' in rx or f'^({t})$' in compact for t in tokens):
+            return []
+    out: list[dict] = []
+    seen: set[str] = set()
+    for t in tokens:
+        val = str(t).strip()
+        if not val or val in seen:
+            continue
+        seen.add(val)
+        out.append({'value': val, 'label': val})
+    return out
+
+
 def extract_param_lov_and_extras(param_row: dict) -> tuple[list, dict]:
     """
     Build default_values (UI choices) and mdm_extras (help text, raw fragments)
@@ -103,9 +151,19 @@ def extract_param_lov_and_extras(param_row: dict) -> tuple[list, dict]:
         'LOVList',
         'enumValues',
         'EnumValues',
+        'values',
+        'Values',
+        'paramValues',
+        'ParamValues',
     ):
         block = _get_ci(param_row, key)
         if block is None:
+            continue
+        if isinstance(block, str):
+            choices = _choices_from_delimited_string(block)
+            if choices:
+                extras['lov_source_key'] = key
+                break
             continue
         if isinstance(block, dict):
             block = [block]
@@ -126,14 +184,21 @@ def extract_param_lov_and_extras(param_row: dict) -> tuple[list, dict]:
                     if val:
                         choices.append({'value': val, 'label': label or val})
                 elif item not in (None, ''):
-                    choices.append({'value': str(item), 'label': str(item)})
+                    # String entries may themselves be CSV blobs
+                    s = str(item).strip()
+                    if ',' in s or '|' in s or ';' in s:
+                        choices.extend(_choices_from_delimited_string(s))
+                    else:
+                        choices.append({'value': s, 'label': s})
         if choices:
             extras['lov_source_key'] = key
             break
 
     if not choices:
         dv = _get_ci(param_row, 'defaultValues') or _get_ci(param_row, 'DefaultValues')
-        if isinstance(dv, list):
+        if isinstance(dv, str):
+            choices = _choices_from_delimited_string(dv)
+        elif isinstance(dv, list):
             for item in dv:
                 if isinstance(item, dict):
                     val = _field_str(item, 'value') or _field_str(item, 'paramValue')
@@ -146,6 +211,17 @@ def extract_param_lov_and_extras(param_row: dict) -> tuple[list, dict]:
                         )
                 elif item not in (None, ''):
                     choices.append({'value': str(item), 'label': str(item)})
+
+    if not choices:
+        rx = (
+            _field_str(param_row, 'regEx')
+            or _field_str(param_row, 'regex')
+            or _field_str(param_row, 'RegEx')
+        )
+        alt = _choices_from_regex_alternation(rx)
+        if alt:
+            choices = alt
+            extras['lov_source_key'] = 'regEx'
 
     help_text = (
         _field_str(param_row, 'paramHelpText')

@@ -29,7 +29,9 @@ def upsert_governance_rows(mdm_row: dict, biller_master: BbpsBillerMaster) -> di
     return {'category_created': False, 'provider_created': False, 'map_created': False}
 
 
-def persist_biller_from_mdm_row(raw: dict, *, request_id: str = '') -> tuple[BbpsBillerMaster, dict[str, int]]:
+def persist_biller_from_mdm_row(
+    raw: dict, *, request_id: str = '', environment: str = 'uat'
+) -> tuple[BbpsBillerMaster, dict[str, int]]:
     """
     Upsert ``BbpsBillerMaster`` and replace dependent rows for a single MDM biller dict.
 
@@ -39,12 +41,15 @@ def persist_biller_from_mdm_row(raw: dict, *, request_id: str = '') -> tuple[Bbp
     # while this module is still initializing — that caused circular import errors.
     from apps.bbps.service_flow.payment_ui_policy import maybe_add_implicit_cash_payment_mode
     from apps.bbps.service_flow.provider_policy import bootstrap_default_biller_policy_if_missing
+    from apps.integrations.billavenue.registry import normalize_billavenue_mode
 
     biller_id = mdm_field_str(raw, 'billerId').strip()
     if not biller_id:
         raise ValueError('MDM row missing billerId')
 
+    env = normalize_billavenue_mode(environment)
     m, _ = BbpsBillerMaster.objects.update_or_create(
+        environment=env,
         biller_id=biller_id,
         defaults={
             'biller_name': mdm_field_str(raw, 'billerName'),
@@ -186,6 +191,21 @@ def persist_biller_from_mdm_row(raw: dict, *, request_id: str = '') -> tuple[Bbp
     return m, governance_created
 
 
-def mark_unseen_billers_stale(requested_ids: list[str], seen_ids: set[str]) -> None:
-    if requested_ids:
-        BbpsBillerMaster.objects.exclude(biller_id__in=seen_ids).update(is_stale=True)
+def mark_unseen_billers_stale(
+    requested_ids: list[str],
+    seen_ids: set[str],
+    *,
+    environment: str = 'uat',
+) -> None:
+    """Mark stale only within the sync environment; when partial, only requested IDs."""
+    from apps.integrations.billavenue.registry import normalize_billavenue_mode
+
+    if not requested_ids:
+        return
+    env = normalize_billavenue_mode(environment)
+    qs = BbpsBillerMaster.objects.filter(
+        is_deleted=False,
+        environment=env,
+        biller_id__in=requested_ids,
+    ).exclude(biller_id__in=seen_ids)
+    qs.update(is_stale=True)

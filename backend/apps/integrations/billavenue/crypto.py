@@ -5,6 +5,13 @@ from cryptography.hazmat.primitives import padding
 from cryptography.hazmat.primitives.ciphers import Cipher, algorithms, modes
 from cryptography.hazmat.backends import default_backend
 
+# BillAvenue / CCAvenue PHP sample IV: pack("C*", 0x00..0x0f) — not a user-supplied secret label.
+BILLAVENUE_STANDARD_IV_HEX = '000102030405060708090a0b0c0d0e0f'
+
+
+def billavenue_standard_iv_text() -> str:
+    return BILLAVENUE_STANDARD_IV_HEX
+
 
 def _decode_maybe_hex(secret: str) -> bytes:
     text = str(secret or '').strip()
@@ -29,7 +36,10 @@ def _normalize_key_bytes(working_key: str) -> bytes:
 
 
 def _normalize_iv_bytes(iv: str) -> bytes:
-    raw = _decode_maybe_hex(iv)
+    text = str(iv or '').strip()
+    if not text or text.upper() == 'IV' or len(text) < 8:
+        text = BILLAVENUE_STANDARD_IV_HEX
+    raw = _decode_maybe_hex(text)
     if len(raw) >= 16:
         return raw[:16]
     return raw.ljust(16, b'0')
@@ -39,7 +49,7 @@ def derive_aes128_key(working_key: str, *, mode: str = 'rawhex') -> bytes:
     Derive 16-byte AES key material from BillAvenue working key.
 
     - rawhex: decode hex (or UTF-8) and take first 16 bytes (legacy behavior in this codebase)
-    - md5: AES key = MD5 digest bytes of the working_key string (matches common PHP samples)
+    - md5: AES key = MD5 digest bytes of the working_key string (matches PHP hextobin(md5($key)))
     """
     m = str(mode or 'rawhex').strip().lower()
     if m in ('raw', 'rawhex', 'hex'):

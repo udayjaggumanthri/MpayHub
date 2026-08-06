@@ -88,3 +88,36 @@ class MdmParamUtilsTests(SimpleTestCase):
             choices, extras = extract_param_lov_and_extras(block)
             self.assertIsInstance(choices, list)
             self.assertIsInstance(extras, dict)
+
+    def test_extract_lov_from_comma_separated_values(self):
+        row = {
+            'paramName': 'Circle',
+            'values': 'Andhra Pradesh,Assam,Bihar,Chennai',
+            'dataType': 'ALPHANUMERIC',
+        }
+        choices, extras = extract_param_lov_and_extras(row)
+        self.assertEqual(len(choices), 4)
+        self.assertEqual(choices[0]['value'], 'Andhra Pradesh')
+        self.assertEqual(choices[3]['label'], 'Chennai')
+        self.assertEqual(extras.get('lov_source_key'), 'values')
+        self.assertEqual(infer_input_kind(data_type='ALPHANUMERIC', choices=choices), 'select')
+
+    def test_extract_lov_from_regex_alternation_fallback(self):
+        row = {
+            'paramName': 'Circle',
+            'regEx': '^(Andhra Pradesh)$|^(Assam)$|^(Bihar)$',
+            'dataType': 'ALPHANUMERIC',
+        }
+        choices, extras = extract_param_lov_and_extras(row)
+        self.assertEqual([c['value'] for c in choices], ['Andhra Pradesh', 'Assam', 'Bihar'])
+        self.assertEqual(extras.get('lov_source_key'), 'regEx')
+
+    def test_regex_character_class_not_treated_as_lov(self):
+        row = {
+            'paramName': 'Id',
+            'regEx': '^[A-Z0-9]{2,4}[A-Za-z]{5,8}[0-9]{1,4}$',
+            'dataType': 'ALPHANUMERIC',
+        }
+        choices, _ = extract_param_lov_and_extras(row)
+        self.assertEqual(choices, [])
+        self.assertEqual(infer_input_kind(data_type='ALPHANUMERIC', choices=choices), 'text')

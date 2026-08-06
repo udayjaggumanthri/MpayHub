@@ -4,6 +4,7 @@ from django.utils import timezone
 
 from apps.bbps.models import BbpsPaymentAttempt, BbpsStatusPollLog
 from apps.bbps.service_flow.compliance import enforce_awaited_poll_cooling
+from apps.bbps.service_flow.provider_float import credit_float_for_refund, debit_float_for_payment
 from apps.integrations.bbps_client import BBPSClient
 
 
@@ -13,6 +14,8 @@ STATUS_MAP = {
     'FAILED': 'FAILED',
     'REFUND': 'REFUNDED',
     'REFUNDED': 'REFUNDED',
+    'REVERSE': 'REVERSED',
+    'REVERSED': 'REVERSED',
 }
 
 
@@ -29,8 +32,18 @@ def _extract_txn_status(payload: dict) -> str:
     return ''
 
 
+def _float_amount_for_attempt(attempt: BbpsPaymentAttempt):
+    """Bill principal for float tracking (paise → rupees, or BillPayment.amount)."""
+    from decimal import Decimal
+
+    if attempt.bill_payment_id and attempt.bill_payment is not None:
+        return attempt.bill_payment.amount
+    return (Decimal(str(attempt.amount_paise or 0)) / Decimal('100')).quantize(Decimal('0.0001'))
+
+
 def poll_attempt_status(attempt: BbpsPaymentAttempt) -> BbpsPaymentAttempt:
     enforce_awaited_poll_cooling(attempt=attempt, minimum_minutes=15)
+    prior_status = str(attempt.status or '').upper()
     client = BBPSClient()
     track_type = 'REQUEST_ID' if attempt.request_id else 'TRANS_REF_ID'
     track_value = attempt.request_id or attempt.txn_ref_id
@@ -61,6 +74,15 @@ def poll_attempt_status(attempt: BbpsPaymentAttempt) -> BbpsPaymentAttempt:
                 if mapped in ('REFUNDED', 'REVERSED'):
                     attempt.bill_payment.failure_reason = f'Status changed to {mapped}'
                 attempt.bill_payment.save(update_fields=['status', 'failure_reason'])
+
+        # Provider float: debit on SUCCESS, credit on refund/reversal (idempotent).
+        sid = attempt.service_id or (attempt.bill_payment.service_id if attempt.bill_payment_id else '')
+        amt = _float_amount_for_attempt(attempt)
+        if mapped == 'SUCCESS' and prior_status != 'SUCCESS':
+            debit_float_for_payment(sid, amt, payment_attempt=attempt, remarks=f'Status poll SUCCESS {sid}')
+        elif mapped in ('REFUNDED', 'REVERSED') and prior_status not in ('REFUNDED', 'REVERSED'):
+            credit_float_for_refund(sid, amt, payment_attempt=attempt, remarks=f'Status poll {mapped} {sid}')
+
         from apps.bbps.notifications import notify_payment_attempt_status
 
         notify_payment_attempt_status(attempt, source='status_poll')

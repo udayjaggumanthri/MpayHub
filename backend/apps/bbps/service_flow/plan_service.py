@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from django.utils import timezone
 
+from apps.bbps.catalog.env import get_biller_master
 from apps.bbps.models import BbpsBillerMaster, BbpsBillerPlanMeta, BbpsPlanPullRun
 from apps.integrations.bbps_client import BBPSClient
 from apps.integrations.billavenue.parsers import _get_ci
@@ -76,7 +77,7 @@ def pull_biller_plans(*, biller_ids: list[str]) -> dict:
         if not bid:
             continue
         status = str(_get_ci(d, 'status') or '').upper()
-        master = BbpsBillerMaster.objects.filter(biller_id=bid, is_deleted=False).first()
+        master = get_biller_master(bid)
         if not master:
             continue
         plan_id = _normalize_plan_id(d, fallback_biller_id=bid, ordinal=idx)

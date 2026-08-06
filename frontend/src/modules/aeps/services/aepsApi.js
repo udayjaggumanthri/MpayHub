@@ -49,11 +49,14 @@ const wrap = async (promise) => {
 export const aepsAPI = {
   meStatus: () => wrap(client.get('/aeps/me/status/')),
   requestAccess: (reason = '') => wrap(client.post('/aeps/access-requests/', { reason })),
+  getOnboardingForm: () => wrap(client.get('/aeps/onboarding/draft/')),
   saveOnboardingDraft: (payload) => wrap(client.post('/aeps/onboarding/draft/', { payload })),
   submitOnboarding: (body) => wrap(client.post('/aeps/onboarding/submit/', body)),
   registerDevice: (device_imei) => wrap(client.post('/aeps/device/register/', { device_imei })),
   ekycStart: (body) => wrap(client.post('/aeps/ekyc/start/', body)),
   ekycOtp: (otp) => wrap(client.post('/aeps/ekyc/otp/', { otp })),
+  ekycResend: () => wrap(client.post('/aeps/ekyc/resend/', {})),
+  ekycStatus: (kycType = 'EKYC') => wrap(client.post('/aeps/ekyc/status/', { kycType })),
   ekycBiometric: (body) => wrap(client.post('/aeps/ekyc/biometric/', body)),
   complete2fa: (body) => wrap(client.post('/aeps/2fa/complete/', body)),
   listBanks: (type = 'aeps') => wrap(client.get('/aeps/banks/', { params: { type } })),
@@ -64,11 +67,18 @@ export const aepsAPI = {
   miniStatement: (body) => wrap(client.post('/aeps/transactions/ms/', body)),
   aadhaarPay: (body) => wrap(client.post('/aeps/transactions/ap/', body)),
   cashDeposit: (body) => wrap(client.post('/aeps/transactions/cd/', body)),
-  statusCheck: (merchantTranId) =>
-    wrap(client.post(`/aeps/transactions/${encodeURIComponent(merchantTranId)}/status-check/`)),
+  cashDepositOtpGenerate: (body) => wrap(client.post('/aeps/transactions/cd/otp/generate/', body)),
+  cashDepositOtpValidate: (body) => wrap(client.post('/aeps/transactions/cd/otp/validate/', body)),
+  cashDepositOtpSubmit: (body) => wrap(client.post('/aeps/transactions/cd/otp/submit/', body)),
+  statusCheck: (merchantTranId, body = {}) =>
+    wrap(client.post(`/aeps/transactions/${encodeURIComponent(merchantTranId)}/status-check/`, body)),
+  acknowledge: (merchantTranId, body = {}) =>
+    wrap(client.post(`/aeps/transactions/${encodeURIComponent(merchantTranId)}/acknowledge/`, body)),
   reportsSummary: (params) => wrap(client.get('/aeps/reports/summary/', { params })),
-  adminProviderGet: () => wrap(client.get('/aeps/admin/provider-config/')),
+  adminProviderGet: (environment) =>
+    wrap(client.get('/aeps/admin/provider-config/', { params: environment ? { environment } : undefined })),
   adminProviderSave: (body) => wrap(client.patch('/aeps/admin/provider-config/', body)),
+  adminProviderTest: () => wrap(client.post('/aeps/admin/provider-config/test/')),
   adminEnable: (user_id) => wrap(client.post('/aeps/admin/entitlements/enable/', { user_id })),
   adminDisable: (user_id, reason = '') =>
     wrap(client.post('/aeps/admin/entitlements/disable/', { user_id, reason })),

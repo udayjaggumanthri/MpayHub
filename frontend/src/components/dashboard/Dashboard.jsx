@@ -42,7 +42,7 @@ function periodDatesForInterval(interval) {
 
 const Dashboard = () => {
   const { user } = useAuth();
-  const { wallets, loading, loadWallets } = useWallet();
+  const { wallets, walletMeta, loading, loadWallets } = useWallet();
   const navigate = useNavigate();
 
   useEffect(() => {
@@ -264,6 +264,11 @@ const Dashboard = () => {
               <WalletCard
                 type="main"
                 amount={wallets.main}
+                subtitle={
+                  walletMeta?.main?.source === 'network_total'
+                    ? "All users' main wallets"
+                    : undefined
+                }
                 onClick={() => navigate('/reports/passbook')}
               />
               {showCommissionWallet && (
@@ -276,6 +281,11 @@ const Dashboard = () => {
               <WalletCard
                 type="bbps"
                 amount={wallets.bbps}
+                subtitle={
+                  walletMeta?.bbps?.source === 'network_total'
+                    ? "All users' BBPS wallets"
+                    : undefined
+                }
                 onClick={() => navigate('/reports/bbps')}
               />
               {showProfitWallet && (

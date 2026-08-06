@@ -119,6 +119,8 @@ def me_status_payload(user) -> dict:
         next_action = 'request_access' if not pending_req else 'await_approval'
     elif not merchant or merchant.stage in ('not_started', 'onboarding_draft'):
         next_action = 'onboarding'
+    elif merchant.stage in ('onboarding_submitted', 'ekyc_pending') and not merchant.device_ready:
+        next_action = 'device'
     elif merchant.stage in ('onboarding_submitted', 'ekyc_pending'):
         next_action = 'ekyc'
     elif merchant.stage == 'active' and not merchant.device_ready:
@@ -144,6 +146,7 @@ def me_status_payload(user) -> dict:
             'masked_aadhaar': merchant.masked_aadhaar,
             'last_2fa_at': merchant.last_2fa_at.isoformat() if merchant.last_2fa_at else None,
             'twofa_ok_today': twofa_ok,
+            'onboarding_payload': merchant.onboarding_payload or {},
         },
         'stage': stage,
         'next_action': next_action,

@@ -62,6 +62,7 @@ INSTALLED_APPS = [
     'apps.integrations',
     'apps.notifications',
     'apps.session_security',
+    'apps.wallet_adjustments',
 ]
 
 MIDDLEWARE = [
@@ -238,6 +239,9 @@ OTP_LENGTH = 6
 
 # Wallet Settings
 WALLET_TYPES = ['main', 'commission', 'bbps']
+# Max single admin adjustment amount (INR). Override via env WALLET_ADJUSTMENT_MAX_AMOUNT.
+WALLET_ADJUSTMENT_MAX_AMOUNT = config('WALLET_ADJUSTMENT_MAX_AMOUNT', default=100000, cast=float)
+WALLET_ADJUSTMENT_ALLOWED_TYPES = ['main', 'bbps']
 
 # Pay-in: optional Django user id (pk) who receives 100% of platform gateway + admin shares (commission wallet).
 # If unset/invalid: split those amounts evenly across every active Admin; if no Admin users, first superuser gets 100%.

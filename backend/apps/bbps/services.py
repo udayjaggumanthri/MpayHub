@@ -4,6 +4,12 @@ from django.db.models import Q
 from decimal import Decimal
 from django.conf import settings
 from django.core.cache import cache
+from apps.bbps.catalog.env import (
+    active_bbps_environment,
+    biller_master_qs_for_env,
+    catalog_cache_env_key,
+    get_biller_master,
+)
 from apps.bbps.catalog.mdm_parse import extract_param_rows
 from apps.bbps.constants import ALLOWED_BILLER_STATUSES
 from apps.bbps.mdm_param_utils import (
@@ -27,6 +33,7 @@ from apps.bbps.models import (
     BbpsServiceCategory,
 )
 from apps.integrations.billavenue.parsers import _get_ci
+from apps.integrations.billavenue.registry import get_active_billavenue_config
 from apps.integrations.bbps_client import BBPSClient
 import random
 import string
@@ -67,6 +74,31 @@ def partner_route_category_slug(normalized_biller_category: str) -> str:
     return n
 
 
+# Disjoint mobile buckets: ambiguous BillAvenue labels ("Mobile", "Mobile Recharge")
+# route to postpaid, matching partner_route_category_slug().
+_MOBILE_POSTPAID_LOOKUPS = frozenset(
+    {
+        'mobile-postpaid',
+        'mobile postpaid',
+        'mobilepostpaid',
+        'mobile-recharge',
+        'mobile recharge',
+        'mobilerecharge',
+        'mobile',
+    }
+)
+_MOBILE_PREPAID_LOOKUPS = frozenset(
+    {
+        'mobile-prepaid',
+        'mobile prepaid',
+        'mobileprepaid',
+        'prepaid-mobile',
+        'prepaid mobile',
+        'prepaidmobile',
+    }
+)
+
+
 def _category_lookup_values(category: str) -> set[str]:
     """
     Accept both normalized and legacy stored category codes.
@@ -79,31 +111,10 @@ def _category_lookup_values(category: str) -> set[str]:
     if ' ' in norm:
         vals.add(norm.replace(' ', '-'))
     vals.add(norm.replace('-', '').replace(' ', ''))
-    # BillAvenue / NPCI store many mobile variants; partner UI routes use mobile-postpaid / mobile-prepaid.
-    _mobile_route = frozenset(
-        {
-            'mobile-postpaid',
-            'mobilepostpaid',
-            'mobile-recharge',
-            'mobilerecharge',
-            'mobile-prepaid',
-            'mobileprepaid',
-            'mobile',
-        }
-    )
-    if norm in _mobile_route:
-        vals.update(
-            {
-                'mobile',
-                'mobile-recharge',
-                'mobile-postpaid',
-                'mobile postpaid',
-                'mobilepostpaid',
-                'mobile-prepaid',
-                'mobile prepaid',
-                'mobileprepaid',
-            }
-        )
+    if norm in _MOBILE_PREPAID_LOOKUPS:
+        vals |= set(_MOBILE_PREPAID_LOOKUPS)
+    elif norm in _MOBILE_POSTPAID_LOOKUPS:
+        vals |= set(_MOBILE_POSTPAID_LOOKUPS)
     return {v for v in vals if v}
 
 
@@ -147,10 +158,7 @@ def governance_block_reasons_for_map(map_row) -> list[str]:
 
 
 def governance_readiness_for_biller(biller_id: str) -> dict:
-    row = BbpsBillerMaster.objects.filter(
-        is_deleted=False,
-        biller_id=biller_id,
-    ).first()
+    row = get_biller_master(biller_id)
     if not row:
         return {'allowed': False, 'blocked_by': ['biller_missing']}
     blocked = []
@@ -207,9 +215,8 @@ def process_bill_payment(*args, **kwargs):
 
 
 def get_bill_categories():
-    """Get categories strictly from currently visible billers."""
-    visible_qs = BbpsBillerMaster.objects.filter(
-        is_deleted=False,
+    """Get categories strictly from currently visible billers (active BillAvenue env)."""
+    visible_qs = biller_master_qs_for_env().filter(
         biller_status__in=ALLOWED_BILLER_STATUSES,
         is_active_local=True,
         soft_deleted_at__isnull=True,
@@ -254,8 +261,7 @@ def get_billers_by_category(category):
     for val in lookup_values:
         category_filter |= Q(biller_category__iexact=val)
     masters = (
-        BbpsBillerMaster.objects.filter(
-            is_deleted=False,
+        biller_master_qs_for_env().filter(
             biller_status__in=ALLOWED_BILLER_STATUSES,
             is_active_local=True,
             soft_deleted_at__isnull=True,
@@ -319,8 +325,7 @@ def get_biller_payment_ui_options(biller_id: str) -> dict:
     )
     from apps.bbps.service_flow.provider_policy import provider_policy_decision_for_combo
 
-    master = BbpsBillerMaster.objects.filter(
-        is_deleted=False,
+    master = biller_master_qs_for_env().filter(
         biller_id=biller_id,
         is_active_local=True,
         soft_deleted_at__isnull=True,
@@ -437,14 +442,27 @@ def get_biller_payment_ui_options(biller_id: str) -> dict:
 
 
 def get_biller_input_schema(biller_id: str) -> list[dict]:
-    master = BbpsBillerMaster.objects.filter(
-        is_deleted=False,
+    master = biller_master_qs_for_env().filter(
         biller_id=biller_id,
         is_active_local=True,
         soft_deleted_at__isnull=True,
     ).first()
     if not master:
         return []
+    plan_req = str(getattr(master, 'plan_mdm_requirement', '') or '').strip().upper()
+    plan_driven = plan_req in ('MANDATORY', 'OPTIONAL', 'SUPPORTED', 'Y', 'YES', 'TRUE', '1')
+    plan_slot_name = ''
+    if plan_driven:
+        # Prefer MDM param named Id (BSNL prepaid); else first required+hidden param.
+        for p0 in BbpsBillerInputParam.objects.filter(is_deleted=False, biller=master).order_by('display_order', 'id'):
+            if str(p0.param_name or '').strip().lower() == 'id':
+                plan_slot_name = str(p0.param_name).strip()
+                break
+        if not plan_slot_name:
+            for p0 in BbpsBillerInputParam.objects.filter(is_deleted=False, biller=master).order_by('display_order', 'id'):
+                if not bool(getattr(p0, 'visibility', True)) and not bool(getattr(p0, 'is_optional', True)):
+                    plan_slot_name = str(p0.param_name or '').strip()
+                    break
     raw_payload = master.raw_payload if isinstance(getattr(master, 'raw_payload', None), dict) else {}
     raw_block = _get_ci(raw_payload, 'billerInputParams') or []
     raw_rows = extract_param_rows(raw_block)
@@ -457,17 +475,28 @@ def get_biller_input_schema(biller_id: str) -> list[dict]:
     params = BbpsBillerInputParam.objects.filter(is_deleted=False, biller=master).order_by('display_order', 'id')
     rows = []
     for idx, p in enumerate(params, start=1):
+        wire = str(p.param_name or '').strip()
+        # Plan MDM fills the hidden Id/plan slot via plan picker — do not show free-text Id.
+        if plan_driven and plan_slot_name and wire.lower() == plan_slot_name.lower():
+            continue
+        # Optional invisible MDM params stay hidden. Required invisible params must still be
+        # collected — omitting them causes BillAvenue VE013/E135 on validate/fetch.
+        if not bool(getattr(p, 'visibility', True)) and bool(getattr(p, 'is_optional', True)):
+            continue
         choices = normalize_schema_choices(p.default_values)
         extras = dict(p.mdm_extras) if isinstance(getattr(p, 'mdm_extras', None), dict) else {}
         help_text = str(extras.get('help_text') or '').strip()
-        wire = str(p.param_name or '').strip()
         raw_match = raw_by_wire_lower.get(wire.lower()) if wire else None
         if raw_match and isinstance(raw_match, dict):
-            _, ex_raw = extract_param_lov_and_extras(raw_match)
+            lov_from_raw, ex_raw = extract_param_lov_and_extras(raw_match)
+            if not choices and lov_from_raw:
+                choices = normalize_schema_choices(lov_from_raw)
             if not help_text:
                 help_text = str(ex_raw.get('help_text') or '').strip()
             if not str(extras.get('display_label') or '').strip() and ex_raw.get('display_label'):
                 extras['display_label'] = str(ex_raw.get('display_label')).strip()
+        if not bool(getattr(p, 'visibility', True)) and not help_text:
+            help_text = 'Required by this biller (not shown in consumer apps). Enter the value from the customer account.'
         input_kind = infer_input_kind(data_type=p.data_type or '', choices=choices)
         display_label = input_schema_display_label(
             wire=wire,
@@ -513,8 +542,7 @@ def get_biller_input_schema(biller_id: str) -> list[dict]:
 
 def get_biller_additional_info_schema(biller_id: str) -> dict[str, list[dict]]:
     """Group MDM additional-info / plan-additional tags by info_group for the schema API."""
-    master = BbpsBillerMaster.objects.filter(
-        is_deleted=False,
+    master = biller_master_qs_for_env().filter(
         biller_id=biller_id,
         soft_deleted_at__isnull=True,
     ).first()
@@ -538,10 +566,11 @@ def get_biller_additional_info_schema(biller_id: str) -> dict[str, list[dict]]:
     return grouped
 
 
-def get_biller_plans_lite(biller_id: str, *, limit: int = 100) -> tuple[list[dict], bool]:
+def get_biller_plans_lite(
+    biller_id: str, *, limit: int = 100, circle: str = ''
+) -> tuple[list[dict], bool]:
     """Active plan rows for pay UI (plan-mandatory billers). Returns (rows, truncated)."""
-    master = BbpsBillerMaster.objects.filter(
-        is_deleted=False,
+    master = biller_master_qs_for_env().filter(
         biller_id=biller_id,
         soft_deleted_at__isnull=True,
     ).first()
@@ -552,10 +581,40 @@ def get_biller_plans_lite(biller_id: str, *, limit: int = 100) -> tuple[list[dic
         .filter(Q(status__iexact='ACTIVE') | Q(status=''))
         .order_by('amount_in_rupees', 'plan_id')
     )
-    total = qs.count()
+    circle_q = str(circle or '').strip().lower()
+    rows_all = list(qs)
+    if circle_q:
+        filtered = []
+        for p in rows_all:
+            addl = p.plan_additional_info if isinstance(p.plan_additional_info, dict) else {}
+            # BillAvenue shapes: flat Circle, or info[] / paramInfo[]
+            circle_val = str(addl.get('Circle') or addl.get('circle') or '').strip().lower()
+            if not circle_val:
+                infos = addl.get('info') or addl.get('paramInfo') or addl.get('Info') or []
+                if isinstance(infos, dict):
+                    infos = [infos]
+                if isinstance(infos, list):
+                    for row in infos:
+                        if not isinstance(row, dict):
+                            continue
+                        name = str(
+                            row.get('infoName')
+                            or row.get('paramName')
+                            or row.get('name')
+                            or ''
+                        ).strip().lower()
+                        if name == 'circle':
+                            circle_val = str(
+                                row.get('infoValue') or row.get('paramValue') or row.get('value') or ''
+                            ).strip().lower()
+                            break
+            if not circle_val or circle_val == circle_q:
+                filtered.append(p)
+        rows_all = filtered
+    total = len(rows_all)
     truncated = total > limit
     out = []
-    for p in qs[:limit]:
+    for p in rows_all[:limit]:
         out.append(
             {
                 'plan_id': str(p.plan_id or '').strip(),
@@ -585,15 +644,14 @@ def get_providers_by_category(category):
     """List providers synthesized from visible billers for the category."""
     norm = normalize_category_code(category)
     lookup_values = _category_lookup_values(category)
-    cache_key = f'bbps:providers:{norm}'
+    cache_key = f'bbps:providers:{catalog_cache_env_key()}:{norm}'
     cached = cache.get(cache_key)
     if cached is not None:
         return cached
     category_filter = Q()
     for val in lookup_values:
         category_filter |= Q(biller_category__iexact=val)
-    masters = BbpsBillerMaster.objects.filter(
-        is_deleted=False,
+    masters = biller_master_qs_for_env().filter(
         biller_status__in=ALLOWED_BILLER_STATUSES,
         is_active_local=True,
         soft_deleted_at__isnull=True,
@@ -624,14 +682,15 @@ def get_providers_by_category(category):
 
 
 def get_setup_readiness() -> dict:
-    from apps.integrations.models import BillAvenueAgentProfile, BillAvenueConfig  # local import to avoid circulars
+    # Active config + agent profiles for readiness (env-scoped MDM count).
 
-    cfg = BillAvenueConfig.objects.filter(is_deleted=False, enabled=True, is_active=True).first()
+    cfg = get_active_billavenue_config()
     profile_count = 0
     if cfg:
+        from apps.integrations.models import BillAvenueAgentProfile
         profile_count = BillAvenueAgentProfile.objects.filter(config=cfg, is_deleted=False, enabled=True).count()
 
-    mdm_count = BbpsBillerMaster.objects.filter(is_deleted=False).count()
+    mdm_count = biller_master_qs_for_env().count()
     provider_count = BbpsProviderBillerMap.objects.filter(
         is_deleted=False,
         provider__is_deleted=False,

@@ -23,9 +23,14 @@ def sync_biller_info(
     biller_ids: Iterable[str] | None = None,
     *,
     request_id: str = '',
+    environment: str | None = None,
 ) -> dict:
-    """Fetch BillAvenue MDM and refresh biller cache tables."""
-    return CatalogOrchestrator.sync_mdm_catalog(biller_ids, request_id=request_id)
+    """Fetch BillAvenue MDM and refresh biller cache tables for one environment."""
+    return CatalogOrchestrator.sync_mdm_catalog(
+        biller_ids,
+        request_id=request_id,
+        environment=environment,
+    )
 
 
 __all__ = ['sync_biller_info', '_iter_billers', '_upsert_governance_rows']

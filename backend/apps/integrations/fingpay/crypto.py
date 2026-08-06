@@ -1,20 +1,37 @@
 """
-Fingpay request encryption helpers (AES-128 session key + RSA public key + SHA-256 hash).
+Fingpay request encryption helpers.
 
-Matches Fingpay Services API Doc encryption flow used across onboarding / eKYC / product APIs.
+Aligned with AEPS docs + PHP sample (phpsamplecode.txt):
+- AES-128-CBC with fixed IV 06f2f04cc530364f
+- Session key RSA-encrypted with Fingpay X.509 certificate / public key (eskey)
+- hash = Base64(SHA256(plain JSON bytes))
 """
 from __future__ import annotations
 
 import base64
 import hashlib
 from datetime import datetime
+from pathlib import Path
 from typing import Any
 
+from cryptography import x509
 from cryptography.hazmat.backends import default_backend
-from cryptography.hazmat.primitives import hashes, serialization
+from cryptography.hazmat.primitives import serialization
 from cryptography.hazmat.primitives.asymmetric import padding
 from cryptography.hazmat.primitives.ciphers import Cipher, algorithms, modes
 from cryptography.hazmat.primitives.padding import PKCS7
+
+# From Fingpay PHP sample code shipped in AEPS docs
+PHP_AES_IV = b'06f2f04cc530364f'
+
+BUNDLED_CERT_PATH = Path(__file__).resolve().parent / 'assets' / 'fingpay_public_production.cer'
+
+
+def load_bundled_fingpay_certificate() -> str:
+    """Return PEM text of the Fingpay public certificate shipped with the integration docs."""
+    if BUNDLED_CERT_PATH.is_file():
+        return BUNDLED_CERT_PATH.read_text(encoding='utf-8').strip() + '\n'
+    return ''
 
 
 def sha256_b64(data: bytes | str) -> str:
@@ -29,27 +46,46 @@ def md5_hex(text: str) -> str:
 
 
 def generate_aes128_session_key() -> bytes:
-    # 16 bytes = AES-128
     from os import urandom
 
     return urandom(16)
 
 
 def _load_rsa_public_key(pem_or_der: str | bytes):
+    """
+    Accepts:
+    - X.509 certificate PEM (BEGIN CERTIFICATE) — as in fingpay_public_production.cer
+    - Public key PEM (BEGIN PUBLIC KEY / BEGIN RSA PUBLIC KEY)
+    - Raw base64 SPKI DER
+    """
     raw = pem_or_der if isinstance(pem_or_der, bytes) else pem_or_der.encode('utf-8')
     text = raw.decode('utf-8', errors='ignore').strip()
-    if 'BEGIN' not in text:
-        # Assume base64-encoded DER SPKI
+
+    if 'BEGIN CERTIFICATE' in text:
+        cert = x509.load_pem_x509_certificate(text.encode('utf-8'), backend=default_backend())
+        return cert.public_key()
+
+    if 'BEGIN' in text:
         try:
-            der = base64.b64decode(text)
-            return serialization.load_der_public_key(der, backend=default_backend())
+            return serialization.load_pem_public_key(text.encode('utf-8'), backend=default_backend())
         except Exception:
+            # Some kits ship CERT without clear labels after copy/paste noise
             pass
-        # Wrap as PEM
-        lines = '\n'.join(text[i : i + 64] for i in range(0, len(text), 64))
-        text = f'-----BEGIN PUBLIC KEY-----\n{lines}\n-----END PUBLIC KEY-----'
-        raw = text.encode('utf-8')
-    return serialization.load_pem_public_key(raw, backend=default_backend())
+
+    # Assume base64-encoded DER certificate or SPKI
+    try:
+        der = base64.b64decode(''.join(text.split()))
+        try:
+            cert = x509.load_der_x509_certificate(der, backend=default_backend())
+            return cert.public_key()
+        except Exception:
+            return serialization.load_der_public_key(der, backend=default_backend())
+    except Exception as exc:
+        raise ValueError(
+            'Invalid Fingpay public key/certificate. Paste the full PEM including '
+            '-----BEGIN CERTIFICATE----- / -----END CERTIFICATE----- '
+            '(from fingpay_public_production.cer in the AEPS docs).'
+        ) from exc
 
 
 def encrypt_session_key_rsa(session_key: bytes, public_key_pem: str) -> str:
@@ -58,12 +94,28 @@ def encrypt_session_key_rsa(session_key: bytes, public_key_pem: str) -> str:
     return base64.b64encode(encrypted).decode('ascii')
 
 
-def encrypt_aes_pkcs7(session_key: bytes, plaintext: bytes | str) -> str:
+def encrypt_aes_cbc_pkcs7(session_key: bytes, plaintext: bytes | str, *, iv: bytes = PHP_AES_IV) -> str:
+    """PHP openssl_encrypt AES-128-CBC + PKCS7 (default openssl padding)."""
+    if isinstance(plaintext, str):
+        plaintext = plaintext.encode('utf-8')
+    if len(session_key) != 16:
+        raise ValueError('AES-128 session key must be 16 bytes')
+    if len(iv) != 16:
+        raise ValueError('AES IV must be 16 bytes')
+    padder = PKCS7(128).padder()
+    padded = padder.update(plaintext) + padder.finalize()
+    cipher = Cipher(algorithms.AES(session_key), modes.CBC(iv), backend=default_backend())
+    encryptor = cipher.encryptor()
+    ciphertext = encryptor.update(padded) + encryptor.finalize()
+    return base64.b64encode(ciphertext).decode('ascii').replace('\r', '').replace('\n', '')
+
+
+def encrypt_aes_ecb_pkcs7(session_key: bytes, plaintext: bytes | str) -> str:
+    """Java/.NET BC-style AES-128-ECB + PKCS7 (non-PHP endpoints if required)."""
     if isinstance(plaintext, str):
         plaintext = plaintext.encode('utf-8')
     padder = PKCS7(128).padder()
     padded = padder.update(plaintext) + padder.finalize()
-    # Fingpay samples use AES ECB with PKCS7 (legacy BC provider style)
     cipher = Cipher(algorithms.AES(session_key), modes.ECB(), backend=default_backend())
     encryptor = cipher.encryptor()
     ciphertext = encryptor.update(padded) + encryptor.finalize()
@@ -71,7 +123,6 @@ def encrypt_aes_pkcs7(session_key: bytes, plaintext: bytes | str) -> str:
 
 
 def trn_timestamp_now() -> str:
-    # Doc samples: 29/11/2017 15:24:47
     return datetime.now().strftime('%d/%m/%Y %H:%M:%S')
 
 
@@ -79,17 +130,25 @@ def build_encrypted_request(
     *,
     plain_json: str,
     rsa_public_key_pem: str,
+    aes_mode: str = 'cbc',
 ) -> dict[str, str]:
     """
-    Returns headers/body pieces:
-      hash, eskey, body, trnTimestamp
+    Returns headers/body pieces: hash, eskey, body, trnTimestamp.
+
+    aes_mode:
+      - 'cbc' (default): PHP sample /php/ APIs
+      - 'ecb': Java/.NET sample style
     """
     session_key = generate_aes128_session_key()
+    if (aes_mode or 'cbc').lower() == 'ecb':
+        body = encrypt_aes_ecb_pkcs7(session_key, plain_json)
+    else:
+        body = encrypt_aes_cbc_pkcs7(session_key, plain_json)
     return {
         'trnTimestamp': trn_timestamp_now(),
         'hash': sha256_b64(plain_json),
         'eskey': encrypt_session_key_rsa(session_key, rsa_public_key_pem),
-        'body': encrypt_aes_pkcs7(session_key, plain_json),
+        'body': body,
     }
 
 
@@ -100,7 +159,6 @@ def build_recon_hash(*, request_body: str, super_merchant_login_id: str, secret_
 
 
 def scrub_sensitive(obj: Any) -> Any:
-    """Recursively scrub Aadhaar / PID-like keys from dicts for audit storage."""
     SENSITIVE = {
         'aadhaar',
         'aadhar',

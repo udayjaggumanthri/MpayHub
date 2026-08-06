@@ -2,15 +2,23 @@ import React, { useCallback, useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { billAvenueAdminAPI } from '../../services/api';
 
+const PRESETS = {
+  uat: { name: 'billavenue-uat', mode: 'uat', base_url: 'https://stgapi.billavenue.com' },
+  prod: { name: 'billavenue-prod', mode: 'prod', base_url: 'https://api.billavenue.com' },
+};
+
+/** BillAvenue / CCAvenue PHP sample: pack("C*", 0x00..0x0f) as hex */
+const BILLAVENUE_STANDARD_IV_HEX = '000102030405060708090a0b0c0d0e0f';
+
 const defaultForm = {
-  name: 'default',
+  name: 'billavenue-uat',
   mode: 'uat',
   api_format: 'json',
   crypto_key_derivation: 'md5',
   enc_request_encoding: 'hex',
   allow_variant_fallback: true,
   allow_txn_status_path_fallback: true,
-  base_url: '',
+  base_url: 'https://stgapi.billavenue.com',
   access_code: '',
   institute_id: '',
   request_version: '1.0',
@@ -28,6 +36,9 @@ const defaultForm = {
 };
 
 const BillAvenueSettings = () => {
+  const [env, setEnv] = useState('uat');
+  const [liveMode, setLiveMode] = useState('uat');
+  const [environments, setEnvironments] = useState([]);
   const [form, setForm] = useState(defaultForm);
   const [configId, setConfigId] = useState(null);
   const [hasSecrets, setHasSecrets] = useState({
@@ -53,14 +64,19 @@ const BillAvenueSettings = () => {
 
   const setBanner = (type, text) => setMsg({ type, text });
 
-  const load = useCallback(async () => {
-    const res = await billAvenueAdminAPI.getConfig();
-    if (res.success && res.data?.config) {
-      const c = { ...res.data.config };
+  const applyConfigPayload = useCallback((data, nextEnv) => {
+    const c = data?.config;
+    const preset = PRESETS[nextEnv] || PRESETS.uat;
+    setLiveMode(data?.live_mode || nextEnv);
+    setEnvironments(data?.environments || []);
+    if (c) {
       setConfigId(c.id);
       setForm((prev) => ({
         ...prev,
         ...c,
+        mode: nextEnv,
+        name: preset.name,
+        base_url: c.base_url || preset.base_url,
         request_version: c.request_version || '1.0',
         crypto_key_derivation: c.crypto_key_derivation || 'md5',
         enc_request_encoding: c.enc_request_encoding || 'hex',
@@ -82,24 +98,81 @@ const BillAvenueSettings = () => {
       });
     } else {
       setConfigId(null);
-      setForm((prev) => ({ ...defaultForm, name: prev.name || 'default' }));
+      setForm({ ...defaultForm, ...preset });
+      setHasSecrets({ has_working_key: false, has_iv: false, has_callback_secret: false });
     }
   }, []);
 
+  const loadEnv = useCallback(async (nextEnv) => {
+    const mode = nextEnv === 'prod' ? 'prod' : 'uat';
+    setEnv(mode);
+    const res = await billAvenueAdminAPI.getConfig(mode);
+    if (res.success) {
+      applyConfigPayload(res.data, mode);
+    } else {
+      setBanner('error', res.message || 'Failed to load BillAvenue config');
+      setForm({ ...defaultForm, ...(PRESETS[mode] || PRESETS.uat) });
+      setConfigId(null);
+    }
+  }, [applyConfigPayload]);
+
   const loadAgentProfiles = useCallback(async () => {
-    const res = await billAvenueAdminAPI.listAgentProfiles();
+    if (!configId) {
+      setAgentProfiles([]);
+      return;
+    }
+    const res = await billAvenueAdminAPI.listAgentProfiles(configId);
     if (res.success && res.data?.profiles) setAgentProfiles(res.data.profiles);
-  }, []);
+  }, [configId]);
 
   useEffect(() => {
-    load();
-  }, [load]);
+    (async () => {
+      const res = await billAvenueAdminAPI.getConfig();
+      const live = String(res.success ? res.data?.live_mode || '' : '').toLowerCase();
+      await loadEnv(live === 'prod' ? 'prod' : 'uat');
+    })();
+  }, [loadEnv]);
 
   useEffect(() => {
-    if (configId) loadAgentProfiles();
-  }, [configId, loadAgentProfiles]);
+    loadAgentProfiles();
+  }, [loadAgentProfiles]);
 
-  const saveConfig = async () => {
+  const setPartnerLive = async (mode) => {
+    if (mode === liveMode) {
+      await loadEnv(mode);
+      return;
+    }
+    const envMeta = environments.find((row) => row.mode === mode);
+    if (envMeta && !envMeta.credentials_ready) {
+      const ivBad = envMeta.has_iv && envMeta.iv_length > 0 && envMeta.iv_length < 8;
+      setBanner(
+        'error',
+        ivBad
+          ? `Cannot switch to ${mode.toUpperCase()}: IV looks invalid (only ${envMeta.iv_length} characters saved). Paste the full IV value from BillAvenue — not the word "IV".`
+          : `Cannot switch to ${mode.toUpperCase()}: Working Key and IV are not saved correctly. Paste them under Encrypted secrets, click Save secrets, then switch live again.`,
+      );
+      await loadEnv(mode);
+      return;
+    }
+    if (mode === 'prod') {
+      const ok = window.confirm('Switch partners to Production credentials and catalog?');
+      if (!ok) return;
+    }
+    setSaving(true);
+    setBanner('info', '');
+    const res = await billAvenueAdminAPI.activateLiveEnvironment(mode);
+    if (!res.success) {
+      setBanner('error', res.message || 'Failed to switch live environment');
+      setSaving(false);
+      return;
+    }
+    setLiveMode(mode);
+    setBanner('success', `${mode.toUpperCase()} is now live for partners.`);
+    setSaving(false);
+    await loadEnv(mode);
+  };
+
+  const saveConfig = async ({ makeActive = false } = {}) => {
     setSaving(true);
     setBanner('info', '');
     const {
@@ -112,10 +185,39 @@ const BillAvenueSettings = () => {
       updated_at: _ua,
       ...configPayload
     } = form;
-    const res = await billAvenueAdminAPI.saveConfig(configPayload);
+    const preset = PRESETS[env] || PRESETS.uat;
+    if (makeActive && env === 'prod') {
+      const ok = window.confirm(
+        'Make Production live for partners?',
+      );
+      if (!ok) {
+        setSaving(false);
+        return;
+      }
+    }
+    const res = await billAvenueAdminAPI.saveConfig({
+      ...configPayload,
+      mode: env,
+      name: preset.name,
+      base_url: configPayload.base_url || preset.base_url,
+      make_active: makeActive,
+      is_active: makeActive ? true : !!configPayload.is_active && liveMode === env,
+      enabled: makeActive ? true : configPayload.enabled,
+    });
     if (res.success) {
-      setBanner('success', `Config saved. Updated: ${res.data?.config?.updated_at || 'OK'}.`);
-      await load();
+      if (makeActive) {
+        const act = await billAvenueAdminAPI.activateLiveEnvironment(env);
+        if (!act.success) {
+          setBanner('error', act.message || 'Saved, but failed to set live environment');
+          setSaving(false);
+          return;
+        }
+      }
+      setBanner(
+        'success',
+        `Saved ${env.toUpperCase()}${makeActive ? ' and set as live for partners' : ''}.`,
+      );
+      await loadEnv(env);
     } else {
       setBanner('error', res.message || res.errors || 'Failed to save config');
     }
@@ -125,9 +227,9 @@ const BillAvenueSettings = () => {
   const saveSecrets = async () => {
     setSaving(true);
     setBanner('info', '');
-    const res = await billAvenueAdminAPI.updateSecrets(secrets);
+    const res = await billAvenueAdminAPI.updateSecrets({ ...secrets, mode: env, config_id: configId });
     if (res.success) {
-      setBanner('success', 'Secrets saved (stored encrypted).');
+      setBanner('success', `${env.toUpperCase()} secrets saved (stored encrypted).`);
       if (res.data?.config) {
         setHasSecrets({
           has_working_key: !!res.data.config.has_working_key,
@@ -136,7 +238,7 @@ const BillAvenueSettings = () => {
         });
         setConfigId(res.data.config.id);
       } else {
-        await load();
+        await loadEnv(env);
       }
       setSecrets({ working_key: '', iv: '', callback_secret: '' });
     } else {
@@ -155,8 +257,18 @@ const BillAvenueSettings = () => {
       setBanner('error', 'Enter Agent ID from BillAvenue (e.g. for AGT channel).');
       return;
     }
+    if (env === 'prod' && agentForm.agent_id.trim() === 'CC01CC01513515340681') {
+      const ok = window.confirm(
+        'This Agent ID is the BillAvenue UAT sample ID. Production usually rejects it (VE003). Save anyway?',
+      );
+      if (!ok) return;
+    }
     setSaving(true);
+    const existing = agentProfiles.find(
+      (p) => String(p.name || '').trim().toLowerCase() === String(agentForm.name || '').trim().toLowerCase(),
+    );
     const res = await billAvenueAdminAPI.createAgentProfile({
+      ...(existing?.id ? { id: existing.id } : {}),
       config: configId,
       name: agentForm.name,
       agent_id: agentForm.agent_id.trim(),
@@ -169,7 +281,7 @@ const BillAvenueSettings = () => {
       enabled: agentForm.enabled,
     });
     if (res.success) {
-      setBanner('success', 'Agent profile saved.');
+      setBanner('success', `${env.toUpperCase()} agent profile saved.`);
       setAgentForm((p) => ({ ...p, id: res.data?.profile?.id || p.id, agent_id: '' }));
       await loadAgentProfiles();
     } else {
@@ -177,6 +289,26 @@ const BillAvenueSettings = () => {
       setBanner('error', `${res.message || 'Failed to save agent profile'}${detail ? `: ${detail}` : ''}`);
     }
     setSaving(false);
+  };
+
+  const removeAgentProfile = async (id) => {
+    const ok = window.confirm('Remove this agent profile?');
+    if (!ok) return;
+    setSaving(true);
+    const res = await billAvenueAdminAPI.deleteAgentProfile(id);
+    if (res.success) {
+      setBanner('success', 'Agent profile removed.');
+      await loadAgentProfiles();
+    } else {
+      setBanner('error', res.message || 'Failed to remove agent profile');
+    }
+    setSaving(false);
+  };
+
+  const applyPresetUrl = () => {
+    const preset = PRESETS[env] || PRESETS.uat;
+    setForm((p) => ({ ...p, base_url: preset.base_url, name: preset.name, mode: env }));
+    setBanner('info', `${env.toUpperCase()} base URL applied — click Save.`);
   };
 
   return (
@@ -195,46 +327,103 @@ const BillAvenueSettings = () => {
         </div>
       )}
 
-      <div className="bg-amber-50 border border-amber-200 rounded-xl p-4 text-sm text-amber-950">
-        <p className="font-semibold mb-1">After credentials are saved</p>
-        <ol className="list-decimal list-inside space-y-1 text-amber-900/90">
-          <li>
-            Set <strong>API version (ver)</strong> — use <code className="bg-amber-100 px-1 rounded">1.0</code> for most APIs; BillAvenue docs require{' '}
-            <code className="bg-amber-100 px-1 rounded">2.0</code> for complaint register/track.
-          </li>
-          <li>
-            Add your <strong>Agent ID</strong> (per channel) in the section below — this is <em>not</em> the same as Institute ID.
-          </li>
-          <li>
-            Go to{' '}
-            <Link className="text-blue-700 font-medium underline" to="/admin/bbps-governance">
-              Provider Governance
-            </Link>{' '}
-            and use <strong>Run Biller Sync</strong> there to load biller master data (providers / biller catalogue).
-          </li>
-        </ol>
-      </div>
+      <div className="bg-white rounded-xl border border-gray-200 p-6 shadow-sm space-y-4">
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <div>
+            <h1 className="text-xl font-semibold text-gray-900">BillAvenue Settings</h1>
+            <p className="text-sm text-gray-500 mt-0.5">Edit UAT or Production credentials. Each environment is stored separately.</p>
+          </div>
+          <Link className="text-sm text-blue-700 underline" to="/admin/bbps-governance">
+            Provider Governance
+          </Link>
+        </div>
 
-      <div className="bg-white rounded-xl border border-gray-200 p-6 shadow-sm">
-        <h1 className="text-xl font-semibold text-gray-900 mb-1">BillAvenue Settings</h1>
-        <p className="text-sm text-gray-500 mb-6">
-          Connection details for the active BillAvenue config. {configId ? <span className="text-gray-700">Config ID: {configId}</span> : null}
+        <div className="rounded-lg border border-slate-200 bg-slate-50 p-3 flex flex-wrap items-center gap-3">
+          <span className="text-sm font-medium text-slate-800">Partners use</span>
+          <div className="inline-flex rounded-lg border border-slate-300 overflow-hidden bg-white">
+            {['uat', 'prod'].map((mode) => (
+              <button
+                key={mode}
+                type="button"
+                disabled={saving}
+                onClick={() => setPartnerLive(mode)}
+                className={`px-4 py-2 text-sm font-medium disabled:opacity-50 ${
+                  liveMode === mode ? 'bg-emerald-700 text-white' : 'text-slate-700 hover:bg-slate-100'
+                }`}
+              >
+                {mode === 'uat' ? 'UAT' : 'Production'}
+                {liveMode === mode ? ' · live' : ''}
+              </button>
+            ))}
+          </div>
+        </div>
+
+        {(() => {
+          const liveMeta = environments.find((row) => row.mode === liveMode);
+          if (!liveMeta || liveMeta.credentials_ready) return null;
+          const ivBad = liveMeta.has_iv && liveMeta.iv_length > 0 && liveMeta.iv_length < 8;
+          return (
+            <div className="rounded-lg border border-amber-300 bg-amber-50 px-4 py-3 text-sm text-amber-900">
+              <strong>{liveMode.toUpperCase()} is live for partners</strong> but credentials are incomplete or invalid.
+              {ivBad ? (
+                <>
+                  The saved IV is only <strong>{liveMeta.iv_length}</strong> characters — paste the full IV from your
+                  BillAvenue PI39 pack (usually 16 chars or 32 hex digits), not the label &quot;IV&quot;.
+                </>
+              ) : (
+                <> Save Working Key and IV under Encrypted secrets below.</>
+              )}
+              Bill payments will fail with <code className="font-mono text-xs">DE001 Invalid ENC</code> until fixed.
+            </div>
+          );
+        })()}
+
+        <div className="flex flex-wrap gap-2">
+          {['uat', 'prod'].map((m) => {
+            const meta = environments.find((e) => e.mode === m);
+            const active = env === m;
+            return (
+              <button
+                key={m}
+                type="button"
+                onClick={() => loadEnv(m)}
+                className={`px-4 py-2 text-sm rounded-lg border ${
+                  active ? 'bg-blue-600 text-white border-blue-600' : 'bg-white text-gray-700 border-gray-300 hover:bg-gray-50'
+                }`}
+              >
+                Edit {m === 'uat' ? 'UAT' : 'Production'}
+                {meta?.is_active ? ' · live' : ''}
+              </button>
+            );
+          })}
+          <button
+            type="button"
+            onClick={applyPresetUrl}
+            className="ml-auto px-3 py-2 text-xs rounded-lg border border-gray-300 text-gray-700 hover:bg-gray-50"
+          >
+            Apply {env.toUpperCase()} URL preset
+          </button>
+        </div>
+
+        <p className="text-sm text-gray-500">
+          Editing <strong>{env.toUpperCase()}</strong>
+          {configId ? <span> · Config ID {configId}</span> : null}
         </p>
 
         <div className="grid md:grid-cols-2 gap-4">
           <div>
             <label className="block text-xs font-medium text-gray-600 mb-1">Config name</label>
             <input
-              className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm"
-              value={form.name || ''}
-              onChange={(e) => setForm((p) => ({ ...p, name: e.target.value }))}
+              className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm bg-gray-50"
+              value={(PRESETS[env] || PRESETS.uat).name}
+              readOnly
             />
           </div>
           <div>
             <label className="block text-xs font-medium text-gray-600 mb-1">Base URL (host only, no /billpay path)</label>
             <input
               className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm"
-              placeholder="https://stgapi.billavenue.com"
+              placeholder={(PRESETS[env] || PRESETS.uat).base_url}
               value={form.base_url || ''}
               onChange={(e) => setForm((p) => ({ ...p, base_url: e.target.value }))}
             />
@@ -266,18 +455,14 @@ const BillAvenueSettings = () => {
               <option value="1.0">1.0 — Biller, fetch, pay, status (default)</option>
               <option value="2.0">2.0 — Complaint register / track (per BillAvenue spec)</option>
             </select>
-            <p className="text-xs text-gray-500 mt-1">If you use complaints APIs, you may need a second deployment or code path for ver 2.0.</p>
           </div>
           <div>
             <label className="block text-xs font-medium text-gray-600 mb-1">Environment</label>
-            <select
-              className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm"
-              value={form.mode || 'uat'}
-              onChange={(e) => setForm((p) => ({ ...p, mode: e.target.value }))}
-            >
-              <option value="uat">UAT</option>
-              <option value="prod">Production</option>
-            </select>
+            <input
+              className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm bg-gray-50"
+              value={env === 'prod' ? 'Production' : 'UAT'}
+              readOnly
+            />
           </div>
           <div>
             <label className="block text-xs font-medium text-gray-600 mb-1">Payload format</label>
@@ -300,7 +485,6 @@ const BillAvenueSettings = () => {
               <option value="rawhex">Raw hex (decode 32-hex working key)</option>
               <option value="md5">MD5 (PHP sample style)</option>
             </select>
-            <p className="text-xs text-gray-500 mt-1">UAT CLI success used MD5. Use Raw hex only if BillAvenue confirms it for your institute.</p>
           </div>
           <div>
             <label className="block text-xs font-medium text-gray-600 mb-1">encRequest encoding</label>
@@ -312,15 +496,13 @@ const BillAvenueSettings = () => {
               <option value="base64">Base64</option>
               <option value="hex">Hex</option>
             </select>
-            <p className="text-xs text-gray-500 mt-1">UAT CLI success used Hex for encRequest.</p>
           </div>
         </div>
 
         <div className="mt-6 pt-4 border-t border-gray-200">
           <h2 className="text-lg font-semibold text-gray-900 mb-1">BBPS wallet service charge</h2>
           <p className="text-sm text-gray-500 mb-4">
-            Shown on the pay screen (quote) before Proceed to Pay, and deducted from the user BBPS wallet together with
-            the bill amount. This is separate from BillAvenue biller CCF fields sent in pay payload.
+            Shown on the pay screen (quote) before Proceed to Pay. Separate from BillAvenue CCF fields.
           </p>
           <div className="grid md:grid-cols-2 gap-4">
             <div>
@@ -362,7 +544,6 @@ const BillAvenueSettings = () => {
                 }
                 disabled={(form.bbps_wallet_service_charge_mode || 'FLAT') !== 'PERCENT'}
               />
-              <p className="text-xs text-gray-500 mt-1">Example: 1.25 means 1.25% of the bill amount.</p>
             </div>
           </div>
         </div>
@@ -407,15 +588,7 @@ const BillAvenueSettings = () => {
               checked={!!form.enabled}
               onChange={(e) => setForm((p) => ({ ...p, enabled: e.target.checked }))}
             />
-            <span>Enabled (integration on)</span>
-          </label>
-          <label className="inline-flex items-center gap-2">
-            <input
-              type="checkbox"
-              checked={!!form.is_active}
-              onChange={(e) => setForm((p) => ({ ...p, is_active: e.target.checked }))}
-            />
-            <span>Active (this row is the one used at runtime)</span>
+            <span>Enabled (integration on for this env)</span>
           </label>
           <label className="inline-flex items-center gap-2">
             <input
@@ -434,23 +607,31 @@ const BillAvenueSettings = () => {
             <span>Txn status 404 HTML path fallback</span>
           </label>
         </div>
-        {form.updated_at && (
-          <p className="text-xs text-gray-500 mt-2">Last saved: {form.updated_at}</p>
-        )}
-        <button
-          type="button"
-          disabled={saving}
-          onClick={saveConfig}
-          className="mt-4 px-5 py-2.5 bg-blue-600 text-white text-sm font-medium rounded-lg hover:bg-blue-700 disabled:opacity-50"
-        >
-          {saving ? 'Saving…' : 'Save config'}
-        </button>
+        {form.updated_at && <p className="text-xs text-gray-500 mt-2">Last saved: {form.updated_at}</p>}
+        <div className="flex flex-wrap gap-3 mt-4">
+          <button
+            type="button"
+            disabled={saving}
+            onClick={() => saveConfig({ makeActive: false })}
+            className="px-5 py-2.5 bg-blue-600 text-white text-sm font-medium rounded-lg hover:bg-blue-700 disabled:opacity-50"
+          >
+            {saving ? 'Saving…' : `Save ${env.toUpperCase()}`}
+          </button>
+          <button
+            type="button"
+            disabled={saving}
+            onClick={() => saveConfig({ makeActive: true })}
+            className="px-5 py-2.5 bg-emerald-700 text-white text-sm font-medium rounded-lg hover:bg-emerald-800 disabled:opacity-50"
+          >
+            {saving ? 'Saving…' : `Save & make ${env.toUpperCase()} live`}
+          </button>
+        </div>
       </div>
 
       <div className="bg-white rounded-xl border border-gray-200 p-6 shadow-sm">
-        <h2 className="text-lg font-semibold text-gray-900 mb-1">Encrypted secrets</h2>
+        <h2 className="text-lg font-semibold text-gray-900 mb-1">Encrypted secrets ({env.toUpperCase()})</h2>
         <p className="text-sm text-gray-500 mb-4">
-          Working key and IV are required for encryption. Values are not shown after save — only status below.
+          Working key and IV are required. Blank keeps existing encrypted values for this environment only.
         </p>
         <div className="flex flex-wrap gap-2 mb-4">
           <span
@@ -463,6 +644,11 @@ const BillAvenueSettings = () => {
           >
             IV: {hasSecrets.has_iv ? 'stored' : 'not set (required)'}
           </span>
+          {environments.find((e) => e.mode === env)?.iv_length > 0 && environments.find((e) => e.mode === env)?.iv_length < 8 && (
+            <span className="text-xs px-2 py-1 rounded border bg-red-50 border-red-200 text-red-800">
+              IV invalid ({environments.find((e) => e.mode === env)?.iv_length} chars) — re-enter full value
+            </span>
+          )}
           <span
             className={`text-xs px-2 py-1 rounded border ${hasSecrets.has_callback_secret ? 'bg-green-50 border-green-200 text-green-800' : 'bg-gray-50 border-gray-200 text-gray-600'}`}
           >
@@ -487,10 +673,21 @@ const BillAvenueSettings = () => {
               className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm font-mono"
               type="password"
               autoComplete="off"
-              placeholder={hasSecrets.has_iv ? '•••• leave blank to keep' : 'From BillAvenue pack'}
+              placeholder={hasSecrets.has_iv ? '•••• leave blank to keep' : '16-char or 32-hex from BillAvenue pack'}
               value={secrets.iv}
               onChange={(e) => setSecrets((p) => ({ ...p, iv: e.target.value }))}
             />
+            <p className="mt-1 text-xs text-gray-500">
+              BillAvenue PHP sample uses fixed IV{' '}
+              <code className="font-mono text-[11px]">{BILLAVENUE_STANDARD_IV_HEX}</code> (not the word &quot;IV&quot;).
+            </p>
+            <button
+              type="button"
+              className="mt-2 text-xs font-medium text-blue-700 hover:text-blue-900 underline"
+              onClick={() => setSecrets((p) => ({ ...p, iv: BILLAVENUE_STANDARD_IV_HEX }))}
+            >
+              Apply standard BillAvenue IV (PHP sample)
+            </button>
           </div>
           <div>
             <label className="block text-xs font-medium text-gray-600 mb-1">Callback secret</label>
@@ -510,26 +707,38 @@ const BillAvenueSettings = () => {
           onClick={saveSecrets}
           className="mt-4 px-5 py-2.5 bg-gray-900 text-white text-sm font-medium rounded-lg hover:bg-gray-800 disabled:opacity-50"
         >
-          {saving ? 'Saving…' : 'Save secrets'}
+          {saving ? 'Saving…' : `Save ${env.toUpperCase()} secrets`}
         </button>
       </div>
 
       <div className="bg-white rounded-xl border border-gray-200 p-6 shadow-sm">
-        <h2 className="text-lg font-semibold text-gray-900 mb-1">Agent ID (per channel)</h2>
+        <h2 className="text-lg font-semibold text-gray-900 mb-1">Agent ID ({env.toUpperCase()})</h2>
         <p className="text-sm text-gray-500 mb-4">
-          BillAvenue provides an <strong>Agent ID</strong> per payment channel (e.g. AGT). This is separate from Institute ID and must be saved here for API
-          requests.
+          Use the Agent ID from your BillAvenue {env === 'prod' ? 'Production' : 'UAT'} pack. UAT and Production IDs are usually different.
         </p>
+        {env === 'prod' && agentProfiles.some((p) => String(p.agent_id || '').trim() === 'CC01CC01513515340681') ? (
+          <div className="mb-4 text-sm border border-amber-200 bg-amber-50 text-amber-950 rounded-lg px-3 py-2">
+            This looks like the BillAvenue <strong>UAT sample</strong> Agent ID. Production rejects it with VE003
+            (&quot;Agent ID invalid&quot;). Replace it with your Production Agent ID from BillAvenue.
+          </div>
+        ) : null}
         {agentProfiles.length > 0 && (
           <ul className="mb-4 text-sm border border-gray-100 rounded-lg divide-y">
             {agentProfiles.map((p) => (
-              <li key={p.id} className="px-3 py-2 flex flex-wrap justify-between gap-2">
+              <li key={p.id} className="px-3 py-2 flex flex-wrap justify-between gap-2 items-center">
                 <span>
                   <span className="font-medium text-gray-800">{p.name}</span>
                   <span className="text-gray-500"> — {p.init_channel}</span>
                 </span>
                 <code className="text-xs bg-gray-50 px-2 py-0.5 rounded">{p.agent_id}</code>
                 <span className={p.enabled ? 'text-green-600' : 'text-gray-400'}>{p.enabled ? 'enabled' : 'disabled'}</span>
+                <button
+                  type="button"
+                  className="text-xs text-red-700 underline"
+                  onClick={() => removeAgentProfile(p.id)}
+                >
+                  Remove
+                </button>
               </li>
             ))}
           </ul>
@@ -561,7 +770,7 @@ const BillAvenueSettings = () => {
             <label className="block text-xs font-medium text-gray-600 mb-1">Agent ID</label>
             <input
               className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm font-mono"
-              placeholder="e.g. CC01CC01513515340681"
+              placeholder={env === 'prod' ? 'Production Agent ID from BillAvenue pack' : 'UAT Agent ID from BillAvenue pack'}
               value={agentForm.agent_id}
               onChange={(e) => setAgentForm((p) => ({ ...p, agent_id: e.target.value }))}
             />
@@ -578,16 +787,12 @@ const BillAvenueSettings = () => {
         </form>
       </div>
 
-      <div className="bg-slate-50 border border-slate-200 rounded-xl p-4 text-sm text-slate-800">
-        <p className="font-semibold mb-2">Load providers / biller catalogue</p>
-        <p>
-          BillAvenue does not list &quot;all APIs&quot; in this form — the app calls their endpoints using this config. To pull the{' '}
-          <strong>biller master (MDM)</strong> into your database, open{' '}
-          <Link className="text-blue-700 font-medium underline" to="/admin/bbps-governance">
-            Provider Governance
-          </Link>{' '}
-          and click <strong>Run Biller Sync</strong> (leave biller IDs empty for a full sync, if your account allows it).
-        </p>
+      <div className="bg-slate-50 border border-slate-200 rounded-xl p-4 text-sm text-slate-700">
+        To sync billers for UAT or Production, open{' '}
+        <Link className="text-blue-700 underline" to="/admin/bbps-governance">
+          Provider Governance
+        </Link>
+        , pick that catalog, and click Sync.
       </div>
     </div>
   );

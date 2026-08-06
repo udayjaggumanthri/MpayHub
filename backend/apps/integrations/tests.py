@@ -82,13 +82,15 @@ class BillAvenueXmlRequestTests(TestCase):
         self.assertIn('<billerId>B</billerId>', xml)
 
     def test_plan_pull_xml_list(self):
-        xml = build_plan_pull_plain_xml({'billerId': ['X1', 'X2']})
+        xml = build_plan_pull_plain_xml({'agentId': 'CC01', 'billerId': ['X1', 'X2']})
         self.assertIn('planDetailsRequest', xml)
+        self.assertIn('<agentId>CC01</agentId>', xml)
         self.assertIn('<billerId>X1</billerId>', xml)
         self.assertIn('<billerId>X2</billerId>', xml)
 
     def test_plan_pull_xml_scalar(self):
-        xml = build_plan_pull_plain_xml({'billerId': 'OTME00005XXZ43'})
+        xml = build_plan_pull_plain_xml({'agentId': 'CC01', 'billerId': 'OTME00005XXZ43'})
+        self.assertIn('<agentId>CC01</agentId>', xml)
         self.assertIn('<billerId>OTME00005XXZ43</billerId>', xml)
 
 

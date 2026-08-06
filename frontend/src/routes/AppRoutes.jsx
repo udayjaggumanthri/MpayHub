@@ -51,20 +51,20 @@ import AnnouncementManagement from '../components/admin/AnnouncementManagement';
 import PaymentGatewaysAdmin from '../components/admin/PaymentGatewaysAdmin';
 import PayInPackagesAdmin from '../components/admin/PayInPackagesAdmin';
 import APIMasterManagement from '../components/admin/APIMasterManagement';
-import BillAvenueSettings from '../components/admin/BillAvenueSettings';
 import SmtpSettings from '../components/admin/SmtpSettings';
 import EmailNotifications from '../components/admin/EmailNotifications';
 import SmsSettings from '../components/admin/SmsSettings';
-import BbpsOpsConsole from '../components/admin/BbpsOpsConsole';
 import BbpsBillerDetails from '../components/admin/BbpsBillerDetails';
-import BbpsProviderGovernance from '../components/admin/BbpsProviderGovernance';
+import BbpsConsole from '../components/admin/bbps/BbpsConsole';
 import MaintenanceMode from '../components/admin/MaintenanceMode';
 import UserManagementSettings from '../components/admin/UserManagementSettings';
+import WalletAdjustments from '../components/admin/WalletAdjustments';
 import WalletHistoryPage from '../components/wallets/WalletHistoryPage';
 import AepsLayout from '../modules/aeps/pages/AepsLayout';
 import AepsOverview from '../modules/aeps/pages/AepsOverview';
 import AepsSetup from '../modules/aeps/pages/AepsSetup';
 import AepsDevice from '../modules/aeps/pages/AepsDevice';
+import AepsTwoFA from '../modules/aeps/pages/AepsTwoFA';
 import AepsHistory from '../modules/aeps/pages/AepsHistory';
 import AepsReports from '../modules/aeps/pages/AepsReports';
 import {
@@ -468,6 +468,20 @@ const AppRoutes = () => {
         }
       />
 
+      {/* Admin - Wallet Adjustments */}
+      <Route
+        path="/admin/wallet-adjustments"
+        element={
+          <ProtectedRoute>
+            <AdminRoute>
+              <Layout>
+                <WalletAdjustments />
+              </Layout>
+            </AdminRoute>
+          </ProtectedRoute>
+        }
+      />
+
       {/* Admin - User management session security settings */}
       <Route
         path="/admin/user-management-settings"
@@ -524,18 +538,23 @@ const AppRoutes = () => {
         }
       />
 
+      {/* BBPS Console (unified admin shell) */}
       <Route
-        path="/admin/billavenue-settings"
+        path="/admin/bbps/*"
         element={
           <ProtectedRoute>
             <AdminRoute>
               <Layout>
-                <BillAvenueSettings />
+                <BbpsConsole />
               </Layout>
             </AdminRoute>
           </ProtectedRoute>
         }
       />
+
+      {/* Legacy BBPS admin paths redirect into the console */}
+      <Route path="/admin/billavenue-settings" element={<Navigate to="/admin/bbps/settings" replace />} />
+      <Route path="/admin/bbps-float" element={<Navigate to="/admin/bbps/float" replace />} />
 
       <Route
         path="/admin/smtp-settings/*"
@@ -576,31 +595,8 @@ const AppRoutes = () => {
         }
       />
 
-      <Route
-        path="/admin/bbps-ops"
-        element={
-          <ProtectedRoute>
-            <AdminRoute>
-              <Layout>
-                <BbpsOpsConsole />
-              </Layout>
-            </AdminRoute>
-          </ProtectedRoute>
-        }
-      />
-
-      <Route
-        path="/admin/bbps-governance"
-        element={
-          <ProtectedRoute>
-            <AdminRoute>
-              <Layout>
-                <BbpsProviderGovernance />
-              </Layout>
-            </AdminRoute>
-          </ProtectedRoute>
-        }
-      />
+      <Route path="/admin/bbps-ops" element={<Navigate to="/admin/bbps/ops" replace />} />
+      <Route path="/admin/bbps-governance" element={<Navigate to="/admin/bbps/catalog" replace />} />
       <Route
         path="/admin/bbps-governance/biller/:billerPk"
         element={
@@ -646,6 +642,18 @@ const AppRoutes = () => {
             <Layout>
               <AepsLayout>
                 <AepsDevice />
+              </AepsLayout>
+            </Layout>
+          </ProtectedRoute>
+        }
+      />
+      <Route
+        path="/aeps/2fa"
+        element={
+          <ProtectedRoute>
+            <Layout>
+              <AepsLayout>
+                <AepsTwoFA />
               </AepsLayout>
             </Layout>
           </ProtectedRoute>

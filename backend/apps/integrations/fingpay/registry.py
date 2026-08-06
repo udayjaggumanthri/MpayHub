@@ -3,6 +3,7 @@ from __future__ import annotations
 
 from apps.core.utils import decrypt_secret_payload
 from apps.integrations.fingpay.client import FingpayClient, FingpayClientError
+from apps.integrations.fingpay.crypto import load_bundled_fingpay_certificate
 
 
 def get_active_provider():
@@ -23,10 +24,18 @@ def build_client_from_config(config) -> FingpayClient:
     password = str(secrets.get('password') or '').strip()
     secret_key = str(secrets.get('secret_key') or '').strip()
     rsa_pem = str(secrets.get('rsa_public_key_pem') or secrets.get('public_key') or '').strip()
+    if not rsa_pem:
+        # Docs ship fingpay_public_production.cer — use as fallback for encryption
+        rsa_pem = load_bundled_fingpay_certificate().strip()
     if not config.super_merchant_id or not config.super_merchant_login_id:
         raise FingpayClientError('Provider missing super merchant id / login id.')
-    if not password or not secret_key or not rsa_pem:
-        raise FingpayClientError('Provider secrets incomplete (password, secret_key, rsa_public_key_pem).')
+    if not password:
+        raise FingpayClientError('Provider password is required.')
+    if not rsa_pem:
+        raise FingpayClientError(
+            'Provider RSA public certificate missing. Paste the Fingpay .cer PEM '
+            '(BEGIN CERTIFICATE) or use Load bundled certificate in Admin.'
+        )
     if not config.onboarding_base_url or not config.ekyc_base_url or not config.aeps_base_url:
         raise FingpayClientError('Provider base URLs incomplete.')
     return FingpayClient(

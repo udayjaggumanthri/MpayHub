@@ -1,6 +1,13 @@
 from django.test import SimpleTestCase
 
-from apps.integrations.fingpay.crypto import mask_aadhaar, scrub_sensitive, sha256_b64, build_recon_hash
+from apps.integrations.fingpay.crypto import (
+    build_encrypted_request,
+    build_recon_hash,
+    load_bundled_fingpay_certificate,
+    mask_aadhaar,
+    scrub_sensitive,
+    sha256_b64,
+)
 
 
 class FingpayCryptoTests(SimpleTestCase):
@@ -18,3 +25,11 @@ class FingpayCryptoTests(SimpleTestCase):
         h2 = build_recon_hash(request_body='{}', super_merchant_login_id='demo', secret_key='secret')
         self.assertEqual(h1, h2)
         self.assertEqual(h1, sha256_b64('{}' + 'demo' + 'secret'))
+
+    def test_bundled_certificate_encrypts_cbc(self):
+        pem = load_bundled_fingpay_certificate()
+        self.assertIn('BEGIN CERTIFICATE', pem)
+        enc = build_encrypted_request(plain_json='{"ok":true}', rsa_public_key_pem=pem, aes_mode='cbc')
+        self.assertTrue(enc['body'])
+        self.assertTrue(enc['eskey'])
+        self.assertEqual(enc['hash'], sha256_b64('{"ok":true}'))
