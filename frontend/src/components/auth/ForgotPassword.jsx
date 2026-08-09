@@ -4,7 +4,7 @@ import { authAPI } from '../../services/api';
 import { validatePhone } from '../../utils/validators';
 import { FaPhone, FaLock, FaCircleCheck, FaArrowLeft, FaEnvelope } from 'react-icons/fa6';
 
-const LOGO_SRC = `${process.env.PUBLIC_URL || ''}/images/logo.svg`;
+const LOGO_SRC = `${process.env.PUBLIC_URL || ''}/images/logo.png`;
 
 const ForgotPassword = () => {
   const navigate = useNavigate();

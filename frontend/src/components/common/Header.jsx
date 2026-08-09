@@ -4,7 +4,7 @@ import { useAuth } from '../../context/AuthContext';
 import { FaUser, FaRightFromBracket, FaClipboardList, FaGear } from 'react-icons/fa6';
 import NotificationBell from '../dashboard/NotificationBell';
 
-const LOGO_SRC = `${process.env.PUBLIC_URL || ''}/images/logo.svg`;
+const LOGO_SRC = `${process.env.PUBLIC_URL || ''}/images/logo.png`;
 
 const Header = () => {
   const { user, logout } = useAuth();

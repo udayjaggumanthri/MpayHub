@@ -11,7 +11,7 @@ import {
 } from '../../services/loginContext';
 import SessionPausedNotice from './SessionPausedNotice';
 
-const LOGO_SRC = `${process.env.PUBLIC_URL || ''}/images/logo.svg`;
+const LOGO_SRC = `${process.env.PUBLIC_URL || ''}/images/logo.png`;
 
 const SESSION_NOTICE_CODES = new Set([
   'SESSION_IDLE',

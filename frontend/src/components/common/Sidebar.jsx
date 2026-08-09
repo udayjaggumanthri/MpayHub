@@ -17,7 +17,7 @@ import {
 } from 'react-icons/hi2';
 import bMnemonicPrimary from '../../assets/bbps/b-mnemonic-primary.svg';
 
-const LOGO_SRC = `${process.env.PUBLIC_URL || ''}/images/logo.svg`;
+const LOGO_SRC = `${process.env.PUBLIC_URL || ''}/images/logo.png`;
 const BBPS_MENU_ICON = 'bbps-mnemonic';
 
 const Sidebar = () => {

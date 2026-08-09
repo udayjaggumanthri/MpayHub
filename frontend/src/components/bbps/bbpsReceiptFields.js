@@ -3,7 +3,7 @@ import { format } from 'date-fns';
 import { formatCurrency } from '../../utils/formatters';
 import { normalizeCategorySlug } from '../../constants/bbpsCanonicalCategories';
 
-export const MPAYHUB_LOGO_SRC = `${process.env.PUBLIC_URL || ''}/images/logo.svg`;
+export const MPAYHUB_LOGO_SRC = `${process.env.PUBLIC_URL || ''}/images/logo.png`;
 
 const toInputParamRows = (row) =>
   Array.isArray(row?.inputParams)

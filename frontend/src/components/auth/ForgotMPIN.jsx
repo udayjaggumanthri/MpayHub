@@ -5,7 +5,7 @@ import { validatePhone } from '../../utils/validators';
 import { validateMPIN } from '../../utils/validators';
 import { FaPhone, FaKey, FaCircleCheck, FaArrowLeft, FaEnvelope } from 'react-icons/fa6';
 
-const LOGO_SRC = `${process.env.PUBLIC_URL || ''}/images/logo.svg`;
+const LOGO_SRC = `${process.env.PUBLIC_URL || ''}/images/logo.png`;
 
 const ForgotMPIN = () => {
   const navigate = useNavigate();
