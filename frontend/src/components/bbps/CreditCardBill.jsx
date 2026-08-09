@@ -7,21 +7,17 @@ import Card from '../common/Card';
 import Input from '../common/Input';
 import Button from '../common/Button';
 import MPINModal from '../common/MPINModal';
+import FeedbackModal from '../common/FeedbackModal';
 import { FaCircleCheck, FaCircleExclamation, FaMagnifyingGlass } from 'react-icons/fa6';
 import { BharatConnectLogo } from './BbpsPartnerLogos';
 import { bharatConnectLogoSlotStyle } from './bbpsLogoSizes';
 import BbpsDynamicFieldSet from './BbpsDynamicFieldSet';
 import BAssuredReceiptHeader from './BAssuredReceiptHeader';
-import { normalizeCategorySlug } from '../../constants/bbpsCanonicalCategories';
 import AccountAccessBanner from '../common/AccountAccessBanner';
 import MaintenanceModuleLock from '../common/MaintenanceModuleLock';
 import { getModuleMessage, isModuleEnabled } from '../../utils/maintenanceMode';
 import { parseBbpsError } from '../../utils/bbpsErrors';
-
-const isFastagBillCategory = (raw) => {
-  const n = normalizeCategorySlug(raw);
-  return n === 'fastag' || n === 'fast-tag' || n.includes('fastag');
-};
+import { deriveFormReceiptIdentity } from './bbpsBillsHelpers';
 
 const CreditCardBill = ({ category = 'credit-card', categoryLabel = '', onPaymentSuccess }) => {
   const { user, maintenance, refreshMaintenance } = useAuth();
@@ -45,6 +41,7 @@ const CreditCardBill = ({ category = 'credit-card', categoryLabel = '', onPaymen
   const [billerOptions, setBillerOptions] = useState([]);
   const [paymentMode, setPaymentMode] = useState('Cash');
   const [paymentChannel, setPaymentChannel] = useState('AGT');
+  const [cashPan, setCashPan] = useState('');
   const [inputSchema, setInputSchema] = useState([]);
   const [inputValues, setInputValues] = useState({});
   const [quote, setQuote] = useState(null);
@@ -242,10 +239,23 @@ const CreditCardBill = ({ category = 'credit-card', categoryLabel = '', onPaymen
 
   const getPaymentAmount = React.useCallback(() => {
     if (!billDetails) return 0;
-    if (paymentAmountType === 'total') return billDetails.totalDueAmount;
-    if (paymentAmountType === 'minimum') return billDetails.minimumDueAmount;
+    if (paymentAmountType === 'total') {
+      return Number(billDetails.totalDueAmount || billDetails.billAmount || 0) || 0;
+    }
+    if (paymentAmountType === 'minimum') return Number(billDetails.minimumDueAmount || 0) || 0;
     return parseFloat(customAmount) || 0;
   }, [billDetails, paymentAmountType, customAmount]);
+
+  const paymentAmountOutOfRange = React.useMemo(() => {
+    if (!billDetails) return false;
+    const amt = getPaymentAmount();
+    if (amt <= 0) return false;
+    const minAllowed = Number(billDetails.amountMin || 0) || 0;
+    const maxAllowed = Number(billDetails.amountMax || billDetails.maximumPayable || 0) || 0;
+    if (minAllowed > 0 && amt + 1e-9 < minAllowed) return true;
+    if (maxAllowed > 0 && amt - 1e-9 > maxAllowed) return true;
+    return false;
+  }, [billDetails, getPaymentAmount]);
 
   useEffect(() => {
     const loadQuote = async () => {
@@ -326,59 +336,18 @@ const CreditCardBill = ({ category = 'credit-card', categoryLabel = '', onPaymen
     return { message: first, fields };
   };
 
-  const resolveCustomerIdentifier = useCallback(() => {
-    const preferred = [
-      getCanonicalValue('customer_number', ['Customer Number', 'CustomerId', 'Customer ID']),
-      String(inputValues.CustomerId || '').trim(),
-      String(inputValues['Customer ID'] || '').trim(),
-      String(inputValues['Customer Number'] || '').trim(),
-      String(inputValues['Mobile Number'] || '').trim(),
-      String(billDetails?.telephoneNumber || '').trim(),
-      String(user?.phone || '').trim(),
-    ];
-    return preferred.find((v) => String(v || '').trim()) || 'N/A';
-  }, [getCanonicalValue, inputValues, billDetails, user]);
-
-  /** FASTag / dynamic MDM: vehicle is often a dedicated input, not "customer id". */
-  const pickFastagVehicleNumber = useCallback(() => {
-    if (!isFastagBillCategory(category)) return '';
-
-    const haystackField = (f) =>
-      `${f?.param_name || ''} ${f?.canonical_key || ''} ${f?.display_name || ''} ${f?.display_label || ''} ${f?.label || ''}`;
-    const vehicleRx = /vehicle|registration|reg\.?\s*no|vrn|\brc\b|tag|plate|consumerno|consumer\s*no|chassis|w\.?number/i;
-
-    for (const ck of [
-      'vehicle_number',
-      'vehicle_no',
-      'registration_number',
-      'registration',
-      'consumer_number',
-      'customer_vehicle',
-    ]) {
-      const v = getCanonicalValue(ck, []);
-      if (v) return v;
-    }
-    for (const f of inputSchema) {
-      if (vehicleRx.test(haystackField(f))) {
-        const v = String(inputValues[f.param_name] || '').trim();
-        if (v) return v;
-      }
-    }
-    for (const [k, v] of Object.entries(inputValues)) {
-      if (vehicleRx.test(k) && String(v || '').trim()) return String(v).trim();
-    }
-    const bn = String(billDetails?.billNumber || '').trim();
-    if (bn && !/^na$/i.test(bn) && bn !== 'QUICKPAY') return bn;
-    return '';
-  }, [category, inputSchema, inputValues, getCanonicalValue, billDetails]);
-
-  const getPaymentSummaryIdentity = useCallback(() => {
-    if (isFastagBillCategory(category)) {
-      const vn = pickFastagVehicleNumber();
-      return { label: 'Vehicle Number', value: vn || 'N/A' };
-    }
-    return { label: 'Customer ID', value: resolveCustomerIdentifier() };
-  }, [category, pickFastagVehicleNumber, resolveCustomerIdentifier]);
+  /** MDM-driven identity for confirm/pay receipt (Service Number, CA Number, Vehicle Number, …). */
+  const getPaymentSummaryIdentity = useCallback(
+    () =>
+      deriveFormReceiptIdentity({
+        category,
+        inputSchema,
+        inputValues,
+        billDetails,
+        user,
+      }),
+    [category, inputSchema, inputValues, billDetails, user]
+  );
 
   useEffect(() => {
     if (!billDetails || !scrollAfterFetchRef.current) return;
@@ -441,25 +410,76 @@ const CreditCardBill = ({ category = 'credit-card', categoryLabel = '', onPaymen
       const result = await bbpsAPI.fetchBill(biller, fetchPayload);
       if (result.success && result.data?.bill) {
         const bill = result.data.bill;
-        const isAdhocFlow = ['adhoc', 'adhoc_validate'].includes(String(bill.flow || ''))
+        const policy = bill.payment_amount_policy && typeof bill.payment_amount_policy === 'object'
+          ? bill.payment_amount_policy
+          : null;
+        const amounts = bill.amounts && typeof bill.amounts === 'object' ? bill.amounts : {};
+        const presentationMode = String(
+          bill.presentation_mode
+          || (planMdmActive ? 'plan' : '')
+          || (['adhoc', 'adhoc_validate'].includes(String(bill.flow || ''))
+            || String(billerFetchRequirement || '').toUpperCase() === 'NOT_SUPPORTED'
+            ? 'amount_load'
+            : '')
+          || (bill.biller_adhoc || policy?.mode === 'adhoc' ? 'bill_fetch_adhoc' : 'bill_fetch')
+        );
+        const isAmountLoad = presentationMode === 'amount_load';
+        const isAdhocFlow = presentationMode === 'bill_fetch_adhoc'
+          || presentationMode === 'amount_load'
           || Boolean(bill.biller_adhoc)
-          || String(billerFetchRequirement || '').toUpperCase() === 'NOT_SUPPORTED'
-          || Number(bill.amount || bill.total_due || 0) <= 0;
+          || String(policy?.mode || '') === 'adhoc';
+        const allowCustom = policy?.allow_custom !== false;
+        const policyMode = String(policy?.mode || (isAdhocFlow ? 'adhoc' : 'open'));
+        // Pay floor comes from payment_amount_policy only (not display "Minimum Due").
+        const minAmtRaw = policy?.min_amount;
+        const minAmt =
+          minAmtRaw === '' || minAmtRaw == null
+            ? 0.01
+            : (parseFloat(minAmtRaw) || 0.01);
+        const maxAmtRaw = policy?.max_amount;
+        const maxAmt = maxAmtRaw === '' || maxAmtRaw == null ? 0 : (parseFloat(maxAmtRaw) || 0);
+        const maxPayable = parseFloat(
+          amounts.maximum_payable || bill.maximum_payable || policy?.maximum_payable || 0
+        ) || 0;
+        const totalDue = parseFloat(
+          amounts.total_due || bill.total_due || bill.totalDueAmount || bill.bill_amount || bill.amount || 0
+        ) || 0;
+        const billAmount = parseFloat(amounts.bill || bill.bill_amount || bill.amount || totalDue || 0) || 0;
+        const minDue = parseFloat(
+          amounts.minimum_due || bill.minimum_due || bill.minimumDueAmount || 0
+        ) || 0;
         setBillDetails({
           billerName: bill.biller_name || biller,
-          billNumber: bill.bill_number || bill.billNumber || (isAdhocFlow ? 'ADHOC' : 'NA'),
+          billNumber: bill.bill_number || bill.billNumber || (isAmountLoad ? 'ADHOC' : 'NA'),
           billDate: bill.bill_date || bill.billDate || '',
           billPeriod: bill.bill_period || bill.billPeriod || '',
-          name: bill.customer_name || bill.name || (isAdhocFlow ? 'Adhoc payment' : 'N/A'),
+          name: bill.customer_name || bill.name || (isAmountLoad ? 'Amount payment' : 'N/A'),
           telephoneNumber: bill.mobile || paramLookup['Mobile Number'] || mobileForApi || 'N/A',
           dueDate: bill.due_date,
-          minimumDueAmount: parseFloat(bill.minimum_due || bill.minimumDueAmount || 0),
-          totalDueAmount: parseFloat(bill.total_due || bill.totalDueAmount || 0),
+          billAmount,
+          minimumDueAmount: minDue,
+          totalDueAmount: totalDue || billAmount,
+          maximumPayable: maxPayable || maxAmt || 0,
           adhoc: isAdhocFlow,
+          presentationMode,
+          allowCustom,
+          amountPolicyMode: policyMode,
+          amountMin: minAmt,
+          amountMax: maxAmt,
+          paymentExactness: String(bill.payment_exactness || policy?.exactness || ''),
         });
         setBillId(bill.id || null);
         setFetchRequestId(String(bill.request_id || bill.requestId || '').trim());
-        if (isAdhocFlow) {
+        if (policyMode === 'exact' && (totalDue || billAmount) > 0) {
+          setPaymentAmountType('total');
+          setCustomAmount('');
+        } else if (isAmountLoad || isAdhocFlow) {
+          setPaymentAmountType('custom');
+          setCustomAmount('');
+        } else if ((totalDue || billAmount) > 0) {
+          setPaymentAmountType('total');
+          setCustomAmount('');
+        } else {
           setPaymentAmountType('custom');
           setCustomAmount('');
         }
@@ -478,13 +498,24 @@ const CreditCardBill = ({ category = 'credit-card', categoryLabel = '', onPaymen
             name: 'QuickPay',
             telephoneNumber: mobileForApi || 'N/A',
             dueDate: '',
-            minimumDueAmount: derivedAmount,
+            billAmount: derivedAmount,
+            minimumDueAmount: 0,
             totalDueAmount: derivedAmount,
+            maximumPayable: 0,
+            adhoc: true,
+            presentationMode: 'amount_load',
+            allowCustom: true,
+            amountPolicyMode: 'adhoc',
+            amountMin: 0,
+            amountMax: 0,
+            paymentExactness: '',
           });
+          setPaymentAmountType('custom');
+          setCustomAmount(derivedAmount > 0 ? String(derivedAmount) : '');
           setBillId(null);
           setFetchRequestId('');
           scrollAfterFetchRef.current = true;
-          setError('QuickPay-only biller: fetch is not required. Continue with payment.');
+          setError('QuickPay-only biller: fetch is not required. Enter amount and continue.');
           setErrorMeta(null);
           setFieldErrors({});
           return;
@@ -516,7 +547,25 @@ const CreditCardBill = ({ category = 'credit-card', categoryLabel = '', onPaymen
     }
     const amount = getPaymentAmount();
     if (amount <= 0) {
-      setError('Please select a valid amount.');
+      setError(
+        billDetails.presentationMode === 'amount_load'
+          ? 'Please enter the amount to load or pay.'
+          : 'Please select a valid amount.'
+      );
+      return;
+    }
+    const minAllowed = Number(billDetails.amountMin || 0) || 0;
+    const maxAllowed = Number(billDetails.amountMax || billDetails.maximumPayable || 0) || 0;
+    if (minAllowed > 0 && amount < minAllowed) {
+      setError(`Payment amount must be at least ${formatCurrency(minAllowed)} for this biller.`);
+      return;
+    }
+    if (maxAllowed > 0 && amount > maxAllowed) {
+      setError(`Payment amount cannot exceed ${formatCurrency(maxAllowed)} for this biller.`);
+      return;
+    }
+    if (billDetails.allowCustom === false && paymentAmountType === 'custom') {
+      setError('This biller requires the exact bill amount. Custom amounts are not allowed.');
       return;
     }
     if (!quote) {
@@ -539,6 +588,15 @@ const CreditCardBill = ({ category = 'credit-card', categoryLabel = '', onPaymen
       setError(`Insufficient BBPS wallet balance. Required: ${formatCurrency(totalDeducted)}, Available: ${formatCurrency(bbpsWallet)}`);
       return;
     }
+    const isCashMode = String(paymentMode || '').trim().toLowerCase() === 'cash';
+    const needsCashPan = isCashMode && amount >= 50000;
+    const panValue = String(cashPan || '').trim().toUpperCase();
+    if (needsCashPan) {
+      if (!/^[A-Z]{5}[0-9]{4}[A-Z]$/.test(panValue)) {
+        setError('PAN is required for cash payments of ₹50,000 or more. Enter a valid PAN.');
+        return;
+      }
+    }
     if (paySubmitInFlight.current) return;
     paySubmitInFlight.current = true;
     setLoading(true);
@@ -554,6 +612,11 @@ const CreditCardBill = ({ category = 'credit-card', categoryLabel = '', onPaymen
       const customerInfo = { customerMobile: mobile };
       if (customerNameForPay) {
         customerInfo.customerName = customerNameForPay;
+      } else if (needsCashPan && payerName) {
+        customerInfo.customerName = payerName;
+      }
+      if (needsCashPan) {
+        customerInfo.customerPan = panValue;
       }
       const result = await bbpsAPI.payBill({
         bill_id: billId || undefined,
@@ -747,35 +810,6 @@ const CreditCardBill = ({ category = 'credit-card', categoryLabel = '', onPaymen
 
         <div className="mt-4 space-y-4">
         <Card padding="md" className="border-slate-200/80 shadow-sm">
-          {error && (
-            <div className="mb-4 rounded-lg border border-red-200 bg-red-50 px-3 py-2.5 text-sm text-red-800">
-              <div className="flex items-start gap-2">
-                <FaCircleExclamation size={18} className="mt-0.5 shrink-0 text-red-600" />
-                <div className="min-w-0 flex-1 space-y-1">
-                  <p className="font-semibold text-red-900">
-                    {errorMeta?.title || 'Could not complete this request'}
-                  </p>
-                  <p className="text-red-800 leading-snug">{error}</p>
-                  {errorMeta?.hint ? (
-                    <p className="text-xs text-red-700/90">{errorMeta.hint}</p>
-                  ) : null}
-                  {errorMeta?.reference ? (
-                    <p className="text-[11px] text-red-600/80 font-mono">Reference: {errorMeta.reference}</p>
-                  ) : null}
-                  {errorMeta?.retryable ? (
-                    <button
-                      type="button"
-                      onClick={handleFetchBill}
-                      className="mt-1 inline-flex items-center rounded border border-red-300 bg-white px-2.5 py-1 text-xs font-medium text-red-800 hover:bg-red-50"
-                    >
-                      Try again
-                    </button>
-                  ) : null}
-                </div>
-              </div>
-            </div>
-          )}
-
           <div className="space-y-5">
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-2">
@@ -899,7 +933,10 @@ const CreditCardBill = ({ category = 'credit-card', categoryLabel = '', onPaymen
               <div className="p-4 bg-amber-50 border border-amber-200 rounded-lg space-y-3">
                 <div className="flex items-center justify-between gap-3">
                   <label className="block text-sm font-medium text-gray-900">
-                    Plan {planMdmMandatory ? '(required)' : '(optional)'}
+                    Select plan {planMdmMandatory ? '(required)' : '(optional)'}
+                    <span className="block text-xs font-normal text-amber-900 mt-0.5">
+                      This biller uses recharge plans. Choose a plan before fetch/pay.
+                    </span>
                   </label>
                   <Button
                     type="button"
@@ -968,48 +1005,78 @@ const CreditCardBill = ({ category = 'credit-card', categoryLabel = '', onPaymen
 
         {billDetails && (
           <Card
-            title="Bill Details"
-            subtitle="Review your bill information before proceeding to payment"
+            title={billDetails.presentationMode === 'amount_load' ? 'Payment Details' : 'Bill Details'}
+            subtitle={
+              billDetails.presentationMode === 'amount_load'
+                ? 'Enter the amount to load or pay for this biller'
+                : 'Review your bill information before proceeding to payment'
+            }
             padding="md"
             className="scroll-mt-28 shadow-sm"
           >
             <div className="space-y-2">
+              {billDetails.presentationMode !== 'amount_load' || (billDetails.name && billDetails.name !== 'Amount payment') ? (
               <div className="flex items-center justify-between gap-3 rounded-lg bg-gray-50 px-3 py-2.5 text-sm">
                 <span className="text-gray-600">Name</span>
                 <span className="font-semibold text-gray-900 text-right">{billDetails.name}</span>
               </div>
+              ) : null}
 
+              {billDetails.telephoneNumber && billDetails.telephoneNumber !== 'N/A' ? (
               <div className="flex items-center justify-between gap-3 rounded-lg bg-gray-50 px-3 py-2.5 text-sm">
                 <span className="text-gray-600">Telephone Number</span>
                 <span className="font-semibold text-gray-900 text-right">{billDetails.telephoneNumber}</span>
               </div>
+              ) : null}
 
+              {billDetails.dueDate ? (
               <div className="flex items-center justify-between gap-3 rounded-lg bg-gray-50 px-3 py-2.5 text-sm">
                 <span className="text-gray-600">Due Date</span>
                 <span className="font-semibold text-gray-900 text-right">{formatDate(billDetails.dueDate)}</span>
               </div>
+              ) : null}
 
+              {Number(billDetails.minimumDueAmount || 0) > 0 ? (
               <div className="flex items-center justify-between gap-3 rounded-lg bg-gray-50 px-3 py-2.5 text-sm">
                 <span className="text-gray-600">Minimum Due Amount</span>
                 <span className="font-semibold text-gray-900 tabular-nums text-right">
                   {formatCurrency(billDetails.minimumDueAmount)}
                 </span>
               </div>
+              ) : null}
 
+              {Number(billDetails.maximumPayable || 0) > 0 ? (
+              <div className="flex items-center justify-between gap-3 rounded-lg bg-gray-50 px-3 py-2.5 text-sm">
+                <span className="text-gray-600">Maximum Payable</span>
+                <span className="font-semibold text-gray-900 tabular-nums text-right">
+                  {formatCurrency(billDetails.maximumPayable)}
+                </span>
+              </div>
+              ) : null}
+
+              {Number(billDetails.totalDueAmount || billDetails.billAmount || 0) > 0 ? (
               <div
                 ref={billAmountAnchorRef}
                 id="bbps-bill-amount"
                 className="flex scroll-mt-28 items-center justify-between gap-3 rounded-lg border border-blue-200 bg-blue-50 px-3 py-3 text-sm"
               >
-                <span className="font-medium text-gray-700">
-                  {billDetails.adhoc ? 'Enter payment amount below' : 'Total Due Amount'}
-                </span>
+                <span className="font-medium text-gray-700">Total Due Amount</span>
                 <span className="text-lg font-bold tabular-nums text-blue-600">
-                  {billDetails.adhoc ? '—' : formatCurrency(billDetails.totalDueAmount)}
+                  {formatCurrency(billDetails.totalDueAmount || billDetails.billAmount)}
                 </span>
               </div>
+              ) : billDetails.presentationMode === 'amount_load' ? (
+              <div
+                ref={billAmountAnchorRef}
+                id="bbps-bill-amount"
+                className="flex scroll-mt-28 items-center justify-between gap-3 rounded-lg border border-blue-200 bg-blue-50 px-3 py-3 text-sm"
+              >
+                <span className="font-medium text-gray-700">Amount to load / pay</span>
+                <span className="text-lg font-bold tabular-nums text-blue-600">Enter below</span>
+              </div>
+              ) : null}
 
-              {planMdmActive && selectedPlanId ? (
+              {(billDetails.presentationMode === 'plan' || planMdmActive) && selectedPlanId ? (
                 <div className="flex items-center justify-between gap-3 rounded-lg bg-amber-50 px-3 py-2.5 text-sm border border-amber-200">
                   <span className="text-gray-700">Selected plan</span>
                   <span className="font-semibold text-gray-900 text-right">
@@ -1020,9 +1087,13 @@ const CreditCardBill = ({ category = 'credit-card', categoryLabel = '', onPaymen
               ) : null}
 
               <div className="mt-4 rounded-lg border border-gray-200 bg-gray-50 p-3 sm:p-4">
-                <h4 className="mb-3 text-sm font-semibold text-gray-900">Select Payment Amount</h4>
+                <h4 className="mb-3 text-sm font-semibold text-gray-900">
+                  {billDetails.presentationMode === 'amount_load'
+                    ? 'Enter Amount'
+                    : 'Select Payment Amount'}
+                </h4>
                 <div className="space-y-3">
-                  {!billDetails.adhoc && Number(billDetails.totalDueAmount || 0) > 0 ? (
+                  {Number(billDetails.totalDueAmount || billDetails.billAmount || 0) > 0 ? (
                   <label className="flex items-center space-x-3 cursor-pointer">
                     <input
                       type="radio"
@@ -1035,13 +1106,13 @@ const CreditCardBill = ({ category = 'credit-card', categoryLabel = '', onPaymen
                     <div className="flex-1">
                       <span className="text-sm font-medium text-gray-900">Total Due Amount</span>
                       <span className="ml-2 text-sm font-bold text-blue-600">
-                        {formatCurrency(billDetails.totalDueAmount)}
+                        {formatCurrency(billDetails.totalDueAmount || billDetails.billAmount)}
                       </span>
                     </div>
                   </label>
                   ) : null}
 
-                  {!billDetails.adhoc && Number(billDetails.minimumDueAmount || 0) > 0 ? (
+                  {Number(billDetails.minimumDueAmount || 0) > 0 ? (
                   <label className="flex items-center space-x-3 cursor-pointer">
                     <input
                       type="radio"
@@ -1060,20 +1131,29 @@ const CreditCardBill = ({ category = 'credit-card', categoryLabel = '', onPaymen
                   </label>
                   ) : null}
 
+                  {billDetails.allowCustom !== false ? (
                   <label className="flex items-center space-x-3 cursor-pointer">
                     <input
                       type="radio"
                       name="paymentAmount"
                       value="custom"
-                      checked={paymentAmountType === 'custom' || Boolean(billDetails.adhoc)}
+                      checked={
+                        paymentAmountType === 'custom'
+                        || (billDetails.presentationMode === 'amount_load' && paymentAmountType !== 'total' && paymentAmountType !== 'minimum')
+                      }
                       onChange={(e) => setPaymentAmountType(e.target.value)}
                       className="w-4 h-4 text-blue-600 focus:ring-blue-500"
                     />
                     <div className="flex-1">
                       <span className="text-sm font-medium text-gray-900">
-                        {billDetails.adhoc ? 'Payment Amount (required)' : 'Custom Amount'}
+                        {billDetails.presentationMode === 'amount_load'
+                          ? 'Amount to load / pay (required)'
+                          : billDetails.adhoc
+                            ? 'Custom / Partial Amount'
+                            : 'Custom Amount'}
                       </span>
-                      {(paymentAmountType === 'custom' || billDetails.adhoc) && (
+                      {(paymentAmountType === 'custom'
+                        || billDetails.presentationMode === 'amount_load') && (
                         <input
                           type="number"
                           value={customAmount}
@@ -1085,19 +1165,43 @@ const CreditCardBill = ({ category = 'credit-card', categoryLabel = '', onPaymen
                             }
                             const value = parseFloat(raw);
                             if (Number.isNaN(value) || value < 0) return;
-                            const maxDue = Number(billDetails.totalDueAmount || 0);
-                            if (!billDetails.adhoc && maxDue > 0 && value > maxDue) return;
+                            const maxCap = Number(
+                              billDetails.amountMax
+                              || billDetails.maximumPayable
+                              || 0
+                            );
+                            if (maxCap > 0 && value > maxCap) return;
                             setCustomAmount(raw);
                           }}
-                          placeholder="Enter amount (min ₹50)"
-                          min={0}
-                          max={billDetails.adhoc || !Number(billDetails.totalDueAmount || 0) ? undefined : billDetails.totalDueAmount}
+                          placeholder="Enter amount"
+                          min={Number(billDetails.amountMin || 0) || 0}
+                          max={
+                            Number(billDetails.amountMax || billDetails.maximumPayable || 0) || undefined
+                          }
                           step="0.01"
-                          className="ml-3 px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 w-48"
+                          className="ml-3 mt-2 px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 w-48"
                         />
                       )}
+                      <p className="mt-1 text-xs text-gray-500">
+                        {Number(billDetails.minimumDueAmount || 0) > 0
+                          ? `Suggested min due ${formatCurrency(Number(billDetails.minimumDueAmount))}`
+                          : 'Any positive amount allowed'}
+                        {Number(billDetails.amountMax || billDetails.maximumPayable || 0) > 0
+                          ? ` · Max ${formatCurrency(Number(billDetails.amountMax || billDetails.maximumPayable || 0))}`
+                          : ''}
+                      </p>
+                      {paymentAmountType === 'custom' && paymentAmountOutOfRange ? (
+                        <p className="mt-1 text-xs text-red-600">
+                          Enter an amount within the allowed range before paying.
+                        </p>
+                      ) : null}
                     </div>
                   </label>
+                  ) : (
+                    <p className="text-xs text-gray-600">
+                      This biller requires the exact bill amount. Custom / partial payment is not allowed.
+                    </p>
+                  )}
                 </div>
               </div>
 
@@ -1124,16 +1228,28 @@ const CreditCardBill = ({ category = 'credit-card', categoryLabel = '', onPaymen
                           : `Based on admin setting: flat ${formatCurrency(Number(quote.wallet_service_charge_flat || 0))} per payment.`}
                       </p>
                     ) : null}
-                    {quote?.shadow_mode && (
-                      <div className="flex justify-between items-center py-2 border-b border-gray-200">
-                        <span className="text-amber-800">Computed Charge (shadow):</span>
-                        <span className="font-semibold text-amber-800">{formatCurrency(Number(quote?.computed_charge || 0))}</span>
-                      </div>
-                    )}
                     <div className="flex justify-between items-center pt-3 bg-blue-50 p-3 rounded-lg">
                       <span className="text-lg font-bold text-gray-900">Total Deducted from Wallet:</span>
                       <span className="text-2xl font-bold text-red-600">{formatCurrency(totalDeducted)}</span>
                     </div>
+                    {String(paymentMode || '').toLowerCase() === 'cash' && getPaymentAmount() >= 50000 ? (
+                      <div className="mt-3 space-y-2">
+                        <label className="block text-sm font-medium text-gray-800">
+                          Customer PAN <span className="text-red-500">*</span>
+                        </label>
+                        <input
+                          type="text"
+                          value={cashPan}
+                          onChange={(e) => setCashPan(e.target.value.toUpperCase().replace(/[^A-Z0-9]/g, '').slice(0, 10))}
+                          placeholder="ABCDE1234F"
+                          maxLength={10}
+                          className="w-full max-w-xs px-3 py-2 border border-gray-300 rounded-lg uppercase tracking-wider"
+                        />
+                        <p className="text-xs text-amber-800">
+                          Cash payments of ₹50,000 or more require PAN (BBPS rule).
+                        </p>
+                      </div>
+                    ) : null}
                     {bbpsWallet < totalDeducted && (
                       <div className="mt-3 p-3 bg-red-50 border border-red-200 rounded-lg flex items-center space-x-2">
                         <FaCircleExclamation className="text-red-600" size={18} />
@@ -1153,6 +1269,7 @@ const CreditCardBill = ({ category = 'credit-card', categoryLabel = '', onPaymen
               disabled={
                 bbpsMaintenance ||
                 (paymentAmountType === 'custom' && (!customAmount || parseFloat(customAmount) <= 0)) ||
+                paymentAmountOutOfRange ||
                 bbpsWallet < totalDeducted ||
                 !quote ||
                 loading ||
@@ -1215,12 +1332,37 @@ const CreditCardBill = ({ category = 'credit-card', categoryLabel = '', onPaymen
         isOpen={showPaymentModal && billDetails !== null && !bbpsMaintenance}
         onClose={() => {
           setShowPaymentModal(false);
-          setError('');
+          clearErrors();
         }}
         onVerify={handleMPINSubmit}
         title={`Enter MPIN to Confirm Payment - ${formatCurrency(totalDeducted)}`}
-        error={error}
+        error=""
         loading={loading}
+      />
+
+      <FeedbackModal
+        open={Boolean(error)}
+        onClose={clearErrors}
+        title={errorMeta?.title || 'Could not complete this request'}
+        description={[
+          error,
+          errorMeta?.hint || '',
+          errorMeta?.reference ? `Reference: ${errorMeta.reference}` : '',
+        ]
+          .filter(Boolean)
+          .join('\n\n')}
+        primaryAction={
+          errorMeta?.retryable
+            ? {
+                label: 'Try again',
+                onClick: () => {
+                  clearErrors();
+                  handleFetchBill();
+                },
+              }
+            : undefined
+        }
+        secondaryLabel={errorMeta?.retryable ? 'Close' : 'Close'}
       />
 
       {showConfirmPayModal && billDetails && !bbpsMaintenance && (() => {

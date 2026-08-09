@@ -516,7 +516,7 @@ class BillAvenueClient:
             ),
         )
 
-        if _force_json and endpoint_name == 'plan_pull':
+        if _force_json and endpoint_name in ('plan_pull', 'biller_info'):
             mapping = _ENDPOINTS_BY_KEY.get(endpoint_name) or {}
             endpoint = str(mapping.get('json') or mapping.get('xml') or '').strip()
         else:
@@ -766,7 +766,7 @@ class BillAvenueClient:
 
         # UAT safety net: retry with alternate crypto if upstream says Invalid ENC.
         if (
-            endpoint_name in ('bill_pay', 'plan_pull', 'bill_fetch', 'bill_validate')
+            endpoint_name in ('bill_pay', 'plan_pull', 'bill_fetch', 'bill_validate', 'biller_info')
             and not _enc_retry_attempted
             and _has_invalid_enc_request(normalized if isinstance(normalized, dict) else {})
         ):
@@ -813,20 +813,38 @@ class BillAvenueClient:
                 except BillAvenueClientError as exc:
                     last_exc = exc
                     continue
-            if last_exc and endpoint_name != 'plan_pull':
+            if last_exc and endpoint_name not in ('plan_pull', 'biller_info'):
                 raise last_exc
-            # plan_pull: fall through to JSON path fallback below when still failing.
+            # plan_pull / biller_info: fall through to JSON path fallback below when still failing.
 
-        # Plan MDM Postman samples use /json; if XML+ENC still fails, retry once as JSON.
+        # Plan MDM / biller MDM: XML may return undecryptable ciphertext for Invalid ENC;
+        # /json returns plaintext responseCode=205 DE001 so operators see the real cause.
+        raw_for_fallback = ''
+        if isinstance(normalized, dict):
+            raw_for_fallback = str(normalized.get('raw') or '').strip()
+        missing_code = not str(code or '').strip()
+        biller_info_undecrypted = (
+            endpoint_name == 'biller_info'
+            and missing_code
+            and (
+                self._looks_like_hex_cipher(raw_for_fallback)
+                or (isinstance(normalized, dict) and set(normalized.keys()) <= {'raw', '_mpayhub_parse_note'})
+            )
+        )
         if (
-            endpoint_name == 'plan_pull'
+            endpoint_name in ('plan_pull', 'biller_info')
             and not _json_fallback_attempted
             and not _force_json
             and self._variant() == 'xml'
-            and _has_invalid_enc_request(normalized if isinstance(normalized, dict) else {})
+            and (
+                _has_invalid_enc_request(normalized if isinstance(normalized, dict) else {})
+                or biller_info_undecrypted
+            )
         ):
             logger.warning(
-                "BillAvenue plan_pull still Invalid ENC on XML; retrying JSON path (requestId=%s).",
+                "BillAvenue %s XML response unusable (invalid ENC or undecrypted body); "
+                "retrying JSON path (requestId=%s).",
+                endpoint_name,
                 env.get('requestId', ''),
             )
             return self._post(

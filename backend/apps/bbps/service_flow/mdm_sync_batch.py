@@ -162,7 +162,20 @@ def run_mdm_sync_batch(
             last_status='failed',
             last_error=str(exc),
         )
-        raise
+        # Soft-fail like other MDM gateway codes so admin UI keeps cached catalog usable.
+        msg = str(exc or '')
+        cached_count = biller_master_qs_for_env(sync_env).count()
+        raise MdmSyncBatchError(
+            msg,
+            code='205',
+            data={
+                'billavenue_code': '205',
+                'mdm_cached_count': cached_count,
+                'quota': sync_quota_snapshot(sync_env),
+                'request_id': request_id,
+                'biller_ids': ids,
+            },
+        ) from exc
     except BillAvenueClientError as exc:
         BbpsSyncUsageLog.objects.filter(is_deleted=False, usage_date=usage_date, environment=sync_env).update(
             last_status='failed',
@@ -173,7 +186,7 @@ def run_mdm_sync_batch(
         low = msg.lower()
         if 'code=001' in msg:
             code = '001'
-        elif 'code=205' in msg:
+        elif 'code=205' in msg or 'de001' in low or 'invalid enc request' in low:
             code = '205'
         elif 'code=202' in msg or 'de202' in low:
             code = '202'

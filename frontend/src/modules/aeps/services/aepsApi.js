@@ -42,6 +42,7 @@ const wrap = async (promise) => {
         'Request failed',
       code: (typeof detail === 'object' ? detail?.code : null) || data?.code,
       errors: data?.errors,
+      data: data?.data ?? null,
     };
   }
 };

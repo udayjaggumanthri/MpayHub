@@ -113,12 +113,15 @@ const resolveBillerName = (txn) => {
 const resolveBillNumber = (txn, identity) => {
   const fromReceipt = pickReceipt(txn, 'bill_number');
   if (fromReceipt) return fromReceipt;
-  const fromDetail = pickDetail(txn, [/bill.?number/, /consumer.?number/, /customer.?ref/]);
+  const fromTxn = String(txn?.billNumber || txn?.bill_number || '').trim();
+  if (fromTxn && !/^n\/?a$/i.test(fromTxn)) return fromTxn;
+  const fromDetail = pickDetail(txn, [/bill.?number/, /customer.?ref/]);
   if (fromDetail) return fromDetail;
   const cat = String(txn?.billType || '').toLowerCase();
   const catNorm = normalizeCategorySlug(cat);
   if (catNorm === 'fastag' || cat.includes('fastag')) {
-    return identity?.value || pickDetail(txn, [/vehicle/, /registration/, /\bvrn\b/]) || '';
+    // Prefer a real bill number; only fall back to vehicle identity when bill number absent.
+    return pickDetail(txn, [/vehicle/, /registration/, /\bvrn\b/]) || identity?.value || '';
   }
   return '';
 };
@@ -206,7 +209,21 @@ export const buildBbpsReceiptRows = (txn, identity = { label: 'Customer Number',
     pickDetail(txn, [/init.?channel/, /initiating.?channel/]) ||
     '';
 
-  const identityValue = identity?.value || txn?.customerId || pickDetail(txn, [/customer/, /mobile/, /consumer/]);
+  const identityValue =
+    identity?.value ||
+    txn?.customerId ||
+    pickDetail(txn, [
+      /service.?number/,
+      /consumer/,
+      /customer/,
+      /ca.?number/,
+      /account/,
+      /vehicle/,
+      /mobile/,
+      /subscriber/,
+      /meter/,
+      /last.?4/,
+    ]);
 
   return [
     { label: 'Biller ID', value: displayValue(txn?.billerId) },
@@ -293,7 +310,14 @@ export const buildBbpsReceiptPrintContext = (txn, identity = { label: 'Customer 
   const total = Number(txn?.totalDeducted ?? amount + ccf);
   const status = String(txn?.status || '').toUpperCase();
   const isSuccess = status === 'SUCCESS';
-  const billNumber = displayValue(resolveBillNumber(txn, identity) || identity?.value, { optional: true });
+  const billNumberRaw = resolveBillNumber(txn, identity);
+  const identityLabel = String(identity?.label || pickReceipt(txn, 'identity_label') || 'Customer ID').trim();
+  const identityValue = displayValue(
+    identity?.value || pickReceipt(txn, 'identity_value') || '',
+    { optional: true }
+  );
+  // Keep Bill Number distinct from consumer account (Service Number / Customer ID / etc.).
+  const billNumber = displayValue(billNumberRaw, { optional: true });
 
   const paymentMode =
     pickReceipt(txn, 'payment_mode') ||
@@ -306,6 +330,8 @@ export const buildBbpsReceiptPrintContext = (txn, identity = { label: 'Customer 
     receiptNo: txn?.serviceId || txn?.id || '—',
     customerName: resolveCustomerName(txn),
     mobileNo: resolveMobile(txn),
+    identityLabel,
+    identityValue,
     billNumber,
     billNumberLabel: 'Bill Number',
     paymentStatus: isSuccess ? 'Paid' : status.charAt(0) + status.slice(1).toLowerCase(),
@@ -331,7 +357,11 @@ export const buildBbpsReceiptSummary = (txn, identity = { label: 'Customer Numbe
 
   const amount = Number(txn?.amount || 0);
   const biller = resolveBillerName(txn);
-  const ref = identity?.value || txn?.customerId || pickDetail(txn, [/customer/, /mobile/, /vehicle/]) || '';
+  const ref =
+    identity?.value ||
+    txn?.customerId ||
+    pickDetail(txn, [/service.?number/, /consumer/, /customer/, /vehicle/, /mobile/, /ca.?number/, /account/]) ||
+    '';
 
   return `Your payment of ${formatCurrency(amount)} to ${biller}${ref ? ` for ${ref}` : ''} was successful. Thank you for using mPayHub.`;
 };

@@ -110,7 +110,11 @@ const AepsLayout = ({ children }) => {
             <p className="mt-1 text-sm text-slate-600">{loading ? 'Loading status…' : nextHint}</p>
           </div>
           <div className="flex flex-wrap gap-2">
-            {status?.entitled ? (
+            {loading ? (
+              <span className="rounded-full bg-slate-100 px-3 py-1 text-xs font-semibold text-slate-600 ring-1 ring-slate-200">
+                Checking access…
+              </span>
+            ) : status?.entitled ? (
               <span className="rounded-full bg-emerald-50 px-3 py-1 text-xs font-semibold text-emerald-800 ring-1 ring-emerald-200">
                 Entitled
               </span>

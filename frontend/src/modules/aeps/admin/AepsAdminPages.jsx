@@ -28,6 +28,7 @@ export const AepsAdminProvider = () => {
   const [form, setForm] = useState({
     environment: 'prod',
     is_active: true,
+    onboarding_api_style: 'java',
     super_merchant_id: '1501',
     super_merchant_login_id: 'Mpayhubd',
     ...PROD_URLS,
@@ -38,6 +39,7 @@ export const AepsAdminProvider = () => {
   });
   const [meta, setMeta] = useState(null);
   const [envs, setEnvs] = useState([]);
+  const [onboardingEndpoints, setOnboardingEndpoints] = useState([]);
   const [msg, setMsg] = useState('');
   const [probeJson, setProbeJson] = useState(null);
   const [saving, setSaving] = useState(false);
@@ -46,11 +48,13 @@ export const AepsAdminProvider = () => {
     if (!data) return;
     setMeta(data);
     setEnvs(data.environments || []);
+    setOnboardingEndpoints(data.onboarding_endpoints || []);
     const presets = data.presets?.[data.environment] || (data.environment === 'uat' ? UAT_URLS : PROD_URLS);
     setForm((f) => ({
       ...f,
       environment: data.environment || env,
       is_active: !!data.is_active,
+      onboarding_api_style: data.onboarding_api_style || 'java',
       super_merchant_id: data.super_merchant_id || (data.environment === 'uat' ? '' : '1501'),
       super_merchant_login_id: data.super_merchant_login_id || (data.environment === 'uat' ? '' : 'Mpayhubd'),
       onboarding_base_url: data.onboarding_base_url || presets.onboarding_base_url,
@@ -114,6 +118,26 @@ export const AepsAdminProvider = () => {
     await save(null, { make_active: true, is_active: true });
   };
 
+  const activateOnboardingApi = async (api) => {
+    setSaving(true);
+    setProbeJson(null);
+    const body = {
+      environment: api.environment,
+      onboarding_api_style: api.style,
+      activate_onboarding_style: api.style,
+      make_active: true,
+      is_active: true,
+    };
+    const res = await aepsAPI.adminProviderSave(body);
+    if (res.success) {
+      setMsg(`Active onboarding API: ${api.label}`);
+      await loadEnv(api.environment);
+    } else {
+      setMsg(res.message || 'Could not activate onboarding API');
+    }
+    setSaving(false);
+  };
+
   const loadBundledCert = () => {
     if (meta?.bundled_public_certificate) {
       setForm((f) => ({ ...f, rsa_public_key_pem: meta.bundled_public_certificate }));
@@ -148,13 +172,14 @@ export const AepsAdminProvider = () => {
 
   const copyProbeForEmail = async () => {
     if (!probeJson) return;
-    const payload = {
+    const payload = probeJson.fingpay_exchange?.share_with_tapits || {
       endpoint: probeJson.endpoint,
       server_ip: probeJson.server_ip || meta?.server_egress_ip || '57.131.39.21',
       login: probeJson.login,
       super_merchant_id: probeJson.super_merchant_id,
       request_plain_json: probeJson.request_plain_json,
       response_plain_json: probeJson.response_plain_json,
+      fingpay_exchange: probeJson.fingpay_exchange,
     };
     try {
       await navigator.clipboard.writeText(JSON.stringify(payload, null, 2));
@@ -172,6 +197,9 @@ export const AepsAdminProvider = () => {
   };
 
   const activeLabel = envs.find((e) => e.is_active)?.environment || meta?.environment || 'prod';
+  const activeOnboarding = (onboardingEndpoints.length ? onboardingEndpoints : meta?.onboarding_endpoints || []).find(
+    (x) => x.is_active
+  );
   const uatUsingProdLogin =
     env === 'uat' &&
     String(form.super_merchant_login_id || '').toLowerCase() === 'mpayhubd' &&
@@ -181,8 +209,9 @@ export const AepsAdminProvider = () => {
     <div className="mx-auto max-w-3xl space-y-4 p-4">
       <h1 className="text-2xl font-bold text-slate-900">AEPS provider (Fingpay)</h1>
       <p className="text-sm text-slate-500">
-        Store <strong>UAT</strong> and <strong>Production</strong> credentials separately. Only one environment is
-        active for live calls. Leave password blank to keep the encrypted value.
+        Store <strong>UAT</strong> and <strong>Production</strong> credentials separately. Choose one of the four
+        onboarding APIs (UAT/Prod × Java/PHP) — only one can be live-active for Submit. Leave password blank to keep
+        the encrypted value.
       </p>
 
       {uatUsingProdLogin ? (
@@ -223,7 +252,60 @@ export const AepsAdminProvider = () => {
         })}
         <span className="ml-auto text-xs text-slate-500">
           Live calls use: <strong className="uppercase">{activeLabel}</strong>
+          {activeOnboarding ? (
+            <>
+              {' '}
+              · <strong>{String(activeOnboarding.style || '').toUpperCase()}</strong>
+            </>
+          ) : null}
         </span>
+      </div>
+
+      <div className="rounded-xl border border-indigo-200 bg-indigo-50 px-4 py-3 text-sm text-indigo-950 shadow-sm">
+        <p className="font-semibold">Onboarding create API (pick one)</p>
+        <p className="mt-1 text-xs text-indigo-900/80">
+          Doc lists Java/.NET <code>…/merchant/creation/v2</code> and PHP <code>…/merchant/php/creation/v2</code> for
+          both UAT and Production. Activating one deactivates the other three.
+        </p>
+        <div className="mt-3 grid gap-2 sm:grid-cols-2">
+          {(onboardingEndpoints.length ? onboardingEndpoints : []).map((api) => (
+            <div
+              key={api.id}
+              className={`rounded-lg border bg-white p-3 ${
+                api.is_active ? 'border-indigo-500 ring-2 ring-indigo-200' : 'border-slate-200'
+              }`}
+            >
+              <div className="flex items-start justify-between gap-2">
+                <div>
+                  <p className="text-sm font-semibold text-slate-900">{api.label}</p>
+                  <p className="mt-1 break-all font-mono text-[11px] text-slate-600">{api.endpoint}</p>
+                  <p className="mt-1 text-[11px] text-slate-500">
+                    AES {String(api.aes_mode || '').toUpperCase()}
+                    {api.configured ? '' : ' · credentials not saved yet'}
+                    {api.is_active ? ' · LIVE' : ''}
+                  </p>
+                </div>
+                <button
+                  type="button"
+                  disabled={saving || api.is_active}
+                  onClick={() => activateOnboardingApi(api)}
+                  className={`shrink-0 rounded-lg px-2.5 py-1.5 text-xs font-semibold ${
+                    api.is_active
+                      ? 'bg-indigo-600 text-white'
+                      : 'border border-indigo-300 bg-indigo-50 text-indigo-900 hover:bg-indigo-100 disabled:opacity-50'
+                  }`}
+                >
+                  {api.is_active ? 'Active' : 'Activate'}
+                </button>
+              </div>
+            </div>
+          ))}
+        </div>
+        {activeOnboarding ? (
+          <p className="mt-3 text-xs">
+            Submit currently posts to <code className="break-all">{activeOnboarding.endpoint}</code>
+          </p>
+        ) : null}
       </div>
 
       <div className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-950">
@@ -243,7 +325,17 @@ export const AepsAdminProvider = () => {
         <p className="font-semibold">Editing {env.toUpperCase()} endpoints</p>
         <ul className="mt-2 list-disc space-y-1 pl-5">
           <li>
-            Onboarding: <code>{form.onboarding_base_url}</code>
+            Onboarding base: <code>{form.onboarding_base_url}</code>
+          </li>
+          <li>
+            Create API style:{' '}
+            <strong>{String(form.onboarding_api_style || 'java').toUpperCase()}</strong> →{' '}
+            <code className="break-all">
+              {meta?.onboarding_create_url ||
+                `${form.onboarding_base_url}/api/onboarding/merchant/${
+                  form.onboarding_api_style === 'php' ? 'php/' : ''
+                }creation/v2`}
+            </code>
           </li>
           <li>
             eKYC: <code>{form.ekyc_base_url}</code>
@@ -252,6 +344,26 @@ export const AepsAdminProvider = () => {
             AEPS: <code>{form.aeps_base_url}</code>
           </li>
         </ul>
+        <div className="mt-3 flex flex-wrap gap-2">
+          {[
+            { id: 'java', label: 'Java / .NET create' },
+            { id: 'php', label: 'PHP create' },
+          ].map((opt) => (
+            <button
+              key={opt.id}
+              type="button"
+              onClick={() => setForm((f) => ({ ...f, onboarding_api_style: opt.id }))}
+              className={`rounded-lg px-3 py-1.5 text-xs font-semibold ring-1 ${
+                form.onboarding_api_style === opt.id
+                  ? 'bg-slate-900 text-white ring-slate-900'
+                  : 'bg-white text-slate-700 ring-slate-300'
+              }`}
+            >
+              {opt.label}
+            </button>
+          ))}
+          <span className="self-center text-[11px] opacity-80">Saved with the form below (or use Activate cards above).</span>
+        </div>
       </div>
 
       <div className="rounded-xl border border-slate-200 bg-white px-4 py-3 shadow-sm">

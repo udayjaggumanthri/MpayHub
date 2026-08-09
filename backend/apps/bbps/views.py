@@ -2903,21 +2903,30 @@ def sync_billers_view(request):
         code = e.code
         data = dict(e.data or {})
         if code in ('001', '205', 'PARSE', '202'):
-            hint = (
-                f'BillAvenue returned a malformed/partial MDM payload (missing responseCode). '
-                f'Existing {live.upper()} synced catalog remains usable; retry with a smaller ID list '
-                f'(e.g. 25 at a time) or verify upstream gateway response format.'
-                if code == 'PARSE'
-                else (
+            msg_l = str(e or '').lower()
+            if code == 'PARSE':
+                hint = (
+                    f'BillAvenue returned a malformed/partial MDM payload (missing responseCode). '
+                    f'Existing {live.upper()} synced catalog remains usable; retry with a smaller ID list '
+                    f'(e.g. 25 at a time) or verify upstream gateway response format.'
+                )
+            elif code == '202':
+                hint = (
                     f'BillAvenue rejected the MDM request size/format (code {code}). '
                     f'Try syncing fewer biller IDs per call (25–40). Existing {live.upper()} catalog remains usable.'
-                    if code == '202'
-                    else (
-                        f'BillAvenue blocked live MDM call for this {live.upper()} config/agent at this moment. '
-                        f'Existing {live.upper()} synced catalog remains usable; complete prerequisites and retry sync later.'
-                    )
                 )
-            )
+            elif code == '205' and ('de001' in msg_l or 'invalid enc' in msg_l):
+                hint = (
+                    f'BillAvenue rejected the encrypted UAT/PROD MDM request (DE001 — Invalid ENC). '
+                    f'Open BBPS Console → BillAvenue Settings for {live.upper()}, re-paste the full Working Key '
+                    f'(and Access Code / IV) from the BillAvenue portal for this institute, save, then retry Sync. '
+                    f'Existing {live.upper()} synced catalog remains usable.'
+                )
+            else:
+                hint = (
+                    f'BillAvenue blocked live MDM call for this {live.upper()} config/agent at this moment. '
+                    f'Existing {live.upper()} synced catalog remains usable; complete prerequisites and retry sync later.'
+                )
             data['hint'] = hint
             return Response(
                 {'success': False, 'data': data, 'message': str(e), 'errors': []},
@@ -2926,15 +2935,24 @@ def sync_billers_view(request):
         return Response({'success': False, 'data': data or None, 'message': str(e), 'errors': []}, status=400)
     except BillAvenueEntitlementError as e:
         logger.warning('sync-billers BillAvenue entitlement (205): %s', e)
+        msg_l = str(e or '').lower()
+        if 'de001' in msg_l or 'invalid enc' in msg_l:
+            hint = (
+                'BillAvenue rejected the encrypted MDM request (DE001 — Invalid ENC). '
+                'Open BBPS Console → BillAvenue Settings for this environment, re-paste the full Working Key '
+                '(and Access Code / IV) from the BillAvenue portal for this institute, save, then retry Sync.'
+            )
+        else:
+            hint = (
+                'BillAvenue MDM entitlement/profile mismatch for this institute or agent. '
+                'Ask BillAvenue to confirm MDM access for your accessCode/instituteId/agentId and server egress IP.'
+            )
         return Response(
             {
                 'success': False,
                 'data': {
                     'billavenue_code': '205',
-                    'hint': (
-                        'BillAvenue MDM entitlement/profile mismatch for this institute or agent. '
-                        'Ask BillAvenue to confirm MDM access for your accessCode/instituteId/agentId and server egress IP.'
-                    ),
+                    'hint': hint,
                 },
                 'message': str(e),
                 'errors': ['205'],

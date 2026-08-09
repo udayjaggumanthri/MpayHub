@@ -74,12 +74,18 @@ function Section({ title, subtitle, children, action }) {
   );
 }
 
-const AepsSetup = ({ aepsStatus: status, refreshStatus }) => {
+const AepsSetup = ({ aepsStatus: status, refreshStatus, loadingStatus }) => {
   const [form, setForm] = useState(EMPTY);
   const [meta, setMeta] = useState(null);
   const [masters, setMasters] = useState({ states: [], company_types: [] });
+  const [savedImages, setSavedImages] = useState({
+    merchantPanImage: false,
+    maskedAadharImage: false,
+    backgroundImageOfShop: false,
+  });
   const [otp, setOtp] = useState('');
   const [msg, setMsg] = useState({ type: '', text: '' });
+  const [fingpayExchange, setFingpayExchange] = useState(null);
   const [busy, setBusy] = useState(false);
   const [loading, setLoading] = useState(true);
   const [dirty, setDirty] = useState(false);
@@ -103,6 +109,11 @@ const AepsSetup = ({ aepsStatus: status, refreshStatus }) => {
       setMeta(res.data);
       setMasters(res.data.masters || { states: [], company_types: [] });
       setForm({ ...EMPTY, ...(res.data.form || {}) });
+      setSavedImages({
+        merchantPanImage: !!res.data.saved_images?.merchantPanImage,
+        maskedAadharImage: !!res.data.saved_images?.maskedAadharImage,
+        backgroundImageOfShop: !!res.data.saved_images?.backgroundImageOfShop,
+      });
       setDirty(false);
       if (!res.data.masters?.states?.length) {
         setMsg({
@@ -200,6 +211,14 @@ const AepsSetup = ({ aepsStatus: status, refreshStatus }) => {
     if (!/^[A-Z]{4}0[A-Z0-9]{6}$/i.test(String(form.bankIfscCode || '').trim())) {
       return 'Enter a valid IFSC code.';
     }
+    const imageChecks = [
+      ['merchantPanImage', 'PAN image'],
+      ['maskedAadharImage', 'Masked Aadhaar image'],
+      ['backgroundImageOfShop', 'Shop background image'],
+    ];
+    for (const [key, label] of imageChecks) {
+      if (!form[key] && !savedImages[key]) return `${label} is required.`;
+    }
     return '';
   };
 
@@ -276,14 +295,29 @@ const AepsSetup = ({ aepsStatus: status, refreshStatus }) => {
       },
     });
     if (res.success) {
+      setFingpayExchange(null);
       notify('success', 'Onboarding submitted to Fingpay. Continue with eKYC below.');
       setDirty(false);
       await refreshStatus?.();
       await loadForm();
     } else {
+      const exchange = res.data?.fingpay_exchange || null;
+      setFingpayExchange(exchange);
       notify('error', res.message || 'Onboarding submission failed.');
     }
     setBusy(false);
+  };
+
+  const copyFingpayExchange = async () => {
+    if (!fingpayExchange) return;
+    const pack = fingpayExchange.share_with_tapits || fingpayExchange;
+    const text = JSON.stringify(pack, null, 2);
+    try {
+      await navigator.clipboard.writeText(text);
+      notify('info', 'Fingpay request/response copied — paste it to Tapits.');
+    } catch {
+      notify('error', 'Could not copy automatically. Select the JSON below and copy manually.');
+    }
   };
 
   const startEkyc = async () => {
@@ -339,9 +373,16 @@ const AepsSetup = ({ aepsStatus: status, refreshStatus }) => {
       const dataUrl = String(reader.result || '');
       const b64 = dataUrl.includes(',') ? dataUrl.split(',')[1] : dataUrl;
       setField(key, b64);
+      setSavedImages((prev) => ({ ...prev, [key]: false }));
       notify('info', `${key} attached (${Math.round(file.size / 1024)} KB). Save draft or submit.`);
     };
     reader.readAsDataURL(file);
+  };
+
+  const imageHint = (key) => {
+    if (form[key]) return 'Attached for this session';
+    if (savedImages[key]) return 'Already saved on server — re-upload only to replace';
+    return 'JPEG/PNG under 900KB';
   };
 
   const biometric = async () => {
@@ -363,7 +404,15 @@ const AepsSetup = ({ aepsStatus: status, refreshStatus }) => {
     setBusy(false);
   };
 
-  if (!status?.entitled) {
+  if (loadingStatus || status == null) {
+    return (
+      <div className="rounded-2xl border border-slate-200 bg-white p-10 text-center text-sm text-slate-500 shadow-sm">
+        Checking AEPS access…
+      </div>
+    );
+  }
+
+  if (!status.entitled) {
     return (
       <div className="rounded-2xl border border-slate-200 bg-white p-8 text-center shadow-sm">
         <p className="text-sm font-semibold uppercase tracking-widest text-slate-400">AEPS</p>
@@ -441,6 +490,30 @@ const AepsSetup = ({ aepsStatus: status, refreshStatus }) => {
               Next step: message Tapits to whitelist server IP <strong>57.131.39.21</strong> on Production
               host <code>fingpayap.tapits.in</code>. After they confirm, click Submit to Fingpay again.
             </p>
+          ) : null}
+          {fingpayExchange ? (
+            <div className="mt-3 space-y-2">
+              <div className="flex flex-wrap items-center gap-2">
+                <button
+                  type="button"
+                  onClick={copyFingpayExchange}
+                  className="rounded-lg border border-rose-300 bg-white px-3 py-1.5 text-xs font-medium text-rose-900 hover:bg-rose-100"
+                >
+                  Copy request/response for Tapits
+                </button>
+                <span className="text-xs text-rose-700/80">
+                  Copies endpoint + plain JSON request + HTTP/Fingpay response for Tapits.
+                </span>
+              </div>
+              {fingpayExchange.share_with_tapits?.endpoint ? (
+                <p className="text-xs font-medium text-rose-900">
+                  Endpoint: <code>{fingpayExchange.share_with_tapits.endpoint}</code>
+                </p>
+              ) : null}
+              <pre className="max-h-56 overflow-auto rounded-lg border border-rose-200 bg-white/80 p-2 text-[11px] leading-relaxed text-rose-950">
+                {JSON.stringify(fingpayExchange.share_with_tapits || fingpayExchange, null, 2)}
+              </pre>
+            </div>
           ) : null}
           {dirty && msg.type !== 'error' ? (
             <span className="mt-1 block text-xs opacity-70">(unsaved changes)</span>
@@ -567,7 +640,7 @@ const AepsSetup = ({ aepsStatus: status, refreshStatus }) => {
               maxLength={10}
             />
           </Field>
-          <Field label="PAN image (5023)" hint={form.merchantPanImage ? 'Attached' : 'JPEG/PNG under 900KB'} required>
+          <Field label="PAN image (5023)" hint={imageHint('merchantPanImage')} required>
             <input
               type="file"
               accept="image/*"
@@ -576,7 +649,7 @@ const AepsSetup = ({ aepsStatus: status, refreshStatus }) => {
               onChange={(e) => onImageFile('merchantPanImage', e.target.files?.[0])}
             />
           </Field>
-          <Field label="Masked Aadhaar image (5024)" hint={form.maskedAadharImage ? 'Attached' : 'JPEG/PNG under 900KB'} required>
+          <Field label="Masked Aadhaar image (5024)" hint={imageHint('maskedAadharImage')} required>
             <input
               type="file"
               accept="image/*"
@@ -657,7 +730,7 @@ const AepsSetup = ({ aepsStatus: status, refreshStatus }) => {
           </Field>
           <Field
             label="Shop background image (5041)"
-            hint={form.backgroundImageOfShop ? 'Attached' : 'JPEG/PNG under 900KB'}
+            hint={imageHint('backgroundImageOfShop')}
             className="sm:col-span-2"
             required
           >

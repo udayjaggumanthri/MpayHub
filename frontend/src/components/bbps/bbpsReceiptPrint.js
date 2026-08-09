@@ -252,6 +252,7 @@ export const buildBbpsReceiptPrintHtml = (txn, identity, { mobile = false } = {}
               <div class="card-label">Customer</div>
               <p class="customer-name">${escapeHtml(ctx.customerName)}</p>
               <p class="card-line"><strong>Mobile No:</strong> ${escapeHtml(ctx.mobileNo)}</p>
+              <p class="card-line"><strong>${escapeHtml(ctx.identityLabel || 'Customer ID')}:</strong> ${escapeHtml(ctx.identityValue || '—')}</p>
               <p class="card-line"><strong>${escapeHtml(ctx.billNumberLabel)}:</strong> ${escapeHtml(ctx.billNumber)}</p>
             </div>
             <div class="card">
