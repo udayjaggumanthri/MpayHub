@@ -158,7 +158,15 @@ def build_recon_hash(*, request_body: str, super_merchant_login_id: str, secret_
     return sha256_b64(material)
 
 
-def scrub_sensitive(obj: Any) -> Any:
+def scrub_sensitive(obj: Any, *, for_tapits: bool = False) -> Any:
+    """
+    Redact secrets for logs/UI.
+
+    for_tapits=True keeps Tapits-facing share packs close to the doc SAMPLE REQUEST:
+    - merchantLoginPin shown when it is already an MD5 hex (32 chars)
+    - KYC images shown as truncated base64 previews (same style as the PDF sample)
+    - full Aadhaar still masked
+    """
     SENSITIVE = {
         'aadhaar',
         'aadhar',
@@ -170,21 +178,53 @@ def scrub_sensitive(obj: Any) -> Any:
         'hmac',
         'sessionkey',
         'merchantpin',
+        'merchantloginpin',
         'password',
         'secretkey',
         'photobase64',
     }
+    IMAGE_KEYS = {
+        'merchantpanimage',
+        'maskedaadharimage',
+        'maskedaadhaarimage',
+        'backgroundimageofshop',
+    }
+
+    def _looks_md5(val: Any) -> bool:
+        s = str(val or '')
+        return len(s) == 32 and all(c in '0123456789abcdef' for c in s.lower())
+
+    def _image_preview(val: Any) -> str:
+        s = str(val or '')
+        if len(s) <= 120:
+            return s
+        # Match Fingpay PDF sample style: short base64 prefix (single line)
+        return f'{s[:96]}...[base64 truncated for email, full image sent on wire, total_len={len(s)}]'
+
     if isinstance(obj, dict):
         out = {}
         for k, v in obj.items():
             key_l = str(k).lower().replace('_', '')
-            if key_l in SENSITIVE or 'pid' in key_l or 'aadhaar' in key_l or 'aadhar' in key_l:
+            # Image fields first — maskedAadharImage contains "aadhar" substring
+            if key_l in IMAGE_KEYS or ('image' in key_l and isinstance(v, str) and len(v) > 80):
+                if for_tapits and isinstance(v, str) and len(v) > 40:
+                    out[k] = _image_preview(v)
+                elif isinstance(v, str) and len(v) > 80:
+                    out[k] = f'[BASE64_IMAGE len={len(v)}]'
+                else:
+                    out[k] = scrub_sensitive(v, for_tapits=for_tapits)
+            elif key_l in ('merchantloginpin', 'merchantpin', 'password') and for_tapits and _looks_md5(v):
+                # Doc SAMPLE REQUEST shows MD5 hex for password/merchantLoginPin — share that form
+                out[k] = str(v)
+            elif key_l in ('aadhaarnumber', 'aadharnumber') and for_tapits:
+                out[k] = mask_aadhaar(v)
+            elif key_l in SENSITIVE or 'pid' in key_l or 'aadhaar' in key_l or 'aadhar' in key_l:
                 out[k] = '[REDACTED]'
             else:
-                out[k] = scrub_sensitive(v)
+                out[k] = scrub_sensitive(v, for_tapits=for_tapits)
         return out
     if isinstance(obj, list):
-        return [scrub_sensitive(x) for x in obj]
+        return [scrub_sensitive(x, for_tapits=for_tapits) for x in obj]
     return obj
 
 

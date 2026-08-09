@@ -4,7 +4,7 @@ import uuid
 
 from apps.bbps.catalog.env import get_biller_master
 from apps.bbps.models import BbpsFetchSession
-from apps.bbps.service_flow.compliance import validate_channel_device_fields
+from apps.bbps.service_flow.compliance import build_payment_amount_policy, validate_channel_device_fields
 from apps.bbps.service_flow.validation_service import validate_bill_account
 from apps.integrations.bbps_client import BBPSClient
 from apps.integrations.billavenue.errors import BillAvenueTransportError
@@ -21,6 +21,89 @@ def _fetch_not_supported(requirement: str) -> bool:
     if req in ('NOT_SUPPORTED', 'UNSUPPORTED', 'QUICKPAY', 'QUICKPAY_ONLY', 'OPTIONAL_QUICKPAY'):
         return True
     return 'QUICKPAY' in req and ('ONLY' in req or 'NOT_SUPPORTED' in req)
+
+
+def _plan_mdm_active(master) -> bool:
+    req = str(getattr(master, 'plan_mdm_requirement', '') or '').strip().upper()
+    return req in ('MANDATORY', 'OPTIONAL', 'SUPPORTED')
+
+
+def resolve_presentation_mode(
+    *,
+    master,
+    result: dict,
+    fetch_not_supported: bool = False,
+) -> str:
+    """
+    Partner UI flow mode (enterprise multi-flow).
+
+    - amount_load: no fetch bill snapshot (FASTag/QuickPay/NOT_SUPPORTED)
+    - plan: plan MDM drives amount selection
+    - bill_fetch_adhoc: fetched bill + custom amount allowed (credit cards)
+    - bill_fetch: standard fetched bill
+    """
+    if fetch_not_supported or str((result or {}).get('flow') or '') in ('adhoc', 'adhoc_validate'):
+        return 'amount_load'
+    if _plan_mdm_active(master):
+        return 'plan'
+    adhoc = bool(
+        (result or {}).get('biller_adhoc')
+        or (getattr(master, 'biller_adhoc', False) if master else False)
+    )
+    if adhoc:
+        return 'bill_fetch_adhoc'
+    return 'bill_fetch'
+
+
+def _structured_amounts(result: dict) -> dict:
+    existing = result.get('amounts') if isinstance(result.get('amounts'), dict) else {}
+    bill = str(
+        existing.get('bill')
+        or result.get('bill_amount')
+        or result.get('amount')
+        or '0'
+    )
+    minimum_due = str(existing.get('minimum_due') or result.get('minimum_due') or '0')
+    total_due = str(existing.get('total_due') or result.get('total_due') or bill or '0')
+    maximum_payable = str(existing.get('maximum_payable') or result.get('maximum_payable') or '')
+    return {
+        'bill': bill,
+        'minimum_due': minimum_due,
+        'total_due': total_due,
+        'maximum_payable': maximum_payable,
+    }
+
+
+def _attach_amount_policy(result: dict, master, *, fetch_not_supported: bool = False) -> dict:
+    """Enrich fetch bill_result with amounts, presentation_mode, and payment policy."""
+    if not isinstance(result, dict):
+        return result
+    addl = result.get('additional_info') or []
+    if not isinstance(addl, list):
+        addl = []
+    amounts = _structured_amounts(result)
+    result['amounts'] = amounts
+    result['bill_amount'] = amounts['bill']
+    result['minimum_due'] = amounts['minimum_due']
+    result['total_due'] = amounts['total_due']
+    result['maximum_payable'] = amounts['maximum_payable']
+
+    policy = build_payment_amount_policy(
+        biller=master,
+        bill_amount_rupees=amounts['bill'] or amounts['total_due'],
+        minimum_due_rupees=amounts['minimum_due'],
+        maximum_payable_rupees=amounts['maximum_payable'] or None,
+        additional_info_rows=addl,
+    )
+    result['biller_adhoc'] = bool(policy.get('biller_adhoc'))
+    result['payment_exactness'] = str(policy.get('exactness') or '')
+    result['payment_amount_policy'] = policy
+    result['presentation_mode'] = resolve_presentation_mode(
+        master=master,
+        result=result,
+        fetch_not_supported=fetch_not_supported,
+    )
+    return result
 
 
 def fetch_bill_with_cache(
@@ -59,12 +142,20 @@ def fetch_bill_with_cache(
             raw = {'validation': validation}
         result = {
             'amount': 0,
+            'bill_amount': '0',
             'due_date': '',
             'bill_date': '',
             'bill_number': 'ADHOC',
             'customer_name': '',
             'minimum_due': '0',
             'total_due': '0',
+            'maximum_payable': '',
+            'amounts': {
+                'bill': '0',
+                'minimum_due': '0',
+                'total_due': '0',
+                'maximum_payable': '',
+            },
             'customer_details': {
                 'customerInfo': customer_info,
                 'input': input_rows,
@@ -81,6 +172,7 @@ def fetch_bill_with_cache(
             'validation_skipped': bool(validation.get('skipped')),
             'plan_id': selected_plan_id,
         }
+        result = _attach_amount_policy(result, master, fetch_not_supported=True)
         session = BbpsFetchSession.objects.create(
             user=user,
             biller_master=master,
@@ -129,6 +221,9 @@ def fetch_bill_with_cache(
         addl = []
     if selected_plan_id and isinstance(result, dict):
         result['plan_id'] = selected_plan_id
+    result['biller_adhoc'] = adhoc
+    result['fetch_requirement'] = fetch_req
+    result = _attach_amount_policy(result, master, fetch_not_supported=False)
     session = BbpsFetchSession.objects.create(
         user=user,
         biller_master=master,

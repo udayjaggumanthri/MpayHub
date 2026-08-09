@@ -60,4 +60,6 @@ class FetchNotSupportedRoutingTests(TestCase):
         self.assertEqual(result['flow'], 'adhoc_validate')
         self.assertTrue(result['biller_adhoc'])
         self.assertEqual(result['amount'], 0)
+        self.assertEqual(result.get('presentation_mode'), 'amount_load')
+        self.assertIn('payment_amount_policy', result)
         self.assertTrue(out['fetch_session'].request_id.startswith('VAL'))

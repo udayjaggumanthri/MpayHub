@@ -12,6 +12,198 @@ def _norm_key(key: str) -> str:
     return str(key).lower().replace(':', '').replace('-', '').replace('_', '')
 
 
+def coerce_bbps_info_rows(info) -> list[dict]:
+    """
+    XML-to-dict yields a bare dict when there is only one ``<info>`` child.
+    Always normalize to a list of row dicts for fetch→pay echo and UI bounds.
+    """
+    if isinstance(info, list):
+        return [x for x in info if isinstance(x, dict)]
+    if isinstance(info, dict) and (
+        info.get('infoName') is not None
+        or info.get('info_name') is not None
+        or info.get('infoValue') is not None
+        or info.get('info_value') is not None
+    ):
+        return [info]
+    return []
+
+
+def normalize_additional_info_rows(rows) -> list[dict]:
+    """Canonical infoName/infoValue rows; preserve exact infoValue text (E212)."""
+    out: list[dict] = []
+    for row in coerce_bbps_info_rows(rows):
+        name = str(row.get('infoName') or row.get('info_name') or '').strip()
+        if not name:
+            continue
+        val = row.get('infoValue') if 'infoValue' in row else row.get('info_value')
+        out.append({'infoName': name, 'infoValue': '' if val is None else str(val)})
+    return out
+
+
+_MIN_DUE_ALIASES = (
+    'minimum amount due',
+    'minimum due amount',
+    'min amount due',
+    'minimum due',
+    'min due',
+    'mad',
+)
+_TOTAL_DUE_ALIASES = (
+    'current outstanding amount',
+    'total outstanding amount',
+    'outstanding amount',
+    'total due amount',
+    'total due',
+    'amount due',
+    'amount payable',
+    'total amount due',
+    'current outstanding',
+    'due amount',
+)
+_MAX_PAY_ALIASES = (
+    'maximum permissible amount',
+    'maximum amount',
+    'max amount',
+    'maximum payable amount',
+    'max permissible amount',
+)
+
+
+def _info_map_lower(rows: list[dict]) -> dict[str, str]:
+    out: dict[str, str] = {}
+    for row in rows or []:
+        if not isinstance(row, dict):
+            continue
+        key = str(row.get('infoName') or '').strip().lower()
+        if key:
+            out[key] = '' if row.get('infoValue') is None else str(row.get('infoValue'))
+    return out
+
+
+def _lookup_info_alias(info_map: dict[str, str], aliases: tuple[str, ...]) -> str:
+    for alias in aliases:
+        if info_map.get(alias):
+            return info_map[alias]
+    # Fuzzy: normalized key without spaces
+    compact = {k.replace(' ', ''): v for k, v in info_map.items()}
+    for alias in aliases:
+        hit = compact.get(alias.replace(' ', ''))
+        if hit:
+            return hit
+    return ''
+
+
+def bill_amount_paise_to_rupees(value) -> Decimal:
+    """``billerResponse.billAmount`` is BBPS paise (integer string)."""
+    raw = str(value if value is not None else '').strip()
+    if not raw:
+        return Decimal('0')
+    try:
+        return Decimal(raw) / Decimal('100')
+    except Exception:
+        return Decimal('0')
+
+
+def additional_info_to_rupees(
+    value,
+    *,
+    bill_amount_rupees: Decimal | None = None,
+    role: str = 'generic',
+) -> Decimal | None:
+    """
+    Universal BBPS money-unit normalization for additionalInfo / scalar fields.
+
+    BBPS conventions (all billers):
+    - ``billerResponse.billAmount`` is paise (handled separately).
+    - additionalInfo with a decimal point is rupees (e.g. ``3151.99``).
+    - additionalInfo integers are rupees (e.g. min ``37856``, max ``50000``).
+    - Only when an integer exactly equals ``billAmount`` in paise do we treat it as
+      paise (provider echoed the bill amount into additionalInfo).
+    """
+    del role  # reserved for callers; conversion rules are unit-based, not role-based
+    raw = str(value if value is not None else '').strip()
+    if not raw:
+        return None
+    try:
+        dec = Decimal(raw)
+    except Exception:
+        return None
+    if '.' in raw:
+        return dec
+    bill = bill_amount_rupees if isinstance(bill_amount_rupees, Decimal) else None
+    if bill is not None and bill > 0:
+        as_paise_rupees = dec / Decimal('100')
+        if as_paise_rupees == bill:
+            return as_paise_rupees
+    return dec
+
+
+def extract_fetch_amount_fields(
+    *,
+    bill_response: dict,
+    normalized: dict,
+    additional_info_rows: list[dict],
+) -> dict:
+    """
+    Structured amounts for partner UI + payment policy (all billers).
+
+    Never collapse total/outstanding to minimum-due alone; prefer billAmount when
+    outstanding aliases are absent. Do not rewrite provider min-due values.
+    """
+    br = bill_response if isinstance(bill_response, dict) else {}
+    info_map = _info_map_lower(additional_info_rows)
+    amount_paise_raw = br.get('billAmount') or (normalized or {}).get('billAmount') or 0
+    bill_rupees = bill_amount_paise_to_rupees(amount_paise_raw)
+
+    min_raw = (
+        _lookup_info_alias(info_map, _MIN_DUE_ALIASES)
+        or br.get('minimumDueAmount')
+        or br.get('minimumAmountDue')
+        or ''
+    )
+    total_raw = (
+        _lookup_info_alias(info_map, _TOTAL_DUE_ALIASES)
+        or br.get('totalDueAmount')
+        or br.get('totalAmountDue')
+        or ''
+    )
+    max_raw = _lookup_info_alias(info_map, _MAX_PAY_ALIASES)
+
+    min_due = additional_info_to_rupees(min_raw, bill_amount_rupees=bill_rupees, role='min')
+    if min_due is None:
+        min_due = Decimal('0')
+
+    if total_raw:
+        total_due = additional_info_to_rupees(
+            total_raw, bill_amount_rupees=bill_rupees, role='total'
+        )
+        if total_due is None:
+            total_due = bill_rupees
+    else:
+        total_due = bill_rupees
+
+    max_pay = (
+        additional_info_to_rupees(max_raw, bill_amount_rupees=bill_rupees, role='max')
+        if max_raw
+        else None
+    )
+
+    return {
+        'amount': bill_rupees,
+        'bill_amount': str(bill_rupees),
+        'minimum_due': str(min_due),
+        'total_due': str(total_due),
+        'maximum_payable': str(max_pay) if max_pay is not None else '',
+        'amounts': {
+            'bill': str(bill_rupees),
+            'minimum_due': str(min_due),
+            'total_due': str(total_due),
+            'maximum_payable': str(max_pay) if max_pay is not None else '',
+        },
+    }
+
+
 def _ext_bill_pay_root(normalized: dict) -> dict:
     """BillAvenue often wraps the payload under ExtBillPayResponse (mixed casing)."""
     if not isinstance(normalized, dict):
@@ -385,19 +577,6 @@ class BBPSClient(BaseIntegration):
         """
         client = self._require_live_client()
         try:
-            def _to_rupees(value):
-                raw = str(value or '').strip()
-                if not raw:
-                    return '0'
-                try:
-                    dec = Decimal(raw)
-                except Exception:
-                    return raw
-                # BillAvenue billAmount is usually paise (integer). Additional info often arrives in rupees with decimals.
-                if '.' in raw:
-                    return str(dec)
-                return str(dec / Decimal('100'))
-
             payload = {
                 'agentId': kwargs.get('agent_id', '') or self._default_agent_id(),
                 'billerAdhoc': bool(kwargs.get('biller_adhoc', False)),
@@ -413,60 +592,35 @@ class BBPSClient(BaseIntegration):
             bill_response = extract_biller_response_dict(normalized) or normalized.get('billerResponse') or {}
             if not bill_response and isinstance(normalized.get('billFetchResponse'), dict):
                 bill_response = (normalized.get('billFetchResponse') or {}).get('billerResponse') or {}
-            additional_info_rows = (
-                normalized.get('additionalInfo', {}).get('info')
-                or normalized.get('billFetchResponse', {}).get('additionalInfo', {}).get('info')
-                or []
+            addl_block = (
+                normalized.get('additionalInfo')
+                or (normalized.get('billFetchResponse') or {}).get('additionalInfo')
+                or {}
             )
-            additional_info_for_pay: list[dict] = []
-            if isinstance(additional_info_rows, list):
-                for row in additional_info_rows:
-                    if not isinstance(row, dict):
-                        continue
-                    name = str(row.get('infoName') or row.get('info_name') or '').strip()
-                    if not name:
-                        continue
-                    val = row.get('infoValue') if 'infoValue' in row else row.get('info_value')
-                    additional_info_for_pay.append(
-                        {'infoName': name, 'infoValue': '' if val is None else str(val)}
-                    )
-            info_map = {}
-            if isinstance(additional_info_rows, list):
-                for row in additional_info_rows:
-                    if not isinstance(row, dict):
-                        continue
-                    key = str(row.get('infoName') or '').strip().lower()
-                    if key:
-                        info_map[key] = str(row.get('infoValue') or '').strip()
-            amount_paise = (
-                bill_response.get('billAmount')
-                or normalized.get('billAmount')
-                or 0
-            )
-            amount = Decimal(str(amount_paise or 0)) / Decimal('100')
-            min_due = (
-                info_map.get('minimum amount due')
-                or info_map.get('minimum due amount')
-                or bill_response.get('minimumDueAmount')
-                or bill_response.get('minimumAmountDue')
-                or '0'
-            )
-            total_due = (
-                info_map.get('current outstanding amount')
-                or info_map.get('total due amount')
-                or bill_response.get('totalDueAmount')
-                or bill_response.get('billAmount')
-                or normalized.get('billAmount')
-                or '0'
+            if not isinstance(addl_block, dict):
+                addl_block = {}
+            # Also accept nested additionalInfo inside billerResponse for UI bounds only.
+            nested_addl = bill_response.get('additionalInfo') if isinstance(bill_response, dict) else None
+            additional_info_rows = coerce_bbps_info_rows(addl_block.get('info'))
+            if not additional_info_rows and isinstance(nested_addl, dict):
+                additional_info_rows = coerce_bbps_info_rows(nested_addl.get('info'))
+            additional_info_for_pay = normalize_additional_info_rows(additional_info_rows)
+            amounts = extract_fetch_amount_fields(
+                bill_response=bill_response if isinstance(bill_response, dict) else {},
+                normalized=normalized if isinstance(normalized, dict) else {},
+                additional_info_rows=additional_info_for_pay,
             )
             return {
-                'amount': amount,
+                'amount': amounts['amount'],
+                'bill_amount': amounts['bill_amount'],
                 'due_date': bill_response.get('dueDate'),
                 'bill_date': bill_response.get('billDate'),
                 'bill_number': bill_response.get('billNumber') or bill_response.get('bill_number') or '',
                 'customer_name': bill_response.get('customerName') or '',
-                'minimum_due': _to_rupees(min_due),
-                'total_due': _to_rupees(total_due),
+                'minimum_due': amounts['minimum_due'],
+                'total_due': amounts['total_due'],
+                'maximum_payable': amounts['maximum_payable'],
+                'amounts': amounts['amounts'],
                 'customer_details': kwargs,
                 'raw': normalized,
                 'request_id': out.request_id,
@@ -654,8 +808,8 @@ class BBPSClient(BaseIntegration):
             infos = [row for row in payment_info if isinstance(row, dict)]
         elif isinstance(payment_info, dict):
             # Accept both {"info":[...]} and single {"infoName":"...","infoValue":"..."} shapes.
-            if isinstance(payment_info.get('info'), list):
-                infos = [row for row in payment_info.get('info') if isinstance(row, dict)]
+            if 'info' in payment_info:
+                infos = coerce_bbps_info_rows(payment_info.get('info'))
             elif str(payment_info.get('infoName') or '').strip():
                 infos = [payment_info]
         def _has_nonempty_remitter(rows: list) -> bool:
@@ -679,9 +833,14 @@ class BBPSClient(BaseIntegration):
         elif not _has_nonempty_remitter(infos):
             infos = remitter_block + infos
         payload['paymentInfo'] = {'info': infos}
-        additional_info = bill_data.get('additional_info')
-        if isinstance(additional_info, list) and additional_info:
-            payload['additionalInfo'] = {'info': additional_info}
+        # Prefer exact fetch additionalInfo XML (E212). Fallback to normalized rows only.
+        ai_xml = str(bill_data.get('additional_info_xml') or '').strip()
+        if ai_xml:
+            payload['additionalInfoXml'] = ai_xml
+        else:
+            additional_info = normalize_additional_info_rows(bill_data.get('additional_info'))
+            if additional_info:
+                payload['additionalInfo'] = {'info': additional_info}
         return payload
 
     def biller_info(self, payload: dict):

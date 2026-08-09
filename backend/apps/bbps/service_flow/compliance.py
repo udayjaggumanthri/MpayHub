@@ -36,9 +36,24 @@ def _to_paise(amount) -> int:
     return int((Decimal(str(amount)) * Decimal('100')).to_integral_value())
 
 
+def _mdm_limit_to_paise(limit_value) -> int:
+    """
+    BBPS MDM ``minAmount`` / ``maxAmount`` on payment modes & channels are in paise.
+    ``0`` means unbounded. Stored as Decimal/str from raw MDM (e.g. ``100`` = ₹1).
+    """
+    try:
+        raw = Decimal(str(limit_value if limit_value is not None else 0))
+    except Exception:
+        return 0
+    if raw <= 0:
+        return 0
+    # Values are whole paise; keep integer floor for safety on odd decimals.
+    return int(raw.to_integral_value(rounding=ROUND_FLOOR))
+
+
 def _amount_within_limit(amount_paise: int, min_amount: Decimal, max_amount: Decimal) -> bool:
-    min_paise = int((Decimal(str(min_amount or 0)) * Decimal('100')).to_integral_value())
-    max_paise = int((Decimal(str(max_amount or 0)) * Decimal('100')).to_integral_value())
+    min_paise = _mdm_limit_to_paise(min_amount)
+    max_paise = _mdm_limit_to_paise(max_amount)
     if min_paise > 0 and amount_paise < min_paise:
         return False
     if max_paise > 0 and amount_paise > max_paise:
@@ -170,7 +185,18 @@ def enforce_biller_mode_channel_constraints(
             )
         current = [c for c in allowed_channels if _normalize_text(c.payment_channel).upper() == channel]
         if current and not any(_amount_within_limit(amount_paise, c.min_amount, c.max_amount) for c in current):
-            raise TransactionFailed(f'Amount out of allowed range for channel {channel} and biller {biller.biller_id}.')
+            bound = current[0]
+            min_rs = (Decimal(_mdm_limit_to_paise(bound.min_amount)) / Decimal('100')).quantize(Decimal('0.01'))
+            max_rs_paise = _mdm_limit_to_paise(bound.max_amount)
+            max_hint = (
+                f', maximum Rs {(Decimal(max_rs_paise) / Decimal("100")).quantize(Decimal("0.01"))}'
+                if max_rs_paise > 0
+                else ''
+            )
+            raise TransactionFailed(
+                f'Amount out of allowed range for channel {channel} and biller {biller.biller_id} '
+                f'(minimum Rs {min_rs}{max_hint}).'
+            )
 
     allowed_modes = list(
         BbpsBillerPaymentModeLimit.objects.filter(
@@ -196,7 +222,18 @@ def enforce_biller_mode_channel_constraints(
         else:
             current = [m for m in allowed_modes if _normalize_mode_for_compare(m.payment_mode) == mode]
         if current and not any(_amount_within_limit(amount_paise, m.min_amount, m.max_amount) for m in current):
-            raise TransactionFailed(f'Amount out of allowed range for payment mode "{payment_mode}".')
+            bound = current[0]
+            min_rs = (Decimal(_mdm_limit_to_paise(bound.min_amount)) / Decimal('100')).quantize(Decimal('0.01'))
+            max_rs_paise = _mdm_limit_to_paise(bound.max_amount)
+            max_hint = (
+                f', maximum Rs {(Decimal(max_rs_paise) / Decimal("100")).quantize(Decimal("0.01"))}'
+                if max_rs_paise > 0
+                else ''
+            )
+            raise TransactionFailed(
+                f'Amount out of allowed range for payment mode "{payment_mode}" '
+                f'(minimum Rs {min_rs}{max_hint}).'
+            )
 
     if channel in ('INT', 'MOB', 'AGT') and mode in (
         'internet banking',
@@ -403,3 +440,211 @@ def enforce_cash_pan_rule(*, amount_paise: int, payment_mode: str, customer_info
         raise TransactionFailed(
             'PAN and customer name are mandatory for cash transactions >= 50000.'
         )
+
+
+def _rupees_from_mixed_amount(
+    value,
+    *,
+    bill_amount_rupees: Decimal | None = None,
+    role: str = 'generic',
+) -> Decimal | None:
+    """
+    Parse already-normalized rupee fields or additionalInfo-style values.
+
+    Prefer ``additional_info_to_rupees`` semantics so whole-rupee integers are not ÷100.
+    """
+    from apps.integrations.bbps_client import additional_info_to_rupees
+
+    return additional_info_to_rupees(value, bill_amount_rupees=bill_amount_rupees, role=role)
+
+
+def _info_map_from_rows(rows) -> dict[str, str]:
+    out: dict[str, str] = {}
+    if not isinstance(rows, list):
+        return out
+    for row in rows:
+        if not isinstance(row, dict):
+            continue
+        key = _normalize_key(str(row.get('infoName') or row.get('info_name') or ''))
+        if not key:
+            continue
+        val = row.get('infoValue') if 'infoValue' in row else row.get('info_value')
+        out[key] = '' if val is None else str(val)
+    return out
+
+
+def _info_alias_value(info_map: dict[str, str], aliases: tuple[str, ...]) -> str:
+    for alias in aliases:
+        key = _normalize_key(alias)
+        if info_map.get(key):
+            return info_map[key]
+    return ''
+
+
+def build_payment_amount_policy(
+    *,
+    biller: BbpsBillerMaster | None,
+    bill_amount_rupees=None,
+    minimum_due_rupees=None,
+    maximum_payable_rupees=None,
+    additional_info_rows: list | None = None,
+) -> dict:
+    """
+    Universal payment-amount policy from MDM exactness + fetch additionalInfo bounds.
+
+    Custom / partial amounts are allowed when the biller is adhoc or exactness is
+    Exact and below / Exact and above (within bounds). Exact billers lock to bill amount.
+    """
+    adhoc = bool(getattr(biller, 'biller_adhoc', False)) if biller else False
+    exactness_raw = _normalize_text(getattr(biller, 'biller_payment_exactness', '') if biller else '')
+    exactness = _normalize_key(exactness_raw)
+    info_map = _info_map_from_rows(additional_info_rows or [])
+
+    bill = _rupees_from_mixed_amount(bill_amount_rupees, role='total')
+    if bill is None:
+        bill = Decimal('0')
+
+    min_due = _rupees_from_mixed_amount(minimum_due_rupees, bill_amount_rupees=bill, role='min')
+    if min_due is None:
+        min_raw = _info_alias_value(
+            info_map,
+            (
+                'minimum amount due',
+                'minimum due amount',
+                'min amount due',
+                'minimum due',
+                'min due',
+            ),
+        )
+        min_due = (
+            _rupees_from_mixed_amount(min_raw, bill_amount_rupees=bill, role='min') if min_raw else None
+        )
+    if min_due is None:
+        min_due = Decimal('0')
+
+    max_pay = _rupees_from_mixed_amount(maximum_payable_rupees, bill_amount_rupees=bill, role='max')
+    if max_pay is None:
+        max_raw = _info_alias_value(
+            info_map,
+            (
+                'maximum permissible amount',
+                'maximum permissible recharge amount',
+                'maximum amount',
+                'max amount',
+                'maximum payable amount',
+                'max permissible amount',
+                'maximum recharge amount',
+            ),
+        )
+        max_pay = (
+            _rupees_from_mixed_amount(max_raw, bill_amount_rupees=bill, role='max') if max_raw else None
+        )
+
+    allow_custom = True
+    mode = 'open'
+    # Base floor: any positive amount. Do NOT treat credit-card "Minimum Due" as a hard
+    # pay floor for adhoc/open billers — that tag is informational + UI shortcut only.
+    # MDM payment-mode min (e.g. Cash 100 paise) is enforced separately in mode/channel checks.
+    floor = Decimal('0.01')
+    ceiling: Decimal | None = max_pay
+
+    if exactness == 'exact' and not adhoc:
+        mode = 'exact'
+        allow_custom = False
+        floor = bill if bill > 0 else floor
+        ceiling = bill if bill > 0 else ceiling
+    elif exactness == 'exact and below':
+        mode = 'exact_and_below'
+        allow_custom = True
+        if bill > 0:
+            ceiling = bill if ceiling is None else min(ceiling, bill)
+        if min_due > 0:
+            floor = min_due
+    elif exactness == 'exact and above':
+        mode = 'exact_and_above'
+        allow_custom = True
+        floor = bill if bill > 0 else floor
+        if min_due > 0:
+            floor = max(floor, min_due)
+    elif adhoc:
+        mode = 'adhoc'
+        allow_custom = True
+        # ceiling from Maximum Permissible Amount when provider sends it
+    else:
+        mode = 'open'
+        allow_custom = True
+        # Ceiling only from provider max (additionalInfo); do not invent Exact-and-below.
+
+    return {
+        'mode': mode,
+        'exactness': exactness_raw,
+        'biller_adhoc': adhoc,
+        'allow_custom': allow_custom,
+        'bill_amount': str(bill),
+        'min_amount': str(floor),
+        'max_amount': str(ceiling) if ceiling is not None else '',
+        'minimum_due': str(min_due),
+        'maximum_payable': str(max_pay) if max_pay is not None else '',
+    }
+
+
+def enforce_payment_amount_policy(
+    *,
+    biller: BbpsBillerMaster,
+    amount,
+    fetch_session: BbpsFetchSession | None = None,
+    additional_info_rows: list | None = None,
+) -> dict:
+    """
+    Reject amounts that violate MDM exactness / provider min-max before calling BillAvenue.
+    Custom amounts remain allowed for adhoc and Exact-and-below/above billers within bounds.
+    """
+    pay_amt = Decimal(str(amount))
+    if pay_amt <= 0:
+        raise TransactionFailed('Payment amount must be greater than zero.')
+
+    bill_rupees = None
+    min_due = None
+    max_pay = None
+    rows = additional_info_rows
+    if fetch_session is not None:
+        if rows is None:
+            stored = getattr(fetch_session, 'additional_info', None)
+            if isinstance(stored, list):
+                rows = stored
+            elif isinstance(stored, dict):
+                rows = stored.get('info')
+        if getattr(fetch_session, 'amount_paise', None) not in (None, ''):
+            try:
+                bill_rupees = Decimal(str(fetch_session.amount_paise)) / Decimal('100')
+            except Exception:
+                bill_rupees = None
+
+    policy = build_payment_amount_policy(
+        biller=biller,
+        bill_amount_rupees=bill_rupees,
+        minimum_due_rupees=min_due,
+        maximum_payable_rupees=max_pay,
+        additional_info_rows=rows,
+    )
+    floor = Decimal(str(policy['min_amount'] or '0'))
+    ceiling_raw = str(policy.get('max_amount') or '').strip()
+    ceiling = Decimal(ceiling_raw) if ceiling_raw else None
+
+    if policy['mode'] == 'exact' and bill_rupees is not None and bill_rupees > 0:
+        if pay_amt != bill_rupees.quantize(Decimal('0.01')) and abs(pay_amt - bill_rupees) > Decimal('0.009'):
+            raise TransactionFailed(
+                f'This biller requires the exact bill amount of Rs {bill_rupees}. '
+                f'Custom / partial amounts are not allowed.'
+            )
+        return policy
+
+    if floor > 0 and pay_amt < floor:
+        raise TransactionFailed(
+            f'Payment amount must be at least Rs {floor} for this biller.'
+        )
+    if ceiling is not None and ceiling > 0 and pay_amt > ceiling:
+        raise TransactionFailed(
+            f'Payment amount cannot exceed Rs {ceiling} for this biller.'
+        )
+    return policy

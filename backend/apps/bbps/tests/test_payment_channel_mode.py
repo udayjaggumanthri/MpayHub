@@ -127,6 +127,35 @@ class BbpsPaymentChannelModeUiTests(TestCase):
 
 
 class BbpsModeChannelComplianceTests(TestCase):
+    def test_mdm_channel_limits_are_paise_not_rupees(self):
+        """MDM minAmount 1000 means ₹10 — must not be treated as ₹1000."""
+        biller = BbpsBillerMaster.objects.create(
+            biller_id='FTPAISE01',
+            biller_name='Fastag Paise Limits',
+            biller_category='Fastag',
+            biller_status='ACTIVE',
+        )
+        BbpsBillerPaymentChannelLimit.objects.create(
+            biller=biller, payment_channel='AGT', min_amount=Decimal('1000'), max_amount=Decimal('100000000')
+        )
+        BbpsBillerPaymentModeLimit.objects.create(
+            biller=biller, payment_mode='Cash', min_amount=Decimal('1'), max_amount=Decimal('0')
+        )
+        # ₹350 is above ₹10 channel min and must be accepted.
+        enforce_biller_mode_channel_constraints(
+            biller=biller,
+            payment_mode='Cash',
+            payment_channel='AGT',
+            amount=Decimal('350'),
+        )
+        with self.assertRaises(TransactionFailed):
+            enforce_biller_mode_channel_constraints(
+                biller=biller,
+                payment_mode='Cash',
+                payment_channel='AGT',
+                amount=Decimal('5'),
+            )
+
     def test_mode_channel_matrix_validation(self):
         biller = BbpsBillerMaster.objects.create(
             biller_id='CC2001',
@@ -158,6 +187,7 @@ class BbpsModeChannelComplianceTests(TestCase):
                 amount=Decimal('10'),
             )
 
+    @override_settings(BBPS_ASSISTED_CARD_PAYMENT_UI='agt_cash_when_eligible')
     def test_enforce_allows_implicit_cash_agt_when_policy_matches_and_row_missing(self):
         biller = BbpsBillerMaster.objects.create(
             biller_id='UICC06IMPL',

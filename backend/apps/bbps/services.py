@@ -407,12 +407,22 @@ def get_biller_payment_ui_options(biller_id: str) -> dict:
     default_ch = mode_channel_map.get(ordered_modes[0], '') if ordered_modes else ''
     default_mode = ordered_modes[0] if ordered_modes else ''
 
+    def _mdm_paise_to_rupees_str(value) -> str:
+        """MDM channel/mode limits are stored in paise; expose rupees to the UI."""
+        try:
+            paise = int(Decimal(str(value or 0)))
+        except Exception:
+            return '0'
+        if paise <= 0:
+            return '0'
+        return str((Decimal(paise) / Decimal('100')).quantize(Decimal('0.01')))
+
     payment_channels = [
         {
             'code': _normalize_text(c.payment_channel).upper(),
             'label': _payment_channel_ui_label(c.payment_channel),
-            'min_amount': str(c.min_amount or 0),
-            'max_amount': str(c.max_amount or 0),
+            'min_amount': _mdm_paise_to_rupees_str(c.min_amount),
+            'max_amount': _mdm_paise_to_rupees_str(c.max_amount),
         }
         for c in channels
         if c.payment_channel

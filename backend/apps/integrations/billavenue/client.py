@@ -894,6 +894,14 @@ class BillAvenueClient:
             frag = extract_element_outer_xml_from_plaintext(decrypted_plain, 'billerResponse')
             if frag:
                 normalized = {**normalized, '__mpayhub_biller_response_xml': frag}
+            # Root-level additionalInfo only (never the nested copy inside billerResponse) — E212.
+            addl_frag = extract_element_outer_xml_from_plaintext(
+                decrypted_plain,
+                'additionalInfo',
+                not_under_local_names=frozenset({'billerresponse'}),
+            )
+            if addl_frag:
+                normalized = {**normalized, '__mpayhub_additional_info_xml': addl_frag}
         return BillAvenueResult(request_id=env['requestId'], response_code=code, normalized=normalized, raw_response=data)
 
     def _audit(self, endpoint_name, request_id, response_code, success, started_at, request_meta, response_meta, error_message):

@@ -109,18 +109,31 @@ def _xml_local_name(key: str) -> str:
     return k
 
 
-def extract_element_outer_xml_from_plaintext(plaintext: str, local_name: str) -> str:
+def extract_element_outer_xml_from_plaintext(
+    plaintext: str,
+    local_name: str,
+    *,
+    not_under_local_names: frozenset[str] | set[str] | tuple[str, ...] | None = None,
+) -> str:
     """
     Return the first XML element whose local tag matches ``local_name`` as serialized UTF-8 text.
 
-    BillAvenue compares the bill-pay ``billerResponse`` echo to the fetch snapshot. When the fetch
-    body is XML, round-tripping through PostgreSQL ``jsonb`` can reorder object keys; rebuilding
-    ``billerResponse`` from JSON then emits a different element order and triggers **E211**. Storing
-    this outer XML preserves the exact subtree for pay.
+    BillAvenue compares the bill-pay ``billerResponse`` / ``additionalInfo`` echo to the fetch
+    snapshot. When the fetch body is XML, round-tripping through PostgreSQL ``jsonb`` can reorder
+    object keys; rebuilding from JSON then emits a different element order and triggers **E211** /
+    **E212**. Storing this outer XML preserves the exact subtree for pay.
+
+    ``not_under_local_names`` skips matches nested under those parents (e.g. root-level
+    ``additionalInfo`` must not pick the copy nested inside ``billerResponse``).
     """
     want = str(local_name or '').strip().lower()
     if not want:
         return ''
+    blocked = {
+        str(x or '').strip().lower()
+        for x in (not_under_local_names or ())
+        if str(x or '').strip()
+    }
     lt = (plaintext or '').find('<')
     if lt < 0:
         return ''
@@ -132,16 +145,18 @@ def extract_element_outer_xml_from_plaintext(plaintext: str, local_name: str) ->
     except Exception:
         return ''
 
-    def dfs(el: ET.Element) -> ET.Element | None:
-        if _xml_local_name(el.tag).lower() == want:
+    def dfs(el: ET.Element, ancestors: frozenset[str]) -> ET.Element | None:
+        tag = _xml_local_name(el.tag).lower()
+        if tag == want and not (ancestors & blocked):
             return el
+        next_anc = ancestors | {tag}
         for child in el:
-            hit = dfs(child)
+            hit = dfs(child, next_anc)
             if hit is not None:
                 return hit
         return None
 
-    hit = dfs(doc_root)
+    hit = dfs(doc_root, frozenset())
     if hit is None:
         return ''
     try:

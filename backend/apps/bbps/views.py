@@ -189,7 +189,8 @@ def _friendly_pay_error_message(raw_message: str) -> str:
     if 'e212' in low or 'additionalinfo value mismatch' in low:
         return (
             'Extra bill details from the provider (additionalInfo) did not match this payment. '
-            'Fetch the bill again and pay immediately without changing tags, amount, or plan selection.'
+            'Fetch the bill again and pay immediately without changing customer tags or plan. '
+            'Custom amounts are allowed when the biller permits them.'
         )
     if 'e211' in low or 'billerresponse value mismatch' in low:
         return (

@@ -22,6 +22,7 @@ from apps.bbps.service_flow.compliance import (
     enforce_cash_pan_rule,
     enforce_biller_mode_channel_constraints,
     enforce_fetch_pay_linkage,
+    enforce_payment_amount_policy,
     enforce_plan_mdm_requirement,
     validate_channel_device_fields,
 )
@@ -29,7 +30,11 @@ from apps.bbps.service_flow.bbps_wallet_charge import resolve_bbps_wallet_servic
 from apps.bbps.service_flow.commission_service import resolve_commission_for_payment
 from apps.bbps.service_flow.provider_float import assert_float_available, debit_float_for_payment
 from apps.core.exceptions import InsufficientBalance, TransactionFailed
-from apps.integrations.bbps_client import BBPSClient, extract_biller_response_dict
+from apps.integrations.bbps_client import (
+    BBPSClient,
+    extract_biller_response_dict,
+    normalize_additional_info_rows,
+)
 from apps.integrations.models import BillAvenueConfig, BillAvenueModeChannelPolicy
 from apps.transactions.agent_snapshot import passbook_initiator_db_fields, transaction_agent_db_fields
 from apps.transactions.models import PassbookEntry, Transaction
@@ -63,32 +68,18 @@ def _additional_info_rows_from_session(fetch_session: BbpsFetchSession) -> list[
     rows: list = []
     if isinstance(stored, list) and stored:
         rows = stored
-    elif isinstance(stored, dict) and isinstance(stored.get('info'), list):
-        rows = stored['info']
+    elif isinstance(stored, dict):
+        rows = stored.get('info')
     if rows:
-        return [x for x in rows if isinstance(x, dict)]
+        return normalize_additional_info_rows(rows)
     raw = fetch_session.biller_response or fetch_session.raw_response or {}
     if not isinstance(raw, dict):
         return []
-    ir = (
-        raw.get('additionalInfo', {}).get('info')
-        or raw.get('billFetchResponse', {}).get('additionalInfo', {}).get('info')
-        or []
-    )
-    return [x for x in ir if isinstance(x, dict)] if isinstance(ir, list) else []
-
-
-def _normalize_additional_info_for_pay(rows: list) -> list[dict]:
-    out: list[dict] = []
-    for row in rows:
-        if not isinstance(row, dict):
-            continue
-        name = str(row.get('infoName') or row.get('info_name') or '').strip()
-        if not name:
-            continue
-        val = row.get('infoValue') if 'infoValue' in row else row.get('info_value')
-        out.append({'infoName': name, 'infoValue': '' if val is None else str(val)})
-    return out
+    # Prefer root / billFetchResponse additionalInfo (not nested under billerResponse).
+    block = raw.get('additionalInfo') or (raw.get('billFetchResponse') or {}).get('additionalInfo') or {}
+    if isinstance(block, dict):
+        return normalize_additional_info_rows(block.get('info'))
+    return []
 
 
 def _json_safe(value):
@@ -237,13 +228,31 @@ def process_bill_payment_flow(*, user, bill_data: dict) -> dict:
         lit = raw_fetch.get('__mpayhub_biller_response_xml')
         if isinstance(lit, str) and lit.strip():
             bill_data['biller_response_xml'] = lit.strip()
+        ai_lit = raw_fetch.get('__mpayhub_additional_info_xml')
+        if isinstance(ai_lit, str) and ai_lit.strip():
+            bill_data['additional_info_xml'] = ai_lit.strip()
         br = extract_biller_response_dict(raw_fetch)
         if br:
             bill_data['biller_response'] = br
-    if fetch_session and not bill_data.get('additional_info'):
+    # Always replay fetch additionalInfo (never trust client mutations) — E212 for all billers.
+    if fetch_session:
         add_rows = _additional_info_rows_from_session(fetch_session)
         if add_rows:
-            bill_data['additional_info'] = _normalize_additional_info_for_pay(add_rows)
+            bill_data['additional_info'] = add_rows
+        else:
+            bill_data.pop('additional_info', None)
+        if not bill_data.get('additional_info_xml'):
+            raw_fetch = fetch_session.biller_response or fetch_session.raw_response or {}
+            if isinstance(raw_fetch, dict):
+                ai_lit = raw_fetch.get('__mpayhub_additional_info_xml')
+                if isinstance(ai_lit, str) and ai_lit.strip():
+                    bill_data['additional_info_xml'] = ai_lit.strip()
+    enforce_payment_amount_policy(
+        biller=biller,
+        amount=amount,
+        fetch_session=fetch_session,
+        additional_info_rows=bill_data.get('additional_info') if isinstance(bill_data.get('additional_info'), list) else None,
+    )
     payer_display = (getattr(user, 'get_full_name', lambda: '')() or '').strip() or str(
         getattr(user, 'phone', '') or ''
     ).strip()

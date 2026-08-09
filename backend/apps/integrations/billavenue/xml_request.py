@@ -223,20 +223,38 @@ def build_bill_pay_plain_xml(payload: dict) -> str:
         br = SubElement(root, 'billerResponse')
         _fill_biller_response_subtree(br, biller_response)
 
+    ai_xml = str(p.get('additionalInfoXml') or '').strip()
     additional_info = p.get('additionalInfo') or {}
     infos = additional_info.get('info') if isinstance(additional_info, dict) else []
-    if isinstance(infos, list) and infos:
+    if ai_xml:
+        try:
+            root.append(fromstring(ai_xml))
+        except Exception:
+            if isinstance(infos, list) and infos:
+                ai = SubElement(root, 'additionalInfo')
+                for row in infos:
+                    if not isinstance(row, dict):
+                        continue
+                    name = str(row.get('infoName') or '').strip()
+                    if not name:
+                        continue
+                    # Preserve exact infoValue text from fetch (no strip / falsy coalescing) — E212.
+                    raw_val = row.get('infoValue') if 'infoValue' in row else row.get('info_value')
+                    i = SubElement(ai, 'info')
+                    SubElement(i, 'infoName').text = name
+                    SubElement(i, 'infoValue').text = '' if raw_val is None else str(raw_val)
+    elif isinstance(infos, list) and infos:
         ai = SubElement(root, 'additionalInfo')
         for row in infos:
             if not isinstance(row, dict):
                 continue
             name = str(row.get('infoName') or '').strip()
-            value = str(row.get('infoValue') or '').strip()
             if not name:
                 continue
+            raw_val = row.get('infoValue') if 'infoValue' in row else row.get('info_value')
             i = SubElement(ai, 'info')
             SubElement(i, 'infoName').text = name
-            SubElement(i, 'infoValue').text = value
+            SubElement(i, 'infoValue').text = '' if raw_val is None else str(raw_val)
 
     amount_info = p.get('amountInfo') or {}
     if isinstance(amount_info, dict) and amount_info:

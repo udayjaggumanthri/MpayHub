@@ -48,13 +48,26 @@ def _flatten_exc_message(exc) -> str:
     return str(detail)
 
 
-def _err(message, *, code=None, http_status=400, errors=None):
+def _err(message, *, code=None, http_status=400, errors=None, data=None):
     body = {'success': False, 'message': str(message)}
     if code:
         body['code'] = code
     if errors:
         body['errors'] = errors
+    if data is not None:
+        body['data'] = data
     return Response(body, status=http_status)
+
+
+def _exc_exchange(exc):
+    # Preferred: attribute attached by the service (preserves int/bool/float types,
+    # unlike ValidationError detail which DRF stringifies recursively).
+    if hasattr(exc, 'fingpay_exchange'):
+        return getattr(exc, 'fingpay_exchange', None)
+    detail = getattr(exc, 'detail', None)
+    if isinstance(detail, dict) and 'fingpay_exchange' in detail:
+        return detail.get('fingpay_exchange')
+    return None
 
 
 def _require_admin(request):
@@ -125,14 +138,58 @@ ENV_PRESETS = {
 }
 
 
+def _onboarding_endpoint_catalog() -> list[dict]:
+    """Four selectable onboarding APIs — only one can be live-active at a time."""
+    from apps.aeps.models import AepsProviderConfig
+
+    catalog = []
+    active = (
+        AepsProviderConfig.objects.filter(is_active=True, is_deleted=False)
+        .order_by('-updated_at')
+        .first()
+    )
+    active_env = active.environment if active else None
+    active_style = active.resolved_onboarding_api_style if active else None
+    for env in ('uat', 'prod'):
+        preset = ENV_PRESETS[env]
+        row = (
+            AepsProviderConfig.objects.filter(environment=env, is_deleted=False)
+            .order_by('-is_active', '-updated_at')
+            .first()
+        )
+        base = (row.onboarding_base_url if row else '') or preset['onboarding_base_url']
+        base = base.rstrip('/')
+        stored_style = (row.resolved_onboarding_api_style if row else 'java')
+        for style, label in (('java', 'Java / .NET'), ('php', 'PHP')):
+            path = AepsProviderConfig.ONBOARDING_CREATE_PATHS[style]
+            catalog.append(
+                {
+                    'id': f'{env}-{style}',
+                    'environment': env,
+                    'style': style,
+                    'label': f'{env.upper()} · {label}',
+                    'endpoint': f'{base}{path}',
+                    'aes_mode': 'cbc' if style == 'php' else 'ecb',
+                    'configured': bool(row and (row.super_merchant_login_id or row.secrets_encrypted)),
+                    'is_active': bool(active_env == env and active_style == style),
+                    'stored_on_env': stored_style == style,
+                }
+            )
+    return catalog
+
+
 def _serialize_provider_row(row, *, bundled_cert: str = '') -> dict:
     secrets = decrypt_secret_payload(row.secrets_encrypted or '') or {} if row else {}
+    style = row.resolved_onboarding_api_style if row else 'java'
     return {
         'id': row.pk if row else None,
         'configured': bool(row),
         'name': row.name if row else '',
         'environment': row.environment if row else 'prod',
         'is_active': bool(row and row.is_active),
+        'onboarding_api_style': style,
+        'onboarding_create_url': row.onboarding_create_url() if row else '',
+        'onboarding_aes_mode': row.onboarding_aes_mode() if row else 'ecb',
         'super_merchant_id': row.super_merchant_id if row else '',
         'super_merchant_login_id': row.super_merchant_login_id if row else '',
         'onboarding_base_url': row.onboarding_base_url if row else '',
@@ -157,6 +214,7 @@ def _serialize_provider_row(row, *, bundled_cert: str = '') -> dict:
         ),
         'bundled_public_certificate': bundled_cert,
         'has_bundled_certificate': bool(bundled_cert),
+        'onboarding_endpoints': _onboarding_endpoint_catalog(),
     }
 
 
@@ -225,6 +283,8 @@ def admin_provider_config(request):
                     'environment': e,
                     'configured': bool(r and (r.super_merchant_login_id or r.secrets_encrypted)),
                     'is_active': bool(r and r.is_active),
+                    'onboarding_api_style': r.resolved_onboarding_api_style if r else 'java',
+                    'onboarding_create_url': r.onboarding_create_url() if r else '',
                     'super_merchant_id': r.super_merchant_id if r else '',
                     'super_merchant_login_id': r.super_merchant_login_id if r else '',
                 }
@@ -240,7 +300,11 @@ def admin_provider_config(request):
             'secret_key': (
                 'Issued by Fingpay Integration Team by email — required for 3-way recon hash only.'
             ),
-            'encryption': 'PHP /php/ APIs use AES-128-CBC + RSA eskey (certificate).',
+            'encryption': (
+                'Java/.NET create uses AES-128-ECB; PHP /php/create uses AES-128-CBC + Content-Type text/xml. '
+                'Activate exactly one of the four onboarding APIs below.'
+            ),
+            'onboarding_paths': AepsProviderConfig.ONBOARDING_CREATE_PATHS,
         }
         return _ok(payload)
 
@@ -261,6 +325,13 @@ def admin_provider_config(request):
     ):
         if field in data:
             setattr(row, field, data.get(field) or '')
+    if 'onboarding_api_style' in data or data.get('activate_onboarding_style'):
+        style = str(
+            data.get('activate_onboarding_style') or data.get('onboarding_api_style') or row.onboarding_api_style or 'java'
+        ).lower()
+        if style not in ('java', 'php'):
+            return _err('onboarding_api_style must be java or php', http_status=400)
+        row.onboarding_api_style = style
     row.name = preset['name']
     row.environment = env
     # Fill missing URLs from preset for that environment
@@ -275,8 +346,10 @@ def admin_provider_config(request):
             setattr(row, url_field, preset.get(url_field) or '')
     if 'request_timeout_seconds' in data:
         row.request_timeout_seconds = int(data.get('request_timeout_seconds') or 180)
+    # Activating any of the 4 onboarding APIs makes this env the sole active provider.
     activate = bool(data.get('is_active')) if 'is_active' in data else bool(data.get('activate'))
-    if activate or data.get('make_active'):
+    activate = activate or bool(data.get('make_active')) or bool(data.get('activate_onboarding_style'))
+    if activate:
         AepsProviderConfig.objects.filter(is_deleted=False, is_active=True).update(is_active=False)
         row.is_active = True
     elif 'is_active' in data:
@@ -333,7 +406,7 @@ def admin_provider_test(request):
         # Minimal merchant body — we only care whether SM auth is accepted.
         probe_merchant = {
             'merchantLoginId': 'CREDTEST01',
-            'merchantLoginPin': '1234',  # doc: plain PIN
+            'merchantLoginPin': '81dc9bdb52d04dc20036dbd8313ed055',  # doc SAMPLE: MD5("1234")
             'firstName': 'Test',
             'lastName': 'User',
             'middleName': '',
@@ -347,6 +420,7 @@ def admin_provider_test(request):
                 'merchantPinCode': '500001',
             },
             'companyLegalName': 'Credential Test',
+            'userType': 'lakshmi',
             'companyType': 2,
             'emailId': 'credtest@example.com',
             'certificateOfIncorporationImage': 'True',
@@ -371,6 +445,7 @@ def admin_provider_test(request):
             'cancelledChequeImages': 'True',
             'physicalVerification': 'True',
             'videoKycWithLatLongData': 'True',
+            'vedioKycWithLatLongData': 'True',
             'merchantKycAddressData': {
                 'shopAddress': 'Shop Address',
                 'shopCity': 'Hyderabad',
@@ -399,7 +474,7 @@ def admin_provider_test(request):
         endpoint = (
             f'{client.onboarding_base_url}/api/onboarding/merchant/simple/creation/v2'
             if use_simple
-            else f'{client.onboarding_base_url}/api/onboarding/merchant/php/creation/v2'
+            else client.onboarding_create_url()
         )
         resp = None
         transport_error = None
@@ -426,6 +501,7 @@ def admin_provider_test(request):
                 'statusCode': str(http_status or ''),
                 'message': transport_error,
                 'provider_payload': scrub_sensitive(payload) if payload else None,
+                'fingpay_exchange': getattr(exc, 'exchange', None) if isinstance(exc, FingpayClientError) else None,
                 '_meta': {'http_status': http_status, 'mode': mode},
             }
 
@@ -495,9 +571,10 @@ def admin_provider_test(request):
                 'server_ip': '57.131.39.21',
                 'request_plain_json': scrub_sensitive(request_plain),
                 'response_plain_json': scrub_sensitive(resp),
+                'fingpay_exchange': (resp or {}).get('fingpay_exchange') or (resp or {}).get('_exchange'),
                 'hint': hint,
             },
-            message='Credential probe completed — copy request_plain_json + response_plain_json to email Tapits',
+            message='Credential probe completed — copy request_plain_json + response_plain_json (or fingpay_exchange) to email Tapits',
         )
     except Exception as exc:
         return _err(_flatten_exc_message(exc), http_status=400)
@@ -669,7 +746,14 @@ def onboarding_submit(request):
             merchant_body=request.data.get('merchant') or request.data.get('payload'),
         )
     except Exception as exc:
-        return _err(_flatten_exc_message(exc), http_status=400)
+        exchange = _exc_exchange(exc)
+        # Always return data wrapper so frontend can render Copy pack even when exchange is {}.
+        return _err(
+            _flatten_exc_message(exc),
+            code='PROVIDER_REJECTED',
+            http_status=400,
+            data={'fingpay_exchange': exchange} if exchange is not None else {'fingpay_exchange': None},
+        )
     return _ok(data)
 
 

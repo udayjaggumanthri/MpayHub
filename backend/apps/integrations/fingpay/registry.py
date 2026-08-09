@@ -49,6 +49,10 @@ def build_client_from_config(config) -> FingpayClient:
         aeps_base_url=config.aeps_base_url,
         recon_base_url=config.recon_base_url or '',
         timeout=config.request_timeout_seconds or 180,
+        onboarding_api_style=getattr(config, 'resolved_onboarding_api_style', None)
+        or getattr(config, 'onboarding_api_style', None)
+        or 'java',
+        environment=getattr(config, 'environment', '') or '',
     )
 
 

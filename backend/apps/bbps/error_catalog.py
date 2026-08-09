@@ -96,8 +96,9 @@ _CATALOG: dict[str, BbpsErrorInfo] = {
         'E212',
         'duplicate_replay',
         'Extra bill details from the provider (additionalInfo) did not match this payment. '
-        'Fetch the bill again and pay immediately without changing tags, amount, or plan selection.',
-        'Fetch again and pay without editing fields.',
+        'Fetch the bill again and pay immediately without changing customer tags or plan. '
+        'Custom amounts are allowed when the biller permits them — do not alter fetched extra bill details.',
+        'Fetch again, then pay without editing customer fields or plan.',
         True,
         'BBPS_PAY_ADDITIONAL_INFO',
     ),

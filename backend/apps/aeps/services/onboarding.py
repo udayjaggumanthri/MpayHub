@@ -46,6 +46,13 @@ DRAFT_KEYS = (
     'backgroundImageOfShop',
 )
 
+# Large base64 KYC images — never include raw content in GET /me/status or GET draft list payloads.
+IMAGE_DRAFT_KEYS = (
+    'merchantPanImage',
+    'maskedAadharImage',
+    'backgroundImageOfShop',
+)
+
 
 def _safe_str(value) -> str:
     if value is None:
@@ -54,6 +61,27 @@ def _safe_str(value) -> str:
     if text.lower() in ('[redacted]', 'none', 'null'):
         return ''
     return text
+
+
+def _is_image_payload(value) -> bool:
+    text = _safe_str(value)
+    if not text:
+        return False
+    if text.startswith('data:image') or text.startswith('data:application'):
+        return True
+    # Raw base64 KYC images are typically tens of KB+.
+    return len(text) > 500
+
+
+def _strip_images_for_client(form: dict) -> tuple[dict, dict]:
+    """Return (client_form without image blobs, saved_images flags)."""
+    out = dict(form or {})
+    saved = {}
+    for key in IMAGE_DRAFT_KEYS:
+        present = _is_image_payload(out.get(key))
+        saved[key] = present
+        out[key] = ''
+    return out, saved
 
 
 def flatten_onboarding_payload(payload: dict | None) -> dict:
@@ -272,15 +300,19 @@ def get_onboarding_form(*, user) -> dict:
         if sid is not None:
             merged[key] = str(sid)
 
-    has_draft = any(_safe_str(draft.get(k)) for k in DRAFT_KEYS if k != 'aadhaarNumber')
+    has_draft = any(_safe_str(draft.get(k)) for k in DRAFT_KEYS if k not in IMAGE_DRAFT_KEYS and k != 'aadhaarNumber')
+    has_draft = has_draft or any(_is_image_payload(draft.get(k)) for k in IMAGE_DRAFT_KEYS)
+    client_form, saved_images = _strip_images_for_client(merged)
+    client_draft, _ = _strip_images_for_client(draft)
     return {
         'stage': merchant.stage,
         'merchant_login_id': merchant.merchant_login_id,
         'masked_aadhaar': merchant.masked_aadhaar or '',
         'device_imei': merchant.device_imei or '',
         'device_ready': bool(merchant.device_ready),
-        'form': merged,
-        'draft': draft,
+        'form': client_form,
+        'draft': client_draft,
+        'saved_images': saved_images,
         'prefill': prefill,
         'masters': {
             'states': states,
@@ -315,13 +347,22 @@ def save_onboarding_draft(*, user, payload: dict) -> dict:
 
     # Drop empty keys so we don't wipe good values with blanks on partial saves
     incoming = {k: v for k, v in flat.items() if _safe_str(v)}
+    # Never clear previously saved KYC images when the client omits them (slim GET form).
+    stored = flatten_onboarding_payload(merchant.onboarding_payload)
+    for key in IMAGE_DRAFT_KEYS:
+        if key not in incoming and _is_image_payload(stored.get(key)):
+            incoming[key] = stored[key]
     merchant.onboarding_payload = {**(merchant.onboarding_payload or {}), **incoming}
     if merchant.stage in ('not_started', ''):
         merchant.stage = 'onboarding_draft'
     merchant.save()
+    light_payload, saved_images = _strip_images_for_client(
+        flatten_onboarding_payload(merchant.onboarding_payload)
+    )
     return {
         'stage': merchant.stage,
-        'onboarding_payload': flatten_onboarding_payload(merchant.onboarding_payload),
+        'onboarding_payload': light_payload,
+        'saved_images': saved_images,
         'masked_aadhaar': merchant.masked_aadhaar,
     }
 
@@ -372,9 +413,11 @@ def _provider_kyc_defaults() -> dict:
             'companyOrShopPan': _safe_str(
                 secrets.get('company_or_shop_pan') or secrets.get('companyOrShopPan')
             ).upper(),
+            # Doc sample MerchantModelV1.userType (e.g. "lakshmi")
+            'userType': _safe_str(secrets.get('user_type') or secrets.get('userType')) or 'lakshmi',
         }
     except Exception:
-        return {'gstinNumber': '', 'companyOrShopPan': ''}
+        return {'gstinNumber': '', 'companyOrShopPan': '', 'userType': 'lakshmi'}
 
 
 def _image_b64(flat: dict, key: str) -> str:
@@ -460,6 +503,11 @@ def build_fingpay_merchant_payload(*, merchant, flat: dict, latitude, longitude,
                 'message': 'Merchant PIN missing. Ask Admin to re-enable AEPS so a pin is generated.',
             }
         )
+    # SAMPLE REQUEST shows MD5 hex (e.g. md5("1234")=81dc9bdb...). Later txn APIs also require
+    # merchantPin as MD5, and docs say onboarding PIN must match transaction PIN.
+    from apps.integrations.fingpay.crypto import md5_hex
+
+    pin_for_fingpay = md5_hex(pin) if len(pin) != 32 else pin
     aadhaar = _safe_str(aadhaar_full or flat.get('aadhaarNumber'))
     legal = _safe_str(
         flat.get('companyLegalName') or flat.get('shopName') or f"{flat.get('firstName')} {flat.get('lastName')}"
@@ -479,8 +527,8 @@ def build_fingpay_merchant_payload(*, merchant, flat: dict, latitude, longitude,
 
     return {
         'merchantLoginId': merchant.merchant_login_id,
-        # Doc: "Plain password must be sent" for merchantLoginPin (not MD5).
-        'merchantLoginPin': pin,
+        # Doc SAMPLE REQUEST: MD5 of merchant PIN (not plain digits)
+        'merchantLoginPin': pin_for_fingpay,
         'firstName': first,
         'lastName': last,
         'middleName': middle,
@@ -494,9 +542,11 @@ def build_fingpay_merchant_payload(*, merchant, flat: dict, latitude, longitude,
             'merchantPinCode': _safe_str(flat.get('merchantPinCode')),
         },
         'companyLegalName': legal[:100],
+        # Present in MerchantModelV1 + SAMPLE REQUEST (Fingpay Services API Doc 270426)
+        'userType': _safe_str(flat.get('userType')) or defaults.get('userType') or 'lakshmi',
         'companyType': company_type,
         'emailId': _safe_str(flat.get('emailId')),
-        # Doc: True/False for certificate / shopAndPanImage flags
+        # Param table: True/False. Sample also shows "yes" — True/False is documented.
         'certificateOfIncorporationImage': 'True',
         'kyc': {
             'userPan': user_pan,
@@ -512,6 +562,7 @@ def build_fingpay_merchant_payload(*, merchant, flat: dict, latitude, longitude,
             'companyBankAccountNumber': _safe_str(flat.get('companyBankAccountNumber')),
             'bankIfscCode': _safe_str(flat.get('bankIfscCode')).upper(),
             'companyBankName': _safe_str(flat.get('companyBankName') or 'State Bank of India'),
+            # Param table 13.4 (optional in sample JSON)
             'bankBranchName': _safe_str(flat.get('bankBranchName') or flat.get('companyBankName') or 'Main'),
             'bankAccountName': _safe_str(flat.get('bankAccountName')),
         },
@@ -519,8 +570,10 @@ def build_fingpay_merchant_payload(*, merchant, flat: dict, latitude, longitude,
         'termsConditionCheck': 'True',
         'cancelledChequeImages': 'True',
         'physicalVerification': 'True',
-        # Doc spelling (not the older "vedio..." typo)
+        # Java model / param table: videoKycWithLatLongData
+        # SAMPLE REQUEST + error 5034 use typo "vedio..." — send both so either binder accepts it.
         'videoKycWithLatLongData': 'True',
+        'vedioKycWithLatLongData': 'True',
         'merchantKycAddressData': {
             'shopAddress': _safe_str(flat.get('shopAddress')),
             'shopCity': _safe_str(flat.get('shopCity')),
@@ -547,10 +600,18 @@ def submit_onboarding(*, user, latitude, longitude, ip_address: str, merchant_bo
     for key in DRAFT_KEYS:
         if key in raw and raw.get(key) not in (None, ''):
             flat[key] = _safe_str(raw.get(key))
+    # Reuse previously saved KYC images when the slim form does not re-upload them.
+    stored = flatten_onboarding_payload(merchant.onboarding_payload)
+    for key in IMAGE_DRAFT_KEYS:
+        if not _is_image_payload(flat.get(key)) and _is_image_payload(stored.get(key)):
+            flat[key] = stored[key]
     if isinstance(raw.get('kyc'), dict):
         for k in ('userPan', 'aadhaarNumber', 'gstinNumber', 'gstInNumber', 'companyOrShopPan'):
             if raw['kyc'].get(k):
                 flat['gstinNumber' if k == 'gstInNumber' else k] = _safe_str(raw['kyc'].get(k))
+        for k in IMAGE_DRAFT_KEYS:
+            if _is_image_payload(raw['kyc'].get(k)):
+                flat[k] = _safe_str(raw['kyc'].get(k))
     if raw.get('companyType') not in (None, ''):
         flat['companyType'] = _safe_str(raw.get('companyType'))
     if raw.get('companyLegalName'):
@@ -594,37 +655,36 @@ def submit_onboarding(*, user, latitude, longitude, ip_address: str, merchant_bo
         masked_aadhaar=merchant.masked_aadhaar,
     )
     try:
-        # Production php/creation (encrypted). UAT simple API only if URL still contains fpuat.
-        use_simple = 'fpuat' in (client.onboarding_base_url or '').lower()
-        if use_simple:
-            resp = client.create_merchant_simple(
-                fingpay_merchant,
-                latitude=latitude,
-                longitude=longitude,
-                ip_address=ip_address or '0.0.0.0',
-            )
-        else:
-            resp = client.create_merchant(
-                fingpay_merchant,
-                latitude=latitude,
-                longitude=longitude,
-                ip_address=ip_address or '0.0.0.0',
-            )
+        # Always use the admin-selected Java/.NET or PHP encrypted create URL.
+        # (Do not auto-switch to /simple/creation just because the host is fpuat —
+        # that hid the request/response pack shape and ignored the Activate cards.)
+        resp = client.create_merchant(
+            fingpay_merchant,
+            latitude=latitude,
+            longitude=longitude,
+            ip_address=ip_address or '0.0.0.0',
+        )
     except Exception as exc:
         from apps.integrations.fingpay.client import FingpayClientError
 
         err_msg = str(exc)
+        exchange = getattr(exc, 'exchange', None) if isinstance(exc, FingpayClientError) else None
+        if not exchange and isinstance(exc, FingpayClientError) and isinstance(exc.payload, dict):
+            exchange = exc.payload.get('exchange')
         if isinstance(exc, FingpayClientError) and exc.status_code == 403:
             err_msg = (
                 'Fingpay Production blocked our server (HTTP 403). '
                 'IP 57.131.39.21 is not whitelisted on fingpayap.tapits.in yet. '
                 'Ask Tapits/Sumit to whitelist this IP on Production — then retry Submit. '
-                'Your form data is fine; this is not a merchant-field validation error.'
+                'Your form data is fine; this is not a merchant-field validation error. '
+                'Copy the Request/Response pack below and send it to Tapits.'
             )
         txn.status = 'failed'
         txn.response_code = str(getattr(exc, 'status_code', '') or '')
         txn.response_message = err_msg[:500]
-        txn.save(update_fields=['status', 'response_code', 'response_message', 'updated_at'])
+        if exchange:
+            txn.provider_meta = {**(txn.provider_meta or {}), 'fingpay_exchange': exchange}
+        txn.save(update_fields=['status', 'response_code', 'response_message', 'provider_meta', 'updated_at'])
         merchant.last_error = err_msg[:1000]
         merchant.save(update_fields=['last_error', 'updated_at'])
         AepsApiAuditLog.objects.create(
@@ -632,6 +692,7 @@ def submit_onboarding(*, user, latitude, longitude, ip_address: str, merchant_bo
             merchant_tran_id=txn.merchant_tran_id,
             user=user,
             success=False,
+            http_status=getattr(exc, 'status_code', None) if isinstance(exc, FingpayClientError) else None,
             provider_status_code=str(getattr(exc, 'status_code', '') or '')[:32],
             error_message=err_msg[:500],
             request_summary=scrub_sensitive(
@@ -641,10 +702,16 @@ def submit_onboarding(*, user, latitude, longitude, ip_address: str, merchant_bo
                     'merchantState': (fingpay_merchant.get('merchantAddress') or {}).get('merchantState'),
                     'onboarding_url': getattr(client, 'onboarding_base_url', ''),
                     'server_ip': '57.131.39.21',
+                    'url': (exchange or {}).get('request', {}).get('url') if exchange else None,
                 }
             ),
+            response_summary=scrub_sensitive(exchange or {}),
         )
-        raise ValidationError({'code': 'PROVIDER_REJECTED', 'message': err_msg}) from exc
+        # NOTE: don't put the exchange inside ValidationError detail — DRF coerces
+        # every leaf (ints/bools/floats) to ErrorDetail strings and wrecks the JSON.
+        err = ValidationError({'code': 'PROVIDER_REJECTED', 'message': err_msg})
+        err.fingpay_exchange = exchange or {}
+        raise err from exc
 
     # Prefer nested data remarks when present
     data_obj = resp.get('data') if isinstance(resp.get('data'), dict) else {}
@@ -657,13 +724,29 @@ def submit_onboarding(*, user, latitude, longitude, ip_address: str, merchant_bo
         provider_message = f'{provider_message} [errorCodes={error_codes}]'.strip()
 
     if status_code == '10005' or 'invalid super merchant' in provider_message.lower():
-        provider_message = (
-            'Invalid super merchant — Fingpay rejected Integration credentials. '
-            'Use Production URL (fingpayap.tapits.in) with Super merchant login Mpayhubd / '
-            'password 1234d / ID 1501 (not Analytics Portal Mpayhub). '
-            f'Currently login={client.super_merchant_login_id!r} id={client.super_merchant_id!r} '
-            f'url={client.onboarding_base_url!r}.'
-        )
+        env_label = (getattr(client, 'environment', '') or '').upper() or 'ACTIVE'
+        style = getattr(client, 'onboarding_api_style', '') or ''
+        create_url = ''
+        try:
+            create_url = client.onboarding_create_url()
+        except Exception:
+            create_url = getattr(client, 'onboarding_base_url', '')
+        if 'fpuat' in (create_url or '').lower() or env_label == 'UAT':
+            provider_message = (
+                'Invalid super merchant — Fingpay rejected these UAT Integration credentials (10005). '
+                'Ask Tapits for a UAT SuperMerchant login/ID/password (Production Mpayhubd/1501 is not valid on fpuat), '
+                'save them under Admin → AEPS Provider → UAT, then retry. '
+                f'Currently env={env_label!r} style={style!r} login={client.super_merchant_login_id!r} '
+                f'id={client.super_merchant_id!r} url={create_url!r}.'
+            )
+        else:
+            provider_message = (
+                'Invalid super merchant — Fingpay rejected Integration credentials. '
+                'Use Production URL (fingpayap.tapits.in) with Super merchant login Mpayhubd / '
+                'password 1234d / ID 1501 (not Analytics Portal Mpayhub). '
+                f'Currently login={client.super_merchant_login_id!r} id={client.super_merchant_id!r} '
+                f'url={create_url!r}.'
+            )
     elif status_code == '10004' and 'modelcreation' in provider_message.lower().replace(' ', ''):
         provider_message = (
             f'{provider_message} — usually bad request shape or credentials. '
@@ -695,10 +778,14 @@ def submit_onboarding(*, user, latitude, longitude, ip_address: str, merchant_bo
     ok = bool(resp.get('status') is True or resp.get('statusCode') in (10000, '10000'))
     if data_obj.get('merchantStatus') is False:
         ok = False
+    exchange = resp.get('_exchange') if isinstance(resp, dict) else None
     txn.status = 'success' if ok else 'failed'
     txn.response_code = status_code
     txn.response_message = (provider_message or 'Onboarding failed')[:500]
-    txn.provider_meta = scrub_sensitive(resp)
+    meta = scrub_sensitive({k: v for k, v in (resp or {}).items() if k != '_exchange'})
+    if exchange:
+        meta['fingpay_exchange'] = exchange
+    txn.provider_meta = meta
     txn.fp_transaction_id = str(data_obj.get('encodeFPTxnId') or resp.get('encodeFPTxnId') or '')
     txn.save()
 
@@ -707,6 +794,7 @@ def submit_onboarding(*, user, latitude, longitude, ip_address: str, merchant_bo
         merchant_tran_id=txn.merchant_tran_id,
         user=user,
         success=ok,
+        http_status=(resp.get('_meta') or {}).get('http_status'),
         provider_status_code=txn.response_code,
         latency_ms=(resp.get('_meta') or {}).get('latency_ms'),
         request_summary=scrub_sensitive(
@@ -715,6 +803,9 @@ def submit_onboarding(*, user, latitude, longitude, ip_address: str, merchant_bo
                 'companyType': fingpay_merchant.get('companyType'),
                 'merchantState': (fingpay_merchant.get('merchantAddress') or {}).get('merchantState'),
                 'has_images': True,
+                'onboarding_url': getattr(client, 'onboarding_base_url', ''),
+                'onboarding_api_style': getattr(client, 'onboarding_api_style', ''),
+                'url': (exchange or {}).get('request', {}).get('url') if exchange else None,
             }
         ),
         response_summary=scrub_sensitive(
@@ -723,6 +814,7 @@ def submit_onboarding(*, user, latitude, longitude, ip_address: str, merchant_bo
                 'statusCode': resp.get('statusCode'),
                 'message': provider_message,
                 'errorCodes': error_codes,
+                'exchange': exchange or {},
             }
         ),
     )
@@ -742,12 +834,15 @@ def submit_onboarding(*, user, latitude, longitude, ip_address: str, merchant_bo
     else:
         merchant.last_error = txn.response_message
         merchant.save(update_fields=['last_error', 'updated_at'])
-        raise ValidationError(
+        err = ValidationError(
             {
                 'code': 'PROVIDER_REJECTED',
                 'message': txn.response_message or 'Onboarding failed at Fingpay (modelCreation).',
             }
         )
+        # Preserve typed exchange for frontend Copy pack (any failure, incl. 10005 on UAT).
+        err.fingpay_exchange = exchange or {}
+        raise err
 
     return {'transaction': _txn_dict(txn), 'merchant_stage': merchant.stage}
 

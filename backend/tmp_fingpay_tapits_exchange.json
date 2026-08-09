@@ -1,0 +1,192 @@
+{
+  "captured_at": "2026-08-07T14:02:12Z",
+  "server_egress_ip": "57.131.39.21",
+  "share_with_tapits": {
+    "endpoint": "POST https://fingpayap.tapits.in/fpaepsweb/api/onboarding/merchant/creation/v2",
+    "doc": "Fingpay Services API Doc 270426 \u2014 Merchant Onboarding Java/.NET path (/fpaepsweb/api/onboarding/merchant/creation/v2). Encryption matches AEPS_RSA.net sample (AES-128-ECB + RSA/PKCS1 eskey).",
+    "server_egress_ip": "57.131.39.21",
+    "request_headers": {
+      "trnTimestamp": "07/08/2026 19:32:11",
+      "hash": "DR2nCw4RLYmEIwx9KVi0wD2DMeHiWdzGCwB9MW7dNRc=",
+      "eskey": "sfUW14dNtdFo4y06+0vGdLjUBvD8Fkoe4/g8ekmmaqZj/7ZF7PClw9cUXXMABJLdqdlCWuCmTBiGntpizsETGez8I3KqbEqjNo/TSCb7CMY+FLoaix6lMfo8vi0fOFfinBuUdnXBIi7Lo0D1Sf61venNq9mZXzokz44+57v0pWpaY4qoIpc+m4bqNOAcFermqVyL1AlhrbE3w7bvix5Tmu+VLvjw03cdy9Z1ha/Q9yC0PNOYGhK5+s2iycxpcJzmif7lDvBfEuwHLtWjs6tu6ecU4b8ftvdrDPMsT4gxvrt7r+PUQcDdPARMziU94ZPP55B25ZFZbsnXaJuLVspTbt21iqshANFiF9KYZVonzsOgl4YRDuy15SZRIZHv996xNy+uZ0UemtAvihQefeQj5otAPXWuOpFkS8V6js294p2Q0/tkEVc7gyoe+FO1Vs4mS/JYUd3ZYbHLWWfmk3spPRgCapNxxBJZjJk2ThcWioVlgV4oT3mC4jabd2l3xqxdMKBlgF3YKW9NMdBYevREzruaNcJ9bWdo6u9fysP4n1Hh92ejyVrMGIlDoYfHYCN1xwyiCB44z5wdKsGgayfEA701HhHO8SuxZfG2YqUpo5oSX92fh2wXpguXOr1aQP6q/wgO3GdWvO9IXCPxdU8CM9CEedAFqHLWEz7qltoUhTU="
+    },
+    "encrypted_body_bytes": 2605100,
+    "encrypted_body_base64_preview": "F3eSh1KQzLMxb/CroFro43DO0ZiaZeJB6OnfcfAL/zgpLW2gXAU8j4DdFSJ6R2A0KduscNCegEu5KHbV8gyAil7mNybagX4b7Jz4n1O3bewktc7d0po/POeQ...[base64 truncated, total_len=2605100]",
+    "plain_json_request": {
+      "username": "Mpayhubd",
+      "password": "796c3ee556ac31f3754a38cfd15b8044",
+      "latitude": 17.79,
+      "longitude": 82.8,
+      "ipAddress": "57.131.39.21",
+      "supermerchantId": 1501,
+      "merchant": {
+        "merchantLoginId": "MPH17497",
+        "merchantLoginPin": "ba1d8b273d67c04097d64fad565a79d9",
+        "firstName": "Jaggumanthri",
+        "lastName": "Kundan Uday Kumar",
+        "middleName": "",
+        "merchantPhoneNumber": "9550221153",
+        "merchantAddress": {
+          "merchantAddress1": "001 ravikamtham",
+          "merchantAddress2": "anakapalli anakapalli",
+          "merchantState": 2,
+          "merchantCityName": "anakapalli",
+          "merchantDistrictName": "anakapalli",
+          "merchantPinCode": "531025"
+        },
+        "companyLegalName": "uday 1234",
+        "userType": "lakshmi",
+        "companyType": 24,
+        "emailId": "npsrkm1986@gmail.com",
+        "certificateOfIncorporationImage": "True",
+        "kyc": {
+          "userPan": "KRAPK2170N",
+          "aadhaarNumber": "xxxxxxxx8750",
+          "gstinNumber": "24AAAGM0289C1ZP",
+          "companyOrShopPan": "KRAPK2170N",
+          "merchantPanImage": "/9j/4QMvRXhpZgAATU0AKgAAAAgACwEbAAUAAAABAAAAkgEaAAUAAAABAAAAmgEAAAQAAAABAAAFoAEQAAIAAAAGAAAAogEB...[base64 truncated for email, full image sent on wire, total_len=561464]",
+          "maskedAadharImage": "/9j/4QMvRXhpZgAATU0AKgAAAAgACwEbAAUAAAABAAAAkgEaAAUAAAABAAAAmgEAAAQAAAABAAAFoAEQAAIAAAAGAAAAogEB...[base64 truncated for email, full image sent on wire, total_len=678508]",
+          "shopAndPanImage": "True"
+        },
+        "settlementV1": {
+          "companyBankAccountNumber": "35736936125",
+          "bankIfscCode": "SBIN0018204",
+          "companyBankName": "State bank of india",
+          "bankBranchName": "ravikamtham",
+          "bankAccountName": "JAGGUMANTHRI KUNDAN UDAY KUMAR"
+        },
+        "tradeBusinessProof": "True",
+        "termsConditionCheck": "True",
+        "cancelledChequeImages": "True",
+        "physicalVerification": "True",
+        "videoKycWithLatLongData": "True",
+        "vedioKycWithLatLongData": "True",
+        "merchantKycAddressData": {
+          "shopAddress": "001 RAVIKAMTHAM",
+          "shopCity": "ANAKAPALLI",
+          "shopDistrict": "ANAKAPALLI",
+          "shopState": 2,
+          "shopPincode": "531025",
+          "shopLatitude": 17.79,
+          "shopLongitude": 82.8,
+          "backgroundImageOfShop": "/9j/4QMvRXhpZgAATU0AKgAAAAgACwEbAAUAAAABAAAAkgEaAAUAAAABAAAAmgEAAAQAAAABAAAFoAEQAAIAAAAGAAAAogEB...[base64 truncated for email, full image sent on wire, total_len=712320]"
+        }
+      }
+    },
+    "http_response": {
+      "status": 403,
+      "headers": {
+        "server": "awselb/2.0",
+        "content-type": "text/html",
+        "content-length": "118",
+        "date": "Fri, 07 Aug 2026 14:02:12 GMT"
+      },
+      "body": {
+        "raw_html_or_text": "<html>\r\n<head><title>403 Forbidden</title></head>\r\n<body>\r\n<center><h1>403 Forbidden</h1></center>\r\n</body>\r\n</html>\r\n"
+      },
+      "latency_ms": 1130,
+      "transport_error": null
+    },
+    "expected_success_response": {
+      "status": true,
+      "message": "successful",
+      "data": {
+        "merchantStatus": true,
+        "remarks": "Successfully recorded",
+        "superMerchantId": "<supermerchantId>",
+        "merchantLoginId": "<merchantLoginId>",
+        "errorCodes": null
+      },
+      "statusCode": 10000
+    },
+    "diagnosis": "AWS ELB returned HTTP 403 before the Fingpay app. Source IP 57.131.39.21 is still blocked on fingpayap.tapits.in. Whitelist is NOT effective yet for this host/IP."
+  },
+  "diagnosis": "AWS ELB returned HTTP 403 before the Fingpay app. Source IP 57.131.39.21 is still blocked on fingpayap.tapits.in. Whitelist is NOT effective yet for this host/IP.",
+  "request": {
+    "method": "POST",
+    "url": "https://fingpayap.tapits.in/fpaepsweb/api/onboarding/merchant/creation/v2",
+    "mode": "java_ecb_encrypted",
+    "headers": {
+      "trnTimestamp": "07/08/2026 19:32:11",
+      "hash": "<len=44>",
+      "eskey": "<len=684>"
+    },
+    "encrypted_body_bytes": 2605100,
+    "plain_json_scrubbed": {
+      "username": "Mpayhubd",
+      "password": "796c3ee556ac31f3754a38cfd15b8044",
+      "latitude": 17.79,
+      "longitude": 82.8,
+      "ipAddress": "57.131.39.21",
+      "supermerchantId": 1501,
+      "merchant": {
+        "merchantLoginId": "MPH17497",
+        "merchantLoginPin": "ba1d8b273d67c04097d64fad565a79d9",
+        "firstName": "Jaggumanthri",
+        "lastName": "Kundan Uday Kumar",
+        "middleName": "",
+        "merchantPhoneNumber": "9550221153",
+        "merchantAddress": {
+          "merchantAddress1": "001 ravikamtham",
+          "merchantAddress2": "anakapalli anakapalli",
+          "merchantState": 2,
+          "merchantCityName": "anakapalli",
+          "merchantDistrictName": "anakapalli",
+          "merchantPinCode": "531025"
+        },
+        "companyLegalName": "uday 1234",
+        "userType": "lakshmi",
+        "companyType": 24,
+        "emailId": "npsrkm1986@gmail.com",
+        "certificateOfIncorporationImage": "True",
+        "kyc": {
+          "userPan": "KRAPK2170N",
+          "aadhaarNumber": "xxxxxxxx8750",
+          "gstinNumber": "24AAAGM0289C1ZP",
+          "companyOrShopPan": "KRAPK2170N",
+          "merchantPanImage": "/9j/4QMvRXhpZgAATU0AKgAAAAgACwEbAAUAAAABAAAAkgEaAAUAAAABAAAAmgEAAAQAAAABAAAFoAEQAAIAAAAGAAAAogEB...[base64 truncated for email, full image sent on wire, total_len=561464]",
+          "maskedAadharImage": "/9j/4QMvRXhpZgAATU0AKgAAAAgACwEbAAUAAAABAAAAkgEaAAUAAAABAAAAmgEAAAQAAAABAAAFoAEQAAIAAAAGAAAAogEB...[base64 truncated for email, full image sent on wire, total_len=678508]",
+          "shopAndPanImage": "True"
+        },
+        "settlementV1": {
+          "companyBankAccountNumber": "35736936125",
+          "bankIfscCode": "SBIN0018204",
+          "companyBankName": "State bank of india",
+          "bankBranchName": "ravikamtham",
+          "bankAccountName": "JAGGUMANTHRI KUNDAN UDAY KUMAR"
+        },
+        "tradeBusinessProof": "True",
+        "termsConditionCheck": "True",
+        "cancelledChequeImages": "True",
+        "physicalVerification": "True",
+        "videoKycWithLatLongData": "True",
+        "vedioKycWithLatLongData": "True",
+        "merchantKycAddressData": {
+          "shopAddress": "001 RAVIKAMTHAM",
+          "shopCity": "ANAKAPALLI",
+          "shopDistrict": "ANAKAPALLI",
+          "shopState": 2,
+          "shopPincode": "531025",
+          "shopLatitude": 17.79,
+          "shopLongitude": 82.8,
+          "backgroundImageOfShop": "/9j/4QMvRXhpZgAATU0AKgAAAAgACwEbAAUAAAABAAAAkgEaAAUAAAABAAAAmgEAAAQAAAABAAAFoAEQAAIAAAAGAAAAogEB...[base64 truncated for email, full image sent on wire, total_len=712320]"
+        }
+      }
+    },
+    "note": "Wire body is AES-encrypted text/xml (PHP path per phpsamplecode.txt). plain_json_scrubbed / share_with_tapits.plain_json_request mirrors the doc SAMPLE: MD5 merchantLoginPin + base64 image previews (not [REDACTED] placeholders)."
+  },
+  "response": {
+    "transport_error": null,
+    "latency_ms": 1130,
+    "http_status": 403,
+    "headers": {
+      "server": "awselb/2.0",
+      "content-type": "text/html",
+      "content-length": "118",
+      "date": "Fri, 07 Aug 2026 14:02:12 GMT"
+    },
+    "body": {
+      "raw_html_or_text": "<html>\r\n<head><title>403 Forbidden</title></head>\r\n<body>\r\n<center><h1>403 Forbidden</h1></center>\r\n</body>\r\n</html>\r\n"
+    }
+  }
+}

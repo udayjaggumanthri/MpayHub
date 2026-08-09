@@ -16,10 +16,27 @@ class AepsProviderConfig(BaseModel):
         ('uat', 'UAT'),
         ('prod', 'Production'),
     ]
+    ONBOARDING_API_STYLE_CHOICES = [
+        ('java', 'Java / .NET'),
+        ('php', 'PHP'),
+    ]
+    # Doc 270426 paths under onboarding_base_url (…/fpaepsweb)
+    ONBOARDING_CREATE_PATHS = {
+        'java': '/api/onboarding/merchant/creation/v2',
+        'php': '/api/onboarding/merchant/php/creation/v2',
+    }
 
     name = models.CharField(max_length=100, unique=True, default='default', db_index=True)
     environment = models.CharField(max_length=10, choices=ENV_CHOICES, default='prod', db_index=True)
     is_active = models.BooleanField(default=False, db_index=True)
+    # Which onboarding create API to call when this env row is the active one.
+    onboarding_api_style = models.CharField(
+        max_length=8,
+        choices=ONBOARDING_API_STYLE_CHOICES,
+        default='java',
+        db_index=True,
+        help_text='java → …/merchant/creation/v2 (AES-ECB); php → …/merchant/php/creation/v2 (AES-CBC)',
+    )
 
     super_merchant_id = models.CharField(max_length=64, blank=True, default='')
     super_merchant_login_id = models.CharField(max_length=128, blank=True, default='')
@@ -49,7 +66,23 @@ class AepsProviderConfig(BaseModel):
         ordering = ['-is_active', 'name']
 
     def __str__(self):
-        return f'AEPS provider {self.name} ({self.environment})'
+        return f'AEPS provider {self.name} ({self.environment}/{self.onboarding_api_style})'
+
+    @property
+    def resolved_onboarding_api_style(self) -> str:
+        style = (self.onboarding_api_style or 'java').lower()
+        return style if style in self.ONBOARDING_CREATE_PATHS else 'java'
+
+    def onboarding_create_path(self) -> str:
+        return self.ONBOARDING_CREATE_PATHS[self.resolved_onboarding_api_style]
+
+    def onboarding_create_url(self) -> str:
+        base = (self.onboarding_base_url or '').rstrip('/')
+        return f'{base}{self.onboarding_create_path()}' if base else self.onboarding_create_path()
+
+    def onboarding_aes_mode(self) -> str:
+        # PHP sample: AES-128-CBC; Java/.NET sample: AES-128-ECB
+        return 'cbc' if self.resolved_onboarding_api_style == 'php' else 'ecb'
 
 
 class AepsEntitlement(BaseModel):

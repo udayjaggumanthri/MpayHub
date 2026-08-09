@@ -130,15 +130,24 @@ def me_status_payload(user) -> dict:
     elif merchant.stage == 'active':
         next_action = 'ready'
 
-    return {
-        'module_key': 'aeps',
-        'is_admin': is_admin,
-        'entitled': bool(ent and ent.enabled),
-        'can_trade': can_trade,
-        'pending_access_request': bool(pending_req),
-        'merchant': None
-        if not merchant
-        else {
+    merchant_block = None
+    if merchant:
+        # Never embed full onboarding_payload here — drafts can include multi-MB base64
+        # KYC images and would make /aeps/me/status/ hang the SPA (looks like "not entitled").
+        raw_payload = merchant.onboarding_payload if isinstance(merchant.onboarding_payload, dict) else {}
+        image_keys = {
+            'merchantPanImage',
+            'maskedAadharImage',
+            'backgroundImageOfShop',
+            'cancelledChequeImages',
+            'tradeBusinessProof',
+        }
+        light_fields = {
+            k: v
+            for k, v in raw_payload.items()
+            if k not in image_keys and not (isinstance(v, str) and len(v) > 500)
+        }
+        merchant_block = {
             'merchant_login_id': merchant.merchant_login_id,
             'stage': merchant.stage,
             'device_imei': merchant.device_imei,
@@ -146,8 +155,19 @@ def me_status_payload(user) -> dict:
             'masked_aadhaar': merchant.masked_aadhaar,
             'last_2fa_at': merchant.last_2fa_at.isoformat() if merchant.last_2fa_at else None,
             'twofa_ok_today': twofa_ok,
-            'onboarding_payload': merchant.onboarding_payload or {},
-        },
+            'has_onboarding_draft': bool(raw_payload),
+            'onboarding_draft_keys': sorted(raw_payload.keys()),
+            # Lightweight text fields only (images belong on /aeps/onboarding/draft/).
+            'onboarding_summary': light_fields,
+        }
+
+    return {
+        'module_key': 'aeps',
+        'is_admin': is_admin,
+        'entitled': bool(ent and ent.enabled),
+        'can_trade': can_trade,
+        'pending_access_request': bool(pending_req),
+        'merchant': merchant_block,
         'stage': stage,
         'next_action': next_action,
     }

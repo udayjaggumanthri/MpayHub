@@ -20,6 +20,26 @@ class FingpayCryptoTests(SimpleTestCase):
         self.assertEqual(cleaned['bank'], 'SBI')
         self.assertEqual(cleaned['captureResponse'], '[REDACTED]')
 
+    def test_scrub_for_tapits_shows_md5_pin_and_image_preview(self):
+        pin_md5 = '81dc9bdb52d04dc20036dbd8313ed055'
+        img = 'iVBORw0KGgoAAAANSUhEUgAAAoYAAAGrCAYAAABdUFYMAAAAAXNSR0IArs4c6QAAAARnQU1BAACxjwv8Y' + ('A' * 200)
+        cleaned = scrub_sensitive(
+            {
+                'merchantLoginPin': pin_md5,
+                'aadhaarNumber': '287663698750',
+                'merchantPanImage': img,
+                'maskedAadharImage': img,
+                'backgroundImageOfShop': img,
+            },
+            for_tapits=True,
+        )
+        self.assertEqual(cleaned['merchantLoginPin'], pin_md5)
+        self.assertEqual(cleaned['aadhaarNumber'], 'xxxxxxxx8750')
+        self.assertTrue(cleaned['merchantPanImage'].startswith('iVBORw0KGgo'))
+        self.assertIn('total_len=', cleaned['merchantPanImage'])
+        self.assertTrue(cleaned['maskedAadharImage'].startswith('iVBORw0KGgo'))
+        self.assertTrue(cleaned['backgroundImageOfShop'].startswith('iVBORw0KGgo'))
+
     def test_recon_hash_stable(self):
         h1 = build_recon_hash(request_body='{}', super_merchant_login_id='demo', secret_key='secret')
         h2 = build_recon_hash(request_body='{}', super_merchant_login_id='demo', secret_key='secret')
