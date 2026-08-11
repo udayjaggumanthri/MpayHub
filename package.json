@@ -1,0 +1,26 @@
+{
+  "name": "mpayhub",
+  "version": "1.0.0",
+  "description": "Monorepo for the mPayHub platform: - `backend/`: Django REST API - `frontend/`: React web application",
+  "main": "ecosystem.config.js",
+  "directories": {
+    "doc": "docs"
+  },
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/udayjaggumanthri/MpayHub.git"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "bugs": {
+    "url": "https://github.com/udayjaggumanthri/MpayHub/issues"
+  },
+  "homepage": "https://github.com/udayjaggumanthri/MpayHub#readme",
+  "dependencies": {
+    "http-proxy": "^1.18.1"
+  }
+}

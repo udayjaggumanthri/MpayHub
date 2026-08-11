@@ -51,6 +51,7 @@ from apps.core.exceptions import InvalidCredentials, InvalidMPIN, InvalidOTP
 
 
 @api_view(['POST'])
+@authentication_classes([])
 @permission_classes([AllowAny])
 @ratelimit(key='ip', rate='5/m', method='POST')
 def login_view(request):
@@ -181,6 +182,7 @@ def verify_mpin_view(request):
 
 
 @api_view(['POST'])
+@authentication_classes([])
 @permission_classes([AllowAny])
 @ratelimit(key='ip', rate='3/m', method='POST')
 def send_otp_view(request):
@@ -246,6 +248,7 @@ def send_otp_view(request):
 
 
 @api_view(['POST'])
+@authentication_classes([])
 @permission_classes([AllowAny])
 @ratelimit(key='ip', rate='10/m', method='POST')
 def verify_otp_view(request):
@@ -271,6 +274,7 @@ def verify_otp_view(request):
 
 
 @api_view(['POST'])
+@authentication_classes([])
 @permission_classes([AllowAny])
 @ratelimit(key='ip', rate='5/m', method='POST')
 def reset_password_view(request):
@@ -314,6 +318,7 @@ def reset_password_view(request):
 
 
 @api_view(['POST'])
+@authentication_classes([])
 @permission_classes([AllowAny])
 @ratelimit(key='ip', rate='5/m', method='POST')
 def reset_mpin_view(request):
