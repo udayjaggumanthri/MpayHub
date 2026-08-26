@@ -103,9 +103,11 @@ class CashfreePanProvider:
                 success=True,
                 pan=pan,
                 registered_name=self._registered_name(raw),
+                date_of_birth=str(raw.get('date_of_birth') or raw.get('dob') or ''),
+                pan_type=str(raw.get('type') or ''),
                 reference_id=str(raw.get('reference_id') or ''),
                 verification_id=verification_id,
-                status=str(raw.get('status') or ''),
+                status=str(raw.get('status') or raw.get('pan_status') or ''),
                 message=str(raw.get('message') or ''),
                 raw=raw,
             )

@@ -45,6 +45,31 @@ def md5_hex(text: str) -> str:
     return hashlib.md5(text.encode('utf-8')).hexdigest()
 
 
+def looks_like_md5_hex(value: str | None) -> bool:
+    """True when value is a 32-char lowercase/uppercase hex MD5 digest."""
+    s = str(value or '').strip()
+    return len(s) == 32 and all(c in '0123456789abcdefABCDEF' for c in s)
+
+
+def resolve_password_md5(password: str, *, mode: str = 'plain') -> str:
+    """
+    Resolve super-merchant password to MD5 hex for Fingpay bodies/hashes.
+
+    mode:
+      - 'plain' (default): MD5(password)
+      - 'md5' / 'hashed': value is already MD5 hex — use as-is (normalized to lowercase)
+    """
+    pwd = str(password or '').strip()
+    if not pwd:
+        return ''
+    mode_l = (mode or 'plain').strip().lower()
+    if mode_l in ('md5', 'hashed', 'hash', 'digest'):
+        if looks_like_md5_hex(pwd):
+            return pwd.lower()
+        # Stored as "md5" but not 32-hex — hash once so requests still work
+        return md5_hex(pwd)
+    return md5_hex(pwd)
+
 def generate_aes128_session_key() -> bytes:
     from os import urandom
 
@@ -123,7 +148,13 @@ def encrypt_aes_ecb_pkcs7(session_key: bytes, plaintext: bytes | str) -> str:
 
 
 def trn_timestamp_now() -> str:
+    """Encrypted PHP/Java APIs — dd/mm/YYYY (phpsamplecode.txt)."""
     return datetime.now().strftime('%d/%m/%Y %H:%M:%S')
+
+
+def trn_timestamp_simple() -> str:
+    """Simple API — YYYY-MM-DD HH:MM:SS (verified eKYC sendotp + onboarding curl)."""
+    return datetime.now().strftime('%Y-%m-%d %H:%M:%S')
 
 
 def build_encrypted_request(
@@ -158,14 +189,40 @@ def build_recon_hash(*, request_body: str, super_merchant_login_id: str, secret_
     return sha256_b64(material)
 
 
+def build_simple_onboarding_hash(*, super_merchant_login_id: str, password_md5: str) -> str:
+    """hash = Base64(SHA256(supermerchantLoginId + '@' + MD5(password)))."""
+    return sha256_b64(f'{super_merchant_login_id}@{password_md5}')
+
+
+def build_simple_txn_hash(*, plain_json: str, secret_key: str, trn_timestamp: str) -> str:
+    """
+    Simple txn / eKYC / 2FA hash.
+    hash = Base64(SHA256(plainJson + securityKey + timestamp))
+    """
+    return sha256_b64(f'{plain_json}{secret_key}{trn_timestamp}')
+
+
+def build_status_check_hash(
+    *,
+    merchant_tran_id: str,
+    merchant_login_id: str,
+    super_merchant_login_id: str,
+) -> str:
+    """
+    hash = Base64(SHA256(lower(merchantTranId + '+' + merchantLoginId + '+' + superMerchantLoginId)))
+    """
+    material = f'{merchant_tran_id}+{merchant_login_id}+{super_merchant_login_id}'.lower()
+    return sha256_b64(material)
+
+
 def scrub_sensitive(obj: Any, *, for_tapits: bool = False) -> Any:
     """
     Redact secrets for logs/UI.
 
-    for_tapits=True keeps Tapits-facing share packs close to the doc SAMPLE REQUEST:
-    - merchantLoginPin shown when it is already an MD5 hex (32 chars)
-    - KYC images shown as truncated base64 previews (same style as the PDF sample)
-    - full Aadhaar still masked
+    for_tapits=True keeps Tapits-facing share packs close to the working Simple API curl:
+    - merchantLoginPin shown (plain or MD5)
+    - KYC images kept as full base64 (Tapits asks for the real request body)
+    - Aadhaar shown in full so Tapits can validate the same payload we sent
     """
     SENSITIVE = {
         'aadhaar',
@@ -190,34 +247,27 @@ def scrub_sensitive(obj: Any, *, for_tapits: bool = False) -> Any:
         'backgroundimageofshop',
     }
 
-    def _looks_md5(val: Any) -> bool:
-        s = str(val or '')
-        return len(s) == 32 and all(c in '0123456789abcdef' for c in s.lower())
-
-    def _image_preview(val: Any) -> str:
-        s = str(val or '')
-        if len(s) <= 120:
-            return s
-        # Match Fingpay PDF sample style: short base64 prefix (single line)
-        return f'{s[:96]}...[base64 truncated for email, full image sent on wire, total_len={len(s)}]'
-
     if isinstance(obj, dict):
         out = {}
         for k, v in obj.items():
             key_l = str(k).lower().replace('_', '')
             # Image fields first — maskedAadharImage contains "aadhar" substring
             if key_l in IMAGE_KEYS or ('image' in key_l and isinstance(v, str) and len(v) > 80):
-                if for_tapits and isinstance(v, str) and len(v) > 40:
-                    out[k] = _image_preview(v)
+                if for_tapits and isinstance(v, str):
+                    # Full base64 only — strip data-URL wrapper if present
+                    raw = v
+                    if raw.startswith('data:') and ',' in raw:
+                        raw = raw.split(',', 1)[1]
+                    out[k] = ''.join(raw.split())
                 elif isinstance(v, str) and len(v) > 80:
                     out[k] = f'[BASE64_IMAGE len={len(v)}]'
                 else:
                     out[k] = scrub_sensitive(v, for_tapits=for_tapits)
-            elif key_l in ('merchantloginpin', 'merchantpin', 'password') and for_tapits and _looks_md5(v):
-                # Doc SAMPLE REQUEST shows MD5 hex for password/merchantLoginPin — share that form
+            elif key_l in ('merchantloginpin', 'merchantpin', 'password') and for_tapits:
                 out[k] = str(v)
             elif key_l in ('aadhaarnumber', 'aadharnumber') and for_tapits:
-                out[k] = mask_aadhaar(v)
+                digits = ''.join(c for c in str(v or '') if c.isdigit())
+                out[k] = digits if len(digits) == 12 else str(v or '')
             elif key_l in SENSITIVE or 'pid' in key_l or 'aadhaar' in key_l or 'aadhar' in key_l:
                 out[k] = '[REDACTED]'
             else:

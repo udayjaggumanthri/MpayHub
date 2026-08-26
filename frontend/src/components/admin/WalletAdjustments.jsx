@@ -15,6 +15,7 @@ import Card from '../common/Card';
 import FeedbackModal from '../common/FeedbackModal';
 import Input from '../common/Input';
 import LoadingSpinner from '../common/LoadingSpinner';
+import ReportDateRange from '../common/ReportDateRange';
 
 const REASON_OPTIONS = [
   { value: 'failed_transaction', label: 'Failed transaction' },
@@ -572,18 +573,18 @@ const WalletAdjustments = () => {
                   <option value="DEBIT">Debit</option>
                 </select>
               </div>
-              <Input
-                label="From"
-                type="date"
-                value={filters.date_from}
-                onChange={(e) => setFilters((f) => ({ ...f, date_from: e.target.value }))}
-              />
-              <Input
-                label="To"
-                type="date"
-                value={filters.date_to}
-                onChange={(e) => setFilters((f) => ({ ...f, date_to: e.target.value }))}
-              />
+              <div className="md:col-span-3 lg:col-span-2">
+                <ReportDateRange
+                  idPrefix="wallet-adj"
+                  dateFrom={filters.date_from}
+                  dateTo={filters.date_to}
+                  fromLabel="From"
+                  toLabel="To"
+                  onChange={({ dateFrom, dateTo }) =>
+                    setFilters((f) => ({ ...f, date_from: dateFrom, date_to: dateTo }))
+                  }
+                />
+              </div>
               <Input
                 label="Reference"
                 value={filters.reference}

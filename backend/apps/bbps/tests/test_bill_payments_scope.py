@@ -92,3 +92,27 @@ class BillPaymentsScopeTests(TestCase):
         row = next(p for p in r.data['data']['payments'] if p['service_id'] == 'BP-BAL-1')
         self.assertEqual(row['opening_balance'], '500.0000')
         self.assertEqual(row['closing_balance'], '399.0000')
+
+    def test_platform_agent_code_uses_display_code(self):
+        self.retailer.user_id = 'R10'
+        self.retailer.display_code = 'R000016'
+        self.retailer.save(update_fields=['user_id', 'display_code'])
+        self._bp(self.retailer, 'BP-AGENT-1')
+        r = self.admin_client.get('/api/bbps/payments/', {'scope': 'platform', 'page_size': 500})
+        self.assertEqual(r.status_code, status.HTTP_200_OK)
+        row = next(p for p in r.data['data']['payments'] if p['service_id'] == 'BP-AGENT-1')
+        self.assertEqual(row['agent_user_code'], 'R000016')
+        self.assertEqual(row['agent_role'], 'Retailer')
+
+    def test_platform_agent_code_from_member_number_when_legacy_user_id(self):
+        self.retailer.user_id = 'R1'
+        self.retailer.display_code = ''
+        self.retailer.member_number = 16
+        self.retailer.save(update_fields=['user_id', 'display_code', 'member_number'])
+        self.retailer.refresh_from_db()
+        self._bp(self.retailer, 'BP-AGENT-LEGACY-1')
+        r = self.admin_client.get('/api/bbps/payments/', {'scope': 'platform', 'page_size': 500})
+        self.assertEqual(r.status_code, status.HTTP_200_OK)
+        row = next(p for p in r.data['data']['payments'] if p['service_id'] == 'BP-AGENT-LEGACY-1')
+        self.assertEqual(row['agent_user_code'], 'R000016')
+        self.assertEqual(row['agent_role'], 'Retailer')

@@ -1,4 +1,5 @@
 import React, { useEffect, useState } from 'react';
+import { Link } from 'react-router-dom';
 import aepsAPI from '../services/aepsApi';
 
 const PROD_URLS = {
@@ -16,21 +17,43 @@ const UAT_URLS = {
   onboarding_base_url: 'https://fpuat.tapits.in/fpaepsweb',
   ekyc_base_url: 'https://fpekyc.tapits.in',
   aeps_base_url: 'https://fpuat.tapits.in',
-  recon_base_url: '',
+  recon_base_url: 'https://fpuat.tapits.in',
   bank_list_url: 'https://fpuat.tapits.in/fpaepsservice/api/bankdata/bank/details',
   aadhaar_pay_bank_list_url: 'https://fpuat.tapits.in/fpaepsservice/api/bankdata/bank/aadharpay',
 };
 
+const SIMPLE_URLS = {
+  environment: 'simple',
+  onboarding_base_url: 'https://fingpayap.tapits.in/fpaepsweb',
+  ekyc_base_url: 'https://fpekyc.tapits.in',
+  aeps_base_url: 'https://fingpayap.tapits.in',
+  recon_base_url: 'https://fingpayap.tapits.in',
+  bank_list_url: 'https://fingpayap.tapits.in/fpaepsservice/api/bankdata/bank/details',
+  aadhaar_pay_bank_list_url: 'https://fingpayap.tapits.in/fpaepsservice/api/bankdata/bank/aadharpay',
+};
+
+const PRESETS = { uat: UAT_URLS, prod: PROD_URLS, simple: SIMPLE_URLS };
 const emptySecrets = { password: '', secret_key: '', rsa_public_key_pem: '' };
+const ENV_TABS = [
+  { id: 'uat', label: 'UAT' },
+  { id: 'prod', label: 'Production' },
+  { id: 'simple', label: 'Simple API' },
+];
 
 export const AepsAdminProvider = () => {
   const [env, setEnv] = useState('prod');
   const [form, setForm] = useState({
     environment: 'prod',
     is_active: true,
+    api_mode: 'encrypted',
+    debug_mode: false,
     onboarding_api_style: 'java',
-    super_merchant_id: '1501',
-    super_merchant_login_id: 'Mpayhubd',
+    password_mode: 'plain',
+    egress_ip: '139.99.47.143',
+    endpoints_json: {},
+    full_endpoints: {},
+    super_merchant_id: '',
+    super_merchant_login_id: '',
     ...PROD_URLS,
     ...emptySecrets,
     gstin_number: '',
@@ -40,6 +63,9 @@ export const AepsAdminProvider = () => {
   const [meta, setMeta] = useState(null);
   const [envs, setEnvs] = useState([]);
   const [onboardingEndpoints, setOnboardingEndpoints] = useState([]);
+  const [endpointFields, setEndpointFields] = useState([]);
+  const [showEndpoints, setShowEndpoints] = useState(true);
+  const [showAdvanced, setShowAdvanced] = useState(false);
   const [msg, setMsg] = useState('');
   const [probeJson, setProbeJson] = useState(null);
   const [saving, setSaving] = useState(false);
@@ -49,14 +75,23 @@ export const AepsAdminProvider = () => {
     setMeta(data);
     setEnvs(data.environments || []);
     setOnboardingEndpoints(data.onboarding_endpoints || []);
-    const presets = data.presets?.[data.environment] || (data.environment === 'uat' ? UAT_URLS : PROD_URLS);
+    setEndpointFields(data.endpoint_fields || []);
+    const presets = data.presets?.[data.environment] || PRESETS[data.environment] || PROD_URLS;
+    const endpoints = data.endpoints_json || {};
+    const fullEndpoints = data.full_endpoints || {};
     setForm((f) => ({
       ...f,
       environment: data.environment || env,
       is_active: !!data.is_active,
+      api_mode: data.api_mode || (data.environment === 'simple' ? 'simple' : 'encrypted'),
+      debug_mode: !!data.debug_mode,
+      password_mode: data.password_mode === 'md5' ? 'md5' : 'plain',
       onboarding_api_style: data.onboarding_api_style || 'java',
-      super_merchant_id: data.super_merchant_id || (data.environment === 'uat' ? '' : '1501'),
-      super_merchant_login_id: data.super_merchant_login_id || (data.environment === 'uat' ? '' : 'Mpayhubd'),
+      egress_ip: data.egress_ip || data.server_egress_ip || '139.99.47.143',
+      endpoints_json: endpoints,
+      full_endpoints: fullEndpoints,
+      super_merchant_id: data.super_merchant_id || '',
+      super_merchant_login_id: data.super_merchant_login_id || '',
       onboarding_base_url: data.onboarding_base_url || presets.onboarding_base_url,
       ekyc_base_url: data.ekyc_base_url || presets.ekyc_base_url,
       aeps_base_url: data.aeps_base_url || presets.aeps_base_url,
@@ -90,28 +125,35 @@ export const AepsAdminProvider = () => {
       ...form,
       ...extra,
       environment: env,
+      password_mode: form.password_mode === 'md5' ? 'md5' : 'plain',
+      full_endpoints: form.full_endpoints || {},
       make_active: extra.make_active ?? form.is_active,
     };
+    // Prefer labeled full endpoint map over raw JSON
+    if (body.full_endpoints && Object.keys(body.full_endpoints).length) {
+      delete body.endpoints_json;
+    }
     if (!body.password) delete body.password;
     if (!body.secret_key) delete body.secret_key;
     if (!body.rsa_public_key_pem && !extra.use_bundled_certificate) delete body.rsa_public_key_pem;
     const res = await aepsAPI.adminProviderSave(body);
-    setMsg(res.success ? `Saved (${env.toUpperCase()})${body.make_active ? ' · set active' : ''}.` : res.message || 'Save failed');
+    setMsg(
+      res.success
+        ? `Saved (${env.toUpperCase()})${body.make_active ? ' · set active' : ''}${body.debug_mode ? ' · debug on' : ''}.`
+        : res.message || 'Save failed'
+    );
     if (res.success) await loadEnv(env);
     setSaving(false);
   };
 
   const applyPresetUrls = () => {
-    const preset = env === 'uat' ? UAT_URLS : PROD_URLS;
-    setForm((f) => ({
-      ...f,
-      ...preset,
-      environment: env,
-      ...(env === 'prod'
-        ? { super_merchant_id: f.super_merchant_id || '1501', super_merchant_login_id: f.super_merchant_login_id || 'Mpayhubd' }
-        : {}),
-    }));
+    const preset = PRESETS[env] || PROD_URLS;
+    setForm((f) => ({ ...f, ...preset, environment: env }));
     setMsg(`${env.toUpperCase()} URLs applied — click Save.`);
+  };
+
+  const resetEndpoints = async () => {
+    await save(null, { reset_endpoints: true, make_active: form.is_active });
   };
 
   const activateEnv = async () => {
@@ -123,17 +165,22 @@ export const AepsAdminProvider = () => {
     setProbeJson(null);
     const body = {
       environment: api.environment,
-      onboarding_api_style: api.style,
-      activate_onboarding_style: api.style,
       make_active: true,
       is_active: true,
     };
+    if (api.environment === 'simple') {
+      body.api_mode = 'simple';
+    } else {
+      body.onboarding_api_style = api.style;
+      body.activate_onboarding_style = api.style;
+      body.api_mode = 'encrypted';
+    }
     const res = await aepsAPI.adminProviderSave(body);
     if (res.success) {
-      setMsg(`Active onboarding API: ${api.label}`);
+      setMsg(`Active profile: ${api.label}`);
       await loadEnv(api.environment);
     } else {
-      setMsg(res.message || 'Could not activate onboarding API');
+      setMsg(res.message || 'Could not activate profile');
     }
     setSaving(false);
   };
@@ -174,7 +221,7 @@ export const AepsAdminProvider = () => {
     if (!probeJson) return;
     const payload = probeJson.fingpay_exchange?.share_with_tapits || {
       endpoint: probeJson.endpoint,
-      server_ip: probeJson.server_ip || meta?.server_egress_ip || '57.131.39.21',
+      server_ip: probeJson.server_ip || form.egress_ip || meta?.server_egress_ip,
       login: probeJson.login,
       super_merchant_id: probeJson.super_merchant_id,
       request_plain_json: probeJson.request_plain_json,
@@ -200,72 +247,56 @@ export const AepsAdminProvider = () => {
   const activeOnboarding = (onboardingEndpoints.length ? onboardingEndpoints : meta?.onboarding_endpoints || []).find(
     (x) => x.is_active
   );
-  const uatUsingProdLogin =
-    env === 'uat' &&
-    String(form.super_merchant_login_id || '').toLowerCase() === 'mpayhubd' &&
-    String(form.super_merchant_id || '') === '1501';
+  const isSimple = env === 'simple';
+  const tabColor = (e, selected) => {
+    if (!selected) return 'bg-white text-slate-700 ring-slate-200';
+    if (e === 'prod') return 'bg-emerald-600 text-white ring-emerald-600';
+    if (e === 'simple') return 'bg-sky-600 text-white ring-sky-600';
+    return 'bg-amber-500 text-white ring-amber-500';
+  };
 
   return (
     <div className="mx-auto max-w-3xl space-y-4 p-4">
       <h1 className="text-2xl font-bold text-slate-900">AEPS provider (Fingpay)</h1>
       <p className="text-sm text-slate-500">
-        Store <strong>UAT</strong> and <strong>Production</strong> credentials separately. Choose one of the four
-        onboarding APIs (UAT/Prod × Java/PHP) — only one can be live-active for Submit. Leave password blank to keep
-        the encrypted value.
+        Three profiles — <strong>UAT</strong>, <strong>Production</strong>, and <strong>Simple API</strong> — each with
+        its own credentials. Activate exactly one for all users. Turn on <strong>Debug mode</strong> to store every
+        request/response for Tapits sharing.
       </p>
 
-      {uatUsingProdLogin ? (
-        <div className="rounded-xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-900">
-          <p className="font-semibold">UAT cannot use Production login</p>
-          <p className="mt-1">
-            <code>Mpayhubd</code> / ID <code>1501</code> is Production-only. Fingpay returns{' '}
-            <strong>10005 Invalid super merchant</strong> on <code>fpuat</code>. Ask Tapits for separate UAT
-            SuperMerchant login/ID/password, save them here, then test. Or switch to <strong>PROD</strong> and make it
-            active for go-live (after Production IP whitelist).
-          </p>
-        </div>
-      ) : null}
-
       <div className="flex flex-wrap items-center gap-2 rounded-xl border border-slate-200 bg-white p-3 shadow-sm">
-        <span className="text-xs font-semibold uppercase text-slate-500">Environment</span>
-        {['uat', 'prod'].map((e) => {
-          const info = envs.find((x) => x.environment === e);
-          const selected = env === e;
+        <span className="text-xs font-semibold uppercase text-slate-500">Profile</span>
+        {ENV_TABS.map((tab) => {
+          const info = envs.find((x) => x.environment === tab.id);
+          const selected = env === tab.id;
           return (
             <button
-              key={e}
+              key={tab.id}
               type="button"
-              onClick={() => loadEnv(e)}
-              className={`rounded-lg px-3 py-1.5 text-sm font-semibold ring-1 ${
-                selected
-                  ? e === 'prod'
-                    ? 'bg-emerald-600 text-white ring-emerald-600'
-                    : 'bg-amber-500 text-white ring-amber-500'
-                  : 'bg-white text-slate-700 ring-slate-200'
-              }`}
+              onClick={() => loadEnv(tab.id)}
+              className={`rounded-lg px-3 py-1.5 text-sm font-semibold ring-1 ${tabColor(tab.id, selected)}`}
             >
-              {e.toUpperCase()}
+              {tab.label}
               {info?.is_active ? ' · active' : ''}
               {info?.configured ? '' : ' · empty'}
             </button>
           );
         })}
         <span className="ml-auto text-xs text-slate-500">
-          Live calls use: <strong className="uppercase">{activeLabel}</strong>
+          Live: <strong className="uppercase">{activeLabel}</strong>
           {activeOnboarding ? (
             <>
               {' '}
-              · <strong>{String(activeOnboarding.style || '').toUpperCase()}</strong>
+              · <strong>{String(activeOnboarding.style || activeOnboarding.api_mode || '').toUpperCase()}</strong>
             </>
           ) : null}
         </span>
       </div>
 
       <div className="rounded-xl border border-indigo-200 bg-indigo-50 px-4 py-3 text-sm text-indigo-950 shadow-sm">
-        <p className="font-semibold">Onboarding create API (pick one)</p>
+        <p className="font-semibold">Activate one profile for all users</p>
         <p className="mt-1 text-xs text-indigo-900/80">
-          Doc lists Java/.NET <code>…/merchant/creation/v2</code> and PHP <code>…/merchant/php/creation/v2</code> for
-          both UAT and Production. Activating one deactivates the other three.
+          Encrypted UAT/Prod use Java or PHP paths. Simple API uses plain JSON + secret-key hashes (no RSA).
         </p>
         <div className="mt-3 grid gap-2 sm:grid-cols-2">
           {(onboardingEndpoints.length ? onboardingEndpoints : []).map((api) => (
@@ -280,7 +311,7 @@ export const AepsAdminProvider = () => {
                   <p className="text-sm font-semibold text-slate-900">{api.label}</p>
                   <p className="mt-1 break-all font-mono text-[11px] text-slate-600">{api.endpoint}</p>
                   <p className="mt-1 text-[11px] text-slate-500">
-                    AES {String(api.aes_mode || '').toUpperCase()}
+                    {api.api_mode === 'simple' ? 'Plain JSON' : `AES ${String(api.aes_mode || '').toUpperCase()}`}
                     {api.configured ? '' : ' · credentials not saved yet'}
                     {api.is_active ? ' · LIVE' : ''}
                   </p>
@@ -301,70 +332,28 @@ export const AepsAdminProvider = () => {
             </div>
           ))}
         </div>
-        {activeOnboarding ? (
-          <p className="mt-3 text-xs">
-            Submit currently posts to <code className="break-all">{activeOnboarding.endpoint}</code>
-          </p>
-        ) : null}
       </div>
 
       <div className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-950">
-        <p className="font-semibold">Server IP to share with Tapits (whitelist)</p>
-        <p className="mt-1 font-mono text-base font-bold">{meta?.server_egress_ip || '57.131.39.21'}</p>
-        <p className="mt-2 text-xs text-amber-900/90">
-          {meta?.whitelist_note ||
-            'Do not send old AWS IPs (52.66.x / 13.234.x / 3.108.x) from other portals — those are not this VPS.'}
-        </p>
+        <p className="font-semibold">Server egress IP (whitelist with Tapits)</p>
+        <p className="mt-1 font-mono text-base font-bold">{form.egress_ip || meta?.server_egress_ip}</p>
+        <p className="mt-2 text-xs text-amber-900/90">{meta?.whitelist_note}</p>
       </div>
 
-      <div
-        className={`rounded-xl border px-4 py-3 text-sm ${
-          env === 'prod' ? 'border-emerald-200 bg-emerald-50 text-emerald-950' : 'border-amber-200 bg-amber-50 text-amber-950'
-        }`}
-      >
-        <p className="font-semibold">Editing {env.toUpperCase()} endpoints</p>
-        <ul className="mt-2 list-disc space-y-1 pl-5">
-          <li>
-            Onboarding base: <code>{form.onboarding_base_url}</code>
-          </li>
-          <li>
-            Create API style:{' '}
-            <strong>{String(form.onboarding_api_style || 'java').toUpperCase()}</strong> →{' '}
-            <code className="break-all">
-              {meta?.onboarding_create_url ||
-                `${form.onboarding_base_url}/api/onboarding/merchant/${
-                  form.onboarding_api_style === 'php' ? 'php/' : ''
-                }creation/v2`}
-            </code>
-          </li>
-          <li>
-            eKYC: <code>{form.ekyc_base_url}</code>
-          </li>
-          <li>
-            AEPS: <code>{form.aeps_base_url}</code>
-          </li>
-        </ul>
-        <div className="mt-3 flex flex-wrap gap-2">
-          {[
-            { id: 'java', label: 'Java / .NET create' },
-            { id: 'php', label: 'PHP create' },
-          ].map((opt) => (
-            <button
-              key={opt.id}
-              type="button"
-              onClick={() => setForm((f) => ({ ...f, onboarding_api_style: opt.id }))}
-              className={`rounded-lg px-3 py-1.5 text-xs font-semibold ring-1 ${
-                form.onboarding_api_style === opt.id
-                  ? 'bg-slate-900 text-white ring-slate-900'
-                  : 'bg-white text-slate-700 ring-slate-300'
-              }`}
-            >
-              {opt.label}
-            </button>
-          ))}
-          <span className="self-center text-[11px] opacity-80">Saved with the form below (or use Activate cards above).</span>
+      {isSimple ? (
+        <div className="rounded-xl border border-sky-200 bg-sky-50 px-4 py-3 text-sm text-sky-950">
+          <p className="font-semibold">Simple API hash formulas</p>
+          <ul className="mt-2 list-disc space-y-1 pl-5 text-xs">
+            <li>
+              Onboarding: <code>{meta?.hash_help?.simple_onboarding}</code>
+            </li>
+            <li>
+              Txn / eKYC / 2FA: <code>{meta?.hash_help?.simple_txn}</code>
+            </li>
+            <li>RSA certificate is not required. Secret key is required for product APIs.</li>
+          </ul>
         </div>
-      </div>
+      ) : null}
 
       <div className="rounded-xl border border-slate-200 bg-white px-4 py-3 shadow-sm">
         <div className="flex flex-wrap items-center justify-between gap-3">
@@ -382,12 +371,15 @@ export const AepsAdminProvider = () => {
           </button>
         </div>
       </div>
+
       {meta ? (
         <p className="text-xs text-slate-500">
           Secrets on file ({env}): password {meta.has_password ? 'yes' : 'no'}, secret{' '}
-          {meta.has_secret_key ? 'yes' : 'no'}, public cert {meta.has_public_key ? 'yes' : 'no'}
+          {meta.has_secret_key ? 'yes' : 'no'}, public cert {meta.has_public_key ? 'yes' : 'no'} · debug{' '}
+          {meta.debug_mode ? 'ON' : 'off'}
         </p>
       ) : null}
+
       <form onSubmit={(e) => save(e)} className="space-y-3 rounded-2xl border bg-white p-6 shadow-sm">
         <div className="flex flex-wrap gap-2">
           <button
@@ -406,82 +398,244 @@ export const AepsAdminProvider = () => {
             Save & make {env.toUpperCase()} active
           </button>
         </div>
-        {[
-          'super_merchant_id',
-          'super_merchant_login_id',
-          'onboarding_base_url',
-          'ekyc_base_url',
-          'aeps_base_url',
-          'recon_base_url',
-          'password',
-          'secret_key',
-          'gstin_number',
-          'company_or_shop_pan',
-        ].map((k) => (
-          <label key={k} className="block text-xs font-semibold uppercase text-slate-500">
-            {k === 'gstin_number'
-              ? 'Super merchant GSTIN (onboarding KYC — mandatory)'
-              : k === 'company_or_shop_pan'
-                ? 'Company / shop PAN (onboarding KYC — mandatory)'
-                : k === 'secret_key'
-                  ? 'secret_key (recon — from Fingpay email)'
-                  : k === 'password'
-                    ? 'API password (leave blank to keep encrypted value)'
-                    : k}
+
+        <label className="flex items-center gap-2 rounded-lg border border-rose-200 bg-rose-50 px-3 py-2 text-sm text-rose-950">
+          <input
+            type="checkbox"
+            checked={!!form.debug_mode}
+            onChange={(e) => setForm({ ...form, debug_mode: e.target.checked })}
+          />
+          <span>
+            <strong>Debug mode</strong> — store every Fingpay request/response for this profile (share from Debug logs)
+          </span>
+        </label>
+
+        {!isSimple ? (
+          <div className="flex flex-wrap gap-2">
+            {[
+              { id: 'java', label: 'Java / .NET create' },
+              { id: 'php', label: 'PHP create' },
+            ].map((opt) => (
+              <button
+                key={opt.id}
+                type="button"
+                onClick={() => setForm((f) => ({ ...f, onboarding_api_style: opt.id, api_mode: 'encrypted' }))}
+                className={`rounded-lg px-3 py-1.5 text-xs font-semibold ring-1 ${
+                  form.onboarding_api_style === opt.id
+                    ? 'bg-slate-900 text-white ring-slate-900'
+                    : 'bg-white text-slate-700 ring-slate-300'
+                }`}
+              >
+                {opt.label}
+              </button>
+            ))}
+          </div>
+        ) : null}
+
+        <div className="rounded-xl border border-slate-200 bg-slate-50 p-3 space-y-3">
+          <p className="text-sm font-semibold text-slate-900">Super merchant credentials</p>
+          <label className="block text-xs font-semibold uppercase text-slate-500">
+            Super merchant ID
             <input
               className="mt-1 w-full rounded-lg border px-3 py-2 text-sm"
-              type={k.includes('password') || k.includes('secret') ? 'password' : 'text'}
-              autoComplete="off"
-              value={form[k]}
-              onChange={(e) => setForm({ ...form, [k]: e.target.value })}
-              placeholder={
-                k === 'password' && meta?.has_password
-                  ? '•••• leave blank to keep'
-                  : k === 'secret_key' && meta?.has_secret_key
-                    ? '•••• leave blank to keep'
-                    : ''
-              }
+              value={form.super_merchant_id || ''}
+              onChange={(e) => setForm({ ...form, super_merchant_id: e.target.value })}
             />
           </label>
-        ))}
-        <label className="block text-xs font-semibold uppercase text-slate-500">
-          Fingpay public certificate (PEM — BEGIN CERTIFICATE)
-          <textarea
-            className="mt-1 w-full rounded-lg border px-3 py-2 font-mono text-xs"
-            rows={6}
-            value={form.rsa_public_key_pem}
-            onChange={(e) => setForm({ ...form, rsa_public_key_pem: e.target.value })}
-            placeholder={
-              meta?.has_public_key
-                ? 'Already saved — paste a new cert only to replace'
-                : 'Paste certificate PEM or load bundled'
-            }
-          />
-        </label>
-        <div className="flex flex-wrap gap-2">
-          <button
-            type="button"
-            onClick={loadBundledCert}
-            className="rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm font-medium text-slate-700"
-          >
-            Load bundled certificate into form
-          </button>
-          <button
-            type="button"
-            onClick={saveBundledCert}
-            disabled={saving || !meta?.has_bundled_certificate}
-            className="rounded-lg border border-emerald-300 bg-emerald-50 px-3 py-2 text-sm font-medium text-emerald-900 disabled:opacity-50"
-          >
-            Save bundled certificate now
-          </button>
+          <label className="block text-xs font-semibold uppercase text-slate-500">
+            Super merchant username (login ID)
+            <input
+              className="mt-1 w-full rounded-lg border px-3 py-2 text-sm"
+              autoComplete="off"
+              value={form.super_merchant_login_id || ''}
+              onChange={(e) => setForm({ ...form, super_merchant_login_id: e.target.value })}
+            />
+          </label>
+          <div>
+            <p className="text-xs font-semibold uppercase text-slate-500">Password storage mode</p>
+            <div className="mt-2 flex flex-wrap gap-2">
+              {[
+                { id: 'plain', label: 'Plain text → auto MD5' },
+                { id: 'md5', label: 'Already MD5 hashed' },
+              ].map((opt) => (
+                <button
+                  key={opt.id}
+                  type="button"
+                  onClick={() => setForm((f) => ({ ...f, password_mode: opt.id }))}
+                  className={`rounded-lg px-3 py-1.5 text-xs font-semibold ring-1 ${
+                    form.password_mode === opt.id
+                      ? 'bg-slate-900 text-white ring-slate-900'
+                      : 'bg-white text-slate-700 ring-slate-300'
+                  }`}
+                >
+                  {opt.label}
+                </button>
+              ))}
+            </div>
+            <p className="mt-1 text-[11px] text-slate-500">
+              {form.password_mode === 'md5'
+                ? 'Paste the 32-char MD5 hex from Tapits — used as-is in API body / Simple onboard hash.'
+                : 'Paste the plain API password — app MD5-hashes it before calling Fingpay (per docs).'}
+            </p>
+          </div>
+          <label className="block text-xs font-semibold uppercase text-slate-500">
+            Super merchant password
+            <input
+              className="mt-1 w-full rounded-lg border px-3 py-2 text-sm font-mono"
+              type="password"
+              autoComplete="new-password"
+              value={form.password || ''}
+              onChange={(e) => setForm({ ...form, password: e.target.value })}
+              placeholder={meta?.has_password ? '•••• leave blank to keep saved value' : ''}
+            />
+          </label>
+          <label className="block text-xs font-semibold uppercase text-slate-500">
+            Secret key {isSimple ? '(required for txn / eKYC / 2FA hash)' : '(recon + Simple hashes)'}
+            <input
+              className="mt-1 w-full rounded-lg border px-3 py-2 text-sm"
+              type="password"
+              autoComplete="off"
+              value={form.secret_key || ''}
+              onChange={(e) => setForm({ ...form, secret_key: e.target.value })}
+              placeholder={meta?.has_secret_key ? '•••• leave blank to keep' : ''}
+            />
+          </label>
+          <label className="block text-xs font-semibold uppercase text-slate-500">
+            Egress IP (ipAddress + whitelist diagnosis)
+            <input
+              className="mt-1 w-full rounded-lg border px-3 py-2 text-sm font-mono"
+              value={form.egress_ip || ''}
+              onChange={(e) => setForm({ ...form, egress_ip: e.target.value })}
+            />
+          </label>
         </div>
+
+        <div className="rounded-lg border border-slate-200 p-3">
+          <button
+            type="button"
+            className="text-sm font-semibold text-slate-800"
+            onClick={() => setShowEndpoints((v) => !v)}
+          >
+            {showEndpoints ? 'Hide' : 'Show'} full module endpoints
+          </button>
+          <p className="mt-1 text-[11px] text-slate-500">
+            Edit full URLs for each Fingpay module (or keep relative paths). Changes apply without a code deploy.
+          </p>
+          {showEndpoints ? (
+            <div className="mt-3 max-h-96 space-y-2 overflow-y-auto pr-1">
+              {(endpointFields.length
+                ? endpointFields
+                : Object.keys(form.full_endpoints || {}).map((k) => ({ key: k, label: k }))
+              )
+                .filter((f) => {
+                  if (!isSimple) return true;
+                  // Simple profile: hide java/php create paths from primary list
+                  return !['onboarding_create_java', 'onboarding_create_php'].includes(f.key);
+                })
+                .map((f) => (
+                  <label key={f.key} className="block text-[11px] font-semibold uppercase text-slate-500">
+                    {f.label || f.key}
+                    <input
+                      className="mt-1 w-full rounded-lg border px-2 py-1.5 font-mono text-xs normal-case"
+                      value={(form.full_endpoints || {})[f.key] || ''}
+                      onChange={(e) =>
+                        setForm((prev) => ({
+                          ...prev,
+                          full_endpoints: { ...(prev.full_endpoints || {}), [f.key]: e.target.value },
+                        }))
+                      }
+                    />
+                  </label>
+                ))}
+              <button
+                type="button"
+                onClick={resetEndpoints}
+                disabled={saving}
+                className="rounded-lg border border-slate-300 bg-slate-50 px-3 py-1.5 text-xs font-semibold"
+              >
+                Reset paths to doc defaults
+              </button>
+            </div>
+          ) : null}
+        </div>
+
+        <div className="rounded-lg border border-slate-200 p-3">
+          <button
+            type="button"
+            className="text-sm font-semibold text-slate-800"
+            onClick={() => setShowAdvanced((v) => !v)}
+          >
+            {showAdvanced ? 'Hide' : 'Show'} advanced (base URLs
+            {!isSimple ? ', RSA cert, GSTIN/PAN' : ''})
+          </button>
+          {showAdvanced ? (
+            <div className="mt-3 space-y-3">
+              {['onboarding_base_url', 'ekyc_base_url', 'aeps_base_url', 'recon_base_url'].map((k) => (
+                <label key={k} className="block text-xs font-semibold uppercase text-slate-500">
+                  {k}
+                  <input
+                    className="mt-1 w-full rounded-lg border px-3 py-2 text-sm"
+                    value={form[k] || ''}
+                    onChange={(e) => setForm({ ...form, [k]: e.target.value })}
+                  />
+                </label>
+              ))}
+              {!isSimple ? (
+                <>
+                  {['gstin_number', 'company_or_shop_pan'].map((k) => (
+                    <label key={k} className="block text-xs font-semibold uppercase text-slate-500">
+                      {k === 'gstin_number' ? 'Super merchant GSTIN' : 'Company / shop PAN'}
+                      <input
+                        className="mt-1 w-full rounded-lg border px-3 py-2 text-sm"
+                        value={form[k] || ''}
+                        onChange={(e) => setForm({ ...form, [k]: e.target.value })}
+                      />
+                    </label>
+                  ))}
+                  <label className="block text-xs font-semibold uppercase text-slate-500">
+                    Fingpay public certificate (PEM — BEGIN CERTIFICATE)
+                    <textarea
+                      className="mt-1 w-full rounded-lg border px-3 py-2 font-mono text-xs"
+                      rows={6}
+                      value={form.rsa_public_key_pem}
+                      onChange={(e) => setForm({ ...form, rsa_public_key_pem: e.target.value })}
+                      placeholder={
+                        meta?.has_public_key
+                          ? 'Already saved — paste a new cert only to replace'
+                          : 'Paste certificate PEM or load bundled'
+                      }
+                    />
+                  </label>
+                  <div className="flex flex-wrap gap-2">
+                    <button
+                      type="button"
+                      onClick={loadBundledCert}
+                      className="rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm font-medium text-slate-700"
+                    >
+                      Load bundled certificate into form
+                    </button>
+                    <button
+                      type="button"
+                      onClick={saveBundledCert}
+                      disabled={saving || !meta?.has_bundled_certificate}
+                      className="rounded-lg border border-emerald-300 bg-emerald-50 px-3 py-2 text-sm font-medium text-emerald-900 disabled:opacity-50"
+                    >
+                      Save bundled certificate now
+                    </button>
+                  </div>
+                </>
+              ) : null}
+            </div>
+          ) : null}
+        </div>
+
         <label className="flex items-center gap-2 text-sm">
           <input
             type="checkbox"
             checked={form.is_active}
             onChange={(e) => setForm({ ...form, is_active: e.target.checked })}
           />
-          Make this environment active when saving
+          Make this profile active when saving
         </label>
         <button
           type="submit"
@@ -496,7 +650,7 @@ export const AepsAdminProvider = () => {
           disabled={saving}
           className="ml-2 rounded-lg border border-slate-300 bg-white px-4 py-2 text-sm font-semibold text-slate-800 disabled:opacity-50"
         >
-          Test active environment
+          Test active profile
         </button>
         {probeJson ? (
           <button
@@ -513,6 +667,7 @@ export const AepsAdminProvider = () => {
             {JSON.stringify(
               {
                 endpoint: probeJson.endpoint,
+                api_mode: probeJson.api_mode,
                 server_ip: probeJson.server_ip,
                 login: probeJson.login,
                 super_merchant_id: probeJson.super_merchant_id,
@@ -525,6 +680,155 @@ export const AepsAdminProvider = () => {
           </pre>
         ) : null}
       </form>
+    </div>
+  );
+};
+
+export const AepsAdminDebugLogs = () => {
+  const [rows, setRows] = useState([]);
+  const [endpoint, setEndpoint] = useState('');
+  const [merchantTranId, setMerchantTranId] = useState('');
+  const [debugOnly, setDebugOnly] = useState(true);
+  const [selected, setSelected] = useState(null);
+  const [msg, setMsg] = useState('');
+
+  const load = async () => {
+    const res = await aepsAPI.adminDebugLogs({
+      endpoint: endpoint || undefined,
+      merchant_tran_id: merchantTranId || undefined,
+      debug_only: debugOnly ? '1' : undefined,
+      limit: 50,
+    });
+    if (res.success) {
+      setRows(res.data?.results || []);
+      setMsg('');
+    } else {
+      setMsg(res.message || 'Failed to load logs');
+    }
+  };
+
+  useEffect(() => {
+    load();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  const openDetail = async (id) => {
+    const res = await aepsAPI.adminDebugLogDetail(id);
+    if (res.success) setSelected(res.data);
+    else setMsg(res.message || 'Failed to load detail');
+  };
+
+  const copyPack = async () => {
+    if (!selected?.exchange_pack && !selected?.request_body) return;
+    const pack = selected.exchange_pack?.share_with_tapits || selected.exchange_pack || selected;
+    try {
+      await navigator.clipboard.writeText(JSON.stringify(pack, null, 2));
+      setMsg('Copied exchange pack for Tapits.');
+    } catch {
+      setMsg('Copy failed — select JSON manually.');
+    }
+  };
+
+  return (
+    <div className="mx-auto max-w-4xl space-y-4 p-4">
+      <h1 className="text-2xl font-bold text-slate-900">AEPS debug logs</h1>
+      <p className="text-sm text-slate-500">
+        When Debug mode is on for the active provider, full request/response packs are stored here for Tapits
+        troubleshooting.
+      </p>
+      <div className="flex flex-wrap gap-2">
+        <input
+          className="rounded-lg border px-3 py-2 text-sm"
+          placeholder="Filter endpoint"
+          value={endpoint}
+          onChange={(e) => setEndpoint(e.target.value)}
+        />
+        <input
+          className="rounded-lg border px-3 py-2 text-sm"
+          placeholder="merchantTranId"
+          value={merchantTranId}
+          onChange={(e) => setMerchantTranId(e.target.value)}
+        />
+        <label className="flex items-center gap-2 text-sm">
+          <input type="checkbox" checked={debugOnly} onChange={(e) => setDebugOnly(e.target.checked)} />
+          Debug packs only
+        </label>
+        <button type="button" onClick={load} className="rounded-lg bg-blue-600 px-3 py-2 text-sm font-semibold text-white">
+          Refresh
+        </button>
+      </div>
+      {msg ? <p className="text-sm text-slate-700">{msg}</p> : null}
+      <div className="overflow-x-auto rounded-2xl border bg-white shadow-sm">
+        <table className="min-w-full text-sm">
+          <thead className="bg-slate-50 text-xs uppercase text-slate-500">
+            <tr>
+              <th className="px-3 py-2 text-left">When</th>
+              <th className="px-3 py-2 text-left">Endpoint</th>
+              <th className="px-3 py-2 text-left">Txn</th>
+              <th className="px-3 py-2 text-left">HTTP</th>
+              <th className="px-3 py-2 text-left">OK</th>
+              <th className="px-3 py-2 text-left" />
+            </tr>
+          </thead>
+          <tbody>
+            {rows.map((r) => (
+              <tr key={r.id} className="border-t">
+                <td className="px-3 py-2 text-xs">{r.created_at ? new Date(r.created_at).toLocaleString() : ''}</td>
+                <td className="px-3 py-2 font-mono text-xs">{r.endpoint}</td>
+                <td className="px-3 py-2 font-mono text-xs">{r.merchant_tran_id || '—'}</td>
+                <td className="px-3 py-2">{r.http_status || r.provider_status_code || '—'}</td>
+                <td className="px-3 py-2">{r.success ? 'yes' : 'no'}</td>
+                <td className="px-3 py-2">
+                  <button
+                    type="button"
+                    className="text-xs font-semibold text-blue-700"
+                    onClick={() => openDetail(r.id)}
+                  >
+                    Open
+                  </button>
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+        {!rows.length ? <p className="p-6 text-slate-500">No audit rows yet.</p> : null}
+      </div>
+      {selected ? (
+        <div className="space-y-2 rounded-2xl border bg-white p-4 shadow-sm">
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <p className="font-semibold">
+              #{selected.id} · {selected.endpoint}
+              {selected.debug_enabled ? ' · full pack' : ' · summary only'}
+            </p>
+            {selected.debug_enabled ? (
+              <button
+                type="button"
+                onClick={copyPack}
+                className="rounded-lg border border-indigo-300 bg-indigo-50 px-3 py-1.5 text-xs font-semibold text-indigo-900"
+              >
+                Copy Tapits pack
+              </button>
+            ) : null}
+          </div>
+          <pre className="max-h-96 overflow-auto rounded-lg bg-slate-900 p-3 text-xs text-slate-100">
+            {JSON.stringify(
+              selected.debug_enabled
+                ? {
+                    request_headers: selected.request_headers,
+                    request_body: selected.request_body,
+                    response_body: selected.response_body,
+                    exchange_pack: selected.exchange_pack,
+                  }
+                : {
+                    request_summary: selected.request_summary,
+                    response_summary: selected.response_summary,
+                  },
+              null,
+              2
+            )}
+          </pre>
+        </div>
+      ) : null}
     </div>
   );
 };
@@ -580,12 +884,57 @@ export const AepsAdminRequests = () => {
 export const AepsAdminMerchants = () => {
   const [rows, setRows] = useState([]);
   const [q, setQ] = useState('');
+  const [selectedId, setSelectedId] = useState(null);
+  const [detail, setDetail] = useState(null);
+  const [detailLoading, setDetailLoading] = useState(false);
+  const [newPin, setNewPin] = useState('');
+  const [resetLoading, setResetLoading] = useState(false);
+  const [resetMsg, setResetMsg] = useState('');
+  const [resetErr, setResetErr] = useState('');
+
   const load = () =>
     aepsAPI.adminMerchants({ search: q || undefined }).then((r) => r.success && setRows(r.data?.results || []));
+
+  const loadDetail = async (id) => {
+    setSelectedId(id);
+    setDetailLoading(true);
+    setDetail(null);
+    setResetMsg('');
+    setResetErr('');
+    setNewPin('');
+    const res = await aepsAPI.adminMerchantDetail(id);
+    if (res.success) setDetail(res.data);
+    setDetailLoading(false);
+  };
+
+  const handleResetPin = async () => {
+    if (!selectedId || resetLoading) return;
+    const pin = newPin.trim();
+    if (pin && !/^\d{4,8}$/.test(pin)) {
+      setResetErr('New PIN must be 4 to 8 digits, or leave blank to re-submit the current PIN.');
+      return;
+    }
+    setResetLoading(true);
+    setResetMsg('');
+    setResetErr('');
+    const res = await aepsAPI.adminMerchantResetPin(selectedId, pin ? { new_pin: pin } : {});
+    setResetLoading(false);
+    if (res.success) {
+      setResetMsg(res.message || 'PIN reset submitted to Fingpay.');
+      setNewPin('');
+      if (res.data?.merchant) setDetail(res.data.merchant);
+      load();
+    } else {
+      setResetErr(res.message || 'PIN reset failed.');
+      loadDetail(selectedId);
+    }
+  };
+
   useEffect(() => {
     load();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
   return (
     <div className="space-y-4 p-4">
       <h1 className="text-2xl font-bold">AEPS merchants</h1>
@@ -607,23 +956,186 @@ export const AepsAdminMerchants = () => {
               <th className="px-4 py-3 text-left">User</th>
               <th className="px-4 py-3 text-left">Login id</th>
               <th className="px-4 py-3 text-left">Stage</th>
-              <th className="px-4 py-3 text-left">Device</th>
+              <th className="px-4 py-3 text-left">Device IMEI</th>
+              <th className="px-4 py-3 text-left">Masked Aadhaar</th>
+              <th className="px-4 py-3 text-left">Last error</th>
+              <th className="px-4 py-3 text-left">Updated</th>
             </tr>
           </thead>
           <tbody>
             {rows.map((m) => (
-              <tr key={m.id} className="border-t">
+              <tr
+                key={m.id}
+                className={`cursor-pointer border-t hover:bg-slate-50 ${selectedId === m.id ? 'bg-blue-50' : ''}`}
+                onClick={() => loadDetail(m.id)}
+              >
                 <td className="px-4 py-3">
                   {m.user?.name} ({m.user?.role})
                 </td>
                 <td className="px-4 py-3 font-mono text-xs">{m.merchant_login_id}</td>
                 <td className="px-4 py-3">{m.stage}</td>
-                <td className="px-4 py-3">{m.device_ready ? m.device_imei : '—'}</td>
+                <td className="px-4 py-3 font-mono text-xs">{m.device_ready ? m.device_imei : '—'}</td>
+                <td className="px-4 py-3 font-mono text-xs">{m.masked_aadhaar || '—'}</td>
+                <td className="max-w-[200px] truncate px-4 py-3 text-rose-700" title={m.last_error || ''}>
+                  {m.last_error || '—'}
+                </td>
+                <td className="px-4 py-3 text-xs text-slate-500">
+                  {m.updated_at ? new Date(m.updated_at).toLocaleString() : '—'}
+                </td>
               </tr>
             ))}
           </tbody>
         </table>
       </div>
+
+      {selectedId ? (
+        <div className="rounded-2xl border bg-white p-5 shadow-sm">
+          <div className="mb-4 flex flex-wrap items-center justify-between gap-2">
+            <h2 className="text-lg font-semibold">Merchant detail #{selectedId}</h2>
+            <button type="button" className="text-sm text-slate-500 hover:text-slate-800" onClick={() => setSelectedId(null)}>
+              Close
+            </button>
+          </div>
+          {detailLoading ? (
+            <p className="text-sm text-slate-500">Loading…</p>
+          ) : detail ? (
+            <div className="grid gap-6 lg:grid-cols-2">
+              <section>
+                <h3 className="text-xs font-semibold uppercase tracking-wide text-slate-500">User</h3>
+                <dl className="mt-2 space-y-1 text-sm">
+                  <div>
+                    <dt className="inline font-medium">Name:</dt> {detail.user?.name}
+                  </div>
+                  <div>
+                    <dt className="inline font-medium">Phone:</dt> {detail.user?.phone}
+                  </div>
+                  <div>
+                    <dt className="inline font-medium">Email:</dt> {detail.user?.email || '—'}
+                  </div>
+                  <div>
+                    <dt className="inline font-medium">Role:</dt> {detail.user?.role}
+                  </div>
+                </dl>
+              </section>
+              <section>
+                <h3 className="text-xs font-semibold uppercase tracking-wide text-slate-500">Merchant</h3>
+                <dl className="mt-2 space-y-1 text-sm">
+                  <div>
+                    <dt className="inline font-medium">Login:</dt>{' '}
+                    <span className="font-mono text-xs">{detail.merchant?.merchant_login_id}</span>
+                  </div>
+                  <div>
+                    <dt className="inline font-medium">Stage:</dt> {detail.merchant?.stage}
+                  </div>
+                  <div>
+                    <dt className="inline font-medium">Device:</dt>{' '}
+                    {detail.merchant?.device_ready ? detail.merchant?.device_imei : 'Not registered'}
+                  </div>
+                  <div>
+                    <dt className="inline font-medium">Masked Aadhaar:</dt> {detail.merchant?.masked_aadhaar || '—'}
+                  </div>
+                  {detail.merchant?.last_error ? (
+                    <div className="text-rose-700">
+                      <dt className="inline font-medium">Last error:</dt> {detail.merchant.last_error}
+                    </div>
+                  ) : null}
+                </dl>
+                <div className="mt-4 rounded-xl border border-amber-200 bg-amber-50/70 p-3 space-y-2">
+                  <p className="text-xs font-semibold uppercase tracking-wide text-amber-800">Reset merchant PIN</p>
+                  <p className="text-xs text-amber-900">
+                    Re-submits Simple onboarding to Fingpay with this merchant PIN (Tapits reset).
+                    Leave the box empty to reuse the current PIN, or enter a new 4–8 digit PIN.
+                  </p>
+                  <div className="flex flex-wrap items-end gap-2">
+                    <label className="text-sm">
+                      <span className="mb-1 block text-xs text-slate-600">New PIN (optional)</span>
+                      <input
+                        className="w-32 rounded-lg border px-3 py-2 font-mono text-sm"
+                        inputMode="numeric"
+                        maxLength={8}
+                        placeholder={detail.merchant?.has_merchant_pin ? 'Keep current' : '4–8 digits'}
+                        value={newPin}
+                        onChange={(e) => setNewPin(e.target.value.replace(/\D/g, '').slice(0, 8))}
+                      />
+                    </label>
+                    <button
+                      type="button"
+                      disabled={resetLoading}
+                      onClick={handleResetPin}
+                      className="rounded-lg bg-amber-700 px-3 py-2 text-sm font-semibold text-white disabled:opacity-60"
+                    >
+                      {resetLoading ? 'Submitting…' : 'Reset PIN'}
+                    </button>
+                  </div>
+                  {resetMsg ? <p className="text-sm text-emerald-800">{resetMsg}</p> : null}
+                  {resetErr ? <p className="text-sm text-rose-700">{resetErr}</p> : null}
+                </div>
+              </section>
+              {detail.kyc ? (
+                <section>
+                  <h3 className="text-xs font-semibold uppercase tracking-wide text-slate-500">User KYC</h3>
+                  <dl className="mt-2 space-y-1 text-sm">
+                    <div>
+                      PAN: {detail.kyc.masked_pan || '—'} ({detail.kyc.pan_verified ? 'verified' : 'not verified'})
+                    </div>
+                    <div>
+                      Aadhaar: {detail.kyc.masked_aadhaar || '—'} (
+                      {detail.kyc.aadhaar_verified ? 'verified' : 'not verified'})
+                    </div>
+                    <div>Status: {detail.kyc.verification_status}</div>
+                  </dl>
+                </section>
+              ) : null}
+              <section>
+                <h3 className="text-xs font-semibold uppercase tracking-wide text-slate-500">Onboarding fields</h3>
+                <pre className="mt-2 max-h-48 overflow-auto rounded-lg bg-slate-50 p-3 text-xs">
+                  {JSON.stringify(detail.onboarding?.fields || {}, null, 2)}
+                </pre>
+                {detail.onboarding?.saved_images ? (
+                  <p className="mt-2 text-xs text-slate-500">
+                    Images saved:{' '}
+                    {Object.entries(detail.onboarding.saved_images)
+                      .filter(([, v]) => v)
+                      .map(([k]) => k)
+                      .join(', ') || 'none'}
+                  </p>
+                ) : null}
+              </section>
+              <section className="lg:col-span-2">
+                <h3 className="text-xs font-semibold uppercase tracking-wide text-slate-500">Recent transactions</h3>
+                <ul className="mt-2 space-y-1 text-sm">
+                  {(detail.recent_transactions || []).map((t) => (
+                    <li key={t.id} className="rounded-lg bg-slate-50 px-3 py-2">
+                      <span className="font-mono text-xs">{t.merchant_tran_id}</span> · {t.product} · {t.status}
+                      {t.response_message ? ` — ${t.response_message}` : ''}
+                    </li>
+                  ))}
+                  {!detail.recent_transactions?.length ? <li className="text-slate-500">No transactions yet.</li> : null}
+                </ul>
+              </section>
+              <section className="lg:col-span-2">
+                <h3 className="text-xs font-semibold uppercase tracking-wide text-slate-500">Debug audit logs</h3>
+                <p className="mt-1 text-sm text-slate-600">
+                  {detail.audit_logs?.count || 0} log(s) for this user.{' '}
+                  <Link to="/admin/aeps/debug-logs" className="font-semibold text-blue-700 underline">
+                    Open debug logs
+                  </Link>
+                </p>
+                <ul className="mt-2 space-y-1 text-sm">
+                  {(detail.audit_logs?.recent || []).map((log) => (
+                    <li key={log.id} className="rounded-lg bg-slate-50 px-3 py-2">
+                      #{log.id} · {log.endpoint} · {log.success ? 'ok' : 'fail'}
+                      {log.error_message ? ` — ${log.error_message}` : ''}
+                    </li>
+                  ))}
+                </ul>
+              </section>
+            </div>
+          ) : (
+            <p className="text-sm text-rose-600">Could not load merchant detail.</p>
+          )}
+        </div>
+      ) : null}
     </div>
   );
 };

@@ -123,6 +123,13 @@ const AepsProductPage = ({
     });
   }, [product]);
 
+  const refreshBanks = async () => {
+    const type = product === 'AP' ? 'aadhaar_pay' : 'aeps';
+    const res = await aepsAPI.listBanks(type, true);
+    if (res.success) setBanks(res.data?.results || []);
+    else setMsg(res.message || 'Could not refresh banks');
+  };
+
   const filteredBanks = useMemo(() => {
     const q = bankQuery.trim().toLowerCase();
     if (!q) return banks.slice(0, 100);
@@ -151,7 +158,7 @@ const AepsProductPage = ({
     return { block: false };
   }, [status, require2fa, title]);
 
-  const afterTxn = async (res, { otpMode = false } = {}) => {
+    const afterTxn = async (res, { otpMode = false } = {}) => {
     if (!res.success) {
       setMsg(res.message);
       return;
@@ -160,11 +167,15 @@ const AepsProductPage = ({
     setResult(data);
     const txn = data?.transaction || data;
     const mid = txn?.merchant_tran_id;
-    if ((data?.needs_status_check || ['pending', 'timeout', 'initiated'].includes(txn?.status)) && mid) {
+    const shouldPoll =
+      Boolean(data?.needs_status_check) || ['pending', 'timeout', 'initiated'].includes(txn?.status);
+    if (shouldPoll && mid) {
       const st = await aepsAPI.statusCheck(mid, { otp_mode: otpMode });
       if (st.success) {
         setResult(st.data);
         data = st.data;
+      } else if (st.message) {
+        setMsg(st.message);
       }
     }
     const finalTxn = data?.transaction || data;
@@ -173,7 +184,7 @@ const AepsProductPage = ({
       if (ack.success) setResult(ack.data);
       setMsg('Transaction successful.');
     } else {
-      setMsg(res.message || 'Submitted');
+      setMsg(finalTxn?.response_message || res.message || 'Transaction failed');
     }
   };
 
@@ -333,7 +344,11 @@ const AepsProductPage = ({
             }
             required
             inputMode="numeric"
-            helperText={form.aadhaarNumber ? `Masked: ${maskAadhaarDisplay(form.aadhaarNumber)}` : undefined}
+            helperText={
+              form.aadhaarNumber
+                ? `Full 12 digits are sent to the bank. History stores ${maskAadhaarDisplay(form.aadhaarNumber)}.`
+                : undefined
+            }
           />
           <Input
             label="Mobile"
@@ -345,7 +360,16 @@ const AepsProductPage = ({
             inputMode="numeric"
           />
           <label className="block">
-            <span className="mb-1.5 block text-sm font-medium text-gray-700">Bank (IIN)</span>
+            <span className="mb-1.5 flex items-center justify-between text-sm font-medium text-gray-700">
+              <span>Bank (IIN)</span>
+              <button
+                type="button"
+                className="text-xs font-semibold text-blue-700 hover:underline"
+                onClick={refreshBanks}
+              >
+                Refresh banks
+              </button>
+            </span>
             <input
               className="mb-2 w-full rounded-lg border border-gray-300 px-3 py-2 text-sm"
               placeholder="Search bank name or IIN"
@@ -357,8 +381,9 @@ const AepsProductPage = ({
               value={form.nationalBankIdentificationNumber}
               onChange={(e) => setForm({ ...form, nationalBankIdentificationNumber: e.target.value })}
               required
+              disabled={!banks.length}
             >
-              <option value="">Select bank</option>
+              <option value="">{banks.length ? 'Select bank' : 'No banks loaded — tap Refresh'}</option>
               {filteredBanks.map((b) => (
                 <option key={b.iin} value={b.iin}>
                   {b.bank_name} ({b.iin})

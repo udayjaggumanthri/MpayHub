@@ -6,8 +6,8 @@ import Badge from '../common/Badge';
 import Button from '../common/Button';
 import Card from '../common/Card';
 import FeedbackModal from '../common/FeedbackModal';
-import Input from '../common/Input';
 import LoadingSpinner from '../common/LoadingSpinner';
+import ReportDateRange from '../common/ReportDateRange';
 
 function formatWhen(iso) {
   if (!iso) return '—';
@@ -210,18 +210,18 @@ const BbpsOpsConsole = () => {
         </div>
 
         <div className="grid gap-3 md:grid-cols-3">
-          <Input
-            label="From date"
-            type="date"
-            value={depositForm.from_date}
-            onChange={(e) => setDepositForm((p) => ({ ...p, from_date: e.target.value }))}
+        <div className="md:col-span-2">
+          <ReportDateRange
+            idPrefix="bbps-ops-deposit"
+            dateFrom={depositForm.from_date}
+            dateTo={depositForm.to_date}
+            fromLabel="From date"
+            toLabel="To date"
+            onChange={({ dateFrom, dateTo }) =>
+              setDepositForm((p) => ({ ...p, from_date: dateFrom, to_date: dateTo }))
+            }
           />
-          <Input
-            label="To date"
-            type="date"
-            value={depositForm.to_date}
-            onChange={(e) => setDepositForm((p) => ({ ...p, to_date: e.target.value }))}
-          />
+        </div>
           <div>
             <label className="mb-1 block text-xs font-medium text-slate-600">Trans type</label>
             <select

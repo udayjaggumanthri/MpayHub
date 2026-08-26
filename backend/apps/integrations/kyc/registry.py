@@ -52,11 +52,14 @@ def _client_for_master(master: ApiMaster) -> CashfreeVrsClient:
         raise KycConfigurationError('Cashfree client_id and client_secret are required.')
     cfg = master.config_json if isinstance(master.config_json, dict) else {}
     timeout = int(cfg.get('timeout') or 15)
+    from apps.integrations.kyc.cashfree_vrs_client import DEFAULT_API_VERSION
+
     return CashfreeVrsClient(
         base_url=master.base_url,
         client_id=client_id,
         client_secret=client_secret,
         timeout=timeout,
+        api_version=str(cfg.get('api_version') or DEFAULT_API_VERSION).strip(),
     )
 
 

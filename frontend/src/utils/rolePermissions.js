@@ -81,6 +81,7 @@ export const roleMenus = {
       submenu: [
         { name: 'Workspace', path: '/aeps' },
         { name: 'Provider', path: '/admin/aeps/provider' },
+        { name: 'Debug logs', path: '/admin/aeps/debug-logs' },
         { name: 'Access requests', path: '/admin/aeps/requests' },
         { name: 'Merchants', path: '/admin/aeps/merchants' },
         { name: 'Reports', path: '/aeps/reports' },

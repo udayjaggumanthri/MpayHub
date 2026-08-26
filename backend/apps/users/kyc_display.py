@@ -25,15 +25,19 @@ def _dob_str(value) -> str:
     return parsed.isoformat() if parsed else str(value)
 
 
-def _format_split_address(addr: dict) -> str:
-    if not isinstance(addr, dict):
-        return ''
-    parts = []
-    for key in ('house', 'street', 'landmark', 'po', 'subdist', 'vtc', 'dist', 'state', 'pincode', 'country'):
-        value = str(addr.get(key) or '').strip()
-        if value:
-            parts.append(value)
-    return ', '.join(parts)
+_ADDRESS_KEY_ALIASES = (
+    ('house', ('house',)),
+    ('street', ('street',)),
+    ('landmark', ('landmark',)),
+    ('locality', ('locality', 'loc')),
+    ('po', ('po', 'post_office')),
+    ('subdist', ('subdist',)),
+    ('vtc', ('vtc', 'city')),
+    ('dist', ('dist', 'district')),
+    ('state', ('state',)),
+    ('pincode', ('pincode', 'pc', 'pin_code', 'pin')),
+    ('country', ('country',)),
+)
 
 
 def _str_field(raw: dict, *keys: str) -> str:
@@ -41,8 +45,42 @@ def _str_field(raw: dict, *keys: str) -> str:
         return ''
     for key in keys:
         value = raw.get(key)
-        if value is not None and str(value).strip() != '':
-            return str(value).strip()
+        if value is None or isinstance(value, (dict, list)):
+            continue
+        if isinstance(value, bool):
+            return 'true' if value else 'false'
+        text = str(value).strip()
+        if text:
+            return text
+    return ''
+
+
+def _address_parts(addr: dict | None) -> dict:
+    if not isinstance(addr, dict):
+        return {}
+    parts = {}
+    for canonical, aliases in _ADDRESS_KEY_ALIASES:
+        value = _str_field(addr, *aliases)
+        if value:
+            parts[canonical] = value
+    return parts
+
+
+def _format_split_address(addr: dict) -> str:
+    parts = _address_parts(addr) if isinstance(addr, dict) else {}
+    order = ('house', 'street', 'landmark', 'locality', 'po', 'subdist', 'vtc', 'dist', 'state', 'pincode', 'country')
+    return ', '.join(parts[key] for key in order if parts.get(key))
+
+
+def _aadhaar_seeding_status(raw: dict) -> str:
+    status = _str_field(raw, 'aadhaar_seeding_status')
+    if status:
+        return status
+    linked = raw.get('aadhaar_linked')
+    if linked is True:
+        return 'Y'
+    if linked is False:
+        return 'R'
     return ''
 
 
@@ -52,10 +90,14 @@ def extract_pan_fields_from_raw(raw: dict | None) -> dict:
     extras = {
         'name_match_score': _str_field(raw, 'name_match_score'),
         'name_match_result': _str_field(raw, 'name_match_result'),
-        'aadhaar_seeding_status': _str_field(raw, 'aadhaar_seeding_status'),
-        'father_name': _str_field(raw, 'father_name'),
+        'aadhaar_seeding_status': _aadhaar_seeding_status(raw),
+        'aadhaar_seeding_status_desc': _str_field(raw, 'aadhaar_seeding_status_desc'),
+        'father_name': _str_field(raw, 'father_name', 'fathername'),
         'message': _str_field(raw, 'message'),
-        'pan_status': _str_field(raw, 'status') or ('VALID' if raw.get('valid') else ''),
+        'pan_status': _str_field(raw, 'pan_status', 'status') or ('VALID' if raw.get('valid') else ''),
+        'last_updated_at': _str_field(raw, 'last_updated_at'),
+        'name_provided': _str_field(raw, 'name_provided'),
+        'masked_aadhaar_number': _str_field(raw, 'masked_aadhaar_number'),
     }
     return {k: v for k, v in extras.items() if v}
 
@@ -64,15 +106,28 @@ def extract_aadhaar_fields_from_raw(raw: dict | None) -> dict:
     if not isinstance(raw, dict):
         return {}
     split = raw.get('split_address') if isinstance(raw.get('split_address'), dict) else {}
+    nested_address = raw.get('address') if isinstance(raw.get('address'), dict) else {}
+    present = raw.get('present_address')
+    if isinstance(present, dict) and not nested_address:
+        nested_address = present
+        present_line = ''
+    else:
+        present_line = _str_field(raw, 'present_address')
+
+    parts = {**_address_parts(nested_address), **_address_parts(split)}
+    line = _format_split_address(parts) or present_line
+    if not line:
+        line = _str_field(raw, 'address')
+
     extras = {
-        'care_of': _str_field(raw, 'care_of'),
+        'care_of': _str_field(raw, 'care_of', 'careof'),
         'year_of_birth': _str_field(raw, 'year_of_birth'),
         'message': _str_field(raw, 'message'),
-        'address': _format_split_address(split) or _str_field(raw, 'present_address', 'address'),
-        'district': _str_field(split, 'dist'),
-        'state': _str_field(split, 'state'),
-        'pincode': _str_field(split, 'pincode'),
-        'country': _str_field(split, 'country'),
+        'address': line,
+        'district': parts.get('dist', ''),
+        'state': parts.get('state', ''),
+        'pincode': parts.get('pincode', ''),
+        'country': parts.get('country', '') or _str_field(raw, 'country'),
     }
     return {k: v for k, v in extras.items() if v}
 
@@ -117,9 +172,13 @@ def _default_pan_block(kyc) -> dict:
         'name_match_score': '',
         'name_match_result': '',
         'aadhaar_seeding_status': '',
+        'aadhaar_seeding_status_desc': '',
         'father_name': '',
         'message': '',
         'pan_status': '',
+        'last_updated_at': '',
+        'name_provided': '',
+        'masked_aadhaar_number': '',
     }
 
 

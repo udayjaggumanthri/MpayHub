@@ -40,12 +40,24 @@ const PRIMARY_PAN_FIELDS = [
   { key: 'pan_type', label: 'Type' },
 ];
 
+const formatSeeding = (value, data) => {
+  const desc = data?.aadhaar_seeding_status_desc;
+  if (desc) return desc;
+  const code = String(value || '').trim().toUpperCase();
+  if (code === 'Y') return 'Linked (Y)';
+  if (code === 'R') return 'Not linked (R)';
+  if (code === 'NA') return 'Not applicable (NA)';
+  return displayValue(value);
+};
+
 const TECHNICAL_PAN_FIELDS = [
   { key: 'father_name', label: 'Father name' },
   { key: 'pan_status', label: 'PAN status' },
-  { key: 'aadhaar_seeding_status', label: 'Aadhaar seeding' },
+  { key: 'aadhaar_seeding_status', label: 'Aadhaar seeding', formatter: formatSeeding },
   { key: 'name_match_score', label: 'Name match score' },
   { key: 'name_match_result', label: 'Name match result' },
+  { key: 'name_provided', label: 'Name submitted' },
+  { key: 'last_updated_at', label: 'PAN last updated' },
   { key: 'message', label: 'Message' },
   { key: 'reference_id', label: 'Reference ID', mono: true },
   { key: 'provider_code', label: 'Provider' },
@@ -86,11 +98,14 @@ const SourceHint = ({ source }) => {
   return <span className="ml-1 text-[10px] font-medium uppercase text-amber-700">(from profile)</span>;
 };
 
-const DetailGrid = ({ fields, data, variant = 'full' }) => (
+const DetailGrid = ({ fields, data, variant = 'full', hideEmpty = false }) => (
   <dl className={`grid gap-x-4 gap-y-3 ${variant === 'summary' ? 'grid-cols-1' : 'grid-cols-1 sm:grid-cols-2'}`}>
     {fields.map(({ key, label, formatter, mono, fullWidth }) => {
       const raw = data?.[key];
-      const shown = formatter ? formatter(raw) : displayValue(raw);
+      if (hideEmpty && (raw === null || raw === undefined || String(raw).trim() === '')) {
+        return null;
+      }
+      const shown = formatter ? formatter(raw, data) : displayValue(raw);
       const sourceKey = key === 'name' ? 'name_source' : key === 'date_of_birth' ? 'date_of_birth_source' : null;
       return (
         <div key={key} className={fullWidth ? 'sm:col-span-2' : ''}>
@@ -184,7 +199,7 @@ const KycVerificationPanel = ({
     return (
       <div className="rounded-xl border border-emerald-200 bg-emerald-50/40 p-4 space-y-3">
         <p className="text-sm font-semibold text-emerald-900">{title}</p>
-        <DetailGrid fields={SUMMARY_FIELDS} data={summaryData} variant="summary" />
+        <DetailGrid fields={SUMMARY_FIELDS} data={summaryData} variant="summary" hideEmpty />
       </div>
     );
   }
@@ -235,7 +250,7 @@ const KycVerificationPanel = ({
           verified={verification.aadhaar_verified}
           technicalToggle={showTechnicalDetails ? technicalButton('provider') : null}
         >
-          <DetailGrid fields={PRIMARY_AADHAAR_FIELDS} data={aadhaar} />
+          <DetailGrid fields={PRIMARY_AADHAAR_FIELDS} data={aadhaar} hideEmpty />
           {showTechnical && showTechnicalDetails ? (
             <div className="mt-4 pt-4 border-t border-slate-100">
               <p className="text-xs font-semibold uppercase tracking-wide text-slate-500 mb-3">Provider record</p>

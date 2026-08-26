@@ -4,10 +4,16 @@ import { captureMantraFingerprint, detectMantraRd, isMobileBrowser } from '../se
 
 const AepsDevice = ({ aepsStatus: status, refreshStatus }) => {
   const [info, setInfo] = useState(null);
-  const [serial, setSerial] = useState(status?.merchant?.device_imei || '');
+  const [deviceImei, setDeviceImei] = useState(status?.merchant?.device_imei || '');
+  const [scannerSerial, setScannerSerial] = useState(status?.merchant?.scanner_serial || '');
   const [msg, setMsg] = useState('');
   const [busy, setBusy] = useState(false);
   const [mobile, setMobile] = useState(false);
+
+  useEffect(() => {
+    setDeviceImei(status?.merchant?.device_imei || '');
+    setScannerSerial(status?.merchant?.scanner_serial || '');
+  }, [status?.merchant?.device_imei, status?.merchant?.scanner_serial]);
 
   useEffect(() => {
     setMobile(isMobileBrowser());
@@ -18,7 +24,7 @@ const AepsDevice = ({ aepsStatus: status, refreshStatus }) => {
     setMsg('');
     const r = await detectMantraRd();
     setInfo(r);
-    if (r.serial) setSerial(r.serial);
+    if (r.serial) setScannerSerial(r.serial);
     setBusy(false);
   };
 
@@ -42,8 +48,8 @@ const AepsDevice = ({ aepsStatus: status, refreshStatus }) => {
 
   const save = async () => {
     setBusy(true);
-    const res = await aepsAPI.registerDevice(serial);
-    setMsg(res.success ? 'Device registered for AEPS.' : res.message);
+    const res = await aepsAPI.registerDevice(deviceImei, scannerSerial);
+    setMsg(res.success ? 'Device saved for AEPS.' : res.message);
     await refreshStatus();
     setBusy(false);
   };
@@ -53,21 +59,21 @@ const AepsDevice = ({ aepsStatus: status, refreshStatus }) => {
       <header>
         <h2 className="text-xl font-bold text-slate-900">Mantra device</h2>
         <p className="text-sm text-slate-500">
-          Start Mantra L1 RD Service, connect the scanner, then register the serial used as deviceIMEI
-          for Fingpay. Trade stays blocked until the serial is saved.
+          Save your phone/tablet IMEI for Fingpay (deviceIMEI header) and your Mantra scanner serial for
+          fingerprint capture. These are different values — eKYC Send OTP needs the phone IMEI.
         </p>
       </header>
 
       <section className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
         <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Readiness checklist</p>
         <ul className="mt-3 space-y-2 text-sm">
-          <Check ok={!!info?.ready} label="Mantra RD Service detected" />
-          <Check ok={!!serial} label="Scanner serial available" />
-          <Check ok={!!status?.merchant?.device_ready} label="Serial saved on AEPS merchant profile" />
+          <Check ok={!!scannerSerial} label="Mantra scanner serial available" />
+          <Check ok={!!deviceImei} label="Phone/tablet IMEI entered" />
+          <Check ok={!!status?.merchant?.device_ready} label="Device saved on AEPS merchant profile" />
         </ul>
         {!status?.merchant?.device_ready ? (
           <p className="mt-3 text-xs text-amber-800">
-            Trade products are blocked until you click Save device with a valid serial.
+            Trade products are blocked until you save a valid phone/tablet IMEI (15 digits).
           </p>
         ) : (
           <p className="mt-3 text-xs text-emerald-700">Device ready — continue to eKYC or Daily 2FA.</p>
@@ -214,21 +220,33 @@ const AepsDevice = ({ aepsStatus: status, refreshStatus }) => {
           </p>
         ) : null}
         <label className="mt-6 block text-xs font-semibold uppercase tracking-wide text-slate-500">
-          Scanner serial / deviceIMEI
+          Phone / tablet IMEI (Fingpay deviceIMEI)
           <input
-            className="mt-1 w-full max-w-md rounded-lg border border-slate-200 px-3 py-2 text-sm"
-            value={serial}
-            onChange={(e) => setSerial(e.target.value)}
+            className="mt-1 w-full max-w-md rounded-lg border border-slate-200 px-3 py-2 font-mono text-sm"
+            value={deviceImei}
+            onChange={(e) => setDeviceImei(e.target.value.replace(/\D/g, '').slice(0, 16))}
+            placeholder="e.g. 352801082418919"
+          />
+        </label>
+        <p className="mt-1 text-xs text-slate-400">
+          Dial *#06# on your phone or check Settings → About phone. Required for eKYC Send OTP.
+        </p>
+        <label className="mt-4 block text-xs font-semibold uppercase tracking-wide text-slate-500">
+          Mantra scanner serial
+          <input
+            className="mt-1 w-full max-w-md rounded-lg border border-slate-200 px-3 py-2 font-mono text-sm"
+            value={scannerSerial}
+            onChange={(e) => setScannerSerial(e.target.value)}
             placeholder="From Mantra app Serial No."
           />
         </label>
         <p className="mt-1 text-xs text-slate-400">
-          Tip: copy Serial No. from Mantra L1 RDService if Detect cannot fill it automatically.
+          Click Detect RD Service to auto-fill, or copy Serial No. from Mantra L1 RDService.
         </p>
         <button
           type="button"
           onClick={save}
-          disabled={busy || !serial}
+          disabled={busy || !deviceImei}
           className="mt-4 rounded-lg bg-blue-600 px-4 py-2.5 text-sm font-semibold text-white hover:bg-blue-700 disabled:opacity-50"
         >
           Save device

@@ -11,7 +11,7 @@ const NEXT_CTA = {
   await_approval: { to: null, label: 'Awaiting approval', action: null },
   onboarding: { to: '/aeps/setup', label: 'Continue onboarding' },
   device: { to: '/aeps/device', label: 'Register device' },
-  ekyc: { to: '/aeps/setup', label: 'Complete eKYC' },
+  ekyc: { to: '/aeps/ekyc', label: 'Complete eKYC' },
   twofa: { to: '/aeps/2fa', label: 'Complete daily 2FA' },
   ready: { to: '/aeps/withdraw', label: 'Start cash withdrawal' },
   admin_ops: { to: '/admin/aeps/provider', label: 'Open provider settings' },
@@ -91,7 +91,8 @@ const AepsOverview = ({ aepsStatus: status, refreshStatus }) => {
         </section>
       ) : status?.entitled ? (
         <section className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
-          <Quick to="/aeps/setup" title="Setup" desc="Onboarding & eKYC" />
+          <Quick to="/aeps/setup" title="Setup" desc="Merchant onboarding" />
+          <Quick to="/aeps/ekyc" title="eKYC" desc="OTP + fingerprint" />
           <Quick to="/aeps/device" title="Device" desc="Mantra readiness" />
           <Quick to="/aeps/2fa" title="Daily 2FA" desc="Unlock cash products" />
           {PRODUCTS.map((p) => (

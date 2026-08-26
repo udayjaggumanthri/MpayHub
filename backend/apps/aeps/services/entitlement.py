@@ -19,6 +19,15 @@ def _require_admin(actor) -> None:
 
 
 def _gen_merchant_login_id(user) -> str:
+    """
+    Fingpay Simple API curl sample uses mobile as merchantLoginId.
+    Prefer 10-digit phone; fall back to MPH{member}{suffix} when phone missing.
+    """
+    phone = ''.join(c for c in str(getattr(user, 'phone', '') or '') if c.isdigit())
+    if len(phone) >= 10:
+        candidate = phone[-10:]
+        if not AepsMerchantProfile.objects.filter(merchant_login_id=candidate).exists():
+            return candidate
     base = f"MPH{getattr(user, 'member_number', None) or user.pk}"
     suffix = ''.join(secrets.choice(string.digits) for _ in range(3))
     candidate = f'{base}{suffix}'[:60]

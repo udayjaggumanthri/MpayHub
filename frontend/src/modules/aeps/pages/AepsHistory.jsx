@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import Card from '../../../components/common/Card';
 import Button from '../../../components/common/Button';
+import ReportDateRange from '../../../components/common/ReportDateRange';
 import aepsAPI from '../services/aepsApi';
 
 const AepsHistory = () => {
@@ -116,18 +117,18 @@ const AepsHistory = () => {
               </option>
             ))}
           </select>
-          <input
-            type="date"
-            className="rounded-lg border border-slate-200 px-3 py-2 text-sm"
-            value={filters.date_from}
-            onChange={(e) => setFilters({ ...filters, date_from: e.target.value })}
-          />
-          <input
-            type="date"
-            className="rounded-lg border border-slate-200 px-3 py-2 text-sm"
-            value={filters.date_to}
-            onChange={(e) => setFilters({ ...filters, date_to: e.target.value })}
-          />
+          <div className="min-w-0 w-full sm:min-w-[280px] sm:flex-1">
+            <ReportDateRange
+              idPrefix="aeps-history"
+              dateFrom={filters.date_from}
+              dateTo={filters.date_to}
+              fromLabel="From"
+              toLabel="To"
+              onChange={({ dateFrom, dateTo }) =>
+                setFilters({ ...filters, date_from: dateFrom, date_to: dateTo })
+              }
+            />
+          </div>
           <input
             className="rounded-lg border border-slate-200 px-3 py-2 text-sm"
             placeholder="Search RRN / txn id"

@@ -6,12 +6,12 @@ import {
   buildAllModulesDrillDownUrl,
   buildModuleReportDrillDownUrl,
   drillDownAriaLabel,
+  modulesWithStatusCount,
 } from '../../utils/dashboardDrillDown';
 import Card from '../common/Card';
+import ReportDateRange from '../common/ReportDateRange';
+import { todayIsoDate } from '../../utils/reportDate';
 
-function todayIsoDate() {
-  return new Date().toISOString().slice(0, 10);
-}
 
 function firstOfMonthIso() {
   const d = new Date();
@@ -77,6 +77,11 @@ const DashboardTransactionStatus = ({ variant = 'compact' }) => {
     interval: 'daily',
     ...defaultDatesForInterval('daily'),
   }));
+  const [appliedQuery, setAppliedQuery] = useState(() => ({
+    module: 'all',
+    interval: 'daily',
+    ...defaultDatesForInterval('daily'),
+  }));
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [data, setData] = useState(null);
@@ -86,10 +91,10 @@ const DashboardTransactionStatus = ({ variant = 'compact' }) => {
     setLoading(true);
     setError('');
     const params = {
-      module: filters.module,
-      interval: filters.interval,
-      date_from: filters.dateFrom,
-      date_to: filters.dateTo,
+      module: appliedQuery.module,
+      interval: appliedQuery.interval,
+      date_from: appliedQuery.dateFrom,
+      date_to: appliedQuery.dateTo,
     };
     const res = await reportsAPI.getDashboardTransactionStatusCounts(params);
     if (res.success && res.data) {
@@ -99,7 +104,7 @@ const DashboardTransactionStatus = ({ variant = 'compact' }) => {
       setError(res.message || 'Could not load counts');
     }
     setLoading(false);
-  }, [filters]);
+  }, [appliedQuery]);
 
   useEffect(() => {
     load();
@@ -119,20 +124,26 @@ const DashboardTransactionStatus = ({ variant = 'compact' }) => {
   );
 
   const handleIntervalChange = (interval) => {
+    const dates = defaultDatesForInterval(interval);
     setFilters((f) => ({
       ...f,
       interval,
-      ...defaultDatesForInterval(interval),
+      ...dates,
+    }));
+    setAppliedQuery((q) => ({
+      ...q,
+      interval,
+      ...dates,
     }));
   };
 
   const drillDownContext = useMemo(
     () => ({
-      dateFrom: filters.dateFrom,
-      dateTo: filters.dateTo,
+      dateFrom: appliedQuery.dateFrom,
+      dateTo: appliedQuery.dateTo,
       periodLabel,
     }),
-    [filters.dateFrom, filters.dateTo, periodLabel]
+    [appliedQuery.dateFrom, appliedQuery.dateTo, periodLabel]
   );
 
   const navigateDrillDown = useCallback(
@@ -158,11 +169,22 @@ const DashboardTransactionStatus = ({ variant = 'compact' }) => {
                 dateFrom: drillDownContext.dateFrom,
                 dateTo: drillDownContext.dateTo,
               })
-            : buildAllModulesDrillDownUrl({
-                status: statusKey,
-                dateFrom: drillDownContext.dateFrom,
-                dateTo: drillDownContext.dateTo,
-              });
+            : (() => {
+                const hits = modulesWithStatusCount(byModule, statusKey);
+                if (hits.length === 1) {
+                  return buildModuleReportDrillDownUrl({
+                    module: hits[0],
+                    status: statusKey,
+                    dateFrom: drillDownContext.dateFrom,
+                    dateTo: drillDownContext.dateTo,
+                  });
+                }
+                return buildAllModulesDrillDownUrl({
+                  status: statusKey,
+                  dateFrom: drillDownContext.dateFrom,
+                  dateTo: drillDownContext.dateTo,
+                });
+              })();
       navigate(url);
     },
     [byModule, counts, drillDownContext, filters.module, navigate]
@@ -208,7 +230,11 @@ const DashboardTransactionStatus = ({ variant = 'compact' }) => {
     <div className={`flex flex-wrap items-center gap-1.5 ${isCompact ? '' : 'mb-6 rounded-xl border border-slate-100 bg-slate-50/50 p-4 gap-3'}`}>
       <select
         value={filters.module}
-        onChange={(e) => setFilters((f) => ({ ...f, module: e.target.value }))}
+        onChange={(e) => {
+          const module = e.target.value;
+          setFilters((f) => ({ ...f, module }));
+          setAppliedQuery((q) => ({ ...q, module }));
+        }}
         className={isCompact ? selectClass : 'min-w-[160px] rounded-lg border border-slate-200 bg-white px-3 py-2.5 text-sm font-medium text-slate-800 shadow-sm'}
         aria-label="Module"
       >
@@ -240,42 +266,46 @@ const DashboardTransactionStatus = ({ variant = 'compact' }) => {
           {showDates ? 'Hide dates' : 'Dates'}
         </button>
       ) : (
-        <>
-          <input
-            type="date"
-            value={filters.dateFrom}
-            onChange={(e) => setFilters((f) => ({ ...f, dateFrom: e.target.value }))}
-            className="rounded-lg border border-slate-200 bg-white px-3 py-2.5 text-sm shadow-sm"
-            aria-label="From date"
+        <div className="min-w-0 w-full sm:w-auto sm:min-w-[280px]">
+          <ReportDateRange
+            idPrefix="dash-status"
+            compact
+            showApply
+            applyLabel="Apply"
+            fromLabel=""
+            toLabel=""
+            dateFrom={filters.dateFrom}
+            dateTo={filters.dateTo}
+            onChange={({ dateFrom, dateTo }) =>
+              setFilters((f) => ({ ...f, dateFrom, dateTo }))
+            }
+            onApply={({ dateFrom, dateTo }) =>
+              setAppliedQuery((q) => ({ ...q, dateFrom, dateTo }))
+            }
           />
-          <input
-            type="date"
-            value={filters.dateTo}
-            onChange={(e) => setFilters((f) => ({ ...f, dateTo: e.target.value }))}
-            className="rounded-lg border border-slate-200 bg-white px-3 py-2.5 text-sm shadow-sm"
-            aria-label="To date"
-          />
-        </>
+        </div>
       )}
     </div>
   );
 
   const dateRow =
     isCompact && showDates ? (
-      <div className="mt-2 flex flex-wrap gap-1.5">
-        <input
-          type="date"
-          value={filters.dateFrom}
-          onChange={(e) => setFilters((f) => ({ ...f, dateFrom: e.target.value }))}
-          className={selectClass}
-          aria-label="From date"
-        />
-        <input
-          type="date"
-          value={filters.dateTo}
-          onChange={(e) => setFilters((f) => ({ ...f, dateTo: e.target.value }))}
-          className={selectClass}
-          aria-label="To date"
+      <div className="mt-2 min-w-0">
+        <ReportDateRange
+          idPrefix="dash-status-compact"
+          compact
+          showApply
+          applyLabel="Apply"
+          fromLabel=""
+          toLabel=""
+          dateFrom={filters.dateFrom}
+          dateTo={filters.dateTo}
+          onChange={({ dateFrom, dateTo }) =>
+            setFilters((f) => ({ ...f, dateFrom, dateTo }))
+          }
+          onApply={({ dateFrom, dateTo }) =>
+            setAppliedQuery((q) => ({ ...q, dateFrom, dateTo }))
+          }
         />
       </div>
     ) : null;

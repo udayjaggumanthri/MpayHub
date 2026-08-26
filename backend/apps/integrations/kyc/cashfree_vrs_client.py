@@ -15,6 +15,9 @@ from apps.integrations.kyc.verification_id import assert_cashfree_verification_i
 logger = logging.getLogger(__name__)
 
 DEFAULT_TIMEOUT = 15
+# Cashfree returns aadhaar_seeding_status / pan_status / name-match extras
+# only when this header is a date after 2022-09-12.
+DEFAULT_API_VERSION = '2023-12-18'
 
 
 def _verification_base(base_url: str) -> str:
@@ -26,13 +29,17 @@ def _verification_base(base_url: str) -> str:
     return f'{root}/verification'
 
 
-def _headers(client_id: str, client_secret: str) -> dict[str, str]:
-    return {
+def _headers(client_id: str, client_secret: str, api_version: str = DEFAULT_API_VERSION) -> dict[str, str]:
+    headers = {
         'x-client-id': str(client_id or '').strip(),
         'x-client-secret': str(client_secret or '').strip(),
         'Content-Type': 'application/json',
         'Accept': 'application/json',
     }
+    version = str(api_version or DEFAULT_API_VERSION).strip()
+    if version:
+        headers['x-api-version'] = version
+    return headers
 
 
 def _parse_json(resp: requests.Response) -> dict:
@@ -62,12 +69,14 @@ class CashfreeVrsClient:
         client_id: str,
         client_secret: str,
         timeout: int = DEFAULT_TIMEOUT,
+        api_version: str = DEFAULT_API_VERSION,
     ):
         self.base_url = _verification_base(base_url)
         self.client_id = client_id
         self.client_secret = client_secret
         self.timeout = max(3, min(int(timeout or DEFAULT_TIMEOUT), 45))
-        self._headers = _headers(client_id, client_secret)
+        self.api_version = str(api_version or DEFAULT_API_VERSION).strip() or DEFAULT_API_VERSION
+        self._headers = _headers(client_id, client_secret, self.api_version)
 
     def post(self, path: str, payload: dict, *, action: str) -> dict:
         url = urljoin(f'{self.base_url}/', path.lstrip('/'))

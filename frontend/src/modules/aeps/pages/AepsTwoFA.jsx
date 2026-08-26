@@ -12,6 +12,7 @@ import { captureMantraFingerprint, getBrowserGeo } from '../services/mantraRd';
 const AepsTwoFA = ({ aepsStatus: status, refreshStatus }) => {
   const [banks, setBanks] = useState([]);
   const [bankQuery, setBankQuery] = useState('');
+  const [banksLoading, setBanksLoading] = useState(true);
   const [form, setForm] = useState({
     aadhaarNumber: '',
     mobileNumber: '',
@@ -21,10 +22,25 @@ const AepsTwoFA = ({ aepsStatus: status, refreshStatus }) => {
   const [busy, setBusy] = useState(false);
   const [forceRedo, setForceRedo] = useState(false);
 
+  const loadBanks = async ({ refresh = false } = {}) => {
+    setBanksLoading(true);
+    const res = await aepsAPI.listBanks('aeps', refresh);
+    if (res.success) {
+      setBanks(res.data?.results || []);
+      if (!(res.data?.results || []).length) {
+        setMsg({ type: 'error', text: 'Bank list is empty. Tap Refresh banks and try again.' });
+      } else if (refresh) {
+        setMsg({ type: 'success', text: `Loaded ${res.data.results.length} banks.` });
+      }
+    } else {
+      setMsg({ type: 'error', text: res.message || 'Could not load bank list.' });
+    }
+    setBanksLoading(false);
+  };
+
   useEffect(() => {
-    aepsAPI.listBanks('aeps').then((res) => {
-      if (res.success) setBanks(res.data?.results || []);
-    });
+    loadBanks();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   const filteredBanks = useMemo(() => {
@@ -160,7 +176,17 @@ const AepsTwoFA = ({ aepsStatus: status, refreshStatus }) => {
             inputMode="numeric"
           />
           <label className="block">
-            <span className="mb-1.5 block text-sm font-medium text-gray-700">Bank (IIN)</span>
+            <span className="mb-1.5 flex items-center justify-between text-sm font-medium text-gray-700">
+              <span>Bank (IIN)</span>
+              <button
+                type="button"
+                className="text-xs font-semibold text-blue-700 hover:underline disabled:opacity-50"
+                disabled={banksLoading || busy}
+                onClick={() => loadBanks({ refresh: true })}
+              >
+                {banksLoading ? 'Loading…' : 'Refresh banks'}
+              </button>
+            </span>
             <input
               className="mb-2 w-full rounded-lg border border-gray-300 px-3 py-2 text-sm"
               placeholder="Search bank name or IIN"
@@ -172,14 +198,20 @@ const AepsTwoFA = ({ aepsStatus: status, refreshStatus }) => {
               value={form.nationalBankIdentificationNumber}
               onChange={(e) => setForm({ ...form, nationalBankIdentificationNumber: e.target.value })}
               required
+              disabled={!banks.length}
             >
-              <option value="">Select bank</option>
+              <option value="">{banksLoading ? 'Loading banks…' : banks.length ? 'Select bank' : 'No banks loaded'}</option>
               {filteredBanks.map((b) => (
                 <option key={b.iin} value={b.iin}>
                   {b.bank_name} ({b.iin})
                 </option>
               ))}
             </select>
+            {!banksLoading && !banks.length ? (
+              <p className="mt-1 text-xs text-rose-600">Bank list missing — click Refresh banks.</p>
+            ) : (
+              <p className="mt-1 text-xs text-slate-400">{banks.length} banks available</p>
+            )}
           </label>
           <Button type="submit" loading={busy} fullWidth>
             Capture fingerprint & complete 2FA

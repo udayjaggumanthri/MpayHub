@@ -3,6 +3,8 @@ from django.test import RequestFactory, TestCase
 
 from apps.users.kyc_display import (
     build_kyc_verification_payload,
+    extract_aadhaar_fields_from_raw,
+    extract_pan_fields_from_raw,
     persist_pan_verified_identity,
     viewer_may_see_full_kyc_verification,
 )
@@ -92,11 +94,68 @@ class KycVerificationDisplayTests(TestCase):
             'name_match_score',
             'name_match_result',
             'aadhaar_seeding_status',
+            'aadhaar_seeding_status_desc',
             'father_name',
             'message',
             'pan_status',
+            'last_updated_at',
+            'name_provided',
+            'masked_aadhaar_number',
         ):
             self.assertIn(key, payload['pan'])
+
+    def test_extract_pan_fields_from_cashfree_sync_payload(self):
+        extras = extract_pan_fields_from_raw({
+            'valid': True,
+            'pan_status': 'VALID',
+            'father_name': 'NARASIMHA MURTHI',
+            'name_match_score': 100,
+            'name_match_result': 'DIRECT_MATCH',
+            'aadhaar_seeding_status': 'Y',
+            'aadhaar_seeding_status_desc': 'Aadhaar is linked to PAN',
+            'message': 'PAN verified successfully',
+            'last_updated_at': '01/01/2019',
+            'name_provided': 'CHANDRA SEKHRARAO',
+        })
+        self.assertEqual(extras['father_name'], 'NARASIMHA MURTHI')
+        self.assertEqual(extras['aadhaar_seeding_status'], 'Y')
+        self.assertEqual(extras['aadhaar_seeding_status_desc'], 'Aadhaar is linked to PAN')
+        self.assertEqual(extras['name_match_score'], '100')
+        self.assertEqual(extras['name_match_result'], 'DIRECT_MATCH')
+        self.assertEqual(extras['pan_status'], 'VALID')
+
+    def test_extract_aadhaar_fields_from_nested_address(self):
+        extras = extract_aadhaar_fields_from_raw({
+            'care_of': 'S/O Jaggumanthri Narasimha Murthi',
+            'year_of_birth': 1962,
+            'message': 'Aadhaar Card Exists',
+            'address': {
+                'house': '001',
+                'street': 'Ravikamtham',
+                'district': 'Anakapalli',
+                'state': 'Andhra Pradesh',
+                'pincode': '531025',
+                'country': 'India',
+            },
+        })
+        self.assertEqual(extras['district'], 'Anakapalli')
+        self.assertEqual(extras['pincode'], '531025')
+        self.assertIn('Ravikamtham', extras['address'])
+        self.assertEqual(extras['country'], 'India')
+        self.assertEqual(extras['year_of_birth'], '1962')
+
+    def test_extract_aadhaar_fields_from_split_pc_alias(self):
+        extras = extract_aadhaar_fields_from_raw({
+            'split_address': {
+                'house': '12',
+                'dist': 'Haveri',
+                'pc': '581112',
+                'state': 'Karnataka',
+                'country': 'India',
+            },
+        })
+        self.assertEqual(extras['pincode'], '581112')
+        self.assertEqual(extras['district'], 'Haveri')
 
     def test_admin_sees_full_kyc_verification_on_user_detail(self):
         request = self.factory.get('/')

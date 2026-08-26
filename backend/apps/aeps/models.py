@@ -15,6 +15,11 @@ class AepsProviderConfig(BaseModel):
     ENV_CHOICES = [
         ('uat', 'UAT'),
         ('prod', 'Production'),
+        ('simple', 'Simple API'),
+    ]
+    API_MODE_CHOICES = [
+        ('encrypted', 'Encrypted (AES + RSA eskey)'),
+        ('simple', 'Simple (plain JSON)'),
     ]
     ONBOARDING_API_STYLE_CHOICES = [
         ('java', 'Java / .NET'),
@@ -24,11 +29,19 @@ class AepsProviderConfig(BaseModel):
     ONBOARDING_CREATE_PATHS = {
         'java': '/api/onboarding/merchant/creation/v2',
         'php': '/api/onboarding/merchant/php/creation/v2',
+        'simple': '/api/onboarding/merchant/simple/creation/v2',
     }
 
     name = models.CharField(max_length=100, unique=True, default='default', db_index=True)
     environment = models.CharField(max_length=10, choices=ENV_CHOICES, default='prod', db_index=True)
     is_active = models.BooleanField(default=False, db_index=True)
+    api_mode = models.CharField(
+        max_length=12,
+        choices=API_MODE_CHOICES,
+        default='encrypted',
+        db_index=True,
+        help_text='encrypted → AES+RSA; simple → plain JSON + secret-key hashes',
+    )
     # Which onboarding create API to call when this env row is the active one.
     onboarding_api_style = models.CharField(
         max_length=8,
@@ -37,6 +50,18 @@ class AepsProviderConfig(BaseModel):
         db_index=True,
         help_text='java → …/merchant/creation/v2 (AES-ECB); php → …/merchant/php/creation/v2 (AES-CBC)',
     )
+    debug_mode = models.BooleanField(
+        default=False,
+        help_text='When on, store full request/response exchange on every Fingpay call',
+    )
+    egress_ip = models.CharField(
+        max_length=64,
+        blank=True,
+        default='139.99.47.143',
+        help_text='Public egress IP sent as ipAddress and used in whitelist diagnosis',
+    )
+    # Admin-editable relative paths; empty keys fall back to doc defaults
+    endpoints_json = models.JSONField(default=dict, blank=True)
 
     super_merchant_id = models.CharField(max_length=64, blank=True, default='')
     super_merchant_login_id = models.CharField(max_length=128, blank=True, default='')
@@ -66,23 +91,55 @@ class AepsProviderConfig(BaseModel):
         ordering = ['-is_active', 'name']
 
     def __str__(self):
-        return f'AEPS provider {self.name} ({self.environment}/{self.onboarding_api_style})'
+        return f'AEPS provider {self.name} ({self.environment}/{self.resolved_api_mode})'
+
+    @property
+    def resolved_api_mode(self) -> str:
+        if (self.environment or '').lower() == 'simple':
+            return 'simple'
+        mode = (self.api_mode or 'encrypted').lower()
+        return mode if mode in ('encrypted', 'simple') else 'encrypted'
 
     @property
     def resolved_onboarding_api_style(self) -> str:
+        if self.resolved_api_mode == 'simple':
+            return 'simple'
         style = (self.onboarding_api_style or 'java').lower()
-        return style if style in self.ONBOARDING_CREATE_PATHS else 'java'
+        return style if style in ('java', 'php') else 'java'
+
+    def resolved_endpoints(self) -> dict:
+        from apps.integrations.fingpay.endpoints import merge_endpoints
+
+        return merge_endpoints(
+            self.endpoints_json,
+            environment=self.environment,
+            onboarding_api_style=self.onboarding_api_style or 'php',
+        )
+
+    def endpoint_path(self, key: str, default: str = '') -> str:
+        return str(self.resolved_endpoints().get(key) or default or '')
 
     def onboarding_create_path(self) -> str:
-        return self.ONBOARDING_CREATE_PATHS[self.resolved_onboarding_api_style]
+        style = self.resolved_onboarding_api_style
+        if style == 'simple':
+            return self.endpoint_path('onboarding_create_simple', self.ONBOARDING_CREATE_PATHS['simple'])
+        if style == 'php':
+            return self.endpoint_path('onboarding_create_php', self.ONBOARDING_CREATE_PATHS['php'])
+        return self.endpoint_path('onboarding_create_java', self.ONBOARDING_CREATE_PATHS['java'])
 
     def onboarding_create_url(self) -> str:
         base = (self.onboarding_base_url or '').rstrip('/')
-        return f'{base}{self.onboarding_create_path()}' if base else self.onboarding_create_path()
+        path = self.onboarding_create_path()
+        return f'{base}{path}' if base else path
 
     def onboarding_aes_mode(self) -> str:
         # PHP sample: AES-128-CBC; Java/.NET sample: AES-128-ECB
         return 'cbc' if self.resolved_onboarding_api_style == 'php' else 'ecb'
+
+    def resolved_egress_ip(self) -> str:
+        from apps.integrations.fingpay.endpoints import DEFAULT_EGRESS_IP
+
+        return (self.egress_ip or '').strip() or DEFAULT_EGRESS_IP
 
 
 class AepsEntitlement(BaseModel):
@@ -183,7 +240,18 @@ class AepsMerchantProfile(BaseModel):
     ekyc_encode_fp_txn_id = models.CharField(max_length=128, blank=True, default='')
     masked_aadhaar = models.CharField(max_length=20, blank=True, default='')
 
-    device_imei = models.CharField(max_length=64, blank=True, default='', help_text='Mantra scanner serial')
+    device_imei = models.CharField(
+        max_length=64,
+        blank=True,
+        default='',
+        help_text='Phone/tablet IMEI sent as Fingpay deviceIMEI header',
+    )
+    scanner_serial = models.CharField(
+        max_length=64,
+        blank=True,
+        default='',
+        help_text='Mantra fingerprint scanner serial (local RD + optional matmSerialNumber)',
+    )
     device_ready = models.BooleanField(default=False)
     last_2fa_at = models.DateTimeField(null=True, blank=True)
     last_latitude = models.DecimalField(max_digits=10, decimal_places=7, null=True, blank=True)
@@ -356,9 +424,15 @@ class AepsApiAuditLog(TimestampedModel):
     latency_ms = models.PositiveIntegerField(null=True, blank=True)
     success = models.BooleanField(default=False)
     error_message = models.CharField(max_length=500, blank=True, default='')
-    # Scrubbed summaries only — never PID / full Aadhaar
+    # Scrubbed summaries only — never PID / full Aadhaar (always populated)
     request_summary = models.JSONField(default=dict, blank=True)
     response_summary = models.JSONField(default=dict, blank=True)
+    # Full exchange when provider debug_mode is on (for Tapits sharing)
+    debug_enabled = models.BooleanField(default=False, db_index=True)
+    request_headers = models.JSONField(default=dict, blank=True)
+    request_body = models.JSONField(default=dict, blank=True)
+    response_body = models.JSONField(default=dict, blank=True)
+    exchange_pack = models.JSONField(default=dict, blank=True)
 
     class Meta:
         db_table = 'aeps_api_audit_logs'

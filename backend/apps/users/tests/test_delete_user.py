@@ -71,3 +71,17 @@ class DeleteUserAccountTests(TestCase):
         self.assertEqual(resp.status_code, 200)
         self.assertTrue(resp.data.get('success'))
         self.assertFalse(User.objects.filter(pk=self.retailer.pk).exists())
+
+    def test_admin_can_delete_user_with_aeps_transactions(self):
+        from apps.aeps.models import AepsTransaction
+
+        AepsTransaction.objects.create(
+            user=self.retailer,
+            merchant_tran_id='MSDELTEST0001',
+            product='MS',
+            status='failed',
+        )
+        deleted_id = delete_user_account(actor=self.admin, target=self.retailer)
+        self.assertEqual(deleted_id, 'DELRT1')
+        self.assertFalse(User.objects.filter(pk=self.retailer.pk).exists())
+        self.assertFalse(AepsTransaction.objects.filter(merchant_tran_id='MSDELTEST0001').exists())

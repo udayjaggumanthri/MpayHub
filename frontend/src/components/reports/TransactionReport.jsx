@@ -14,6 +14,7 @@ import {
   formatAccountNumber,
 } from '../../utils/formatters';
 import { balanceFromRow, formatReportBalance } from '../../utils/reportBalanceDisplay';
+import ReportDateRange from '../common/ReportDateRange';
 
 const ledgerStyleTypes = ['payin', 'payout'];
 
@@ -47,8 +48,8 @@ const TransactionReport = ({ type = 'all' }) => {
 
   const [transactions, setTransactions] = useState([]);
   const [filters, setFilters] = useState(initialFilters);
-  /** Pay In / Pay Out: API query; updated on Apply (not on every keystroke). */
-  const [appliedLedgerFilters, setAppliedLedgerFilters] = useState(initialFilters);
+  /** API query; updated only when the user clicks Apply. */
+  const [appliedFilters, setAppliedFilters] = useState(initialFilters);
   const [loading, setLoading] = useState(false);
   const [summary, setSummary] = useState({
     success: 0,
@@ -65,7 +66,7 @@ const TransactionReport = ({ type = 'all' }) => {
   useEffect(() => {
     const next = mergeDrillDownFilters(drillDown);
     setFilters(next);
-    setAppliedLedgerFilters(next);
+    setAppliedFilters(next);
     if (drillDown.scope === DRILLDOWN_SCOPE_PLATFORM && isAdminUser(user)) {
       setReportScope('platform');
     }
@@ -79,7 +80,7 @@ const TransactionReport = ({ type = 'all' }) => {
     } else if (reportScope === 'team' && canUseTeamReportScope(user?.role)) {
       scope = 'team';
     }
-    const q = ledgerStyleTypes.includes(type) ? appliedLedgerFilters : filters;
+    const q = appliedFilters;
     const params = { scope, page: 1, page_size: 500 };
     if (q.dateFrom) params.date_from = q.dateFrom;
     if (q.dateTo) params.date_to = q.dateTo;
@@ -92,7 +93,7 @@ const TransactionReport = ({ type = 'all' }) => {
     if (q.serviceType && q.serviceType !== 'all') params.service_type = q.serviceType;
     if (q.agentRole.trim()) params.agent_role = q.agentRole.trim();
     return params;
-  }, [reportScope, user?.role, type, appliedLedgerFilters, filters]);
+  }, [reportScope, user?.role, type, appliedFilters]);
 
   const loadTransactions = useCallback(async () => {
     if (!user) return;
@@ -240,7 +241,7 @@ const TransactionReport = ({ type = 'all' }) => {
     if (!user) return;
     if (!['payin', 'payout', 'bbps'].includes(type)) return;
     loadTransactions();
-  }, [user, type, loadTransactions, appliedLedgerFilters, filters, reportScope]);
+  }, [user, type, loadTransactions, appliedFilters, reportScope]);
 
   const getStatusBadge = (status) => {
     const statusUpper = status?.toUpperCase() || 'PENDING';
@@ -274,7 +275,7 @@ const TransactionReport = ({ type = 'all' }) => {
     setShowDashboardBanner(false);
     const cleared = { ...EMPTY_FILTERS };
     setFilters(cleared);
-    setAppliedLedgerFilters(cleared);
+    setAppliedFilters(cleared);
     if (isAdminUser(user)) setReportScope('self');
   };
 
@@ -438,22 +439,16 @@ const TransactionReport = ({ type = 'all' }) => {
                     className="w-full px-4 py-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
                   />
                 </div>
-                <div className="w-full sm:w-auto sm:min-w-[160px]">
-                  <label className="block text-sm font-medium text-gray-700 mb-1.5">From date</label>
-                  <input
-                    type="date"
-                    value={filters.dateFrom}
-                    onChange={(e) => setFilters({ ...filters, dateFrom: e.target.value })}
-                    className="w-full px-4 py-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
-                  />
-                </div>
-                <div className="w-full sm:w-auto sm:min-w-[160px]">
-                  <label className="block text-sm font-medium text-gray-700 mb-1.5">To date</label>
-                  <input
-                    type="date"
-                    value={filters.dateTo}
-                    onChange={(e) => setFilters({ ...filters, dateTo: e.target.value })}
-                    className="w-full px-4 py-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
+                <div className="min-w-0 w-full sm:min-w-[280px] sm:flex-1">
+                  <ReportDateRange
+                    idPrefix={`txn-${type}`}
+                    dateFrom={filters.dateFrom}
+                    dateTo={filters.dateTo}
+                    fromLabel="From date"
+                    toLabel="To date"
+                    onChange={({ dateFrom, dateTo }) =>
+                      setFilters((prev) => ({ ...prev, dateFrom, dateTo }))
+                    }
                   />
                 </div>
                 <div className="w-full sm:w-auto sm:min-w-[180px]">
@@ -512,7 +507,7 @@ const TransactionReport = ({ type = 'all' }) => {
                 <button
                   type="button"
                   onClick={() => {
-                    setAppliedLedgerFilters({ ...filters });
+                    setAppliedFilters({ ...filters });
                   }}
                   disabled={loading}
                   className="inline-flex items-center justify-center gap-2 rounded-lg bg-blue-600 px-5 py-2.5 text-sm font-semibold text-white shadow-sm transition hover:bg-blue-700 disabled:opacity-60"
@@ -554,25 +549,27 @@ const TransactionReport = ({ type = 'all' }) => {
                   </select>
                 </div>
 
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-2">Date From</label>
-                  <input
-                    type="date"
-                    value={filters.dateFrom}
-                    onChange={(e) => setFilters({ ...filters, dateFrom: e.target.value })}
-                    className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
+                <div className="min-w-0 sm:col-span-2">
+                  <ReportDateRange
+                    idPrefix={`txn-other-${type}`}
+                    dateFrom={filters.dateFrom}
+                    dateTo={filters.dateTo}
+                    onChange={({ dateFrom, dateTo }) =>
+                      setFilters((prev) => ({ ...prev, dateFrom, dateTo }))
+                    }
                   />
                 </div>
-
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-2">Date To</label>
-                  <input
-                    type="date"
-                    value={filters.dateTo}
-                    onChange={(e) => setFilters({ ...filters, dateTo: e.target.value })}
-                    className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
-                  />
-                </div>
+              </div>
+              <div className="mt-4 flex justify-end">
+                <button
+                  type="button"
+                  onClick={() => setAppliedFilters({ ...filters })}
+                  disabled={loading}
+                  className="inline-flex items-center justify-center gap-2 rounded-lg bg-blue-600 px-5 py-2.5 text-sm font-semibold text-white shadow-sm transition hover:bg-blue-700 disabled:opacity-60"
+                >
+                  <FiFilter className="h-4 w-4" aria-hidden />
+                  Apply filters
+                </button>
               </div>
             </>
           )}

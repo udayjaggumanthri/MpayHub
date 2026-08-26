@@ -9,13 +9,20 @@ from apps.users.models import KYC, KycDigilockerSession, KycVerificationAttempt
 def _pan_block_incomplete(block: dict) -> bool:
     if not isinstance(block, dict) or not block:
         return True
-    return not all(block.get(key) for key in ('name', 'date_of_birth'))
+    if not block.get('name'):
+        return True
+    return not any(
+        block.get(key)
+        for key in ('aadhaar_seeding_status', 'name_match_score', 'father_name', 'pan_status')
+    )
 
 
 def _aadhaar_block_incomplete(block: dict) -> bool:
     if not isinstance(block, dict) or not block:
         return True
-    return not all(block.get(key) for key in ('name', 'date_of_birth', 'gender'))
+    if not all(block.get(key) for key in ('name', 'date_of_birth', 'gender')):
+        return True
+    return not (block.get('address') and block.get('district') and block.get('pincode'))
 
 
 class Command(BaseCommand):

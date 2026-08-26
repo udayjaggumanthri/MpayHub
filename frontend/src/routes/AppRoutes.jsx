@@ -63,6 +63,7 @@ import WalletHistoryPage from '../components/wallets/WalletHistoryPage';
 import AepsLayout from '../modules/aeps/pages/AepsLayout';
 import AepsOverview from '../modules/aeps/pages/AepsOverview';
 import AepsSetup from '../modules/aeps/pages/AepsSetup';
+import AepsEkyc from '../modules/aeps/pages/AepsEkyc';
 import AepsDevice from '../modules/aeps/pages/AepsDevice';
 import AepsTwoFA from '../modules/aeps/pages/AepsTwoFA';
 import AepsHistory from '../modules/aeps/pages/AepsHistory';
@@ -79,6 +80,7 @@ import {
   AepsAdminRequests,
   AepsAdminMerchants,
   AepsAdminRecon,
+  AepsAdminDebugLogs,
 } from '../modules/aeps/admin/AepsAdminPages';
 
 /** Old URL `/admin/users/:id` → canonical user profile (all roles that may view a profile). */
@@ -648,6 +650,18 @@ const AppRoutes = () => {
         }
       />
       <Route
+        path="/aeps/ekyc"
+        element={
+          <ProtectedRoute>
+            <Layout>
+              <AepsLayout>
+                <AepsEkyc />
+              </AepsLayout>
+            </Layout>
+          </ProtectedRoute>
+        }
+      />
+      <Route
         path="/aeps/2fa"
         element={
           <ProtectedRoute>
@@ -786,6 +800,18 @@ const AppRoutes = () => {
             <AdminRoute>
               <Layout>
                 <AepsAdminRecon />
+              </Layout>
+            </AdminRoute>
+          </ProtectedRoute>
+        }
+      />
+      <Route
+        path="/admin/aeps/debug-logs"
+        element={
+          <ProtectedRoute>
+            <AdminRoute>
+              <Layout>
+                <AepsAdminDebugLogs />
               </Layout>
             </AdminRoute>
           </ProtectedRoute>

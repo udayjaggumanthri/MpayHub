@@ -1,6 +1,7 @@
 import {
   buildAllModulesDrillDownUrl,
   buildModuleReportDrillDownUrl,
+  modulesWithStatusCount,
   parseDrillDownSearchParams,
   statusForReportApi,
   statusForReportFilter,
@@ -44,5 +45,15 @@ describe('dashboardDrillDown', () => {
   test('status mapping for report API', () => {
     expect(statusForReportFilter('FAILED')).toBe('FAILURE');
     expect(statusForReportApi('FAILURE')).toBe('FAILED');
+  });
+
+  test('modulesWithStatusCount returns only modules with that status', () => {
+    const byModule = {
+      payin: { SUCCESS: 0, PENDING: 0, FAILED: 0 },
+      payout: { SUCCESS: 0, PENDING: 0, FAILED: 0 },
+      bbps: { SUCCESS: 3, PENDING: 0, FAILED: 0 },
+    };
+    expect(modulesWithStatusCount(byModule, 'SUCCESS')).toEqual(['bbps']);
+    expect(modulesWithStatusCount(byModule, 'PENDING')).toEqual([]);
   });
 });

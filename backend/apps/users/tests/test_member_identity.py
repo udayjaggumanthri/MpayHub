@@ -174,6 +174,32 @@ class CreateUserIdentityTests(TestCase):
         u.pk = 99
         self.assertEqual(public_display_code(u), 'R99')
 
+    def test_public_display_code_prefers_member_number_over_short_legacy(self):
+        u = User(
+            phone='y',
+            email='y@t.com',
+            role='Retailer',
+            user_id='R1',
+            display_code='',
+            member_id='',
+            member_number=16,
+        )
+        u.pk = 16
+        self.assertEqual(public_display_code(u), 'R000016')
+
+    def test_public_display_code_formats_distributor_not_dt_prefix(self):
+        u = User(
+            phone='z',
+            email='z@t.com',
+            role='Distributor',
+            user_id='DT1',
+            display_code='',
+            member_id='',
+            member_number=1,
+        )
+        u.pk = 1
+        self.assertEqual(public_display_code(u), 'D000001')
+
 
 class MemberIdentityBackfillTests(TestCase):
     def test_backfill_preserves_legacy_user_id(self):

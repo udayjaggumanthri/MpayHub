@@ -4,6 +4,7 @@ import { bbpsAPI } from '../../../services/api';
 import BharatConnectBranding from '../BharatConnectBranding';
 import { COMPLAINT_DISPOSITION_OPTIONS, COMPLAINT_TYPES } from './complaintConstants';
 import { toneClass, toUserMessage } from './complaintUiHelpers';
+import { todayIsoDate } from '../../../utils/reportDate';
 
 const METHOD_BCONNECT = 'BCONNECT';
 const METHOD_MOBILE = 'MOBILE';
@@ -344,6 +345,8 @@ const ComplaintsRegister = () => {
                   type="date"
                   className={fieldInputClass}
                   value={fromDate}
+                  max={todayIsoDate()}
+                  min="2000-01-01"
                   onChange={(e) => setFromDate(e.target.value)}
                 />
               </div>
@@ -355,6 +358,8 @@ const ComplaintsRegister = () => {
                   type="date"
                   className={fieldInputClass}
                   value={toDate}
+                  max={todayIsoDate()}
+                  min="2000-01-01"
                   onChange={(e) => setToDate(e.target.value)}
                 />
               </div>

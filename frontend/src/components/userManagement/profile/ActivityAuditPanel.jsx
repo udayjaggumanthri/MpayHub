@@ -4,6 +4,7 @@ import { FaDownload, FaRotate } from 'react-icons/fa6';
 import { adminAPI, authAPI } from '../../../services/api';
 import Button from '../../common/Button';
 import Card from '../../common/Card';
+import ReportDateRange from '../../common/ReportDateRange';
 import { formatUserId } from '../../../utils/formatters';
 import {
   formatAuditDateTime,
@@ -68,6 +69,8 @@ const ActivityAuditPanel = ({
   const [eventType, setEventType] = useState('');
   const [dateFrom, setDateFrom] = useState(() => presetRange('30d').date_from);
   const [dateTo, setDateTo] = useState(() => presetRange('30d').date_to);
+  const [appliedDateFrom, setAppliedDateFrom] = useState(() => presetRange('30d').date_from);
+  const [appliedDateTo, setAppliedDateTo] = useState(() => presetRange('30d').date_to);
   const [page, setPage] = useState(1);
   const [rows, setRows] = useState([]);
   const [pagination, setPagination] = useState({ page: 1, page_size: 25, total: 0, total_pages: 1 });
@@ -79,8 +82,8 @@ const ActivityAuditPanel = ({
     const params = {
       category: category === 'all' ? undefined : category,
       event_type: eventType || undefined,
-      date_from: dateFrom || undefined,
-      date_to: dateTo || undefined,
+      date_from: appliedDateFrom || undefined,
+      date_to: appliedDateTo || undefined,
       page,
       page_size: 25,
     };
@@ -88,7 +91,7 @@ const ActivityAuditPanel = ({
       params.user_id = userId;
     }
     return params;
-  }, [category, eventType, dateFrom, dateTo, page, effectiveMode, userId]);
+  }, [category, eventType, appliedDateFrom, appliedDateTo, page, effectiveMode, userId]);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -125,6 +128,8 @@ const ActivityAuditPanel = ({
     const range = presetRange(id);
     setDateFrom(range.date_from);
     setDateTo(range.date_to);
+    setAppliedDateFrom(range.date_from);
+    setAppliedDateTo(range.date_to);
     setPage(1);
   };
 
@@ -207,32 +212,30 @@ const ActivityAuditPanel = ({
           ))}
         </div>
         <div className="grid gap-3 sm:grid-cols-3">
-          <label className="block text-xs font-semibold text-slate-600">
-            From
-            <input
-              type="date"
-              value={dateFrom}
-              onChange={(e) => {
+          <div className="min-w-0 sm:col-span-2">
+            <ReportDateRange
+              idPrefix="activity-audit"
+              showApply
+              applyLabel="Apply dates"
+              dateFrom={dateFrom}
+              dateTo={dateTo}
+              fromLabel="From"
+              toLabel="To"
+              onChange={({ dateFrom: from, dateTo: to }) => {
                 setPreset('custom');
-                setDateFrom(e.target.value);
+                setDateFrom(from);
+                setDateTo(to);
+              }}
+              onApply={({ dateFrom: from, dateTo: to }) => {
+                setPreset('custom');
+                setDateFrom(from);
+                setDateTo(to);
+                setAppliedDateFrom(from);
+                setAppliedDateTo(to);
                 setPage(1);
               }}
-              className="mt-1 w-full rounded-lg border border-slate-200 px-3 py-2 text-sm text-slate-900 shadow-sm focus:border-indigo-400 focus:outline-none focus:ring-1 focus:ring-indigo-400"
             />
-          </label>
-          <label className="block text-xs font-semibold text-slate-600">
-            To
-            <input
-              type="date"
-              value={dateTo}
-              onChange={(e) => {
-                setPreset('custom');
-                setDateTo(e.target.value);
-                setPage(1);
-              }}
-              className="mt-1 w-full rounded-lg border border-slate-200 px-3 py-2 text-sm text-slate-900 shadow-sm focus:border-indigo-400 focus:outline-none focus:ring-1 focus:ring-indigo-400"
-            />
-          </label>
+          </div>
           <label className="block text-xs font-semibold text-slate-600">
             Event type
             <input

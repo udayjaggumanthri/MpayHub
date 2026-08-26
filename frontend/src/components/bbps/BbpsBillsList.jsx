@@ -23,10 +23,12 @@ import {
 } from 'react-icons/fa6';
 import Input from '../common/Input';
 import Button from '../common/Button';
+import ReportDateRange from '../common/ReportDateRange';
 import BbpsTransactionReceiptView from './BbpsTransactionReceiptView';
 import { mapApiPaymentToReceiptTransaction } from './bbpsReceiptFields';
 import { buildBbpsReceiptPrintHtml, openBbpsReceiptPrint } from './bbpsReceiptPrint';
 import { deriveCustomerId, deriveReceiptIdentity, getStatusColor } from './bbpsBillsHelpers';
+import { normalizeIsoDate } from '../../utils/reportDate';
 
 const EMPTY_FILTERS = {
   serviceId: '',
@@ -85,6 +87,7 @@ const BbpsBillsList = ({
   const [loading, setLoading] = useState(true);
   const [exporting, setExporting] = useState(false);
   const [filters, setFilters] = useState(initialFilters);
+  const [appliedFilters, setAppliedFilters] = useState(initialFilters);
   const [showFilters, setShowFilters] = useState(
     Boolean(drillDown.hasDrillDown || initialFilters.dateFrom || initialFilters.status !== 'ALL')
   );
@@ -104,6 +107,7 @@ const BbpsBillsList = ({
   useEffect(() => {
     const next = mergeDrillDownFilters(drillDown);
     setFilters(next);
+    setAppliedFilters(next);
     if (drillDown.scope === DRILLDOWN_SCOPE_PLATFORM && isAdminUser(user)) {
       setListScope('platform');
     }
@@ -113,14 +117,16 @@ const BbpsBillsList = ({
 
   const buildListParams = useCallback(() => {
     const params = { page: 1, page_size: 500, scope: listScope };
-    if (filters.serviceId.trim()) params.search = filters.serviceId.trim();
-    if (filters.status && filters.status !== 'ALL') {
-      params.status = statusForReportApi(filters.status === 'FAILURE' ? 'FAILURE' : filters.status);
+    if (appliedFilters.serviceId.trim()) params.search = appliedFilters.serviceId.trim();
+    if (appliedFilters.status && appliedFilters.status !== 'ALL') {
+      params.status = statusForReportApi(
+        appliedFilters.status === 'FAILURE' ? 'FAILURE' : appliedFilters.status
+      );
     }
-    if (filters.dateFrom) params.date_from = filters.dateFrom;
-    if (filters.dateTo) params.date_to = filters.dateTo;
+    if (appliedFilters.dateFrom) params.date_from = appliedFilters.dateFrom;
+    if (appliedFilters.dateTo) params.date_to = appliedFilters.dateTo;
     return params;
-  }, [filters, listScope]);
+  }, [appliedFilters, listScope]);
 
   const loadTransactions = useCallback(async () => {
     setLoading(true);
@@ -188,8 +194,18 @@ const BbpsBillsList = ({
     setFilters({ ...filters, [field]: value });
   };
 
+  const applyFilters = () => {
+    setAppliedFilters({
+      ...filters,
+      dateFrom: normalizeIsoDate(filters.dateFrom),
+      dateTo: normalizeIsoDate(filters.dateTo),
+    });
+  };
+
   const clearFilters = () => {
-    setFilters({ ...EMPTY_FILTERS });
+    const cleared = { ...EMPTY_FILTERS };
+    setFilters(cleared);
+    setAppliedFilters(cleared);
     setSearchParams({});
     setShowDashboardBanner(false);
   };
@@ -328,18 +344,6 @@ const BbpsBillsList = ({
     </div>
   );
 
-  if (loading && transactions.length === 0) {
-    return (
-      <div className={isEmbedded ? 'space-y-4' : 'max-w-7xl mx-auto space-y-6 px-4 sm:px-0'}>
-        {!isEmbedded && headerRow}
-        <div className="text-center py-12">
-          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600 mx-auto" />
-          <p className="mt-4 text-gray-600">Loading transactions...</p>
-        </div>
-      </div>
-    );
-  }
-
   return (
     <div className={isEmbedded ? 'space-y-4' : 'max-w-7xl mx-auto space-y-6 px-4 sm:px-0'}>
       {showDashboardBanner && drillDown.fromDashboard && (
@@ -381,29 +385,35 @@ const BbpsBillsList = ({
                 <option value="FAILURE">Failure</option>
               </select>
             </div>
-            <Input
-              label="From Date"
-              type="date"
-              value={filters.dateFrom}
-              onChange={(e) => handleFilterChange('dateFrom', e.target.value)}
-            />
-            <Input
-              label="To Date"
-              type="date"
-              value={filters.dateTo}
-              onChange={(e) => handleFilterChange('dateTo', e.target.value)}
-            />
+            <div className="min-w-0 md:col-span-2 lg:col-span-4">
+              <ReportDateRange
+                idPrefix="bbps-bills"
+                dateFrom={filters.dateFrom}
+                dateTo={filters.dateTo}
+                onChange={({ dateFrom, dateTo }) =>
+                  setFilters((prev) => ({ ...prev, dateFrom, dateTo }))
+                }
+              />
+            </div>
           </div>
-          <div className="mt-4 flex justify-end">
+          <div className="mt-4 flex flex-wrap justify-end gap-2">
             <Button onClick={clearFilters} variant="outline" size="sm">
               Clear Filters
+            </Button>
+            <Button onClick={applyFilters} size="sm">
+              Apply filters
             </Button>
           </div>
         </Card>
       )}
 
       <Card padding="lg">
-        {transactions.length === 0 ? (
+        {loading ? (
+          <div className="py-12 text-center">
+            <div className="mx-auto h-12 w-12 animate-spin rounded-full border-b-2 border-blue-600" />
+            <p className="mt-4 text-gray-600">Loading transactions...</p>
+          </div>
+        ) : transactions.length === 0 ? (
           <div className="text-center py-12">
             <p className="text-gray-500 text-lg">No bill payment transactions found.</p>
             <p className="text-gray-400 text-sm mt-2">Try adjusting filters or date range.</p>

@@ -55,9 +55,30 @@ def format_display_code(role: str | None, member_number: int) -> str:
     return f'{prefix}{n:0{width}d}'
 
 
+def _is_padded_display_code(code: str) -> bool:
+    """True for role codes like R000016 / D000001 (not short legacy IDs like R1 / DT1)."""
+    raw = (code or '').strip()
+    if not raw:
+        return False
+    for prefix in ('SD', 'MD', 'A', 'D', 'R'):
+        if raw.startswith(prefix):
+            rest = raw[len(prefix) :]
+            return rest.isdigit() and len(rest) >= MIN_PAD
+    return False
+
+
 def public_display_code(user: 'User') -> str:
     """Preferred human-facing code for UI / notifications (with legacy fallback)."""
     code = (getattr(user, 'display_code', None) or '').strip()
+    if _is_padded_display_code(code):
+        return code
+    member_number = getattr(user, 'member_number', None)
+    role = getattr(user, 'role', None)
+    if member_number is not None:
+        try:
+            return format_display_code(role, int(member_number))
+        except (TypeError, ValueError):
+            pass
     if code:
         return code
     legacy = (getattr(user, 'user_id', None) or '').strip()

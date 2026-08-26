@@ -15,6 +15,8 @@ import KycProfileSyncAlert from '../onboarding/KycProfileSyncAlert';
 import Card from '../common/Card';
 import DashboardAnalyticsCharts from './DashboardAnalyticsCharts';
 import DashboardTransactionStatus from './DashboardTransactionStatus';
+import ReportDateRange from '../common/ReportDateRange';
+import { todayIsoDate } from '../../utils/reportDate';
 import { FiUser, FiChevronRight } from 'react-icons/fi';
 import bMnemonicPrimary from '../../assets/bbps/b-mnemonic-primary.svg';
 import {
@@ -26,10 +28,6 @@ import {
   FaBullhorn,
   FaChartLine,
 } from 'react-icons/fa6';
-
-function todayIsoDate() {
-  return new Date().toISOString().slice(0, 10);
-}
 
 function periodDatesForInterval(interval) {
   const today = todayIsoDate();
@@ -77,6 +75,12 @@ const Dashboard = () => {
     transactions_count: 0,
   });
   const [analyticsFilters, setAnalyticsFilters] = useState(() => ({
+    interval: 'daily',
+    dateFrom: todayIsoDate(),
+    dateTo: todayIsoDate(),
+    gateway: '',
+  }));
+  const [appliedAnalytics, setAppliedAnalytics] = useState(() => ({
     interval: 'daily',
     dateFrom: todayIsoDate(),
     dateTo: todayIsoDate(),
@@ -175,10 +179,10 @@ const Dashboard = () => {
     let mounted = true;
     const loadAnalytics = async () => {
       setAnalyticsLoading(true);
-      const params = { interval: analyticsFilters.interval };
-      if (analyticsFilters.dateFrom) params.date_from = analyticsFilters.dateFrom;
-      if (analyticsFilters.dateTo) params.date_to = analyticsFilters.dateTo;
-      if (analyticsFilters.gateway) params.gateway = analyticsFilters.gateway;
+      const params = { interval: appliedAnalytics.interval };
+      if (appliedAnalytics.dateFrom) params.date_from = appliedAnalytics.dateFrom;
+      if (appliedAnalytics.dateTo) params.date_to = appliedAnalytics.dateTo;
+      if (appliedAnalytics.gateway) params.gateway = appliedAnalytics.gateway;
       const res = await reportsAPI.getAnalyticsSummary(params);
       if (!mounted) return;
       const emptyTotals = {
@@ -202,7 +206,7 @@ const Dashboard = () => {
     return () => {
       mounted = false;
     };
-  }, [adminOps, analyticsFilters]);
+  }, [adminOps, appliedAnalytics]);
 
   const quickSectionTitle = adminOps ? 'Administration' : 'Payments & services';
 
@@ -395,29 +399,37 @@ const Dashboard = () => {
                     const interval = e.target.value;
                     const { dateFrom, dateTo } = periodDatesForInterval(interval);
                     setAnalyticsFilters((f) => ({ ...f, interval, dateFrom, dateTo }));
+                    setAppliedAnalytics((f) => ({ ...f, interval, dateFrom, dateTo }));
                   }}
                   className="min-w-[140px] rounded-lg border border-slate-200 bg-white px-3 py-2.5 text-sm font-medium text-slate-800 shadow-sm"
                 >
                   <option value="daily">Daily buckets</option>
                   <option value="monthly">Monthly buckets</option>
                 </select>
-                <input
-                  type="date"
-                  value={analyticsFilters.dateFrom}
-                  onChange={(e) => setAnalyticsFilters((f) => ({ ...f, dateFrom: e.target.value }))}
-                  className="rounded-lg border border-slate-200 bg-white px-3 py-2.5 text-sm shadow-sm"
-                  aria-label="From date"
-                />
-                <input
-                  type="date"
-                  value={analyticsFilters.dateTo}
-                  onChange={(e) => setAnalyticsFilters((f) => ({ ...f, dateTo: e.target.value }))}
-                  className="rounded-lg border border-slate-200 bg-white px-3 py-2.5 text-sm shadow-sm"
-                  aria-label="To date"
-                />
+                <div className="min-w-0 w-full sm:w-auto sm:min-w-[280px]">
+                  <ReportDateRange
+                    idPrefix="dash-analytics"
+                    showApply
+                    applyLabel="Apply"
+                    dateFrom={analyticsFilters.dateFrom}
+                    dateTo={analyticsFilters.dateTo}
+                    fromLabel=""
+                    toLabel=""
+                    onChange={({ dateFrom, dateTo }) =>
+                      setAnalyticsFilters((f) => ({ ...f, dateFrom, dateTo }))
+                    }
+                    onApply={({ dateFrom, dateTo }) =>
+                      setAppliedAnalytics((f) => ({ ...f, dateFrom, dateTo }))
+                    }
+                  />
+                </div>
                 <select
                   value={analyticsFilters.gateway}
-                  onChange={(e) => setAnalyticsFilters((f) => ({ ...f, gateway: e.target.value }))}
+                  onChange={(e) => {
+                    const gateway = e.target.value;
+                    setAnalyticsFilters((f) => ({ ...f, gateway }));
+                    setAppliedAnalytics((f) => ({ ...f, gateway }));
+                  }}
                   className="min-w-[180px] flex-1 rounded-lg border border-slate-200 bg-white px-3 py-2.5 text-sm font-medium text-slate-800 shadow-sm"
                 >
                   <option value="">All gateways</option>

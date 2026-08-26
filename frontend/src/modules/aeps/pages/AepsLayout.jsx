@@ -9,7 +9,7 @@ import aepsAPI from '../services/aepsApi';
 const JOURNEY = [
   { key: 'onboarding', label: 'Onboard', to: '/aeps/setup' },
   { key: 'device', label: 'Device', to: '/aeps/device' },
-  { key: 'ekyc', label: 'eKYC', to: '/aeps/setup' },
+  { key: 'ekyc', label: 'eKYC', to: '/aeps/ekyc' },
   { key: 'twofa', label: '2FA', to: '/aeps/2fa' },
   { key: 'ready', label: 'Trade', to: '/aeps/withdraw' },
 ];
@@ -18,6 +18,7 @@ const NAV = [
   { to: '/aeps', end: true, label: 'Overview', group: 'home' },
   { to: '/aeps/setup', label: 'Setup', group: 'setup' },
   { to: '/aeps/device', label: 'Device', group: 'setup' },
+  { to: '/aeps/ekyc', label: 'eKYC', group: 'setup' },
   { to: '/aeps/2fa', label: 'Daily 2FA', group: 'setup' },
   { to: '/aeps/withdraw', label: 'Withdraw', group: 'trade' },
   { to: '/aeps/balance', label: 'Balance', group: 'trade' },

@@ -147,18 +147,40 @@ def delete_user_account(*, actor: User, target: User) -> str:
     """
     Permanently delete a user and all related data (CASCADE).
     Returns the deleted user's public user_id for audit/logging.
+
+    Some ledgers (AEPS transactions, wallet adjustments) use on_delete=PROTECT
+    so accidental ORM deletes cannot wipe history. Admin permanent-delete
+    still removes those rows first, matching the UI copy.
     """
     assert_admin_may_delete_user(actor=actor, target=target)
     public_id = str(target.user_id or target.pk)
     actor_id = str(getattr(actor, 'user_id', None) or actor.pk)
     with transaction.atomic():
-        target.delete()
+        _delete_user_clearing_protected(target)
     logger.info(
         'User account permanently deleted: target=%s by_admin=%s',
         public_id,
         actor_id,
     )
     return public_id
+
+
+def _delete_user_clearing_protected(target: User, *, max_rounds: int = 8) -> None:
+    from django.db.models.deletion import ProtectedError
+
+    for _ in range(max_rounds):
+        try:
+            target.delete()
+            return
+        except ProtectedError as exc:
+            grouped = {}
+            for obj in exc.protected_objects:
+                grouped.setdefault(obj.__class__, []).append(obj.pk)
+            if not grouped:
+                raise
+            for model, pks in grouped.items():
+                model.objects.filter(pk__in=pks).delete()
+    raise RuntimeError('Could not delete user; protected related records remain.')
 
 
 def sync_kyc_verification_status(kyc):
@@ -554,6 +576,8 @@ def _apply_pan_verified(user, *, pan: str, provider_code: str, result):
         )
         if sync_result.to_api_dict():
             kyc_details['profile_sync'] = sync_result.to_api_dict()
+        from apps.users.kyc_display import extract_pan_fields_from_raw, persist_pan_verified_identity
+
         KycVerificationAttempt.objects.create(
             user=user,
             provider_code=provider_code,
@@ -566,14 +590,9 @@ def _apply_pan_verified(user, *, pan: str, provider_code: str, result):
                 'date_of_birth': kyc_details.get('date_of_birth', ''),
                 'pan_type': result.pan_type,
                 'message': result.message,
-                'name_match_score': result.raw.get('name_match_score') if isinstance(result.raw, dict) else '',
-                'name_match_result': result.raw.get('name_match_result') if isinstance(result.raw, dict) else '',
-                'aadhaar_seeding_status': result.raw.get('aadhaar_seeding_status') if isinstance(result.raw, dict) else '',
-                'father_name': result.raw.get('father_name') if isinstance(result.raw, dict) else '',
-                'pan_status': result.status or ('VALID' if isinstance(result.raw, dict) and result.raw.get('valid') else ''),
+                **extract_pan_fields_from_raw(result.raw if isinstance(result.raw, dict) else {}),
             },
         )
-        from apps.users.kyc_display import persist_pan_verified_identity
 
         persist_pan_verified_identity(
             kyc,

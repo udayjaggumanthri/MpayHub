@@ -4,6 +4,7 @@ import { useAuth } from '../../context/AuthContext';
 import { reportsAPI } from '../../services/api';
 import { canUseTeamReportScope } from '../../utils/rolePermissions';
 import { formatCurrency, formatDateTime } from '../../utils/formatters';
+import ReportDateRange from '../common/ReportDateRange';
 
 const CommissionReport = () => {
   const { user } = useAuth();
@@ -18,6 +19,13 @@ const CommissionReport = () => {
     agentRole: '',
     serviceId: '',
   });
+  const [appliedFilters, setAppliedFilters] = useState({
+    dateFrom: '',
+    dateTo: '',
+    mobile: '',
+    agentRole: '',
+    serviceId: '',
+  });
 
   const loadCommissions = useCallback(async () => {
     if (!user) return;
@@ -26,11 +34,11 @@ const CommissionReport = () => {
     try {
       const params =
         reportScope === 'team' && canUseTeamReportScope(user?.role) ? { scope: 'team' } : {};
-      if (filters.dateFrom) params.date_from = filters.dateFrom;
-      if (filters.dateTo) params.date_to = filters.dateTo;
-      if (filters.mobile.trim()) params.mobile = filters.mobile.trim();
-      if (filters.agentRole.trim()) params.agent_role = filters.agentRole.trim();
-      if (filters.serviceId.trim()) params.service_id = filters.serviceId.trim();
+      if (appliedFilters.dateFrom) params.date_from = appliedFilters.dateFrom;
+      if (appliedFilters.dateTo) params.date_to = appliedFilters.dateTo;
+      if (appliedFilters.mobile.trim()) params.mobile = appliedFilters.mobile.trim();
+      if (appliedFilters.agentRole.trim()) params.agent_role = appliedFilters.agentRole.trim();
+      if (appliedFilters.serviceId.trim()) params.service_id = appliedFilters.serviceId.trim();
       const result = await reportsAPI.getCommissionReport(params);
       if (!result.success) {
         setCommissions([]);
@@ -94,7 +102,7 @@ const CommissionReport = () => {
     } finally {
       setLoading(false);
     }
-  }, [user, reportScope, filters]);
+  }, [user, reportScope, appliedFilters]);
 
   useEffect(() => {
     loadCommissions();
@@ -132,22 +140,16 @@ const CommissionReport = () => {
         )}
 
         <div className="mb-6 grid grid-cols-1 gap-3 rounded-lg border border-gray-200 bg-gray-50 p-4 md:grid-cols-3 lg:grid-cols-5">
-          <div>
-            <label className="mb-1 block text-xs font-medium text-gray-600">Date from</label>
-            <input
-              type="date"
-              value={filters.dateFrom}
-              onChange={(e) => setFilters({ ...filters, dateFrom: e.target.value })}
-              className="w-full rounded border border-gray-300 px-2 py-2 text-sm"
-            />
-          </div>
-          <div>
-            <label className="mb-1 block text-xs font-medium text-gray-600">Date to</label>
-            <input
-              type="date"
-              value={filters.dateTo}
-              onChange={(e) => setFilters({ ...filters, dateTo: e.target.value })}
-              className="w-full rounded border border-gray-300 px-2 py-2 text-sm"
+          <div className="min-w-0 md:col-span-2">
+            <ReportDateRange
+              idPrefix="commission"
+              dateFrom={filters.dateFrom}
+              dateTo={filters.dateTo}
+              fromLabel="Date from"
+              toLabel="Date to"
+              onChange={({ dateFrom, dateTo }) =>
+                setFilters((prev) => ({ ...prev, dateFrom, dateTo }))
+              }
             />
           </div>
           <div>
@@ -177,6 +179,15 @@ const CommissionReport = () => {
               className="w-full rounded border border-gray-300 px-2 py-2 text-sm"
             />
           </div>
+          <div className="flex items-end">
+            <button
+              type="button"
+              onClick={() => setAppliedFilters({ ...filters })}
+              className="w-full rounded-lg bg-blue-600 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-700"
+            >
+              Apply filters
+            </button>
+          </div>
         </div>
 
         <div className="mb-6 p-4 bg-blue-50 border-2 border-blue-200 rounded-lg">
@@ -186,11 +197,11 @@ const CommissionReport = () => {
               onClick={async () => {
                 const params =
                   reportScope === 'team' && canUseTeamReportScope(user?.role) ? { scope: 'team' } : {};
-                if (filters.dateFrom) params.date_from = filters.dateFrom;
-                if (filters.dateTo) params.date_to = filters.dateTo;
-                if (filters.mobile.trim()) params.mobile = filters.mobile.trim();
-                if (filters.agentRole.trim()) params.agent_role = filters.agentRole.trim();
-                if (filters.serviceId.trim()) params.service_id = filters.serviceId.trim();
+                if (appliedFilters.dateFrom) params.date_from = appliedFilters.dateFrom;
+                if (appliedFilters.dateTo) params.date_to = appliedFilters.dateTo;
+                if (appliedFilters.mobile.trim()) params.mobile = appliedFilters.mobile.trim();
+                if (appliedFilters.agentRole.trim()) params.agent_role = appliedFilters.agentRole.trim();
+                if (appliedFilters.serviceId.trim()) params.service_id = appliedFilters.serviceId.trim();
                 const res = await reportsAPI.downloadReportCsv('/reports/commission/export.csv', params);
                 if (!res.success || !res.blob) return;
                 const url = window.URL.createObjectURL(res.blob);

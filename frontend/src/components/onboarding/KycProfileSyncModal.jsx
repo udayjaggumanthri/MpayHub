@@ -119,9 +119,9 @@ const KycProfileSyncModal = ({
           />
           <CompareRow
             label="Date of birth"
-            current={formatDob(dobBlock.current)}
-            verified={formatDob(dobBlock.verified)}
-            differs={dobBlock.differs}
+            current={dobBlock.current ? formatDob(dobBlock.current) : ''}
+            verified={dobBlock.verified ? formatDob(dobBlock.verified) : ''}
+            differs={Boolean(dobBlock.differs && (dobBlock.current || dobBlock.verified))}
           />
         </div>
 

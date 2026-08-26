@@ -5,12 +5,21 @@ import { passbookAPI, reportsAPI } from '../../services/api';
 import { canUseTeamReportScope } from '../../utils/rolePermissions';
 import { formatCurrency, formatDateTime } from '../../utils/formatters';
 import { formatReportBalance } from '../../utils/reportBalanceDisplay';
+import ReportDateRange from '../common/ReportDateRange';
 
 const Passbook = () => {
   const { user } = useAuth();
   const [reportScope, setReportScope] = useState('self');
   const [entries, setEntries] = useState([]);
   const [filters, setFilters] = useState({
+    search: '',
+    dateFrom: '',
+    dateTo: '',
+    mobile: '',
+    amountMin: '',
+    amountMax: '',
+  });
+  const [appliedFilters, setAppliedFilters] = useState({
     search: '',
     dateFrom: '',
     dateTo: '',
@@ -35,13 +44,13 @@ const Passbook = () => {
       if (reportScope === 'team' && canUseTeamReportScope(user?.role)) {
         params.scope = 'team';
       }
-      const q = filters.search.trim();
+      const q = appliedFilters.search.trim();
       if (q) params.search = q;
-      if (filters.dateFrom) params.date_from = filters.dateFrom;
-      if (filters.dateTo) params.date_to = filters.dateTo;
-      if (filters.mobile.trim()) params.mobile = filters.mobile.trim();
-      if (filters.amountMin) params.amount_min = filters.amountMin;
-      if (filters.amountMax) params.amount_max = filters.amountMax;
+      if (appliedFilters.dateFrom) params.date_from = appliedFilters.dateFrom;
+      if (appliedFilters.dateTo) params.date_to = appliedFilters.dateTo;
+      if (appliedFilters.mobile.trim()) params.mobile = appliedFilters.mobile.trim();
+      if (appliedFilters.amountMin) params.amount_min = appliedFilters.amountMin;
+      if (appliedFilters.amountMax) params.amount_max = appliedFilters.amountMax;
 
       const result = await passbookAPI.getPassbookEntries(params);
       if (!result.success) {
@@ -119,7 +128,7 @@ const Passbook = () => {
     } finally {
       setLoading(false);
     }
-  }, [user, filters, reportScope]);
+  }, [user, appliedFilters, reportScope]);
 
   useEffect(() => {
     loadPassbook();
@@ -135,13 +144,13 @@ const Passbook = () => {
             onClick={async () => {
               const params = { page: 1, page_size: 5000 };
               if (reportScope === 'team' && canUseTeamReportScope(user?.role)) params.scope = 'team';
-              const q = filters.search.trim();
+              const q = appliedFilters.search.trim();
               if (q) params.search = q;
-              if (filters.dateFrom) params.date_from = filters.dateFrom;
-              if (filters.dateTo) params.date_to = filters.dateTo;
-              if (filters.mobile.trim()) params.mobile = filters.mobile.trim();
-              if (filters.amountMin) params.amount_min = filters.amountMin;
-              if (filters.amountMax) params.amount_max = filters.amountMax;
+              if (appliedFilters.dateFrom) params.date_from = appliedFilters.dateFrom;
+              if (appliedFilters.dateTo) params.date_to = appliedFilters.dateTo;
+              if (appliedFilters.mobile.trim()) params.mobile = appliedFilters.mobile.trim();
+              if (appliedFilters.amountMin) params.amount_min = appliedFilters.amountMin;
+              if (appliedFilters.amountMax) params.amount_max = appliedFilters.amountMax;
               const res = await reportsAPI.downloadReportCsv('/reports/passbook/export.csv', params);
               if (!res.success || !res.blob) return;
               const url = window.URL.createObjectURL(res.blob);
@@ -220,23 +229,16 @@ const Passbook = () => {
               />
             </div>
 
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-2">Date From</label>
-              <input
-                type="date"
-                value={filters.dateFrom}
-                onChange={(e) => setFilters({ ...filters, dateFrom: e.target.value })}
-                className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
-              />
-            </div>
-
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-2">Date To</label>
-              <input
-                type="date"
-                value={filters.dateTo}
-                onChange={(e) => setFilters({ ...filters, dateTo: e.target.value })}
-                className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
+            <div className="min-w-0 md:col-span-2">
+              <ReportDateRange
+                idPrefix="passbook"
+                dateFrom={filters.dateFrom}
+                dateTo={filters.dateTo}
+                fromLabel="Date From"
+                toLabel="Date To"
+                onChange={({ dateFrom, dateTo }) =>
+                  setFilters((prev) => ({ ...prev, dateFrom, dateTo }))
+                }
               />
             </div>
             <div>
@@ -266,6 +268,15 @@ const Passbook = () => {
                 className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
               />
             </div>
+          </div>
+          <div className="mt-4 flex justify-end">
+            <button
+              type="button"
+              onClick={() => setAppliedFilters({ ...filters })}
+              className="rounded-lg bg-blue-600 px-5 py-2.5 text-sm font-semibold text-white shadow-sm hover:bg-blue-700"
+            >
+              Apply filters
+            </button>
           </div>
         </div>
 

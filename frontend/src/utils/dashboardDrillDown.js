@@ -20,6 +20,8 @@ const MODULE_REPORT_PATHS = {
   bbps: '/reports/bbps',
 };
 
+export const DRILLDOWN_MODULES = ['payin', 'payout', 'bbps'];
+
 const VALID_MODULES = new Set(['payin', 'payout', 'bbps']);
 const VALID_STATUSES = new Set(['PENDING', 'SUCCESS', 'FAILED']);
 
@@ -36,6 +38,14 @@ export function statusForReportApi(status) {
   const st = String(status || '').toUpperCase();
   if (st === 'FAILURE') return 'FAILED';
   return st;
+}
+
+/**
+ * Modules with a non-zero count for a dashboard status (PENDING / SUCCESS / FAILED).
+ */
+export function modulesWithStatusCount(byModule, statusKey) {
+  if (!byModule || !statusKey) return [];
+  return DRILLDOWN_MODULES.filter((key) => Number(byModule[key]?.[statusKey] || 0) > 0);
 }
 
 function appendParams(path, params) {

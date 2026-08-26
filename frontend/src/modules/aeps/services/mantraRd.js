@@ -372,18 +372,33 @@ export async function detectMantraRd() {
   };
 }
 
-function buildPidOptions({ fCount = 1, timeout = 20000 } = {}) {
+// Fingpay Simple API eKYC PidOptions.
+// Live Fingpay returns 10031 "Only FMR FIR based transaction are allowed" unless fType=2.
+// WADH is the e-KYC value from SIMPLE API FOR E-KYC doc.
+const EKYC_WADH = 'E0jzJ/P8UopUHAieZn8CKqS4WPMi5ZSYXgfnlfkWjrc=';
+
+function buildPidOptions({ fCount = 1, timeout = 20000, purpose = 'aeps' } = {}) {
   // env="P" is required by several drivers (incl. Mantra) even on UAT.
+  if (purpose === 'ekyc') {
+    return (
+      `<?xml version="1.0"?>` +
+      `<PidOptions ver="1.0">` +
+      `<Opts env="P" fCount="${fCount}" fType="2" iCount="0" pCount="0" format="0" pidVer="2.0" ` +
+      `timeout="${timeout}" wadh="${EKYC_WADH}" posh="UNKNOWN" />` +
+      `</PidOptions>`
+    );
+  }
+  // Mini Statement / 2FA sample captureResponse uses fType=0 (FMR). eKYC stays fType=2 above.
   return (
     `<?xml version="1.0"?>` +
     `<PidOptions ver="1.0">` +
-    `<Opts fCount="${fCount}" fType="2" iCount="0" pCount="0" format="0" pidVer="2.0" ` +
+    `<Opts fCount="${fCount}" fType="0" iCount="0" pCount="0" format="0" pidVer="2.0" ` +
     `timeout="${timeout}" otp="" wadh="" posh="UNKNOWN" env="P" />` +
     `</PidOptions>`
   );
 }
 
-export async function captureMantraFingerprint({ fCount = 1, timeout = 20000 } = {}) {
+export async function captureMantraFingerprint({ fCount = 1, timeout = 20000, purpose = 'aeps' } = {}) {
   const disc = await discoverMantraRd();
   if (!disc.ready || !disc.baseUrl) {
     return {
@@ -398,7 +413,7 @@ export async function captureMantraFingerprint({ fCount = 1, timeout = 20000 } =
     {
       method: 'CAPTURE',
       headers: { 'Content-Type': 'text/xml' },
-      body: buildPidOptions({ fCount, timeout }),
+      body: buildPidOptions({ fCount, timeout, purpose }),
     },
     Math.max(timeout + 5000, 25000)
   );

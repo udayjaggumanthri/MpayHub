@@ -4,7 +4,7 @@ from django.contrib.auth import get_user_model
 from django.test import TestCase
 
 from apps.core.utils import encrypt_secret_payload
-from apps.integrations.kyc.cashfree_vrs_client import CashfreeVrsClient
+from apps.integrations.kyc.cashfree_vrs_client import DEFAULT_API_VERSION, CashfreeVrsClient
 from apps.integrations.kyc.exceptions import KycVerificationFailed
 from apps.integrations.kyc.providers.cashfree_pan import CashfreePanProvider
 from apps.integrations.models import ApiMaster
@@ -78,11 +78,23 @@ class CashfreePanProviderTests(TestCase):
         with patch.object(provider.client, 'verify_pan_advance', return_value={
             'status': 'VALID',
             'registered_name': 'JANE DOE',
+            'date_of_birth': '11-08-1962',
+            'type': 'Individual or Person',
             'reference_id': 'ref2',
         }):
             result = provider.verify_pan(user=self.user, pan='ABCDE1234F', name='JANE DOE')
         self.assertTrue(result.success)
+        self.assertEqual(result.date_of_birth, '11-08-1962')
+        self.assertEqual(result.pan_type, 'Individual or Person')
         self.assertRegex(result.verification_id, r'^PAN_[A-Za-z0-9]+_[a-f0-9]{12}$')
+
+    def test_client_sends_api_version_header(self):
+        client = CashfreeVrsClient(
+            base_url='https://sandbox.cashfree.com',
+            client_id='cid',
+            client_secret='csec',
+        )
+        self.assertEqual(client._headers.get('x-api-version'), DEFAULT_API_VERSION)
 
     def test_case_insensitive_name_accepted_despite_low_score(self):
         provider = self._provider()
@@ -107,8 +119,9 @@ class CashfreePanProviderTests(TestCase):
                 provider.verify_pan(user=self.user, pan='ABCDE1234F', name='JANE DOE')
 
     def test_name_match_score_rejection_when_pan_invalid(self):
-        master = _pan_master(min_score=80)
-        provider = self._provider(master)
+        self.master.config_json = {'mode': 'sync', 'timeout': 10, 'min_name_match_score': 80}
+        self.master.save(update_fields=['config_json', 'updated_at'])
+        provider = self._provider(self.master)
         with patch.object(provider.client, 'verify_pan_sync', return_value={
             'valid': False,
             'name_match_score': 50,

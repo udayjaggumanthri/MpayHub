@@ -24,6 +24,7 @@ from apps.integrations.models import (
     BillAvenueModeChannelPolicy,
 )
 from apps.bbps.receipt_context import build_bill_payment_receipt_context
+from apps.users.identity import public_display_code
 
 
 class BillPaymentSerializer(serializers.ModelSerializer):
@@ -149,7 +150,7 @@ class BillPaymentSerializer(serializers.ModelSerializer):
 
     def get_agent_user_code(self, obj):
         u = self._agent_user(obj)
-        return str(getattr(u, 'user_id', '') or '') if u else ''
+        return public_display_code(u) if u else ''
 
     def get_agent_name(self, obj):
         u = self._agent_user(obj)

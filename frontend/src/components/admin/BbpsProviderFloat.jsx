@@ -8,6 +8,7 @@ import Card from '../common/Card';
 import FeedbackModal from '../common/FeedbackModal';
 import Input from '../common/Input';
 import LoadingSpinner from '../common/LoadingSpinner';
+import ReportDateRange from '../common/ReportDateRange';
 
 const ENTRY_TYPES = [
   { value: '', label: 'All types' },
@@ -305,18 +306,18 @@ const BbpsProviderFloat = () => {
                     ))}
                   </select>
                 </div>
-                <Input
-                  label="From"
-                  type="date"
-                  value={filters.date_from}
-                  onChange={(e) => setFilters((s) => ({ ...s, date_from: e.target.value }))}
-                />
-                <Input
-                  label="To"
-                  type="date"
-                  value={filters.date_to}
-                  onChange={(e) => setFilters((s) => ({ ...s, date_to: e.target.value }))}
-                />
+                <div className="min-w-0 w-full sm:min-w-[280px]">
+                  <ReportDateRange
+                    idPrefix="bbps-float"
+                    dateFrom={filters.date_from}
+                    dateTo={filters.date_to}
+                    fromLabel="From"
+                    toLabel="To"
+                    onChange={({ dateFrom, dateTo }) =>
+                      setFilters((s) => ({ ...s, date_from: dateFrom, date_to: dateTo }))
+                    }
+                  />
+                </div>
                 <Button variant="secondary" onClick={applyFilters} disabled={loading}>
                   Apply
                 </Button>

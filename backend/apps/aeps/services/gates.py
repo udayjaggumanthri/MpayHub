@@ -151,6 +151,7 @@ def me_status_payload(user) -> dict:
             'merchant_login_id': merchant.merchant_login_id,
             'stage': merchant.stage,
             'device_imei': merchant.device_imei,
+            'scanner_serial': merchant.scanner_serial,
             'device_ready': merchant.device_ready,
             'masked_aadhaar': merchant.masked_aadhaar,
             'last_2fa_at': merchant.last_2fa_at.isoformat() if merchant.last_2fa_at else None,

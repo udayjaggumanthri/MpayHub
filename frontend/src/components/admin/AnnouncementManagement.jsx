@@ -15,6 +15,7 @@ import {
   FaChevronUp,
 } from 'react-icons/fa6';
 import { adminAPI } from '../../services/api';
+import ReportDateRange from '../common/ReportDateRange';
 import {
   ANNOUNCEMENT_IMAGE_MAX_BYTES,
   parseAnnouncementListResponse,
@@ -124,6 +125,8 @@ const AnnouncementManagement = () => {
   const [filterRole, setFilterRole] = useState('');
   const [dateFrom, setDateFrom] = useState('');
   const [dateTo, setDateTo] = useState('');
+  const [appliedDateFrom, setAppliedDateFrom] = useState('');
+  const [appliedDateTo, setAppliedDateTo] = useState('');
   const [filtersExpanded, setFiltersExpanded] = useState(false);
 
   const [viewMode, setViewMode] = useState(() => getStoredAnnouncementAdminViewMode());
@@ -162,8 +165,8 @@ const AnnouncementManagement = () => {
     if (filterPriority) params.priority = filterPriority;
     if (filterStatus === 'active') params.is_active = true;
     if (filterStatus === 'inactive') params.is_active = false;
-    if (dateFrom) params.created_after = dateFrom;
-    if (dateTo) params.created_before = dateTo;
+    if (appliedDateFrom) params.created_after = appliedDateFrom;
+    if (appliedDateTo) params.created_before = appliedDateTo;
     if (filterRole) params.target_role = filterRole;
 
     const result = await adminAPI.listAnnouncements(params);
@@ -190,8 +193,8 @@ const AnnouncementManagement = () => {
     filterPriority,
     filterStatus,
     filterRole,
-    dateFrom,
-    dateTo,
+    appliedDateFrom,
+    appliedDateTo,
   ]);
 
   useEffect(() => {
@@ -218,6 +221,8 @@ const AnnouncementManagement = () => {
     setFilterRole('');
     setDateFrom('');
     setDateTo('');
+    setAppliedDateFrom('');
+    setAppliedDateTo('');
     setPage(1);
   };
 
@@ -534,27 +539,26 @@ const AnnouncementManagement = () => {
                   </option>
                 ))}
               </select>
-              <div className="flex items-center gap-1">
-                <input
-                  type="date"
-                  value={dateFrom}
-                  onChange={(e) => {
-                    setDateFrom(e.target.value);
+              <div className="min-w-0 w-full sm:w-auto sm:min-w-[280px]">
+                <ReportDateRange
+                  idPrefix="announcements"
+                  dateFrom={dateFrom}
+                  dateTo={dateTo}
+                  fromLabel="From"
+                  toLabel="To"
+                  showApply
+                  applyLabel="Apply dates"
+                  onChange={({ dateFrom: from, dateTo: to }) => {
+                    setDateFrom(from);
+                    setDateTo(to);
+                  }}
+                  onApply={({ dateFrom: from, dateTo: to }) => {
+                    setDateFrom(from);
+                    setDateTo(to);
+                    setAppliedDateFrom(from);
+                    setAppliedDateTo(to);
                     setPage(1);
                   }}
-                  className="text-sm border border-gray-200 rounded-md py-1.5 px-2"
-                  title="Created from"
-                />
-                <span className="text-gray-400 text-xs">→</span>
-                <input
-                  type="date"
-                  value={dateTo}
-                  onChange={(e) => {
-                    setDateTo(e.target.value);
-                    setPage(1);
-                  }}
-                  className="text-sm border border-gray-200 rounded-md py-1.5 px-2"
-                  title="Created to"
                 />
               </div>
               <button

@@ -17,6 +17,13 @@ from apps.aeps.services import recon as recon_svc
 from apps.aeps.services import reports as reports_svc
 from apps.aeps.services.gates import me_status_payload
 from apps.core.utils import decrypt_secret_payload, encrypt_secret_payload
+from apps.integrations.fingpay.endpoints import (
+    DEFAULT_EGRESS_IP,
+    ENDPOINT_FIELD_META,
+    URL_PRESETS,
+    default_endpoints_for,
+    expand_endpoints_to_full_urls,
+)
 from apps.session_security.services.ip import get_client_ip
 
 
@@ -62,12 +69,20 @@ def _err(message, *, code=None, http_status=400, errors=None, data=None):
 def _exc_exchange(exc):
     # Preferred: attribute attached by the service (preserves int/bool/float types,
     # unlike ValidationError detail which DRF stringifies recursively).
+    raw = None
     if hasattr(exc, 'fingpay_exchange'):
-        return getattr(exc, 'fingpay_exchange', None)
-    detail = getattr(exc, 'detail', None)
-    if isinstance(detail, dict) and 'fingpay_exchange' in detail:
-        return detail.get('fingpay_exchange')
-    return None
+        raw = getattr(exc, 'fingpay_exchange', None)
+    else:
+        detail = getattr(exc, 'detail', None)
+        if isinstance(detail, dict) and 'fingpay_exchange' in detail:
+            raw = detail.get('fingpay_exchange')
+    if raw is None:
+        return None
+    # Strip multi-MB KYC images so the API error response stays small and the UI
+    # does not hang while JSON-serializing a failed onboarding pack.
+    from apps.integrations.fingpay.crypto import scrub_sensitive
+
+    return scrub_sensitive(raw, for_tapits=False)
 
 
 def _require_admin(request):
@@ -111,35 +126,39 @@ def access_request_create(request):
 
 # ----- Admin provider / entitlements -----
 
-
-SERVER_EGRESS_IP = '57.131.39.21'
+SERVER_EGRESS_IP = DEFAULT_EGRESS_IP
 
 ENV_PRESETS = {
     'uat': {
         'name': 'fingpay-uat',
         'environment': 'uat',
-        'onboarding_base_url': 'https://fpuat.tapits.in/fpaepsweb',
-        'ekyc_base_url': 'https://fpekyc.tapits.in',
-        'aeps_base_url': 'https://fpuat.tapits.in',
-        'recon_base_url': '',
-        'bank_list_url': 'https://fpuat.tapits.in/fpaepsservice/api/bankdata/bank/details',
-        'aadhaar_pay_bank_list_url': 'https://fpuat.tapits.in/fpaepsservice/api/bankdata/bank/aadharpay',
+        'api_mode': 'encrypted',
+        **URL_PRESETS['uat'],
     },
     'prod': {
         'name': 'fingpay-prod',
         'environment': 'prod',
-        'onboarding_base_url': 'https://fingpayap.tapits.in/fpaepsweb',
-        'ekyc_base_url': 'https://fpekyc.tapits.in',
-        'aeps_base_url': 'https://fingpayap.tapits.in',
-        'recon_base_url': '',
-        'bank_list_url': 'https://fingpayap.tapits.in/fpaepsservice/api/bankdata/bank/details',
-        'aadhaar_pay_bank_list_url': 'https://fingpayap.tapits.in/fpaepsservice/api/bankdata/bank/aadharpay',
+        'api_mode': 'encrypted',
+        **URL_PRESETS['prod'],
+    },
+    'simple': {
+        'name': 'fingpay-simple',
+        'environment': 'simple',
+        'api_mode': 'simple',
+        **URL_PRESETS['simple'],
     },
 }
 
 
+def _normalize_env(raw: str) -> str:
+    env = (raw or '').strip().lower()
+    if env in ('uat', 'prod', 'simple'):
+        return env
+    return 'prod'
+
+
 def _onboarding_endpoint_catalog() -> list[dict]:
-    """Four selectable onboarding APIs — only one can be live-active at a time."""
+    """Activatable onboarding profiles — only one live-active at a time."""
     from apps.aeps.models import AepsProviderConfig
 
     catalog = []
@@ -150,7 +169,7 @@ def _onboarding_endpoint_catalog() -> list[dict]:
     )
     active_env = active.environment if active else None
     active_style = active.resolved_onboarding_api_style if active else None
-    for env in ('uat', 'prod'):
+    for env in ('uat', 'prod', 'simple'):
         preset = ENV_PRESETS[env]
         row = (
             AepsProviderConfig.objects.filter(environment=env, is_deleted=False)
@@ -159,6 +178,25 @@ def _onboarding_endpoint_catalog() -> list[dict]:
         )
         base = (row.onboarding_base_url if row else '') or preset['onboarding_base_url']
         base = base.rstrip('/')
+        if env == 'simple':
+            path = AepsProviderConfig.ONBOARDING_CREATE_PATHS['simple']
+            if row:
+                path = row.onboarding_create_path()
+            catalog.append(
+                {
+                    'id': 'simple',
+                    'environment': 'simple',
+                    'style': 'simple',
+                    'label': 'Simple API (plain JSON)',
+                    'endpoint': f'{base}{path}',
+                    'aes_mode': 'none',
+                    'api_mode': 'simple',
+                    'configured': bool(row and (row.super_merchant_login_id or row.secrets_encrypted)),
+                    'is_active': bool(active_env == 'simple'),
+                    'stored_on_env': True,
+                }
+            )
+            continue
         stored_style = (row.resolved_onboarding_api_style if row else 'java')
         for style, label in (('java', 'Java / .NET'), ('php', 'PHP')):
             path = AepsProviderConfig.ONBOARDING_CREATE_PATHS[style]
@@ -170,6 +208,7 @@ def _onboarding_endpoint_catalog() -> list[dict]:
                     'label': f'{env.upper()} · {label}',
                     'endpoint': f'{base}{path}',
                     'aes_mode': 'cbc' if style == 'php' else 'ecb',
+                    'api_mode': 'encrypted',
                     'configured': bool(row and (row.super_merchant_login_id or row.secrets_encrypted)),
                     'is_active': bool(active_env == env and active_style == style),
                     'stored_on_env': stored_style == style,
@@ -181,12 +220,32 @@ def _onboarding_endpoint_catalog() -> list[dict]:
 def _serialize_provider_row(row, *, bundled_cert: str = '') -> dict:
     secrets = decrypt_secret_payload(row.secrets_encrypted or '') or {} if row else {}
     style = row.resolved_onboarding_api_style if row else 'java'
+    api_mode = row.resolved_api_mode if row else 'encrypted'
+    egress = row.resolved_egress_ip() if row else DEFAULT_EGRESS_IP
+    endpoints = row.resolved_endpoints() if row else default_endpoints_for(environment='prod')
+    password_mode = str(secrets.get('password_mode') or 'plain').lower()
+    if password_mode not in ('plain', 'md5'):
+        password_mode = 'plain'
+    full_endpoints = expand_endpoints_to_full_urls(
+        endpoints,
+        onboarding_base_url=row.onboarding_base_url if row else '',
+        ekyc_base_url=row.ekyc_base_url if row else '',
+        aeps_base_url=row.aeps_base_url if row else '',
+        recon_base_url=row.recon_base_url if row else '',
+    )
     return {
         'id': row.pk if row else None,
         'configured': bool(row),
         'name': row.name if row else '',
         'environment': row.environment if row else 'prod',
         'is_active': bool(row and row.is_active),
+        'api_mode': api_mode,
+        'debug_mode': bool(row and row.debug_mode),
+        'egress_ip': egress,
+        'endpoints_json': endpoints,
+        'full_endpoints': full_endpoints,
+        'endpoint_fields': ENDPOINT_FIELD_META,
+        'password_mode': password_mode,
         'onboarding_api_style': style,
         'onboarding_create_url': row.onboarding_create_url() if row else '',
         'onboarding_aes_mode': row.onboarding_aes_mode() if row else 'ecb',
@@ -207,19 +266,26 @@ def _serialize_provider_row(row, *, bundled_cert: str = '') -> dict:
         'company_or_shop_pan': secrets.get('company_or_shop_pan')
         or secrets.get('companyOrShopPan')
         or '',
-        'server_egress_ip': SERVER_EGRESS_IP,
+        'server_egress_ip': egress,
         'whitelist_note': (
-            f'Share ONLY this server IP with Tapits for whitelist: {SERVER_EGRESS_IP}. '
-            'Do not use old AWS EC2 IPs from other portals (e.g. 52.66.x / 13.234.x / 3.108.x).'
+            f'Share ONLY this server IP with Tapits for whitelist: {egress}. '
+            'Do not use old AWS EC2 IPs from other portals.'
         ),
         'bundled_public_certificate': bundled_cert,
         'has_bundled_certificate': bool(bundled_cert),
         'onboarding_endpoints': _onboarding_endpoint_catalog(),
+        'hash_help': {
+            'simple_onboarding': "Base64(SHA256(login + '@' + MD5(password)))",
+            'simple_txn': 'Base64(SHA256(plainJson + secretKey + trnTimestamp)) — trnTimestamp format YYYY-MM-DD HH:MM:SS',
+            'encrypted': 'Base64(SHA256(plain JSON)) + RSA eskey',
+            'password_plain': 'Store plain password — app MD5-hashes it for Fingpay body/hash',
+            'password_md5': 'Store 32-char MD5 hex — used as-is (no second hash)',
+        },
     }
 
 
 def _get_or_create_env_row(environment: str) -> AepsProviderConfig:
-    env = 'uat' if environment == 'uat' else 'prod'
+    env = _normalize_env(environment)
     preset = ENV_PRESETS[env]
     row = (
         AepsProviderConfig.objects.filter(environment=env, is_deleted=False)
@@ -232,7 +298,7 @@ def _get_or_create_env_row(environment: str) -> AepsProviderConfig:
     if env == 'prod':
         legacy = (
             AepsProviderConfig.objects.filter(is_deleted=False)
-            .exclude(environment='uat')
+            .exclude(environment__in=('uat', 'simple'))
             .order_by('-is_active', '-updated_at')
             .first()
         )
@@ -244,12 +310,18 @@ def _get_or_create_env_row(environment: str) -> AepsProviderConfig:
     return AepsProviderConfig(
         name=preset['name'],
         environment=env,
+        api_mode=preset.get('api_mode') or ('simple' if env == 'simple' else 'encrypted'),
         onboarding_base_url=preset['onboarding_base_url'],
         ekyc_base_url=preset['ekyc_base_url'],
         aeps_base_url=preset['aeps_base_url'],
-        recon_base_url=preset['recon_base_url'],
+        recon_base_url=preset.get('recon_base_url') or '',
         bank_list_url=preset['bank_list_url'],
         aadhaar_pay_bank_list_url=preset['aadhaar_pay_bank_list_url'],
+        egress_ip=DEFAULT_EGRESS_IP,
+        endpoints_json=default_endpoints_for(
+            environment=env,
+            onboarding_api_style='php' if env != 'simple' else 'php',
+        ),
         is_active=False,
     )
 
@@ -262,10 +334,12 @@ def admin_provider_config(request):
     from apps.integrations.fingpay.crypto import load_bundled_fingpay_certificate
 
     bundled_cert = load_bundled_fingpay_certificate()
-    env = (request.query_params.get('environment') or request.data.get('environment') or '').strip().lower()
-    if env not in ('uat', 'prod'):
+    env = _normalize_env(
+        request.query_params.get('environment') or (request.data.get('environment') if hasattr(request, 'data') else '') or ''
+    )
+    if not (request.query_params.get('environment') or (getattr(request, 'data', None) or {}).get('environment')):
         active = AepsProviderConfig.objects.filter(is_active=True, is_deleted=False).order_by('-updated_at').first()
-        env = active.environment if active and active.environment in ('uat', 'prod') else 'prod'
+        env = _normalize_env(active.environment if active else 'prod')
 
     if request.method == 'GET':
         row = (
@@ -276,40 +350,47 @@ def admin_provider_config(request):
         if not row and env == 'prod':
             row = AepsProviderConfig.objects.filter(is_deleted=False).order_by('-is_active', '-updated_at').first()
         envs = []
-        for e in ('uat', 'prod'):
+        for e in ('uat', 'prod', 'simple'):
             r = AepsProviderConfig.objects.filter(environment=e, is_deleted=False).order_by('-is_active', '-updated_at').first()
             envs.append(
                 {
                     'environment': e,
                     'configured': bool(r and (r.super_merchant_login_id or r.secrets_encrypted)),
                     'is_active': bool(r and r.is_active),
-                    'onboarding_api_style': r.resolved_onboarding_api_style if r else 'java',
+                    'api_mode': r.resolved_api_mode if r else ('simple' if e == 'simple' else 'encrypted'),
+                    'debug_mode': bool(r and r.debug_mode),
+                    'onboarding_api_style': r.resolved_onboarding_api_style if r else ('simple' if e == 'simple' else 'java'),
                     'onboarding_create_url': r.onboarding_create_url() if r else '',
                     'super_merchant_id': r.super_merchant_id if r else '',
                     'super_merchant_login_id': r.super_merchant_login_id if r else '',
+                    'egress_ip': r.resolved_egress_ip() if r else DEFAULT_EGRESS_IP,
                 }
             )
         payload = _serialize_provider_row(row, bundled_cert=bundled_cert)
         payload['environments'] = envs
         payload['presets'] = ENV_PRESETS
+        payload['default_endpoints'] = {
+            e: default_endpoints_for(environment=e, onboarding_api_style='php') for e in ('uat', 'prod', 'simple')
+        }
         payload['credential_help'] = {
             'public_certificate': (
                 'Use fingpay_public_production.cer from AEPS docs '
-                '(-----BEGIN CERTIFICATE-----). Same file is bundled for one-click load.'
+                '(-----BEGIN CERTIFICATE-----). Same file is bundled for one-click load. '
+                'Not required for Simple API profile.'
             ),
             'secret_key': (
-                'Issued by Fingpay Integration Team by email — required for 3-way recon hash only.'
+                'Issued by Fingpay Integration Team — required for Simple txn/eKYC/2FA hashes and 3-way recon.'
             ),
             'encryption': (
-                'Java/.NET create uses AES-128-ECB; PHP /php/create uses AES-128-CBC + Content-Type text/xml. '
-                'Activate exactly one of the four onboarding APIs below.'
+                'UAT/Production: Java AES-128-ECB or PHP AES-128-CBC. '
+                'Simple API: plain JSON, no eskey. Activate exactly one profile for all users.'
             ),
             'onboarding_paths': AepsProviderConfig.ONBOARDING_CREATE_PATHS,
         }
         return _ok(payload)
 
     data = request.data or {}
-    env = 'uat' if str(data.get('environment') or env).lower() == 'uat' else 'prod'
+    env = _normalize_env(str(data.get('environment') or env))
     row = _get_or_create_env_row(env)
     preset = ENV_PRESETS[env]
     for field in (
@@ -322,19 +403,44 @@ def admin_provider_config(request):
         'bank_list_url',
         'aadhaar_pay_bank_list_url',
         'notes',
+        'egress_ip',
     ):
         if field in data:
             setattr(row, field, data.get(field) or '')
-    if 'onboarding_api_style' in data or data.get('activate_onboarding_style'):
-        style = str(
-            data.get('activate_onboarding_style') or data.get('onboarding_api_style') or row.onboarding_api_style or 'java'
-        ).lower()
-        if style not in ('java', 'php'):
-            return _err('onboarding_api_style must be java or php', http_status=400)
-        row.onboarding_api_style = style
+    if env == 'simple':
+        row.api_mode = 'simple'
+        row.onboarding_api_style = 'java'  # unused for simple; create path uses simple key
+    else:
+        if 'api_mode' in data:
+            mode = str(data.get('api_mode') or 'encrypted').lower()
+            row.api_mode = mode if mode in ('encrypted', 'simple') else 'encrypted'
+        if 'onboarding_api_style' in data or data.get('activate_onboarding_style'):
+            style = str(
+                data.get('activate_onboarding_style') or data.get('onboarding_api_style') or row.onboarding_api_style or 'java'
+            ).lower()
+            if style not in ('java', 'php'):
+                return _err('onboarding_api_style must be java or php', http_status=400)
+            row.onboarding_api_style = style
+            row.api_mode = 'encrypted'
+    if 'debug_mode' in data:
+        row.debug_mode = bool(data.get('debug_mode'))
+    if 'endpoints_json' in data and isinstance(data.get('endpoints_json'), dict):
+        row.endpoints_json = data.get('endpoints_json') or {}
+    elif 'full_endpoints' in data and isinstance(data.get('full_endpoints'), dict):
+        # Admin may paste absolute module URLs from the Fingpay doc (often production).
+        cleaned = {}
+        for k, v in (data.get('full_endpoints') or {}).items():
+            if v is not None and str(v).strip():
+                cleaned[str(k)] = str(v).strip()
+        if cleaned:
+            row.endpoints_json = cleaned
+    elif data.get('reset_endpoints'):
+        row.endpoints_json = default_endpoints_for(
+            environment=env,
+            onboarding_api_style=row.onboarding_api_style or 'php',
+        )
     row.name = preset['name']
     row.environment = env
-    # Fill missing URLs from preset for that environment
     for url_field in (
         'onboarding_base_url',
         'ekyc_base_url',
@@ -344,9 +450,10 @@ def admin_provider_config(request):
     ):
         if not getattr(row, url_field):
             setattr(row, url_field, preset.get(url_field) or '')
+    if not row.egress_ip:
+        row.egress_ip = DEFAULT_EGRESS_IP
     if 'request_timeout_seconds' in data:
         row.request_timeout_seconds = int(data.get('request_timeout_seconds') or 180)
-    # Activating any of the 4 onboarding APIs makes this env the sole active provider.
     activate = bool(data.get('is_active')) if 'is_active' in data else bool(data.get('activate'))
     activate = activate or bool(data.get('make_active')) or bool(data.get('activate_onboarding_style'))
     if activate:
@@ -361,6 +468,9 @@ def admin_provider_config(request):
     secrets = decrypt_secret_payload(row.secrets_encrypted or '') or {}
     if data.get('password'):
         secrets['password'] = data['password']
+    if 'password_mode' in data or 'password_format' in data:
+        mode = str(data.get('password_mode') or data.get('password_format') or 'plain').strip().lower()
+        secrets['password_mode'] = 'md5' if mode in ('md5', 'hashed', 'hash', 'digest') else 'plain'
     if data.get('secret_key'):
         secrets['secret_key'] = data['secret_key']
     if 'gstin_number' in data:
@@ -380,10 +490,12 @@ def admin_provider_config(request):
         except Exception as exc:
             return _err(str(exc), http_status=400)
         secrets['rsa_public_key_pem'] = pem
+    # Ensure password_mode always present once secrets exist
+    if secrets.get('password') and not secrets.get('password_mode'):
+        secrets['password_mode'] = 'plain'
     row.secrets_encrypted = encrypt_secret_payload(secrets)
     row.updated_by = request.user
     row.save()
-    # Ensure at least one active
     if not AepsProviderConfig.objects.filter(is_deleted=False, is_active=True).exists():
         row.is_active = True
         row.save(update_fields=['is_active', 'updated_at'])
@@ -403,10 +515,10 @@ def admin_provider_test(request):
 
         config = get_active_provider()
         client = build_client_from_config(config)
-        # Minimal merchant body — we only care whether SM auth is accepted.
+        egress = getattr(client, 'egress_ip', None) or DEFAULT_EGRESS_IP
         probe_merchant = {
             'merchantLoginId': 'CREDTEST01',
-            'merchantLoginPin': '81dc9bdb52d04dc20036dbd8313ed055',  # doc SAMPLE: MD5("1234")
+            'merchantLoginPin': '81dc9bdb52d04dc20036dbd8313ed055',
             'firstName': 'Test',
             'lastName': 'User',
             'middleName': '',
@@ -462,37 +574,30 @@ def admin_provider_test(request):
             'password': '<md5-of-integration-password>',
             'latitude': 17.38,
             'longitude': 78.48,
-            'ipAddress': '57.131.39.21',
+            'ipAddress': egress,
             'supermerchantId': int(client.super_merchant_id)
             if str(client.super_merchant_id).isdigit()
             else client.super_merchant_id,
             'merchant': probe_merchant,
         }
-        # Prefer PHP encrypted path (doc). Optional ?mode=simple for UAT plain JSON only.
         force_simple = str(request.data.get('mode') or '').lower() == 'simple'
-        use_simple = force_simple and 'fpuat' in (client.onboarding_base_url or '').lower()
-        endpoint = (
-            f'{client.onboarding_base_url}/api/onboarding/merchant/simple/creation/v2'
-            if use_simple
-            else client.onboarding_create_url()
-        )
+        use_simple = force_simple or client.api_mode == 'simple'
+        endpoint = client.onboarding_create_url()
         resp = None
         transport_error = None
+        mode = 'simple' if use_simple else client.onboarding_api_style
         try:
-            if use_simple:
+            if use_simple and client.api_mode != 'simple':
                 resp = client.create_merchant_simple(
-                    probe_merchant, latitude=17.38, longitude=78.48, ip_address='57.131.39.21'
+                    probe_merchant, latitude=17.38, longitude=78.48, ip_address=egress
                 )
-                mode = 'simple'
             else:
                 resp = client.create_merchant(
-                    probe_merchant, latitude=17.38, longitude=78.48, ip_address='57.131.39.21'
+                    probe_merchant, latitude=17.38, longitude=78.48, ip_address=egress
                 )
-                mode = 'php'
         except Exception as exc:
             from apps.integrations.fingpay.client import FingpayClientError
 
-            mode = 'simple' if use_simple else 'php'
             transport_error = str(exc)
             http_status = getattr(exc, 'status_code', None) if isinstance(exc, FingpayClientError) else None
             payload = getattr(exc, 'payload', None) if isinstance(exc, FingpayClientError) else None
@@ -508,43 +613,33 @@ def admin_provider_test(request):
         code = str((resp or {}).get('statusCode') or '')
         msg = str((resp or {}).get('message') or '')
         http_status = ((resp or {}).get('_meta') or {}).get('http_status')
-        is_uat = 'fpuat' in (client.onboarding_base_url or '').lower()
-        # Auth OK only if Fingpay accepted SM and did not return known reject/model errors.
-        # Note: a full merchant create may still fail validation later; probe cares about SM auth.
+        env_label = client.environment or ('simple' if use_simple else 'prod')
         ok_auth = (
             not transport_error
             and bool((resp or {}).get('status') is True or code in ('10000', '0', '00'))
-            and code not in ('10005', '10004', '403', '401')
+            and code not in ('10005', '10004', '10015', '403', '401')
             and 'invalid super merchant' not in msg.lower()
             and 'modelcreation' not in msg.lower().replace(' ', '')
+            and 'whitelisting' not in msg.lower()
             and http_status not in (401, 403)
         )
-        # Soft-pass: reached app and got a structured validation error that is NOT bad SM/auth
-        reached_app = not transport_error and http_status not in (401, 403) and code not in ('403', '401', '')
-        if not ok_auth and reached_app and code == '10005':
-            ok_auth = False
         hint = None
         if not ok_auth:
             if http_status == 403 or code == '403' or '403' in msg:
                 hint = (
-                    'Host returned HTTP 403 from our server IP 57.131.39.21 (AWS ELB). '
-                    'Ask Tapits to whitelist 57.131.39.21 on this host — not old AWS IPs.'
+                    f'Host returned HTTP 403 from our server IP {egress} (AWS ELB). '
+                    f'Ask Tapits to whitelist {egress} on this host.'
+                )
+            elif code == '10015' or 'whitelisting' in msg.lower():
+                hint = (
+                    f'Fingpay 10015 — IP whitelist pending for {egress}. '
+                    'Ask Tapits to whitelist this IP for the active host/supermerchant.'
                 )
             elif code == '10005' or 'invalid super merchant' in msg.lower():
-                if is_uat:
-                    hint = (
-                        'UAT rejected these credentials (10005 Invalid super merchant). '
-                        'Production login Mpayhubd / 1501 is not valid on fpuat. '
-                        'Ask Tapits for separate UAT SuperMerchant login/ID/password, '
-                        'save them under the UAT tab, then retest. '
-                        'For go-live keep Production active once fingpayap whitelist works.'
-                    )
-                else:
-                    hint = (
-                        'Production rejected Integration credentials (10005). Confirm with Tapits: '
-                        'Mpayhubd / 1234d / ID 1501 on fingpayap.tapits.in, IP 57.131.39.21 whitelisted. '
-                        'Do not use Aggregator portal password mpayhub1234 for API.'
-                    )
+                hint = (
+                    'Invalid super merchant (10005). Use credentials that match the active profile '
+                    '(UAT vs Production vs Simple). Do not reuse Production login on UAT.'
+                )
             elif code == '10004' or 'modelcreation' in msg.lower().replace(' ', ''):
                 hint = (
                     'Fingpay 10004 modelCreation — usually a bad request body (e.g. timestamp in JSON). '
@@ -552,14 +647,14 @@ def admin_provider_test(request):
                 )
             else:
                 hint = (
-                    'Fingpay returned an application error. Check login/ID match the active environment '
-                    '(UAT vs Production use different SuperMerchant credentials).'
+                    'Fingpay returned an application error. Check login/ID match the active environment.'
                 )
         return _ok(
             {
                 'mode': mode,
+                'api_mode': client.api_mode,
                 'endpoint': endpoint,
-                'environment': 'uat' if is_uat else 'prod',
+                'environment': env_label,
                 'statusCode': code,
                 'message': msg,
                 'auth_accepted': ok_auth,
@@ -568,16 +663,97 @@ def admin_provider_test(request):
                 'onboarding_base_url': client.onboarding_base_url,
                 'ekyc_base_url': client.ekyc_base_url,
                 'aeps_base_url': client.aeps_base_url,
-                'server_ip': '57.131.39.21',
+                'server_ip': egress,
                 'request_plain_json': scrub_sensitive(request_plain),
                 'response_plain_json': scrub_sensitive(resp),
                 'fingpay_exchange': (resp or {}).get('fingpay_exchange') or (resp or {}).get('_exchange'),
                 'hint': hint,
             },
-            message='Credential probe completed — copy request_plain_json + response_plain_json (or fingpay_exchange) to email Tapits',
+            message='Credential probe completed — copy request/response (or fingpay_exchange) to email Tapits',
         )
     except Exception as exc:
         return _err(_flatten_exc_message(exc), http_status=400)
+
+
+@api_view(['GET'])
+@permission_classes([IsAuthenticated])
+def admin_debug_logs(request):
+    """List AEPS API audit logs; include full exchange when debug_mode captured them."""
+    if not _require_admin(request):
+        return _err('Admin only', http_status=403)
+    from apps.aeps.models import AepsApiAuditLog
+
+    qs = AepsApiAuditLog.objects.all().order_by('-created_at')
+    endpoint = (request.query_params.get('endpoint') or '').strip()
+    merchant_tran_id = (request.query_params.get('merchant_tran_id') or '').strip()
+    debug_only = str(request.query_params.get('debug_only') or '').lower() in ('1', 'true', 'yes')
+    if endpoint:
+        qs = qs.filter(endpoint__icontains=endpoint)
+    if merchant_tran_id:
+        qs = qs.filter(merchant_tran_id__icontains=merchant_tran_id)
+    if debug_only:
+        qs = qs.filter(debug_enabled=True)
+    try:
+        limit = min(200, max(1, int(request.query_params.get('limit') or 50)))
+    except (TypeError, ValueError):
+        limit = 50
+    rows = []
+    for row in qs[:limit]:
+        item = {
+            'id': row.pk,
+            'endpoint': row.endpoint,
+            'method': row.method,
+            'merchant_tran_id': row.merchant_tran_id,
+            'http_status': row.http_status,
+            'provider_status_code': row.provider_status_code,
+            'latency_ms': row.latency_ms,
+            'success': row.success,
+            'error_message': row.error_message,
+            'debug_enabled': row.debug_enabled,
+            'request_summary': row.request_summary,
+            'response_summary': row.response_summary,
+            'created_at': row.created_at.isoformat() if row.created_at else None,
+        }
+        if row.debug_enabled:
+            item['request_headers'] = row.request_headers
+            item['request_body'] = row.request_body
+            item['response_body'] = row.response_body
+            item['exchange_pack'] = row.exchange_pack
+        rows.append(item)
+    return _ok({'results': rows, 'count': len(rows)})
+
+
+@api_view(['GET'])
+@permission_classes([IsAuthenticated])
+def admin_debug_log_detail(request, log_id: int):
+    if not _require_admin(request):
+        return _err('Admin only', http_status=403)
+    from apps.aeps.models import AepsApiAuditLog
+
+    row = AepsApiAuditLog.objects.filter(pk=log_id).first()
+    if not row:
+        return _err('Log not found', http_status=404)
+    return _ok(
+        {
+            'id': row.pk,
+            'endpoint': row.endpoint,
+            'method': row.method,
+            'merchant_tran_id': row.merchant_tran_id,
+            'http_status': row.http_status,
+            'provider_status_code': row.provider_status_code,
+            'latency_ms': row.latency_ms,
+            'success': row.success,
+            'error_message': row.error_message,
+            'debug_enabled': row.debug_enabled,
+            'request_summary': row.request_summary,
+            'response_summary': row.response_summary,
+            'request_headers': row.request_headers if row.debug_enabled else {},
+            'request_body': row.request_body if row.debug_enabled else {},
+            'response_body': row.response_body if row.debug_enabled else {},
+            'exchange_pack': row.exchange_pack if row.debug_enabled else {},
+            'created_at': row.created_at.isoformat() if row.created_at else None,
+        }
+    )
 
 
 @api_view(['POST'])
@@ -684,6 +860,9 @@ def admin_merchants(request):
             'stage': m.stage,
             'device_ready': m.device_ready,
             'device_imei': m.device_imei,
+            'masked_aadhaar': m.masked_aadhaar or '',
+            'last_error': (m.last_error or '')[:200],
+            'updated_at': m.updated_at.isoformat() if m.updated_at else None,
             'user': {
                 'id': m.user_id,
                 'phone': m.user.phone,
@@ -694,6 +873,48 @@ def admin_merchants(request):
         for m in qs[:300]
     ]
     return _ok({'results': rows})
+
+
+@api_view(['GET'])
+@permission_classes([IsAuthenticated])
+def admin_merchant_detail(request, merchant_id: int):
+    if not _require_admin(request):
+        return _err('Admin only', http_status=403)
+    merchant = (
+        AepsMerchantProfile.objects.filter(pk=merchant_id, is_deleted=False)
+        .select_related('user')
+        .first()
+    )
+    if not merchant:
+        return _err('Merchant not found', http_status=404)
+    return _ok(onboarding_svc.admin_merchant_detail_payload(merchant))
+
+
+@api_view(['POST'])
+@permission_classes([IsAuthenticated])
+def admin_merchant_reset_pin(request, merchant_id: int):
+    if not _require_admin(request):
+        return _err('Admin only', http_status=403)
+    merchant = (
+        AepsMerchantProfile.objects.filter(pk=merchant_id, is_deleted=False)
+        .select_related('user')
+        .first()
+    )
+    if not merchant:
+        return _err('Merchant not found', http_status=404)
+    new_pin = str(request.data.get('new_pin') or request.data.get('pin') or '').strip()
+    try:
+        result = onboarding_svc.reset_merchant_pin_via_onboarding(merchant=merchant, new_pin=new_pin)
+    except Exception as exc:
+        return _err(_flatten_exc_message(exc), http_status=400)
+    merchant.refresh_from_db()
+    return _ok(
+        {
+            **result,
+            'merchant': onboarding_svc.admin_merchant_detail_payload(merchant),
+        },
+        message=result.get('message') or 'Merchant PIN reset submitted to Fingpay.',
+    )
 
 
 @api_view(['GET'])
@@ -731,6 +952,17 @@ def onboarding_draft(request):
     return _ok(data)
 
 
+@api_view(['GET'])
+@permission_classes([IsAuthenticated])
+def onboarding_image(request, field: str):
+    """Fetch one stored KYC image as base64 (for Preview / Download JPG in the setup UI)."""
+    try:
+        data = onboarding_svc.get_onboarding_image(user=request.user, field=field)
+    except Exception as exc:
+        return _err(_flatten_exc_message(exc), http_status=400)
+    return _ok(data)
+
+
 @api_view(['POST'])
 @permission_classes([IsAuthenticated])
 def onboarding_submit(request):
@@ -761,7 +993,11 @@ def onboarding_submit(request):
 @permission_classes([IsAuthenticated])
 def device_register(request):
     try:
-        data = onboarding_svc.register_device(user=request.user, device_imei=request.data.get('device_imei') or '')
+        data = onboarding_svc.register_device(
+            user=request.user,
+            device_imei=request.data.get('device_imei') or '',
+            scanner_serial=request.data.get('scanner_serial') or '',
+        )
     except Exception as exc:
         return _err(str(getattr(exc, 'detail', None) or exc), http_status=400)
     return _ok(data)
@@ -834,9 +1070,12 @@ def ekyc_biometric(request):
             capture_response=capture,
             latitude=lat,
             longitude=lng,
+            aadhaar_number=request.data.get('aadhaarNumber')
+            or request.data.get('aadharNumber')
+            or '',
         )
     except Exception as exc:
-        return _err(str(getattr(exc, 'detail', None) or exc), http_status=400)
+        return _err(_flatten_exc_message(exc), http_status=400)
     return _ok(data)
 
 
@@ -860,10 +1099,7 @@ def _product_view(request, runner):
             ip=get_client_ip(request) or '',
         )
     except Exception as exc:
-        detail = getattr(exc, 'detail', None)
-        if isinstance(detail, dict):
-            return _err(detail.get('message') or str(detail), code=detail.get('code'), http_status=400)
-        return _err(str(detail or exc), http_status=400)
+        return _err(_flatten_exc_message(exc), http_status=400)
     return _ok(data)
 
 
@@ -883,10 +1119,7 @@ def twofa_complete(request):
             payload=request.data,
         )
     except Exception as exc:
-        detail = getattr(exc, 'detail', None)
-        if isinstance(detail, dict):
-            return _err(detail.get('message') or str(detail), code=detail.get('code'), http_status=400)
-        return _err(str(detail or exc), http_status=400)
+        return _err(_flatten_exc_message(exc), http_status=400)
     return _ok(data)
 
 
@@ -935,10 +1168,7 @@ def txn_cd_otp_generate(request):
             ip=get_client_ip(request) or '',
         )
     except Exception as exc:
-        detail = getattr(exc, 'detail', None)
-        if isinstance(detail, dict):
-            return _err(detail.get('message') or str(detail), code=detail.get('code'), http_status=400)
-        return _err(str(detail or exc), http_status=400)
+        return _err(_flatten_exc_message(exc), http_status=400)
     return _ok(data)
 
 
@@ -952,10 +1182,7 @@ def txn_cd_otp_validate(request):
             otp=str(request.data.get('otp') or ''),
         )
     except Exception as exc:
-        detail = getattr(exc, 'detail', None)
-        if isinstance(detail, dict):
-            return _err(detail.get('message') or str(detail), code=detail.get('code'), http_status=400)
-        return _err(str(detail or exc), http_status=400)
+        return _err(_flatten_exc_message(exc), http_status=400)
     return _ok(data)
 
 
@@ -973,10 +1200,7 @@ def txn_cd_otp_submit(request):
             longitude=lng,
         )
     except Exception as exc:
-        detail = getattr(exc, 'detail', None)
-        if isinstance(detail, dict):
-            return _err(detail.get('message') or str(detail), code=detail.get('code'), http_status=400)
-        return _err(str(detail or exc), http_status=400)
+        return _err(_flatten_exc_message(exc), http_status=400)
     return _ok(data)
 
 
@@ -990,7 +1214,7 @@ def txn_status_check(request, merchant_tran_id: str):
             otp_mode=bool(request.data.get('otp_mode') or request.data.get('otpMode')),
         )
     except Exception as exc:
-        return _err(str(getattr(exc, 'detail', None) or exc), http_status=400)
+        return _err(_flatten_exc_message(exc), http_status=400)
     return _ok(data)
 
 
@@ -1018,18 +1242,28 @@ def txn_acknowledge(request, merchant_tran_id: str):
 @permission_classes([IsAuthenticated])
 def banks_list(request):
     list_type = request.query_params.get('type') or 'aeps'
-    return _ok({'results': products_svc.list_banks(list_type)})
+    force = str(request.query_params.get('refresh') or '').lower() in ('1', 'true', 'yes')
+    if force:
+        try:
+            products_svc.sync_bank_iin_cache()
+        except Exception as exc:
+            return _err(_flatten_exc_message(exc), http_status=400)
+    rows = products_svc.list_banks(list_type, auto_sync=not force)
+    return _ok({'results': rows, 'count': len(rows)})
 
 
 @api_view(['POST'])
 @permission_classes([IsAuthenticated])
 def banks_sync(request):
-    if not _require_admin(request):
-        return _err('Admin only', http_status=403)
+    # Entitled merchants/admins can refresh the bank cache — needed for 2FA / trade.
+    from apps.aeps.services.gates import is_entitled
+
+    if not (_require_admin(request) or is_entitled(request.user)):
+        return _err('AEPS access required', http_status=403)
     try:
         n = products_svc.sync_bank_iin_cache()
     except Exception as exc:
-        return _err(str(exc), http_status=400)
+        return _err(_flatten_exc_message(exc), http_status=400)
     return _ok({'synced': n})
 
 
