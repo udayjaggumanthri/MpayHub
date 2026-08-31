@@ -130,7 +130,20 @@ def _stale_block_enabled() -> bool:
     return bool(getattr(settings, 'BBPS_BLOCK_STALE_BILLERS', False))
 
 
-def governance_block_reasons_for_map(map_row) -> list[str]:
+def _active_commission_category_ids() -> set[int]:
+    """Category PKs that have at least one active commission rule (one query)."""
+    return set(
+        BbpsCategoryCommissionRule.objects.filter(is_deleted=False, is_active=True).values_list(
+            'category_id', flat=True
+        )
+    )
+
+
+def governance_block_reasons_for_map(
+    map_row,
+    *,
+    categories_with_rules: set[int] | None = None,
+) -> list[str]:
     reasons = []
     biller_status = str(getattr(map_row.biller_master, 'biller_status', '') or '').upper()
     if not map_row.provider.category.is_active:
@@ -147,11 +160,15 @@ def governance_block_reasons_for_map(map_row) -> list[str]:
         reasons.append('soft_deleted')
     if _stale_block_enabled() and getattr(map_row.biller_master, 'is_stale', False):
         reasons.append('stale')
-    has_rule = BbpsCategoryCommissionRule.objects.filter(
-        is_deleted=False,
-        is_active=True,
-        category=map_row.provider.category,
-    ).exists()
+    if categories_with_rules is None:
+        # Safe fallback for single-row callers (bulk approve / detail).
+        has_rule = BbpsCategoryCommissionRule.objects.filter(
+            is_deleted=False,
+            is_active=True,
+            category=map_row.provider.category,
+        ).exists()
+    else:
+        has_rule = map_row.provider.category_id in categories_with_rules
     if not has_rule:
         reasons.append('no_rule')
     return reasons
@@ -216,6 +233,14 @@ def process_bill_payment(*args, **kwargs):
 
 def get_bill_categories():
     """Get categories strictly from billers visible to end users in the active BillAvenue env."""
+    from apps.bbps.service_flow.catalog_ux_settings import is_cash_only_for_users
+
+    cash_only = bool(is_cash_only_for_users())
+    cache_key = f'bbps:categories:{catalog_cache_env_key()}:cash_only={int(cash_only)}'
+    cached = cache.get(cache_key)
+    if cached is not None:
+        return cached
+
     visible_masters = _list_end_user_visible_masters()
     visible_codes = {
         normalize_category_code(m.biller_category)
@@ -224,7 +249,9 @@ def get_bill_categories():
     }
     partner_slugs = sorted({partner_route_category_slug(c) for c in visible_codes})
     if not partner_slugs:
-        return []
+        out = []
+        cache.set(cache_key, out, timeout=120)
+        return out
     name_map = {
         normalize_category_code(row.code): row.name
         for row in BbpsServiceCategory.objects.filter(is_deleted=False, is_active=True)
@@ -240,6 +267,7 @@ def get_bill_categories():
         if not name:
             name = to_title_case(slug)
         out.append({'id': slug, 'name': name})
+    cache.set(cache_key, out, timeout=120)
     return out
 
 
@@ -395,19 +423,24 @@ def _biller_supports_agt_cash(
     return bool(display_payment_modes_for_channel('AGT', eff))
 
 
-def _biller_end_user_visible(
+def _biller_has_visible_payment_mode(
     master: BbpsBillerMaster,
     *,
-    cash_only: bool | None = None,
     channel_limits=None,
     mode_limits=None,
+    cash_only: bool = False,
 ) -> bool:
-    """True when biller should appear in end-user category/biller lists and pay flow."""
-    from apps.bbps.service_flow.catalog_ux_settings import is_cash_only_for_users
+    """
+    Lightweight catalog visibility check — same inclusion rules as
+    ``get_biller_payment_ui_options`` but without building the full UI payload.
+    Uses prefetched limits + cached provider policy (no per-biller DB hits).
+    """
+    from apps.bbps.service_flow.compliance import display_payment_modes_for_channel
+    from apps.bbps.service_flow.payment_ui_policy import (
+        assisted_card_offer_agt_cash_only,
+        mdm_labels_with_implicit_cash_for_agt,
+    )
     from apps.bbps.service_flow.provider_policy import provider_policy_decision_for_combo
-
-    if cash_only is None:
-        cash_only = is_cash_only_for_users()
 
     if cash_only:
         if not _biller_supports_agt_cash(
@@ -426,13 +459,83 @@ def _biller_end_user_visible(
             is not False
         )
 
-    opts = get_biller_payment_ui_options(
-        str(master.biller_id),
-        master=master,
+    if channel_limits is None:
+        channels = list(
+            BbpsBillerPaymentChannelLimit.objects.filter(
+                is_deleted=False, biller=master, is_active=True
+            )
+        )
+    else:
+        channels = list(channel_limits)
+    if mode_limits is None:
+        modes = list(
+            BbpsBillerPaymentModeLimit.objects.filter(
+                is_deleted=False, biller=master, is_active=True
+            )
+        )
+    else:
+        modes = list(mode_limits)
+
+    ch_codes = [_normalize_text(c.payment_channel).upper() for c in channels if c.payment_channel]
+    if not ch_codes:
+        ch_codes = ['AGT']
+    ui_channel_codes = [ch for ch in _UI_AUTO_CHANNEL_PRIORITY if ch in ch_codes]
+
+    mdm_mode_labels = [m.payment_mode for m in modes if m.payment_mode]
+    mdm_for_display = mdm_mode_labels if mdm_mode_labels else None
+    offer_agt_cash_only = assisted_card_offer_agt_cash_only(master, ch_codes, mdm_mode_labels)
+
+    if offer_agt_cash_only:
+        ui_channel_codes = ['AGT']
+        mdm_for_display_eff = mdm_labels_with_implicit_cash_for_agt(mdm_mode_labels)
+    else:
+        mdm_for_display_eff = mdm_for_display
+        if (
+            _biller_category_assisted_card_like(getattr(master, 'biller_category', '') or '')
+            and 'AGT' in ch_codes
+            and display_payment_modes_for_channel('AGT', mdm_for_display)
+        ):
+            ui_channel_codes = ['AGT']
+
+    bid = getattr(master, 'biller_id', '')
+    bcat = getattr(master, 'biller_category', '')
+    for ch in ui_channel_codes:
+        shown = display_payment_modes_for_channel(ch, mdm_for_display_eff)
+        if ch == 'AGT' and not shown and not mdm_mode_labels:
+            shown = ['Cash']
+        for mode in shown:
+            if (
+                provider_policy_decision_for_combo(
+                    biller_id=bid,
+                    biller_category=bcat,
+                    payment_mode=mode,
+                    payment_channel=ch,
+                )
+                is not False
+            ):
+                return True
+    return False
+
+
+def _biller_end_user_visible(
+    master: BbpsBillerMaster,
+    *,
+    cash_only: bool | None = None,
+    channel_limits=None,
+    mode_limits=None,
+) -> bool:
+    """True when biller should appear in end-user category/biller lists and pay flow."""
+    from apps.bbps.service_flow.catalog_ux_settings import is_cash_only_for_users
+
+    if cash_only is None:
+        cash_only = is_cash_only_for_users()
+
+    return _biller_has_visible_payment_mode(
+        master,
         channel_limits=channel_limits,
         mode_limits=mode_limits,
+        cash_only=bool(cash_only),
     )
-    return bool(opts.get('payment_modes'))
 
 
 def get_biller_payment_ui_options(

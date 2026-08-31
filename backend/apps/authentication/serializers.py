@@ -235,12 +235,20 @@ class UserSerializer(serializers.ModelSerializer):
         except Exception:
             return None
 
+    @staticmethod
+    def _kyc_for_user(obj):
+        """Use select_related('kyc') when present; avoid duplicate KYC SELECTs."""
+        from django.core.exceptions import ObjectDoesNotExist
+
+        try:
+            return obj.kyc
+        except ObjectDoesNotExist:
+            return None
+
     def get_kyc_verification(self, obj):
         from apps.users.kyc_display import build_kyc_verification_payload
-        from apps.users.models import KYC
 
-        kyc = KYC.objects.filter(user=obj).first()
-        return build_kyc_verification_payload(kyc)
+        return build_kyc_verification_payload(self._kyc_for_user(obj))
 
     def get_profile_sync_pending(self, obj):
         from apps.users.kyc_profile_sync_audit import get_pending_audits_for_user, serialize_pending_audit
@@ -249,9 +257,7 @@ class UserSerializer(serializers.ModelSerializer):
         return [serialize_pending_audit(row) for row in pending[:5]]
 
     def get_onboarding(self, obj):
-        from apps.users.models import KYC
-
-        kyc = KYC.objects.filter(user=obj).first()
+        kyc = self._kyc_for_user(obj)
         pan_ok = bool(kyc and kyc.pan_verified)
         ad_ok = bool(kyc and kyc.aadhaar_verified)
         provider_complete = pan_ok and ad_ok

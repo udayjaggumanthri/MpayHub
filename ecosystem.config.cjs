@@ -27,6 +27,9 @@ module.exports = {
       interpreter: 'bash',
       env: {
         DJANGO_SETTINGS_MODULE: 'config.settings',
+        // Never use "testing" here — that settings module leaves ALLOWED_HOSTS empty
+        // and login returns HTML 400 ("Gateway returned an HTML page instead of API JSON").
+        DJANGO_ENV: 'development',
       },
       autorestart: true,
       max_restarts: 15,

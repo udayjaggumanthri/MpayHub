@@ -123,7 +123,7 @@ def list_payin_checkout_options_for_user(user, request=None) -> list[dict]:
 
     for package in packages:
         gw_links = package_gateway_links_queryset(package)
-        if gw_links.exists():
+        if gw_links:
             for link in gw_links:
                 gateway = link.payment_gateway
                 if not gateway:

@@ -72,6 +72,7 @@ from apps.bbps.serializers import (
     TransactionQuerySerializer,
 )
 from apps.bbps.services import (
+    _active_commission_category_ids,
     governance_block_reasons_for_map,
     get_bill_categories,
     get_biller_additional_info_schema,
@@ -1533,6 +1534,14 @@ def _invalidate_bbps_user_catalog_cache():
         for code in biller_master_qs_for_env().values_list('biller_category', flat=True)
     )
     _invalidate_provider_cache(*[c for c in category_codes if c])
+    # Categories list (cash_only 0/1) — clear both variants for active env + legacy.
+    env = catalog_cache_env_key()
+    for cash_flag in (0, 1):
+        cache.delete(f'bbps:categories:{env}:cash_only={cash_flag}')
+        cache.delete(f'bbps:categories:cash_only={cash_flag}')
+    from apps.bbps.service_flow.provider_policy import clear_provider_policy_cache
+
+    clear_provider_policy_cache()
 
 
 def _extract_mobile_from_input_map(input_map: dict) -> str:
@@ -1702,6 +1711,8 @@ def refresh_provider_cache_view(request):
 @api_view(['GET'])
 @permission_classes([IsAuthenticated, IsAdmin])
 def governance_ops_summary_view(request):
+    from collections import defaultdict
+
     stale_billers = biller_master_qs_for_env().filter(is_stale=True).count()
     unmapped_billers = biller_master_qs_for_env().exclude(
         provider_maps__is_deleted=False,
@@ -1714,15 +1725,15 @@ def governance_ops_summary_view(request):
         .values_list('code', flat=True)
     )
     conflicting_rules = 0
-    # lightweight conflict check per category
-    for cat in BbpsServiceCategory.objects.filter(is_deleted=False, is_active=True):
-        rows = list(
-            BbpsCategoryCommissionRule.objects.filter(
-                is_deleted=False,
-                is_active=True,
-                category=cat,
-            ).order_by('effective_from')
-        )
+    # One query for all active rules; group in memory (avoids N+1 per category).
+    rules_by_category: dict[int, list] = defaultdict(list)
+    for rule in (
+        BbpsCategoryCommissionRule.objects.filter(is_deleted=False, is_active=True)
+        .order_by('category_id', 'effective_from')
+    ):
+        rules_by_category[rule.category_id].append(rule)
+    for cat in BbpsServiceCategory.objects.filter(is_deleted=False, is_active=True).only('id'):
+        rows = rules_by_category.get(cat.id, [])
         for i, r1 in enumerate(rows):
             for r2 in rows[i + 1 :]:
                 if (r1.effective_to is None or r2.effective_from is None or r2.effective_from <= r1.effective_to) and (
@@ -1901,10 +1912,14 @@ def provider_biller_maps_view(request):
         status_filter = str(request.query_params.get('approval') or '').strip().lower()
         if status_filter in ('pending', 'approved', 'rejected'):
             rows = [r for r in rows if _approval_status(r) == status_filter]
+        # One query for all category rules instead of .exists() per map row (N+1).
+        rule_category_ids = _active_commission_category_ids()
         payload = []
         for row in rows:
             entry = BbpsProviderBillerMapSerializer(row).data
-            entry['blocked_by'] = governance_block_reasons_for_map(row)
+            entry['blocked_by'] = governance_block_reasons_for_map(
+                row, categories_with_rules=rule_category_ids
+            )
             entry['approval_status'] = _approval_status(row)
             payload.append(entry)
         return Response(
@@ -1922,8 +1937,11 @@ def provider_biller_maps_view(request):
         qs = BbpsProviderBillerMap.objects.filter(is_deleted=False, id__in=ids).select_related('provider__category', 'biller_master')
         changed = 0
         blocked = []
+        rule_category_ids = _active_commission_category_ids()
         for row in qs:
-            reasons = governance_block_reasons_for_map(row)
+            reasons = governance_block_reasons_for_map(
+                row, categories_with_rules=rule_category_ids
+            )
             reasons = [r for r in reasons if r not in ('map_inactive', 'provider_inactive', 'category_inactive')]
             if reasons:
                 blocked.append({'id': row.id, 'blocked_by': reasons})

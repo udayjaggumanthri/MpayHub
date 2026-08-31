@@ -69,7 +69,16 @@ def sync_package_gateway_links(
 
 
 def package_gateway_links_queryset(package: PayInPackage):
-    return (
+    """
+    Active gateway links for a package.
+
+    Prefer prefetched ``package_gateways`` (from get_user_accessible_packages) to
+    avoid an extra SELECT per package during checkout.
+    """
+    cache = getattr(package, '_prefetched_objects_cache', None) or {}
+    if 'package_gateways' in cache:
+        return list(package.package_gateways.all())
+    return list(
         PayInPackageGateway.objects.filter(package=package, is_deleted=False, is_active=True)
         .select_related('payment_gateway', 'payment_gateway__api_master')
         .order_by('-is_default', 'sort_order', 'id')
@@ -79,7 +88,7 @@ def package_gateway_links_queryset(package: PayInPackage):
 def list_checkout_gateways_for_package(package: PayInPackage):
     """Active linked gateways that are also active at PSP config level."""
     links = package_gateway_links_queryset(package)
-    if links.exists():
+    if links:
         return [
             link.payment_gateway
             for link in links
@@ -177,7 +186,7 @@ def resolve_payment_gateway_for_order(
 
 def serialize_package_gateways(package: PayInPackage) -> list[dict]:
     links = package_gateway_links_queryset(package)
-    if not links.exists() and package.payment_gateway_id:
+    if not links and package.payment_gateway_id:
         pg = package.payment_gateway
         eff = effective_link_fee(package, None)
         return [

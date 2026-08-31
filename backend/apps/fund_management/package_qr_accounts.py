@@ -57,7 +57,15 @@ def sync_package_qr_links(
 
 
 def package_qr_links_queryset(package: PayInPackage):
-    return (
+    """
+    Active QR links for a package.
+
+    Prefer prefetched ``package_qr_links`` when present (checkout N+1 avoidance).
+    """
+    cache = getattr(package, '_prefetched_objects_cache', None) or {}
+    if 'package_qr_links' in cache:
+        return list(package.package_qr_links.all())
+    return list(
         PayInPackageQrLink.objects.filter(package=package, is_deleted=False, is_active=True)
         .select_related('qr_account')
         .order_by('-is_default', 'sort_order', 'id')

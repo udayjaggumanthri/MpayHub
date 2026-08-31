@@ -850,17 +850,40 @@ def get_user_accessible_packages(user: User):
     Returns packages the user can access for pay-in:
     1. Packages explicitly assigned to the user
     2. If no explicit assignments exist, returns default package (if any)
-    
+
     Admin users have access to ALL active packages.
+
+    Prefetches active gateway/QR links so checkout can avoid N+1 per package.
     """
-    from apps.fund_management.models import UserPackageAssignment
+    from django.db.models import Prefetch
+
+    from apps.fund_management.models import (
+        PayInPackageGateway,
+        PayInPackageQrLink,
+        UserPackageAssignment,
+    )
+
+    gw_qs = (
+        PayInPackageGateway.objects.filter(is_deleted=False, is_active=True)
+        .select_related('payment_gateway', 'payment_gateway__api_master')
+        .order_by('-is_default', 'sort_order', 'id')
+    )
+    qr_qs = (
+        PayInPackageQrLink.objects.filter(is_deleted=False, is_active=True)
+        .select_related('qr_account')
+        .order_by('-is_default', 'sort_order', 'id')
+    )
+
+    def _with_links(qs):
+        return qs.prefetch_related(
+            Prefetch('package_gateways', queryset=gw_qs),
+            Prefetch('package_qr_links', queryset=qr_qs),
+        ).order_by('-is_default', 'sort_order', 'display_name')
 
     # Admin users can access all packages
     user_role = (getattr(user, 'role', None) or '').strip()
     if user_role == 'Admin':
-        return PayInPackage.objects.filter(is_active=True, is_deleted=False).order_by(
-            '-is_default', 'sort_order', 'display_name'
-        )
+        return _with_links(PayInPackage.objects.filter(is_active=True, is_deleted=False))
 
     # Check explicit assignments
     assigned_pkg_ids = UserPackageAssignment.objects.filter(
@@ -868,18 +891,22 @@ def get_user_accessible_packages(user: User):
     ).values_list('package_id', flat=True)
 
     if assigned_pkg_ids:
-        return PayInPackage.objects.filter(
-            id__in=assigned_pkg_ids,
-            is_active=True,
-            is_deleted=False,
-        ).order_by('-is_default', 'sort_order', 'display_name')
+        return _with_links(
+            PayInPackage.objects.filter(
+                id__in=assigned_pkg_ids,
+                is_active=True,
+                is_deleted=False,
+            )
+        )
 
     # Fallback to default package
-    return PayInPackage.objects.filter(
-        is_default=True,
-        is_active=True,
-        is_deleted=False,
-    ).order_by('-is_default', 'sort_order', 'display_name')
+    return _with_links(
+        PayInPackage.objects.filter(
+            is_default=True,
+            is_active=True,
+            is_deleted=False,
+        )
+    )
 
 
 def resolve_payout_package(user: User) -> Optional[PayInPackage]:

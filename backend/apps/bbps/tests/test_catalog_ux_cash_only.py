@@ -15,6 +15,15 @@ from apps.core.exceptions import TransactionFailed
 @override_settings(BBPS_ACTIVE_ENVIRONMENT='uat')
 class BbpsCatalogUxCashOnlyTests(TestCase):
     def setUp(self):
+        from django.core.cache import cache
+
+        from apps.bbps.service_flow.catalog_ux_settings import _cached_cash_only_for_users
+        from apps.bbps.service_flow.provider_policy import clear_provider_policy_cache
+
+        cache.clear()
+        clear_provider_policy_cache()
+        _cached_cash_only_for_users.cache_clear()
+
         BbpsCatalogUxSettings.objects.create(environment='uat', cash_only_for_users=True)
 
         self.cash_biller = BbpsBillerMaster.objects.create(
@@ -69,6 +78,8 @@ class BbpsCatalogUxCashOnlyTests(TestCase):
             )
 
     def test_get_bill_categories_only_lists_cash_capable_categories(self):
+        from django.core.cache import cache
+
         from apps.bbps.services import get_bill_categories
 
         BbpsBillerMaster.objects.create(
@@ -86,6 +97,7 @@ class BbpsCatalogUxCashOnlyTests(TestCase):
         BbpsBillerPaymentModeLimit.objects.create(
             biller=elec, payment_mode='UPI', min_amount=0, max_amount=0
         )
+        cache.clear()
         cats = {c['id'] for c in get_bill_categories()}
         self.assertIn('credit-card', cats)
         self.assertNotIn('electricity', cats)

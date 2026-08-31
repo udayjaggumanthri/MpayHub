@@ -15,7 +15,7 @@ import { useAuth } from '../../context/AuthContext';
 import MaintenanceModuleLock from '../common/MaintenanceModuleLock';
 import { isModuleEnabled } from '../../utils/maintenanceMode';
 import { FiSearch, FiMail, FiX, FiInfo } from 'react-icons/fi';
-import { FaPhone, FaUser, FaDollarSign, FaCircleCheck, FaCircleExclamation } from 'react-icons/fa6';
+import { FaPhone, FaUser, FaIndianRupeeSign, FaCircleCheck, FaCircleExclamation } from 'react-icons/fa6';
 import { isAdminUser } from '../../utils/rolePermissions';
 import AccountAccessBanner from '../common/AccountAccessBanner';
 
@@ -586,7 +586,7 @@ const LoadMoney = () => {
                 </label>
                 <Input
                   type="number"
-                  icon={FaDollarSign}
+                  icon={FaIndianRupeeSign}
                   value={amount}
                   onChange={(e) => setAmount(e.target.value)}
                   placeholder="Enter amount (e.g., 10000)"
@@ -704,7 +704,7 @@ const LoadMoney = () => {
                 variant="primary"
                 size="lg"
                 fullWidth
-                icon={FaDollarSign}
+                icon={FaIndianRupeeSign}
                 iconPosition="left"
               >
                 {isQrRail ? 'CONTINUE TO QR PAYMENT' : 'PAY NOW'}

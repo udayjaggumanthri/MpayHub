@@ -24,7 +24,7 @@ import {
   FaPlus,
   FaMagnifyingGlass,
   FaCircleExclamation,
-  FaDollarSign,
+  FaIndianRupeeSign,
 } from 'react-icons/fa6';
 
 function bankAccountsFromListResult(result) {
@@ -672,7 +672,7 @@ const Payout = () => {
                     <Input
                       label="Amount (INR)"
                       type="number"
-                      icon={FaDollarSign}
+                      icon={FaIndianRupeeSign}
                       value={amount}
                       onChange={(e) => setAmount(e.target.value)}
                       placeholder="Enter amount"

@@ -34,6 +34,11 @@ const emptyForm = () => ({
   status: 'active',
 });
 
+const noNumberSpinnerClass =
+  '[appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none [-moz-appearance:textfield]';
+
+const preventNumberWheel = (e) => e.currentTarget.blur();
+
 const PayInQrAccountsAdmin = () => {
   const [rows, setRows] = useState([]);
   const [total, setTotal] = useState(0);
@@ -390,10 +395,41 @@ const PayInQrAccountsAdmin = () => {
                 />
                 {preview ? <img src={preview} alt="QR preview" className="mt-2 h-32 rounded border" /> : null}
               </div>
-              <Input label="Minimum fee % (package floor)" type="number" step="0.0001" min="0" value={form.charge_rate} onChange={(e) => setForm({ ...form, charge_rate: e.target.value })} helperText="Packages cannot set a QR rail fee below this value." />
-              <Input label="24h daily limit (INR)" type="number" value={form.daily_limit_24h} onChange={(e) => setForm({ ...form, daily_limit_24h: e.target.value })} />
-              <Input label="Max per txn (INR)" type="number" value={form.max_per_txn} onChange={(e) => setForm({ ...form, max_per_txn: e.target.value })} />
-              <Input label="Sort order" type="number" value={form.sort_order} onChange={(e) => setForm({ ...form, sort_order: e.target.value })} />
+              <Input
+                label="Minimum fee % (package floor)"
+                type="number"
+                step="0.0001"
+                min="0"
+                value={form.charge_rate}
+                onChange={(e) => setForm({ ...form, charge_rate: e.target.value })}
+                helperText="Packages cannot set a QR rail fee below this value."
+                className={noNumberSpinnerClass}
+                onWheel={preventNumberWheel}
+              />
+              <Input
+                label="24h daily limit (INR)"
+                type="number"
+                value={form.daily_limit_24h}
+                onChange={(e) => setForm({ ...form, daily_limit_24h: e.target.value })}
+                className={noNumberSpinnerClass}
+                onWheel={preventNumberWheel}
+              />
+              <Input
+                label="Max per txn (INR)"
+                type="number"
+                value={form.max_per_txn}
+                onChange={(e) => setForm({ ...form, max_per_txn: e.target.value })}
+                className={noNumberSpinnerClass}
+                onWheel={preventNumberWheel}
+              />
+              <Input
+                label="Sort order"
+                type="number"
+                value={form.sort_order}
+                onChange={(e) => setForm({ ...form, sort_order: e.target.value })}
+                className={noNumberSpinnerClass}
+                onWheel={preventNumberWheel}
+              />
               <div className="flex gap-3 pt-2">
                 <Button type="button" variant="outline" fullWidth onClick={() => setModalOpen(false)}>
                   Cancel

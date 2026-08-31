@@ -39,13 +39,14 @@ def _active_billavenue_config():
 def _get_active_policy_rows() -> tuple[_PolicyRowSnapshot, ...]:
     """Load enabled mode/channel policy rows once per worker process."""
     global _POLICY_ROWS_CACHE, _POLICY_ROWS_CACHE_CONFIG_ID
+    # Avoid re-querying BillAvenueConfig on every combo check when cache is warm.
+    if _POLICY_ROWS_CACHE is not None:
+        return _POLICY_ROWS_CACHE
     cfg = _active_billavenue_config()
     if not cfg:
         _POLICY_ROWS_CACHE = ()
         _POLICY_ROWS_CACHE_CONFIG_ID = None
         return ()
-    if _POLICY_ROWS_CACHE is not None and _POLICY_ROWS_CACHE_CONFIG_ID == cfg.pk:
-        return _POLICY_ROWS_CACHE
     rows = tuple(
         _PolicyRowSnapshot(
             payment_mode=row['payment_mode'],

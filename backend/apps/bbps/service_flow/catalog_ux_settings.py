@@ -55,14 +55,12 @@ def update_catalog_ux_settings(
 @lru_cache(maxsize=8)
 def _cached_cash_only_for_users(env: str) -> bool:
     row = BbpsCatalogUxSettings.objects.filter(environment=env).only('cash_only_for_users').first()
-    if not row:
-        return False
+    if row is None:
+        # Create default row once; cache result afterward.
+        row = get_or_create_catalog_ux_settings(env)
     return bool(row.cash_only_for_users)
 
 
 def is_cash_only_for_users(environment: str | None = None) -> bool:
     env = _norm_env(environment)
-    if not BbpsCatalogUxSettings.objects.filter(environment=env).exists():
-        get_or_create_catalog_ux_settings(env)
-        _cached_cash_only_for_users.cache_clear()
     return _cached_cash_only_for_users(env)

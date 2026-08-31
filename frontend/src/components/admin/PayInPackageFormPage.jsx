@@ -575,6 +575,8 @@ const PayInPackageFormPage = () => {
                 label="Sort Order"
                 value={packageForm.sort_order}
                 onChange={(e) => setPackageForm((p) => ({ ...p, sort_order: e.target.value }))}
+                className="[appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none [-moz-appearance:textfield]"
+                onWheel={(e) => e.currentTarget.blur()}
               />
             </div>
           </Card>
