@@ -1,6 +1,20 @@
 from __future__ import annotations
 
+from typing import NamedTuple
+
 from apps.integrations.models import BillAvenueConfig, BillAvenueModeChannelPolicy
+
+
+class _PolicyRowSnapshot(NamedTuple):
+    payment_mode: str
+    payment_channel: str
+    action: str
+    biller_id: str
+    biller_category: str
+
+
+_POLICY_ROWS_CACHE: tuple[_PolicyRowSnapshot, ...] | None = None
+_POLICY_ROWS_CACHE_CONFIG_ID: int | None = None
 
 
 def _norm_mode(mode: str) -> str:
@@ -9,6 +23,46 @@ def _norm_mode(mode: str) -> str:
 
 def _norm_channel(channel: str) -> str:
     return str(channel or '').strip().upper()
+
+
+def clear_provider_policy_cache() -> None:
+    """Drop in-process policy row cache (e.g. after admin policy edits)."""
+    global _POLICY_ROWS_CACHE, _POLICY_ROWS_CACHE_CONFIG_ID
+    _POLICY_ROWS_CACHE = None
+    _POLICY_ROWS_CACHE_CONFIG_ID = None
+
+
+def _active_billavenue_config():
+    return BillAvenueConfig.objects.filter(is_deleted=False, enabled=True, is_active=True).first()
+
+
+def _get_active_policy_rows() -> tuple[_PolicyRowSnapshot, ...]:
+    """Load enabled mode/channel policy rows once per worker process."""
+    global _POLICY_ROWS_CACHE, _POLICY_ROWS_CACHE_CONFIG_ID
+    cfg = _active_billavenue_config()
+    if not cfg:
+        _POLICY_ROWS_CACHE = ()
+        _POLICY_ROWS_CACHE_CONFIG_ID = None
+        return ()
+    if _POLICY_ROWS_CACHE is not None and _POLICY_ROWS_CACHE_CONFIG_ID == cfg.pk:
+        return _POLICY_ROWS_CACHE
+    rows = tuple(
+        _PolicyRowSnapshot(
+            payment_mode=row['payment_mode'],
+            payment_channel=row['payment_channel'],
+            action=row['action'],
+            biller_id=row['biller_id'],
+            biller_category=row['biller_category'],
+        )
+        for row in BillAvenueModeChannelPolicy.objects.filter(
+            is_deleted=False,
+            enabled=True,
+            config=cfg,
+        ).values('payment_mode', 'payment_channel', 'action', 'biller_id', 'biller_category')
+    )
+    _POLICY_ROWS_CACHE = rows
+    _POLICY_ROWS_CACHE_CONFIG_ID = cfg.pk
+    return rows
 
 
 def provider_policy_decision_for_combo(
@@ -24,16 +78,7 @@ def provider_policy_decision_for_combo(
     - False => explicitly denied
     - None  => no provider override
     """
-    cfg = BillAvenueConfig.objects.filter(is_deleted=False, enabled=True, is_active=True).first()
-    if not cfg:
-        return None
-    rows = list(
-        BillAvenueModeChannelPolicy.objects.filter(
-            is_deleted=False,
-            enabled=True,
-            config=cfg,
-        )
-    )
+    rows = _get_active_policy_rows()
     if not rows:
         return None
     mode = _norm_mode(payment_mode)
@@ -47,8 +92,8 @@ def provider_policy_decision_for_combo(
             continue
         if _norm_channel(r.payment_channel) != channel:
             continue
-        rid = str(getattr(r, 'biller_id', '') or '').strip()
-        rcat = ' '.join(str(getattr(r, 'biller_category', '') or '').strip().lower().replace('_', ' ').replace('-', ' ').split())
+        rid = str(r.biller_id or '').strip()
+        rcat = ' '.join(str(r.biller_category or '').strip().lower().replace('_', ' ').replace('-', ' ').split())
         if rid and rid == bid:
             scoped.append((3, r.action))
         elif (not rid) and rcat and rcat == bcat:
@@ -125,4 +170,6 @@ def bootstrap_default_biller_policy_if_missing(*, biller) -> int:
                 enabled=True,
             )
             created += 1
+    if created:
+        clear_provider_policy_cache()
     return created

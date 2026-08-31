@@ -1371,6 +1371,8 @@ def billavenue_mode_channel_policies_view(request):
     if not ser.is_valid():
         return Response({'success': False, 'data': None, 'message': 'Invalid policy', 'errors': ser.errors}, status=400)
     row = ser.save()
+    from apps.bbps.service_flow.provider_policy import clear_provider_policy_cache
+    clear_provider_policy_cache()
     return Response({'success': True, 'data': {'policy': BillAvenueModeChannelPolicySerializer(row).data}, 'message': 'Mode/channel policy saved', 'errors': []}, status=201)
 
 
@@ -1476,6 +1478,9 @@ def biller_payment_mapping_view(request, biller_id: str):
             enabled=True,
         )
         created += 1
+
+    from apps.bbps.service_flow.provider_policy import clear_provider_policy_cache
+    clear_provider_policy_cache()
 
     return Response(
         {

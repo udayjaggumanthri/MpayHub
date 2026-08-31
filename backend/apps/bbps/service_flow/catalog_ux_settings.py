@@ -1,6 +1,7 @@
 """BBPS catalog UX settings (cash-only mode, etc.)."""
 from __future__ import annotations
 
+from functools import lru_cache
 from typing import Any, Optional
 
 from apps.bbps.catalog.env import active_bbps_environment
@@ -47,9 +48,21 @@ def update_catalog_ux_settings(
     if admin_user is not None:
         row.updated_by = admin_user
     row.save(update_fields=['cash_only_for_users', 'updated_by', 'updated_at'])
+    _cached_cash_only_for_users.cache_clear()
     return serialize_catalog_ux_settings(row)
 
 
-def is_cash_only_for_users(environment: str | None = None) -> bool:
-    row = get_or_create_catalog_ux_settings(environment)
+@lru_cache(maxsize=8)
+def _cached_cash_only_for_users(env: str) -> bool:
+    row = BbpsCatalogUxSettings.objects.filter(environment=env).only('cash_only_for_users').first()
+    if not row:
+        return False
     return bool(row.cash_only_for_users)
+
+
+def is_cash_only_for_users(environment: str | None = None) -> bool:
+    env = _norm_env(environment)
+    if not BbpsCatalogUxSettings.objects.filter(environment=env).exists():
+        get_or_create_catalog_ux_settings(env)
+        _cached_cash_only_for_users.cache_clear()
+    return _cached_cash_only_for_users(env)

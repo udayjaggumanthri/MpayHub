@@ -216,9 +216,7 @@ def process_bill_payment(*args, **kwargs):
 
 def get_bill_categories():
     """Get categories strictly from billers visible to end users in the active BillAvenue env."""
-    visible_masters = [
-        m for m in _visible_biller_masters_queryset() if _biller_end_user_visible(m)
-    ]
+    visible_masters = _list_end_user_visible_masters()
     visible_codes = {
         normalize_category_code(m.biller_category)
         for m in visible_masters
@@ -270,9 +268,7 @@ def _visible_biller_masters_queryset(category: str | None = None):
 
 def get_billers_by_category(category):
     """Get billers for a specific category that end users can actually pay."""
-    masters = [
-        m for m in _visible_biller_masters_queryset(category) if _biller_end_user_visible(m)
-    ]
+    masters = _list_end_user_visible_masters(category)
     return [
         {
             'id': m.pk,
@@ -315,27 +311,78 @@ def _biller_category_assisted_card_like(raw: str) -> bool:
     return s in ('credit card', 'loan repayment')
 
 
-def _biller_supports_agt_cash(master: BbpsBillerMaster) -> bool:
+def _list_end_user_visible_masters(category: str | None = None):
+    """Visible biller masters with batched payment-limit prefetch (avoids N+1 on catalog APIs)."""
+    from apps.bbps.service_flow.catalog_ux_settings import is_cash_only_for_users
+
+    masters = list(_visible_biller_masters_queryset(category))
+    if not masters:
+        return []
+
+    cash_only = is_cash_only_for_users()
+    master_ids = [m.pk for m in masters]
+    channel_limits_by_biller: dict[int, list] = {pk: [] for pk in master_ids}
+    for row in BbpsBillerPaymentChannelLimit.objects.filter(
+        biller_id__in=master_ids,
+        is_deleted=False,
+        is_active=True,
+    ).order_by('payment_channel'):
+        channel_limits_by_biller.setdefault(row.biller_id, []).append(row)
+
+    mode_limits_by_biller: dict[int, list] = {pk: [] for pk in master_ids}
+    for row in BbpsBillerPaymentModeLimit.objects.filter(
+        biller_id__in=master_ids,
+        is_deleted=False,
+        is_active=True,
+    ).order_by('payment_mode'):
+        mode_limits_by_biller.setdefault(row.biller_id, []).append(row)
+
+    return [
+        master
+        for master in masters
+        if _biller_end_user_visible(
+            master,
+            cash_only=cash_only,
+            channel_limits=channel_limits_by_biller.get(master.pk),
+            mode_limits=mode_limits_by_biller.get(master.pk),
+        )
+    ]
+
+
+def _biller_supports_agt_cash(
+    master: BbpsBillerMaster,
+    *,
+    channel_limits=None,
+    mode_limits=None,
+) -> bool:
     """True when biller can accept assisted counter payment via AGT + Cash."""
     from apps.bbps.service_flow.compliance import display_payment_modes_for_channel
     from apps.bbps.service_flow.payment_ui_policy import mdm_labels_with_implicit_cash_for_agt
 
-    channels = list(
-        BbpsBillerPaymentChannelLimit.objects.filter(
-            is_deleted=False, biller=master, is_active=True
+    if channel_limits is None:
+        channels = list(
+            BbpsBillerPaymentChannelLimit.objects.filter(
+                is_deleted=False, biller=master, is_active=True
+            )
         )
-    )
+    else:
+        channels = list(channel_limits)
+
     ch_codes = [_normalize_text(c.payment_channel).upper() for c in channels if c.payment_channel]
     if not ch_codes:
         ch_codes = ['AGT']
     if 'AGT' not in ch_codes:
         return False
 
-    modes = list(
-        BbpsBillerPaymentModeLimit.objects.filter(
-            is_deleted=False, biller=master, is_active=True
+    if mode_limits is None:
+        modes = list(
+            BbpsBillerPaymentModeLimit.objects.filter(
+                is_deleted=False, biller=master, is_active=True
+            )
         )
-    )
+    else:
+        modes = list(mode_limits)
+
     mdm_labels = [m.payment_mode for m in modes if m.payment_mode]
     if not mdm_labels:
         return True
@@ -348,13 +395,26 @@ def _biller_supports_agt_cash(master: BbpsBillerMaster) -> bool:
     return bool(display_payment_modes_for_channel('AGT', eff))
 
 
-def _biller_end_user_visible(master: BbpsBillerMaster) -> bool:
+def _biller_end_user_visible(
+    master: BbpsBillerMaster,
+    *,
+    cash_only: bool | None = None,
+    channel_limits=None,
+    mode_limits=None,
+) -> bool:
     """True when biller should appear in end-user category/biller lists and pay flow."""
     from apps.bbps.service_flow.catalog_ux_settings import is_cash_only_for_users
     from apps.bbps.service_flow.provider_policy import provider_policy_decision_for_combo
 
-    if is_cash_only_for_users():
-        if not _biller_supports_agt_cash(master):
+    if cash_only is None:
+        cash_only = is_cash_only_for_users()
+
+    if cash_only:
+        if not _biller_supports_agt_cash(
+            master,
+            channel_limits=channel_limits,
+            mode_limits=mode_limits,
+        ):
             return False
         return (
             provider_policy_decision_for_combo(
@@ -366,11 +426,22 @@ def _biller_end_user_visible(master: BbpsBillerMaster) -> bool:
             is not False
         )
 
-    opts = get_biller_payment_ui_options(str(master.biller_id))
+    opts = get_biller_payment_ui_options(
+        str(master.biller_id),
+        master=master,
+        channel_limits=channel_limits,
+        mode_limits=mode_limits,
+    )
     return bool(opts.get('payment_modes'))
 
 
-def get_biller_payment_ui_options(biller_id: str) -> dict:
+def get_biller_payment_ui_options(
+    biller_id: str,
+    *,
+    master=None,
+    channel_limits=None,
+    mode_limits=None,
+) -> dict:
     """
     Payment channels/modes for UI: from BillAvenue MDM rows on the biller, intersected with
     NPCI BBPS channel-vs-instrument rules (see ``display_payment_modes_for_channel``).
@@ -382,11 +453,12 @@ def get_biller_payment_ui_options(biller_id: str) -> dict:
     )
     from apps.bbps.service_flow.provider_policy import provider_policy_decision_for_combo
 
-    master = biller_master_qs_for_env().filter(
-        biller_id=biller_id,
-        is_active_local=True,
-        soft_deleted_at__isnull=True,
-    ).first()
+    if master is None:
+        master = biller_master_qs_for_env().filter(
+            biller_id=biller_id,
+            is_active_local=True,
+            soft_deleted_at__isnull=True,
+        ).first()
     if not master:
         return {
             'payment_channels': [],
@@ -422,12 +494,12 @@ def get_biller_payment_ui_options(biller_id: str) -> dict:
             'payment_ui_mode': 'cash_only_assisted',
         }
 
-    channels = list(
+    channels = list(channel_limits) if channel_limits is not None else list(
         BbpsBillerPaymentChannelLimit.objects.filter(
             is_deleted=False, biller=master, is_active=True
         ).order_by('payment_channel')
     )
-    modes = list(
+    modes = list(mode_limits) if mode_limits is not None else list(
         BbpsBillerPaymentModeLimit.objects.filter(
             is_deleted=False, biller=master, is_active=True
         ).order_by('payment_mode')

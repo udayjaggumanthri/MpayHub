@@ -124,6 +124,8 @@ def _auto_block_provider_combo_on_error(*, biller: BbpsBillerMaster, payment_mod
             row.action = 'deny'
             row.enabled = True
             row.save(update_fields=['action', 'enabled', 'updated_at'])
+            from apps.bbps.service_flow.provider_policy import clear_provider_policy_cache
+            clear_provider_policy_cache()
         return
     BillAvenueModeChannelPolicy.objects.create(
         config=cfg,
@@ -134,6 +136,8 @@ def _auto_block_provider_combo_on_error(*, biller: BbpsBillerMaster, payment_mod
         biller_category='',
         enabled=True,
     )
+    from apps.bbps.service_flow.provider_policy import clear_provider_policy_cache
+    clear_provider_policy_cache()
 
 
 @db_transaction.atomic
