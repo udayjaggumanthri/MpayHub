@@ -342,7 +342,7 @@ class PayInPackageAdminSerializer(serializers.ModelSerializer):
         child=serializers.IntegerField(min_value=1),
         write_only=True,
         required=False,
-        allow_empty=False,
+        allow_empty=True,
     )
     default_payment_gateway_id = serializers.IntegerField(
         write_only=True, required=False, allow_null=True,
@@ -466,18 +466,34 @@ class PayInPackageAdminSerializer(serializers.ModelSerializer):
         initial = getattr(self, 'initial_data', None) or {}
         if gateway_ids is None and isinstance(initial, dict) and 'payment_gateway_ids' in initial:
             gateway_ids = initial.get('payment_gateway_ids')
-        if gateway_ids is not None and len(gateway_ids) == 0:
+        gateway_ids = initial.get('payment_gateway_ids')
+        qr_ids = attrs.get('qr_account_ids')
+        if qr_ids is None and isinstance(initial, dict) and 'qr_account_ids' in initial:
+            qr_ids = initial.get('qr_account_ids')
+
+        gw_specs = _gateway_specs_from_initial(initial if isinstance(initial, dict) else {}, gateway_ids)
+        qr_specs = _qr_specs_from_initial(initial if isinstance(initial, dict) else {}, qr_ids)
+
+        has_gw = bool(gw_specs) or bool(payment_gateway)
+        if instance and not has_gw:
+            has_gw = instance.package_gateways.filter(is_deleted=False).exists()
+        has_qr = bool(qr_specs)
+        if instance and not has_qr:
+            has_qr = instance.package_qr_links.filter(is_deleted=False).exists()
+
+        if gateway_ids is not None and len(gateway_ids) == 0 and not gw_specs:
+            has_gw = False
+        if qr_ids is not None and len(qr_ids) == 0 and not qr_specs:
+            has_qr = False
+
+        if not has_gw and not has_qr:
             raise serializers.ValidationError(
-                {'payment_gateway_ids': ['At least one payment gateway is required.']}
+                {
+                    'non_field_errors': [
+                        'Link at least one payment gateway or one QR account to this package.'
+                    ]
+                }
             )
-        if not gateway_ids and not payment_gateway:
-            has_existing = False
-            if instance and instance.package_gateways.filter(is_deleted=False).exists():
-                has_existing = True
-            if not has_existing:
-                raise serializers.ValidationError(
-                    {'payment_gateway_ids': ['At least one payment gateway is required.']}
-                )
 
         min_amount = attrs.get('min_amount', getattr(instance, 'min_amount', Decimal('0')))
         max_amount = attrs.get('max_amount_per_txn', getattr(instance, 'max_amount_per_txn', Decimal('0')))
@@ -504,13 +520,6 @@ class PayInPackageAdminSerializer(serializers.ModelSerializer):
         sd_pct = Decimal(str(attrs.get('super_distributor_pct', getattr(instance, 'super_distributor_pct', Decimal('0')))))
         md_pct = Decimal(str(attrs.get('master_distributor_pct', getattr(instance, 'master_distributor_pct', Decimal('0')))))
         d_pct = Decimal(str(attrs.get('distributor_pct', getattr(instance, 'distributor_pct', Decimal('0')))))
-
-        qr_ids = attrs.get('qr_account_ids')
-        if qr_ids is None and isinstance(initial, dict) and 'qr_account_ids' in initial:
-            qr_ids = initial.get('qr_account_ids')
-
-        gw_specs = _gateway_specs_from_initial(initial if isinstance(initial, dict) else {}, gateway_ids)
-        qr_specs = _qr_specs_from_initial(initial if isinstance(initial, dict) else {}, qr_ids)
 
         from apps.fund_management.models import PayInPackage as PayInPackageModel
         from apps.fund_management.rail_fees import (

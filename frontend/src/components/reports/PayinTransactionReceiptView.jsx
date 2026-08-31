@@ -1,6 +1,9 @@
 import React from 'react';
-import { FaCircleCheck } from 'react-icons/fa6';
+import { FaCircleCheck, FaDownload } from 'react-icons/fa6';
 
+import AuthenticatedImage from '../common/AuthenticatedImage';
+import { downloadFromUrl } from '../../utils/downloadFile';
+import { payinQrReceiptApiUrl } from '../../utils/mediaUrl';
 import { buildPayinReceiptRows, buildPayinReceiptSummary, getMpayhubLogoSrc } from './payinReceiptFields';
 
 const ReceiptCell = ({ label, value, highlight, mono }) => {
@@ -78,14 +81,33 @@ const PayinTransactionReceiptView = ({
 
       {transaction.hasProofImage && transaction.proofReceiptUrl ? (
         <div className="rounded-lg border border-gray-200 bg-gray-50 p-4">
-          <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-gray-600">Payment proof (uploaded)</p>
-          <a href={transaction.proofReceiptUrl} target="_blank" rel="noreferrer" className="inline-block">
-            <img
-              src={transaction.proofReceiptUrl}
-              alt="Payment proof"
-              className="max-h-72 rounded border border-gray-300 bg-white object-contain"
-            />
-          </a>
+          <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
+            <p className="text-xs font-semibold uppercase tracking-wide text-gray-600">Payment proof (uploaded)</p>
+            <button
+              type="button"
+              onClick={async () => {
+                const txnId = transaction.transactionId;
+                const url =
+                  transaction.proofReceiptUrl ||
+                  (txnId ? payinQrReceiptApiUrl(txnId, { download: true }) : '');
+                if (!url) return;
+                try {
+                  await downloadFromUrl(url, `receipt-${txnId || 'proof'}.jpg`);
+                } catch {
+                  // ignore — user can retry
+                }
+              }}
+              className="inline-flex items-center gap-1 text-xs font-semibold text-blue-700 hover:text-blue-900"
+            >
+              <FaDownload size={12} />
+              Download proof
+            </button>
+          </div>
+          <AuthenticatedImage
+            src={transaction.proofReceiptUrl}
+            alt="Payment proof"
+            className="max-h-72 rounded border border-gray-300 bg-white object-contain mx-auto"
+          />
         </div>
       ) : null}
 

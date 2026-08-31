@@ -18,6 +18,9 @@ import {
 } from '../common/ReportFilterPanel';
 import { countActiveReportFilters } from '../../utils/reportFilters';
 import { formatCurrency } from '../../utils/formatters';
+import { downloadFromUrl } from '../../utils/downloadFile';
+import { payinQrReceiptApiUrl } from '../../utils/mediaUrl';
+import AuthenticatedImage from '../common/AuthenticatedImage';
 import { FaCheck, FaXmark, FaDownload, FaQrcode, FaArrowRight, FaFileExcel } from 'react-icons/fa6';
 
 const REJECT_REASONS = [
@@ -67,6 +70,7 @@ const PayInQrOperations = () => {
   const [showReleaseUtr, setShowReleaseUtr] = useState(false);
   const [actionType, setActionType] = useState(null);
   const [showFilters, setShowFilters] = useState(false);
+  const [downloadError, setDownloadError] = useState('');
 
   const actionBusy = actionType !== null;
 
@@ -135,7 +139,19 @@ const PayInQrOperations = () => {
     downloadBlob(res, 'qr-operations.xlsx');
   };
 
+  const handleDownloadReceipt = async () => {
+    if (!detail?.transaction_id) return;
+    setDownloadError('');
+    const filename = `receipt-${detail.transaction_id}.jpg`;
+    try {
+      await downloadFromUrl(payinQrReceiptApiUrl(detail.transaction_id, { download: true }), filename);
+    } catch {
+      setDownloadError('Could not download receipt. Please try again.');
+    }
+  };
+
   const openDetail = async (id) => {
+    setDownloadError('');
     setDetailLoading(true);
     setDetail({ id });
     setShowReleaseUtr(false);
@@ -444,10 +460,29 @@ const PayInQrOperations = () => {
                   <div><span className="text-gray-500 dark:text-slate-400">Payment date:</span> {detail.payment_date || '—'}</div>
                   <div><span className="text-gray-500 dark:text-slate-400">Status:</span> {detail.status}</div>
                 </div>
-                {detail.receipt_url ? (
-                  <a href={detail.receipt_url} target="_blank" rel="noreferrer" className="block">
-                    <img src={detail.receipt_url} alt="Receipt" className="max-h-64 rounded border mx-auto" />
-                  </a>
+                {(detail.receipt_url || detail.transaction_id) ? (
+                  <div className="space-y-3">
+                    <AuthenticatedImage
+                      src={detail.receipt_url || payinQrReceiptApiUrl(detail.transaction_id)}
+                      alt="Receipt"
+                      className="max-h-64 rounded border mx-auto object-contain bg-white"
+                    />
+                    <div className="flex flex-col items-center gap-2">
+                      <Button
+                        type="button"
+                        variant="secondary"
+                        size="sm"
+                        icon={FaDownload}
+                        onClick={handleDownloadReceipt}
+                        disabled={actionBusy}
+                      >
+                        Download receipt
+                      </Button>
+                      {downloadError ? (
+                        <p className="text-xs text-red-600 dark:text-red-400">{downloadError}</p>
+                      ) : null}
+                    </div>
+                  </div>
                 ) : null}
 
                 {detail.status === 'PENDING_REVIEW' && (

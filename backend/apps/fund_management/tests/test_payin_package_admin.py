@@ -52,6 +52,33 @@ class PayInPackageCreateWithQrTests(TestCase):
         link = pkg.package_qr_links.first()
         self.assertEqual(link.qr_account_id, self.qr.pk)
 
+    def test_create_qr_only_package_succeeds(self):
+        ser = PayInPackageAdminSerializer(
+            data={
+                'code': 'qr_only_pkg',
+                'display_name': 'QR Only Package',
+                'payment_gateway_ids': [],
+                'qr_account_ids': [self.qr.pk],
+                'default_qr_account_id': self.qr.pk,
+                'min_amount': '1',
+                'max_amount_per_txn': '100000',
+                'package_qr_accounts': [
+                    {'id': self.qr.pk, 'gateway_fee_pct': '0.5000'},
+                ],
+                'admin_pct': '0.2400',
+                'super_distributor_pct': '0.0100',
+                'master_distributor_pct': '0.0200',
+                'distributor_pct': '0.0300',
+                'is_active': True,
+                'sort_order': 0,
+            }
+        )
+        self.assertTrue(ser.is_valid(), ser.errors)
+        pkg = ser.save()
+        self.assertEqual(pkg.package_qr_links.count(), 1)
+        self.assertEqual(pkg.package_gateways.filter(is_deleted=False).count(), 0)
+        self.assertIsNone(pkg.payment_gateway_id)
+
     def test_rejects_gateway_fee_below_charge_rate(self):
         ser = PayInPackageAdminSerializer(
             data={

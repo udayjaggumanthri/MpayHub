@@ -5,6 +5,7 @@ from io import BytesIO
 from django.contrib.auth import get_user_model
 from django.core.files.uploadedfile import SimpleUploadedFile
 from django.test import TestCase
+from PIL import Image
 from rest_framework.exceptions import ValidationError
 
 from apps.contacts.models import Contact
@@ -19,6 +20,27 @@ User = get_user_model()
 
 def _receipt():
     return SimpleUploadedFile('proof.png', b'fakepng', content_type='image/png')
+
+
+def _large_png_receipt():
+    import os
+
+    width, height = 700, 700
+    img = Image.frombytes('RGB', (width, height), os.urandom(width * height * 3))
+    buf = BytesIO()
+    img.save(buf, format='PNG', compress_level=1)
+    raw = buf.getvalue()
+    assert len(raw) > 100 * 1024, f'test fixture must exceed 100 KB (got {len(raw)})'
+    assert len(raw) < 5 * 1024 * 1024, f'test fixture must stay under 5 MB (got {len(raw)})'
+    return SimpleUploadedFile('large.png', raw, content_type='image/png')
+
+
+def _small_jpeg_receipt():
+    buf = BytesIO()
+    Image.new('RGB', (120, 120), color=(250, 250, 250)).save(buf, format='JPEG', quality=85)
+    raw = buf.getvalue()
+    assert len(raw) < 50 * 1024, 'test fixture must stay under 50 KB'
+    return SimpleUploadedFile('small.jpg', raw, content_type='image/jpeg'), len(raw)
 
 
 def _make_qr(name='QR Main', *, daily_limit=Decimal('100000')):
@@ -265,3 +287,32 @@ class QrPayInTests(TestCase):
         audit = lm.qr_approval_audits.filter(action='utr_released').first()
         self.assertIsNotNone(audit)
         self.assertEqual(audit.reject_reason, 'RELUTR01')
+
+    def test_large_receipt_compressed_on_submit(self):
+        lm = submit_qr_payin(
+            user=self.user,
+            package_id=self.package.id,
+            qr_account_id=self.qr.id,
+            contact_id=self.contact.id,
+            amount=Decimal('1000'),
+            utr='BIGRCPT01',
+            payment_date='2026-08-28',
+            receipt_file=_large_png_receipt(),
+        )
+        lm.refresh_from_db()
+        self.assertLessEqual(lm.receipt_image.size, 100 * 1024)
+
+    def test_small_receipt_left_unchanged(self):
+        receipt_file, original_len = _small_jpeg_receipt()
+        lm = submit_qr_payin(
+            user=self.user,
+            package_id=self.package.id,
+            qr_account_id=self.qr.id,
+            contact_id=self.contact.id,
+            amount=Decimal('1000'),
+            utr='SMRCPT001',
+            payment_date='2026-08-28',
+            receipt_file=receipt_file,
+        )
+        lm.refresh_from_db()
+        self.assertEqual(lm.receipt_image.size, original_len)

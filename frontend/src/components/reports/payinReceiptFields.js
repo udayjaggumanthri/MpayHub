@@ -75,6 +75,45 @@ export const mapPayinRowToReceiptTransaction = (row = {}) => {
   };
 };
 
+/** Build receipt view model right after manual QR submit. */
+export const buildQrSubmitReceiptTransaction = ({
+  loadMoney = {},
+  contact = {},
+  amount = '',
+  quote = null,
+  selected = null,
+} = {}) =>
+  mapPayinRowToReceiptTransaction({
+    service_id: loadMoney.transaction_id,
+    status: loadMoney.status || 'PENDING_REVIEW',
+    collection_rail: loadMoney.collection_rail || 'qr',
+    rail_type_label: 'Manual QR',
+    payment_gateway_name: selected?.name || selected?.account_display_name || 'Manual QR',
+    mode: loadMoney.payment_mode_display || 'Manual QR — Pending review',
+    utr: loadMoney.utr,
+    qr_account_name: selected?.name || selected?.account_display_name || '',
+    principal: amount || loadMoney.amount || loadMoney.submitted_amount,
+    service_charge: quote?.total_fee ?? loadMoney.charge,
+    net_credit: quote?.net_credit ?? loadMoney.net_credit,
+    submitted_amount: loadMoney.submitted_amount || amount,
+    created_at: loadMoney.created_at || new Date().toISOString(),
+    customer_name: contact?.name || loadMoney.customer_name,
+    customer_phone: contact?.phone || loadMoney.customer_phone,
+    customer_email: contact?.email || loadMoney.customer_email,
+    package_display_name: selected?.package_name || selected?.name || '',
+    proof_receipt_url: loadMoney.transaction_id
+      ? `/api/fund-management/pay-in/qr/receipt/${encodeURIComponent(loadMoney.transaction_id)}/`
+      : '',
+    receipt_details: {
+      has_proof_image: true,
+      payment_date: loadMoney.payment_date || '',
+      transaction_id: loadMoney.transaction_id,
+      status: loadMoney.status || 'PENDING_REVIEW',
+      collection_rail: 'qr',
+      rail_type_label: 'Manual QR',
+    },
+  });
+
 export const buildPayinReceiptRows = (txn) => {
   const isQr = (txn.collectionRail || '').toLowerCase() === 'qr';
   const rows = [

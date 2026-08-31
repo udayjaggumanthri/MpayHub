@@ -23,10 +23,8 @@ import {
 } from './payInPackageFormShared';
 import {
   FaArrowLeft,
-  FaCreditCard,
   FaPlus,
   FaStar,
-  FaXmark,
 } from 'react-icons/fa6';
 
 const PayInPackageFormPage = () => {
@@ -272,11 +270,12 @@ const PayInPackageFormPage = () => {
       alert('Code and Display Name are required');
       return;
     }
-    if (!packageForm.payment_gateway_ids?.length) {
-      alert('Select at least one payment gateway for this package.');
+    const hasGateways = (packageForm.payment_gateway_ids || []).length > 0;
+    const hasQr = (packageForm.qr_account_ids || []).length > 0;
+    if (!hasGateways && !hasQr) {
+      alert('Link at least one payment gateway or one QR account.');
       return;
     }
-    const defaultGw = packageForm.default_payment_gateway_id || packageForm.payment_gateway_ids[0];
     setSaving(true);
     const payout_slabs = packagePayoutSlabs.map((row, i) => ({
       sort_order: i,
@@ -288,14 +287,16 @@ const PayInPackageFormPage = () => {
     const payload = {
       code: packageForm.code.trim(),
       display_name: packageForm.display_name.trim(),
-      payment_gateway_ids: packageForm.payment_gateway_ids.map((gid) => Number(gid)),
-      default_payment_gateway_id: Number(defaultGw),
-      payment_gateway_id: Number(defaultGw),
-      package_gateways: selectedGatewayRows.map((g) => ({
-        id: Number(g.id),
-        payment_gateway_id: Number(g.id),
-        gateway_fee_pct: g.gateway_fee_pct,
-      })),
+      payment_gateway_ids: hasGateways
+        ? packageForm.payment_gateway_ids.map((gid) => Number(gid))
+        : [],
+      package_gateways: hasGateways
+        ? selectedGatewayRows.map((g) => ({
+            id: Number(g.id),
+            payment_gateway_id: Number(g.id),
+            gateway_fee_pct: g.gateway_fee_pct,
+          }))
+        : [],
       qr_account_ids: (packageForm.qr_account_ids || []).map((qid) => Number(qid)),
       default_qr_account_id: packageForm.default_qr_account_id
         ? Number(packageForm.default_qr_account_id)
@@ -318,6 +319,12 @@ const PayInPackageFormPage = () => {
       payout_slabs,
     };
 
+    if (hasGateways) {
+      const defaultGw = packageForm.default_payment_gateway_id || packageForm.payment_gateway_ids[0];
+      payload.default_payment_gateway_id = Number(defaultGw);
+      payload.payment_gateway_id = Number(defaultGw);
+    }
+
     const result = isEdit
       ? await adminAPI.updatePayInPackage(id, payload)
       : await adminAPI.createPayInPackage(payload);
@@ -338,99 +345,99 @@ const PayInPackageFormPage = () => {
   }
 
   return (
-    <div className="min-h-[calc(100vh-6rem)] bg-gradient-to-b from-slate-50 dark:from-slate-900 via-white dark:via-slate-900 to-slate-50/80 dark:to-slate-900/80">
-      <div className="max-w-5xl mx-auto px-4 sm:px-6 lg:px-8 py-8 space-y-6">
-        <GatewayFlowStepper
-          currentStep="payin-packages"
-          subtitle={isEdit ? 'Edit package configuration' : 'Create a new commercial package'}
-        />
+    <div className="w-full max-w-5xl mx-auto space-y-5 sm:space-y-6">
+      <GatewayFlowStepper
+        currentStep="payin-packages"
+        subtitle={isEdit ? 'Edit package configuration' : 'Create a new commercial package'}
+      />
 
-        <div className="flex items-center gap-3">
-          <Link
-            to="/admin/pay-in-packages"
-            className="inline-flex items-center gap-2 text-sm font-semibold text-indigo-700 dark:text-indigo-300 hover:underline"
-          >
-            <FaArrowLeft size={14} />
-            Back to packages
-          </Link>
-        </div>
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+        <Link
+          to="/admin/pay-in-packages"
+          className="inline-flex w-fit items-center gap-2 text-sm font-semibold text-indigo-700 dark:text-indigo-300 hover:underline"
+        >
+          <FaArrowLeft size={14} aria-hidden />
+          Back to packages
+        </Link>
+      </div>
 
-        <header>
-          <h1 className="text-2xl font-bold text-slate-900 dark:text-slate-100">
-            {isEdit ? `Edit: ${editingPackage?.display_name || 'Package'}` : 'New commercial package'}
-          </h1>
-          <p className="text-sm text-slate-600 dark:text-slate-400 mt-1">
-            Set per-gateway and per-QR fees, commission splits, and payout slabs.
-          </p>
-        </header>
+      <header className="space-y-1">
+        <h1 className="text-xl font-bold text-slate-900 dark:text-slate-100 sm:text-2xl">
+          {isEdit ? `Edit: ${editingPackage?.display_name || 'Package'}` : 'New commercial package'}
+        </h1>
+        <p className="text-sm text-slate-600 dark:text-slate-400">
+          Set per-gateway and per-QR fees, commission splits, and payout slabs.
+        </p>
+      </header>
 
-        <form onSubmit={handleSave} className="space-y-6 pb-24">
-          <Card shadow="sm" padding="lg">
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              <div>
-                <Input
-                  label="Package Code *"
-                  value={packageForm.code}
-                  onChange={(e) => setPackageForm((p) => ({ ...p, code: e.target.value }))}
-                  onBlur={(e) =>
-                    setPackageForm((p) => ({ ...p, code: slugifyCode(e.target.value) || p.code }))
-                  }
-                  placeholder="qr-test"
-                  required
-                />
-                <p className="text-xs text-gray-500 dark:text-slate-400 mt-1">
-                  Saved as: <span className="font-mono">{slugifyCode(packageForm.code) || '—'}</span>
-                </p>
-              </div>
+      <form onSubmit={handleSave} className="space-y-5 sm:space-y-6">
+        <Card shadow="sm" padding="lg">
+          <div className="grid grid-cols-1 gap-4 md:grid-cols-2 md:items-start">
+            <div className="min-w-0">
               <Input
-                label="Display Name *"
-                value={packageForm.display_name}
-                onChange={(e) => setPackageForm((p) => ({ ...p, display_name: e.target.value }))}
+                label="Package Code"
+                value={packageForm.code}
+                onChange={(e) => setPackageForm((p) => ({ ...p, code: e.target.value }))}
+                onBlur={(e) =>
+                  setPackageForm((p) => ({ ...p, code: slugifyCode(e.target.value) || p.code }))
+                }
+                placeholder="qr-test"
                 required
               />
+              <p className="mt-1 text-xs text-gray-500 dark:text-slate-400">
+                Saved as: <span className="font-mono break-all">{slugifyCode(packageForm.code) || '—'}</span>
+              </p>
             </div>
+            <Input
+              label="Display Name"
+              value={packageForm.display_name}
+              onChange={(e) => setPackageForm((p) => ({ ...p, display_name: e.target.value }))}
+              required
+            />
+          </div>
 
-            <label className="inline-flex items-center gap-2 cursor-pointer mt-4">
-              <input
-                type="checkbox"
-                checked={packageForm.is_active}
-                onChange={(e) => setPackageForm((p) => ({ ...p, is_active: e.target.checked }))}
-              />
-              <span className="text-sm text-gray-700 dark:text-slate-300">Active package</span>
-            </label>
-          </Card>
+          <label className="mt-4 inline-flex cursor-pointer items-center gap-2">
+            <input
+              type="checkbox"
+              className="h-4 w-4 rounded border-gray-300 text-indigo-600 focus:ring-indigo-500"
+              checked={packageForm.is_active}
+              onChange={(e) => setPackageForm((p) => ({ ...p, is_active: e.target.checked }))}
+            />
+            <span className="text-sm text-gray-700 dark:text-slate-300">Active package</span>
+          </label>
+        </Card>
 
           <Card shadow="sm" padding="lg" title="Payment gateways">
             <p className="text-xs text-slate-600 dark:text-slate-400 mb-4">
               Set gateway fee % per rail. Minimum fee comes from Payment Gateways admin.
             </p>
             {selectedGatewayRows.length === 0 ? (
-              <p className="text-sm text-amber-800 dark:text-amber-300 bg-amber-50 dark:bg-amber-950/40 border border-amber-200 rounded-lg px-3 py-2 mb-4">
-                No gateway linked. Add one below — at least one is required before saving.
+              <p className="mb-4 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-800 dark:border-amber-800 dark:bg-amber-950/40 dark:text-amber-300">
+                No gateway linked. Add one below, or link a QR account in the next section.
               </p>
             ) : (
-              <ul className="space-y-2 mb-4">
+              <ul className="mb-4 space-y-2">
                 {selectedGatewayRows.map((g) => {
                   const isDefault = packageForm.default_payment_gateway_id === g.id;
                   return (
                     <li
                       key={g.id}
-                      className="flex flex-wrap items-center gap-2 rounded-lg border px-3 py-2.5 bg-white dark:bg-slate-900"
+                      className="flex flex-col gap-3 rounded-lg border bg-white px-3 py-3 dark:bg-slate-900 sm:flex-row sm:flex-wrap sm:items-center"
                     >
-                      <span className="font-medium text-sm flex-1 min-w-[120px]">{g.name}</span>
-                      <label className="text-xs shrink-0">
-                        Fee %
+                      <span className="min-w-0 flex-1 text-sm font-medium">{g.name}</span>
+                      <label className="flex shrink-0 flex-col text-xs sm:items-end">
+                        <span className="mb-1 font-medium text-slate-600 dark:text-slate-400">Fee %</span>
                         <input
                           type="number"
                           step="0.0001"
                           min={g.charge_rate || 0}
-                          className="ml-1 w-20 rounded border px-2 py-1 text-sm"
+                          className="w-full rounded border px-2 py-1.5 text-sm sm:w-24"
                           value={g.gateway_fee_pct}
                           onChange={(e) => setGatewayFee(g.id, e.target.value)}
                         />
-                        <span className="block text-[10px] text-slate-500">Min {g.charge_rate ?? 0}%</span>
+                        <span className="mt-0.5 text-[10px] text-slate-500">Min {g.charge_rate ?? 0}%</span>
                       </label>
-                      <label className="inline-flex items-center gap-1.5 text-xs cursor-pointer">
+                      <label className="inline-flex cursor-pointer items-center gap-1.5 text-xs">
                         <input
                           type="radio"
                           name="default_payin_gateway"
@@ -445,7 +452,7 @@ const PayInPackageFormPage = () => {
                       <button
                         type="button"
                         onClick={() => removePackageGateway(g.id)}
-                        className="text-xs font-semibold text-red-700 hover:underline"
+                        className="w-fit text-xs font-semibold text-red-700 hover:underline dark:text-red-400"
                         title="Remove this gateway from the package"
                       >
                         Remove
@@ -456,7 +463,7 @@ const PayInPackageFormPage = () => {
               </ul>
             )}
             {availableGatewaysToAdd.length > 0 && (
-              <div className="flex flex-col sm:flex-row gap-2">
+              <div className="flex flex-col gap-2 sm:flex-row sm:items-stretch">
                 <SelectField
                   value={gatewayPickerId}
                   onChange={(val) => setGatewayPickerId(val)}
@@ -464,9 +471,14 @@ const PayInPackageFormPage = () => {
                   getOptionLabel={(g) => g.name}
                   getOptionValue={(g) => g.id}
                   placeholder="Choose gateway…"
-                  className="flex-1"
+                  className="min-w-0 flex-1"
                 />
-                <Button type="button" onClick={addGatewayFromPicker} disabled={!gatewayPickerId}>
+                <Button
+                  type="button"
+                  onClick={addGatewayFromPicker}
+                  disabled={!gatewayPickerId}
+                  className="w-full shrink-0 sm:w-auto"
+                >
                   Add gateway
                 </Button>
               </div>
@@ -475,27 +487,30 @@ const PayInPackageFormPage = () => {
 
           <Card shadow="sm" padding="lg" title="Linked QR accounts (optional)">
             {selectedQrRows.length === 0 ? (
-              <p className="text-sm text-slate-500">No QR accounts linked.</p>
+              <p className="text-sm text-slate-500 dark:text-slate-400">No QR accounts linked.</p>
             ) : (
-              <ul className="space-y-2 mb-4">
+              <ul className="mb-4 space-y-2">
                 {selectedQrRows.map((q) => {
                   const isDefault = packageForm.default_qr_account_id === q.id;
                   return (
-                    <li key={q.id} className="flex flex-wrap items-center gap-2 rounded-lg border px-3 py-2.5">
-                      <span className="font-medium text-sm flex-1">{q.name}</span>
-                      <label className="text-xs shrink-0">
-                        Fee %
+                    <li
+                      key={q.id}
+                      className="flex flex-col gap-3 rounded-lg border px-3 py-3 sm:flex-row sm:flex-wrap sm:items-center"
+                    >
+                      <span className="min-w-0 flex-1 text-sm font-medium">{q.name}</span>
+                      <label className="flex shrink-0 flex-col text-xs sm:items-end">
+                        <span className="mb-1 font-medium text-slate-600 dark:text-slate-400">Fee %</span>
                         <input
                           type="number"
                           step="0.0001"
                           min={q.charge_rate || 0}
-                          className="ml-1 w-20 rounded border px-2 py-1 text-sm"
+                          className="w-full rounded border px-2 py-1.5 text-sm sm:w-24"
                           value={q.gateway_fee_pct}
                           onChange={(e) => setQrFee(q.id, e.target.value)}
                         />
-                        <span className="block text-[10px] text-slate-500">Min {q.charge_rate ?? 0}%</span>
+                        <span className="mt-0.5 text-[10px] text-slate-500">Min {q.charge_rate ?? 0}%</span>
                       </label>
-                      <label className="inline-flex items-center gap-1.5 text-xs cursor-pointer">
+                      <label className="inline-flex cursor-pointer items-center gap-1.5 text-xs">
                         <input
                           type="radio"
                           name="default_payin_qr"
@@ -509,7 +524,7 @@ const PayInPackageFormPage = () => {
                       <button
                         type="button"
                         onClick={() => removePackageQr(q.id)}
-                        className="text-xs font-semibold text-red-700"
+                        className="w-fit text-xs font-semibold text-red-700 dark:text-red-400"
                       >
                         Remove
                       </button>
@@ -519,7 +534,7 @@ const PayInPackageFormPage = () => {
               </ul>
             )}
             {availableQrToAdd.length > 0 && (
-              <div className="flex flex-col sm:flex-row gap-2">
+              <div className="flex flex-col gap-2 sm:flex-row sm:items-stretch">
                 <SelectField
                   value={qrPickerId}
                   onChange={(val) => setQrPickerId(val)}
@@ -527,9 +542,14 @@ const PayInPackageFormPage = () => {
                   getOptionLabel={(q) => q.display_name}
                   getOptionValue={(q) => q.id}
                   placeholder="Choose QR account…"
-                  className="flex-1"
+                  className="min-w-0 flex-1"
                 />
-                <Button type="button" onClick={addQrFromPicker} disabled={!qrPickerId}>
+                <Button
+                  type="button"
+                  onClick={addQrFromPicker}
+                  disabled={!qrPickerId}
+                  className="w-full shrink-0 sm:w-auto"
+                >
                   Add QR
                 </Button>
               </div>
@@ -586,11 +606,18 @@ const PayInPackageFormPage = () => {
           </Card>
 
           <Card shadow="sm" padding="lg" title="Payout slabs (this package)">
-            <div className="flex justify-between items-center mb-3">
-              <p className="text-xs text-slate-600 dark:text-slate-400">
+            <div className="mb-3 flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+              <p className="text-xs leading-relaxed text-slate-600 dark:text-slate-400 sm:max-w-xl">
                 Bands must start at 0 and be contiguous. Last row may leave max empty.
               </p>
-              <Button type="button" variant="outline" size="sm" icon={FaPlus} onClick={addPayoutSlabRow}>
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                icon={FaPlus}
+                onClick={addPayoutSlabRow}
+                className="w-full shrink-0 sm:w-auto"
+              >
                 Add tier
               </Button>
             </div>
@@ -598,63 +625,72 @@ const PayInPackageFormPage = () => {
               {packagePayoutSlabs.map((row, idx) => (
                 <div
                   key={`slab-${idx}`}
-                  className="grid grid-cols-1 sm:grid-cols-12 gap-2 items-end border rounded-lg p-3"
+                  className="grid grid-cols-1 gap-3 rounded-lg border p-3 sm:grid-cols-2 lg:grid-cols-12 lg:items-end"
                 >
-                  <div className="sm:col-span-3">
-                    <label className="block text-xs font-medium mb-1">Min amount</label>
+                  <div className="min-w-0 lg:col-span-3">
+                    <label className="mb-1 block text-xs font-medium">Min amount</label>
                     <input
                       type="text"
-                      className="w-full px-3 py-2 border rounded-lg text-sm"
+                      className="w-full rounded-lg border px-3 py-2 text-sm dark:border-slate-600 dark:bg-slate-900"
                       value={row.min_amount}
                       onChange={(e) => updatePayoutSlabRow(idx, 'min_amount', e.target.value)}
                     />
                   </div>
-                  <div className="sm:col-span-3">
-                    <label className="block text-xs font-medium mb-1">Max (blank = ∞)</label>
+                  <div className="min-w-0 lg:col-span-3">
+                    <label className="mb-1 block text-xs font-medium">Max (blank = ∞)</label>
                     <input
                       type="text"
-                      className="w-full px-3 py-2 border rounded-lg text-sm"
+                      className="w-full rounded-lg border px-3 py-2 text-sm dark:border-slate-600 dark:bg-slate-900"
                       value={row.max_amount}
                       onChange={(e) => updatePayoutSlabRow(idx, 'max_amount', e.target.value)}
                     />
                   </div>
-                  <div className="sm:col-span-3">
-                    <label className="block text-xs font-medium mb-1">Flat charge (₹)</label>
+                  <div className="min-w-0 lg:col-span-3">
+                    <label className="mb-1 block text-xs font-medium">Flat charge (₹)</label>
                     <input
                       type="text"
-                      className="w-full px-3 py-2 border rounded-lg text-sm"
+                      className="w-full rounded-lg border px-3 py-2 text-sm dark:border-slate-600 dark:bg-slate-900"
                       value={row.flat_charge}
                       onChange={(e) => updatePayoutSlabRow(idx, 'flat_charge', e.target.value)}
                     />
                   </div>
-                  <div className="sm:col-span-3 flex justify-end">
-                    {packagePayoutSlabs.length > 1 && (
+                  <div className="flex items-end justify-start lg:col-span-3 lg:justify-end">
+                    {packagePayoutSlabs.length > 1 ? (
                       <button
                         type="button"
                         onClick={() => removePayoutSlabRow(idx)}
-                        className="text-sm font-semibold text-red-600"
+                        className="text-sm font-semibold text-red-600 dark:text-red-400"
                       >
                         Remove
                       </button>
-                    )}
+                    ) : null}
                   </div>
                 </div>
               ))}
             </div>
           </Card>
 
-          <div className="fixed bottom-0 left-0 right-0 z-40 border-t bg-white/95 dark:bg-slate-900/95 backdrop-blur px-4 py-3">
-            <div className="max-w-5xl mx-auto flex gap-3">
-              <Button type="button" variant="outline" fullWidth onClick={() => navigate('/admin/pay-in-packages')}>
+          <div className="sticky bottom-0 z-20 -mx-1 rounded-xl border border-slate-200 bg-white/95 px-3 py-3 shadow-[0_-8px_24px_rgba(15,23,42,0.08)] backdrop-blur supports-[backdrop-filter]:bg-white/90 dark:border-slate-700 dark:bg-slate-900/95 sm:-mx-0 sm:px-4">
+            <div className="flex flex-col-reverse gap-3 sm:flex-row sm:justify-end">
+              <Button
+                type="button"
+                variant="outline"
+                className="w-full sm:w-auto sm:min-w-[9rem]"
+                onClick={() => navigate('/admin/pay-in-packages')}
+              >
                 Cancel
               </Button>
-              <Button type="submit" variant="primary" fullWidth loading={saving}>
+              <Button
+                type="submit"
+                variant="primary"
+                className="w-full sm:w-auto sm:min-w-[11rem]"
+                loading={saving}
+              >
                 {isEdit ? 'Update package' : 'Create package'}
               </Button>
             </div>
           </div>
         </form>
-      </div>
     </div>
   );
 };

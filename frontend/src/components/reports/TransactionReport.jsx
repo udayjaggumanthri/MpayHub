@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { FiDownload, FiEye, FiFilter, FiHelpCircle, FiX } from 'react-icons/fi';
 import { MdReceiptLong } from 'react-icons/md';
-import { useSearchParams } from 'react-router-dom';
+import { useSearchParams, useLocation } from 'react-router-dom';
 import { useAuth } from '../../context/AuthContext';
 import { reportsAPI } from '../../services/api';
 import { DRILLDOWN_SCOPE_PLATFORM, parseDrillDownSearchParams } from '../../utils/dashboardDrillDown';
@@ -60,6 +60,7 @@ function mergeDrillDownFilters(drillDown) {
 
 const TransactionReport = ({ type = 'all' }) => {
   const { user } = useAuth();
+  const location = useLocation();
   const [searchParams, setSearchParams] = useSearchParams();
   const drillDown = useMemo(() => parseDrillDownSearchParams(searchParams), [searchParams]);
   const initialFilters = useMemo(() => mergeDrillDownFilters(drillDown), [drillDown]);
@@ -91,6 +92,15 @@ const TransactionReport = ({ type = 'all' }) => {
 
   const userId = user?.id ?? user?.user_id;
   const userRole = user?.role;
+
+  useEffect(() => {
+    if (type !== 'payin') return undefined;
+    const pending = location.state?.openPayinReceipt;
+    if (!pending) return undefined;
+    setReceiptTxn(pending);
+    window.history.replaceState({}, document.title, window.location.pathname + window.location.search);
+    return undefined;
+  }, [location.state, type]);
 
   useEffect(() => {
     const next = mergeDrillDownFilters(drillDown);

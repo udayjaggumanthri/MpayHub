@@ -1,7 +1,9 @@
 """Serializers for manual QR pay-in."""
 import json
+import mimetypes
 from decimal import Decimal
 
+from django.urls import reverse
 from rest_framework import serializers
 
 from apps.fund_management.models import LoadMoney, PayInQrAccount, PayInQrApprovalAudit
@@ -175,10 +177,13 @@ class QrPayInOperationListSerializer(serializers.ModelSerializer):
             return ''
         request = self.context.get('request')
         try:
-            url = obj.receipt_image.url
+            path = reverse(
+                'fund_management:pay-in-qr-receipt',
+                kwargs={'transaction_id': obj.transaction_id},
+            )
             if request:
-                return request.build_absolute_uri(url)
-            return url
+                return request.build_absolute_uri(path)
+            return path
         except Exception:
             return ''
 

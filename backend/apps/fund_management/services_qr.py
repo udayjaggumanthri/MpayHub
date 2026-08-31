@@ -12,6 +12,7 @@ from apps.core.exceptions import TransactionFailed
 from apps.core.utils import generate_service_id
 from apps.fund_management.models import LoadMoney, PayInPackage, PayInQrAccount
 from apps.fund_management.money_utils import money_q
+from apps.fund_management.image_compression import compress_image_upload
 from apps.fund_management.package_qr_accounts import resolve_qr_account_for_package
 from apps.fund_management.qr_limits import assert_qr_can_accept
 from apps.fund_management.services import get_user_accessible_packages, quote_payin
@@ -64,6 +65,7 @@ def submit_qr_payin(
         )
 
     validate_receipt_file(receipt_file)
+    receipt_file = compress_image_upload(receipt_file)
 
     package = PayInPackage.objects.filter(id=package_id, is_active=True, is_deleted=False).first()
     if not package:

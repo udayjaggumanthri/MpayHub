@@ -1,4 +1,6 @@
 """User-facing views for manual QR pay-in."""
+import mimetypes
+
 from django.http import FileResponse, Http404
 from rest_framework import status
 from rest_framework.decorators import api_view, permission_classes, parser_classes
@@ -79,6 +81,14 @@ def pay_in_qr_receipt_view(request, transaction_id: str):
     if not is_admin and lm.user_id != request.user.id:
         raise Http404
     try:
-        return FileResponse(lm.receipt_image.open('rb'), content_type='image/jpeg')
+        fh = lm.receipt_image.open('rb')
+        name = lm.receipt_image.name.rsplit('/', 1)[-1] if lm.receipt_image.name else 'receipt.jpg'
+        content_type = mimetypes.guess_type(name)[0] or 'image/jpeg'
+        response = FileResponse(fh, content_type=content_type)
+        if request.GET.get('download') in ('1', 'true', 'yes'):
+            if not name.lower().endswith(('.jpg', '.jpeg', '.png', '.webp')):
+                name = f'receipt-{transaction_id}.jpg'
+            response['Content-Disposition'] = f'attachment; filename="{name}"'
+        return response
     except Exception as exc:
         raise Http404 from exc

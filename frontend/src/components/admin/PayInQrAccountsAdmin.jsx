@@ -17,7 +17,10 @@ import {
   FaQrcode,
   FaXmark,
   FaArrowRight,
+  FaDownload,
 } from 'react-icons/fa6';
+import { downloadFromUrl } from '../../utils/downloadFile';
+import { normalizeAssetUrl } from '../../utils/mediaUrl';
 
 const emptyForm = () => ({
   display_name: '',
@@ -92,6 +95,18 @@ const PayInQrAccountsAdmin = () => {
     setQrImage(null);
     setPreview('');
     setModalOpen(true);
+  };
+
+  const handleDownloadQrImage = async (row) => {
+    if (!row?.qr_image_url) return;
+    const safeName = String(row.display_name || 'qr-account')
+      .replace(/[^\w.-]+/g, '-')
+      .replace(/^-+|-+$/g, '') || 'qr-account';
+    try {
+      await downloadFromUrl(normalizeAssetUrl(row.qr_image_url), `${safeName}.png`);
+    } catch {
+      alert('Could not download QR image. Please try again.');
+    }
   };
 
   const openEdit = (row) => {
@@ -288,7 +303,7 @@ const PayInQrAccountsAdmin = () => {
                     <tr key={row.id} className="border-b hover:bg-gray-50 dark:hover:bg-slate-800">
                       <td className="px-5 py-3">
                         {row.qr_image_url ? (
-                          <img src={row.qr_image_url} alt="" className="h-12 w-12 rounded border object-contain bg-white dark:bg-slate-900" />
+                          <img src={normalizeAssetUrl(row.qr_image_url)} alt="" className="h-12 w-12 rounded border object-contain bg-white dark:bg-slate-900" />
                         ) : (
                           <span className="inline-flex h-12 w-12 items-center justify-center rounded border bg-slate-50 dark:bg-slate-800/50 text-slate-400 dark:text-slate-500">
                             <FaQrcode />
@@ -304,6 +319,16 @@ const PayInQrAccountsAdmin = () => {
                       <td className="px-3 py-3 capitalize">{row.status}</td>
                       <td className="px-3 py-3">
                         <div className="flex justify-end gap-2">
+                          {row.qr_image_url ? (
+                            <button
+                              type="button"
+                              onClick={() => handleDownloadQrImage(row)}
+                              className="text-emerald-600 dark:text-emerald-400 hover:text-emerald-800 dark:hover:text-emerald-200"
+                              title="Download QR"
+                            >
+                              <FaDownload />
+                            </button>
+                          ) : null}
                           <button type="button" onClick={() => openEdit(row)} className="text-blue-600 dark:text-blue-400 hover:text-blue-800 dark:hover:text-blue-200" title="Edit">
                             <FaPenToSquare />
                           </button>

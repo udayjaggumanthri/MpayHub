@@ -5,13 +5,16 @@ import Card from '../common/Card';
 import Input from '../common/Input';
 import Button from '../common/Button';
 import LoadingSpinner from '../common/LoadingSpinner';
-import FeedbackModal from '../common/FeedbackModal';
 import AccountAccessBanner from '../common/AccountAccessBanner';
 import MaintenanceModuleLock from '../common/MaintenanceModuleLock';
 import { formatCurrency } from '../../utils/formatters';
 import { useAuth } from '../../context/AuthContext';
 import { isModuleEnabled } from '../../utils/maintenanceMode';
-import { FaQrcode, FaArrowLeft } from 'react-icons/fa6';
+import { FaQrcode, FaArrowLeft, FaDownload } from 'react-icons/fa6';
+import { compressImageFile } from '../../utils/compressImageFile';
+import { downloadFromUrl } from '../../utils/downloadFile';
+import { normalizeAssetUrl } from '../../utils/mediaUrl';
+import { buildQrSubmitReceiptTransaction } from '../reports/payinReceiptFields';
 
 const ACCEPTED_TYPES = ['image/jpeg', 'image/png', 'image/webp'];
 const MAX_BYTES = 5 * 1024 * 1024;
@@ -39,9 +42,9 @@ const QrPayInPage = () => {
   const [paymentDate, setPaymentDate] = useState(() => new Date().toISOString().slice(0, 10));
   const [receipt, setReceipt] = useState(null);
   const [receiptPreview, setReceiptPreview] = useState('');
+  const [receiptCompressing, setReceiptCompressing] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState('');
-  const [successModal, setSuccessModal] = useState({ open: false, txnId: '' });
 
   useEffect(() => {
     if (!contact?.id) {
@@ -110,7 +113,7 @@ const QrPayInPage = () => {
     return () => clearTimeout(t);
   }, [selected?.package_id, amount]);
 
-  const handleReceiptChange = (e) => {
+  const handleReceiptChange = async (e) => {
     const file = e.target.files?.[0];
     setError('');
     if (!file) {
@@ -126,8 +129,30 @@ const QrPayInPage = () => {
       setError('Receipt must be 5 MB or smaller.');
       return;
     }
-    setReceipt(file);
-    setReceiptPreview(URL.createObjectURL(file));
+    setReceiptCompressing(true);
+    try {
+      const compressed = await compressImageFile(file, { maxBytes: 100 * 1024 });
+      setReceipt(compressed);
+      setReceiptPreview(URL.createObjectURL(compressed));
+    } catch (err) {
+      setReceipt(null);
+      setReceiptPreview('');
+      setError(err?.message || 'Could not process receipt image.');
+    } finally {
+      setReceiptCompressing(false);
+    }
+  };
+
+  const handleDownloadQr = async () => {
+    if (!selected?.qr_image_url) return;
+    const safeName = String(selected.name || selected.account_display_name || 'pay-qr')
+      .replace(/[^\w.-]+/g, '-')
+      .replace(/^-+|-+$/g, '') || 'pay-qr';
+    try {
+      await downloadFromUrl(normalizeAssetUrl(selected.qr_image_url), `${safeName}.png`);
+    } catch {
+      setError('Could not download QR image. Please try again.');
+    }
   };
 
   const handleSubmit = async () => {
@@ -167,8 +192,16 @@ const QrPayInPage = () => {
         setError(res.message || 'Could not submit payment proof.');
         return;
       }
-      const txnId = res.data?.load_money?.transaction_id || res.data?.transaction_id || '';
-      setSuccessModal({ open: true, txnId });
+      const loadMoney = res.data?.load_money || {};
+      const receiptTxn = buildQrSubmitReceiptTransaction({
+        loadMoney,
+        contact,
+        amount,
+        quote,
+        selected,
+      });
+      navigate('/reports/payin', { state: { openPayinReceipt: receiptTxn, fromQrSubmit: true } });
+      return;
     } finally {
       setSubmitting(false);
     }
@@ -248,7 +281,7 @@ const QrPayInPage = () => {
                         <div className="flex gap-3">
                           {opt.qr_image_url ? (
                             <img
-                              src={opt.qr_image_url}
+                              src={normalizeAssetUrl(opt.qr_image_url)}
                               alt=""
                               className="h-20 w-20 rounded-lg border bg-white dark:bg-slate-900 object-contain p-1 flex-shrink-0"
                             />
@@ -338,8 +371,13 @@ const QrPayInPage = () => {
                       type="file"
                       accept="image/jpeg,image/png,image/webp"
                       onChange={handleReceiptChange}
+                      disabled={receiptCompressing}
                       className="block w-full text-sm text-gray-600 dark:text-slate-400 file:mr-4 file:rounded-lg file:border-0 file:bg-emerald-600 file:px-4 file:py-2 file:text-sm file:font-semibold file:text-white"
                     />
+                    <p className="text-xs text-gray-500 dark:text-slate-400 mt-1">
+                      Large images are compressed automatically (max ~100 KB).
+                      {receiptCompressing ? ' Compressing…' : ''}
+                    </p>
                     {receiptPreview ? (
                       <img src={receiptPreview} alt="Receipt" className="mt-3 max-h-36 rounded-lg border" />
                     ) : null}
@@ -350,11 +388,23 @@ const QrPayInPage = () => {
                   <div className="flex-1 rounded-xl border-2 border-dashed border-gray-300 dark:border-slate-600 bg-white dark:bg-slate-900 p-6 flex flex-col items-center justify-center min-h-[320px]">
                     <p className="text-lg font-bold text-gray-900 dark:text-slate-100 mb-4 tracking-wide">SCAN &amp; PAY</p>
                     {selected?.qr_image_url ? (
-                      <img
-                        src={selected.qr_image_url}
-                        alt="Scan QR"
-                        className="max-h-64 max-w-full rounded-lg border-2 border-gray-200 dark:border-slate-700 bg-white dark:bg-slate-900 p-3 object-contain"
-                      />
+                      <>
+                        <img
+                          src={normalizeAssetUrl(selected.qr_image_url)}
+                          alt="Scan QR"
+                          className="max-h-64 max-w-full rounded-lg border-2 border-gray-200 dark:border-slate-700 bg-white dark:bg-slate-900 p-3 object-contain"
+                        />
+                        <Button
+                          type="button"
+                          variant="secondary"
+                          size="sm"
+                          icon={FaDownload}
+                          className="mt-4"
+                          onClick={handleDownloadQr}
+                        >
+                          Download QR
+                        </Button>
+                      </>
                     ) : (
                       <FaQrcode className="text-gray-300" size={120} />
                     )}
@@ -408,20 +458,6 @@ const QrPayInPage = () => {
           )}
         </Card>
       </MaintenanceModuleLock>
-
-      <FeedbackModal
-        open={successModal.open}
-        onClose={() => {
-          setSuccessModal({ open: false, txnId: '' });
-          navigate('/fund-management/load-money', { replace: true });
-        }}
-        title="Submitted for review"
-        description={`Your QR payment proof was submitted successfully.\n\nReference: ${successModal.txnId || '—'}\n\nTrack status under Reports → Pay In.`}
-        primaryAction={{
-          label: 'Open Pay In report',
-          onClick: () => navigate('/reports/payin'),
-        }}
-      />
     </div>
   );
 };
