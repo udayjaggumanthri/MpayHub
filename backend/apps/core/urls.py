@@ -7,4 +7,5 @@ app_name = 'core'
 
 urlpatterns = [
     path('maintenance-status/', views.maintenance_status_view, name='maintenance-status'),
+    path('appearance/', views.appearance_status_view, name='appearance-status'),
 ]

@@ -9,6 +9,14 @@ from django.db.models import Count, QuerySet, Sum
 
 from apps.authentication.models import User
 from apps.fund_management.models import LoadMoney, Payout
+from apps.fund_management.payin_rail_labels import (
+    payin_collection_method_label,
+    payin_gateway_provider_name,
+    payin_is_qr_rail,
+    payin_rail_type_label,
+)
+from apps.fund_management.payin_receipt_context import build_payin_receipt_context
+from apps.fund_management.serializers import payin_payment_mode_display
 from apps.bbps.models import BillPayment
 from apps.transactions.agent_snapshot import (
     agent_row_from_user,
@@ -336,7 +344,7 @@ def payin_rows_from_load_money(request, items: list[LoadMoney]) -> list[dict[str
     for lm in items:
         actor = lm.user
         gateway_meta = lm.payment_meta if isinstance(lm.payment_meta, dict) else {}
-        mode = (lm.payment_method or '').replace('_', ' ') or '—'
+        mode = payin_payment_mode_display(lm)
         customer_name = (lm.customer_name or '').strip()
         customer_email = (lm.customer_email or '').strip()
         customer_phone = (lm.customer_phone or '').strip()
@@ -353,15 +361,11 @@ def payin_rows_from_load_money(request, items: list[LoadMoney]) -> list[dict[str
         if pkg:
             package_code = str(getattr(pkg, 'code', '') or '').strip()
             package_display_name = str(getattr(pkg, 'display_name', '') or '').strip()
-        selected_pg = getattr(lm, 'payment_gateway', None)
-        if selected_pg is not None and getattr(selected_pg, 'name', None):
-            payment_gateway_name = str(selected_pg.name).strip()
-        if not payment_gateway_name and pkg:
-            pg = getattr(pkg, 'payment_gateway', None)
-            if pg is not None and getattr(pg, 'name', None):
-                payment_gateway_name = str(pg.name).strip()
-        if not payment_gateway_name and (lm.gateway or '').strip():
-            payment_gateway_name = str(lm.gateway).replace('_', ' ').strip().title()
+        if payin_is_qr_rail(lm):
+            payment_gateway_name = payin_collection_method_label(lm)
+        else:
+            payment_gateway_name = payin_gateway_provider_name(lm)
+        rail_type_label = payin_rail_type_label(lm)
 
         balances = balance_fields_for_key(balance_map, str(lm.transaction_id or ''), int(lm.user_id))
         opening_balance = balances['opening_balance']
@@ -392,6 +396,16 @@ def payin_rows_from_load_money(request, items: list[LoadMoney]) -> list[dict[str
         if getattr(viewer, 'role', None) != 'Admin':
             fee_breakdown_snapshot = None
 
+        qr_account_name = ''
+        qr_acct = getattr(lm, 'pay_in_qr_account', None)
+        if qr_acct is not None:
+            qr_account_name = str(getattr(qr_acct, 'display_name', '') or '').strip()
+        collection_rail = (getattr(lm, 'collection_rail', None) or 'gateway').strip().lower()
+        utr_val = (getattr(lm, 'utr', None) or '').strip()
+        submitted_amount = getattr(lm, 'submitted_amount', None)
+        reject_reason = (getattr(lm, 'reject_reason', None) or lm.failure_reason or '').strip()
+        receipt_details = build_payin_receipt_context(lm, request=request)
+
         tid = lm.transaction_id
         out.append(
             {
@@ -409,6 +423,14 @@ def payin_rows_from_load_money(request, items: list[LoadMoney]) -> list[dict[str
                 'service_charge': money_str(lm.charge),
                 'net_credit': money_str(lm.net_credit),
                 'status': lm.status,
+                'collection_rail': collection_rail,
+                'rail_type_label': rail_type_label,
+                'utr': utr_val,
+                'qr_account_name': qr_account_name,
+                'submitted_amount': money_str(submitted_amount) if submitted_amount is not None else '',
+                'reject_reason': reject_reason,
+                'receipt_details': receipt_details,
+                'proof_receipt_url': receipt_details.get('proof_receipt_url') or '',
                 'reference': gateway_transaction_id or provider_payment_id or '',
                 'provider_order_id': provider_order_id,
                 'provider_payment_id': provider_payment_id,

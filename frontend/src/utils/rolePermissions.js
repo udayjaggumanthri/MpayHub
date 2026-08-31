@@ -44,18 +44,39 @@ export const roleMenus = {
       icon: 'profile',
     },
     {
+      name: 'Appearance & theme',
+      path: '/admin/appearance',
+      icon: 'profile',
+    },
+    {
       name: 'Wallet Adjustments',
       path: '/admin/wallet-adjustments',
       icon: 'profile',
     },
     {
-      name: 'Gateways & pay-in',
+      name: 'Pay-in setup',
       path: '/admin/gateways',
-      icon: 'profile',
+      icon: 'payin',
       submenu: [
         { name: 'API Master', path: '/admin/api-master' },
         { name: 'Payment gateways', path: '/admin/gateways' },
         { name: 'Pay-in packages', path: '/admin/pay-in-packages' },
+      ],
+    },
+    {
+      name: 'Manual QR',
+      path: '/admin/pay-in-qr-operations',
+      icon: 'qr',
+      submenu: [
+        { name: 'Operations queue', path: '/admin/pay-in-qr-operations' },
+        { name: 'Collection accounts', path: '/admin/pay-in-qr-accounts' },
+      ],
+    },
+    {
+      name: 'Notifications',
+      path: '/admin/smtp-settings',
+      icon: 'notifications',
+      submenu: [
         { name: 'SMTP settings', path: '/admin/smtp-settings' },
         { name: 'Email notifications', path: '/admin/email-notifications' },
         { name: 'SMS settings', path: '/admin/sms-settings' },

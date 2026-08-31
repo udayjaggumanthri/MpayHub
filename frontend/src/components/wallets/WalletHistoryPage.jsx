@@ -82,55 +82,55 @@ const WalletHistoryPage = () => {
 
   return (
     <div className="space-y-6">
-      <div className="rounded-xl border border-gray-200 bg-white p-6 shadow-sm">
-        <h2 className="mb-2 text-2xl font-bold text-gray-900">{title}</h2>
-        <p className="text-sm text-gray-600">
+      <div className="rounded-xl border border-gray-200 dark:border-slate-700 bg-white dark:bg-slate-900 p-6 shadow-sm">
+        <h2 className="mb-2 text-2xl font-bold text-gray-900 dark:text-slate-100">{title}</h2>
+        <p className="text-sm text-gray-600 dark:text-slate-400">
           Detailed ledger of credits/debits with references and business descriptions.
         </p>
       </div>
 
-      <div className="rounded-xl border border-gray-200 bg-white p-4 shadow-sm">
+      <div className="rounded-xl border border-gray-200 dark:border-slate-700 bg-white dark:bg-slate-900 p-4 shadow-sm">
         {loading ? (
-          <div className="py-12 text-center text-gray-600">Loading history…</div>
+          <div className="py-12 text-center text-gray-600 dark:text-slate-400">Loading history…</div>
         ) : errorMessage ? (
-          <div className="py-12 text-center text-red-600">{errorMessage}</div>
+          <div className="py-12 text-center text-red-600 dark:text-red-400">{errorMessage}</div>
         ) : rows.length === 0 ? (
-          <div className="py-12 text-center text-gray-500">No ledger entries found.</div>
+          <div className="py-12 text-center text-gray-500 dark:text-slate-400">No ledger entries found.</div>
         ) : (
           <div className="overflow-x-auto">
             <table className="min-w-full border-collapse">
               <thead>
-                <tr className="border-b border-gray-200 bg-gray-50">
-                  <th className="px-4 py-3 text-left text-sm font-semibold text-gray-700">Date</th>
-                  <th className="px-4 py-3 text-left text-sm font-semibold text-gray-700">Type</th>
-                  <th className="px-4 py-3 text-right text-sm font-semibold text-gray-700">Amount</th>
-                  <th className="px-4 py-3 text-left text-sm font-semibold text-gray-700">Reference</th>
-                  <th className="px-4 py-3 text-left text-sm font-semibold text-gray-700">Description</th>
-                  <th className="px-4 py-3 text-left text-sm font-semibold text-gray-700">Source</th>
+                <tr className="border-b border-gray-200 dark:border-slate-700 bg-gray-50 dark:bg-slate-800/50">
+                  <th className="px-4 py-3 text-left text-sm font-semibold text-gray-700 dark:text-slate-300">Date</th>
+                  <th className="px-4 py-3 text-left text-sm font-semibold text-gray-700 dark:text-slate-300">Type</th>
+                  <th className="px-4 py-3 text-right text-sm font-semibold text-gray-700 dark:text-slate-300">Amount</th>
+                  <th className="px-4 py-3 text-left text-sm font-semibold text-gray-700 dark:text-slate-300">Reference</th>
+                  <th className="px-4 py-3 text-left text-sm font-semibold text-gray-700 dark:text-slate-300">Description</th>
+                  <th className="px-4 py-3 text-left text-sm font-semibold text-gray-700 dark:text-slate-300">Source</th>
                 </tr>
               </thead>
               <tbody>
                 {rows.map((r) => (
-                  <tr key={r.id} className="border-b border-gray-100 hover:bg-gray-50">
-                    <td className="px-4 py-3 text-sm text-gray-700">{formatReportDateTime(r.created_at)}</td>
-                    <td className="px-4 py-3 text-sm font-medium text-gray-800">
+                  <tr key={r.id} className="border-b border-gray-100 dark:border-slate-800 hover:bg-gray-50 dark:hover:bg-slate-800">
+                    <td className="px-4 py-3 text-sm text-gray-700 dark:text-slate-300">{formatReportDateTime(r.created_at)}</td>
+                    <td className="px-4 py-3 text-sm font-medium text-gray-800 dark:text-slate-200">
                       {String(r.transaction_type || '').toUpperCase()}
                     </td>
                     <td
                       className={`px-4 py-3 text-right text-sm font-semibold ${
-                        r.transaction_type === 'credit' ? 'text-green-700' : 'text-red-700'
+                        r.transaction_type === 'credit' ? 'text-green-700 dark:text-green-300' : 'text-red-700 dark:text-red-300'
                       }`}
                     >
                       {formatCurrency(parseFloat(r.amount || 0))}
                     </td>
-                    <td className="px-4 py-3 text-sm text-gray-700">{r.reference || '—'}</td>
-                    <td className="px-4 py-3 text-sm text-gray-700">
+                    <td className="px-4 py-3 text-sm text-gray-700 dark:text-slate-300">{r.reference || '—'}</td>
+                    <td className="px-4 py-3 text-sm text-gray-700 dark:text-slate-300">
                       <span className="block">{r.description || '—'}</span>
                       {r.service ? (
-                        <span className="mt-0.5 block text-xs text-gray-500">Service: {r.service}</span>
+                        <span className="mt-0.5 block text-xs text-gray-500 dark:text-slate-400">Service: {r.service}</span>
                       ) : null}
                     </td>
-                    <td className="px-4 py-3 text-sm text-gray-700">
+                    <td className="px-4 py-3 text-sm text-gray-700 dark:text-slate-300">
                       {r.source_user_code
                         ? `${r.source_name || r.source_user_code} (${r.source_role || '—'})`
                         : '—'}
@@ -147,18 +147,18 @@ const WalletHistoryPage = () => {
             type="button"
             disabled={page <= 1 || loading}
             onClick={() => setPage((p) => Math.max(1, p - 1))}
-            className="rounded border border-gray-300 px-3 py-1.5 text-sm text-gray-700 disabled:opacity-50"
+            className="rounded border border-gray-300 dark:border-slate-600 px-3 py-1.5 text-sm text-gray-700 dark:text-slate-300 disabled:opacity-50"
           >
             Previous
           </button>
-          <span className="text-sm text-gray-600">
+          <span className="text-sm text-gray-600 dark:text-slate-400">
             Page {page} of {totalPages}
           </span>
           <button
             type="button"
             disabled={page >= totalPages || loading}
             onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
-            className="rounded border border-gray-300 px-3 py-1.5 text-sm text-gray-700 disabled:opacity-50"
+            className="rounded border border-gray-300 dark:border-slate-600 px-3 py-1.5 text-sm text-gray-700 dark:text-slate-300 disabled:opacity-50"
           >
             Next
           </button>

@@ -32,7 +32,13 @@ def _pct_amount(gross: Decimal, pct_val) -> Decimal:
     return money_q(gross * Decimal(str(pct_val)) / Decimal('100'))
 
 
-def _compute_payin_distribution(package: PayInPackage, gross: Decimal, payer_user: Optional[User] = None) -> dict:
+def _compute_payin_distribution(
+    package: PayInPackage,
+    gross: Decimal,
+    payer_user: Optional[User] = None,
+    *,
+    gateway_fee_pct: Optional[Decimal] = None,
+) -> dict:
     """
     Fee slices on gross: gateway + admin (incl. absorbed missing chain + package retailer %) + SD/MD/D payouts.
 
@@ -53,7 +59,8 @@ def _compute_payin_distribution(package: PayInPackage, gross: Decimal, payer_use
         )
 
     pct_base = Decimal('100')
-    gw = _pct_amount(gross, package.gateway_fee_pct)
+    gw_pct = Decimal(str(gateway_fee_pct)) if gateway_fee_pct is not None else Decimal(str(package.gateway_fee_pct))
+    gw = _pct_amount(gross, gw_pct)
     ad_base = _pct_amount(gross, package.admin_pct)
     sd_full = _pct_amount(gross, package.super_distributor_pct)
     md_full = _pct_amount(gross, package.master_distributor_pct)
@@ -101,7 +108,7 @@ def _compute_payin_distribution(package: PayInPackage, gross: Decimal, payer_use
         {
             'key': 'gateway_fee',
             'label': 'Gateway fee',
-            'pct': str(package.gateway_fee_pct),
+            'pct': str(gw_pct),
             'amount': str(gw),
         },
     ]
@@ -194,3 +201,246 @@ def _compute_payin_distribution(package: PayInPackage, gross: Decimal, payer_use
         'dt_user': assign.get('Distributor') if payer_user else None,
         'assign': assign if payer_user else {r: None for r in CHAIN_COMMISSION_ROLES},
     }
+
+
+def compute_payin_for_chain_presence(
+    package: PayInPackage,
+    gross: Decimal,
+    *,
+    gateway_fee_pct: Optional[Decimal] = None,
+    has_super_distributor: bool = False,
+    has_master_distributor: bool = False,
+    has_distributor: bool = False,
+) -> dict:
+    """
+    Admin preview helper: simulate hierarchy roll-up without real User rows.
+    Roll-up order: D → MD → SD → Admin.
+    """
+    gross = money_q(Decimal(str(gross)))
+    gw_pct = Decimal(str(gateway_fee_pct)) if gateway_fee_pct is not None else Decimal(str(package.gateway_fee_pct))
+    gw = _pct_amount(gross, gw_pct)
+    ad_base = _pct_amount(gross, package.admin_pct)
+    sd_full = _pct_amount(gross, package.super_distributor_pct)
+    md_full = _pct_amount(gross, package.master_distributor_pct)
+    dt_full = _pct_amount(gross, package.distributor_pct)
+    retailer_absorbed = _pct_amount(gross, package.retailer_commission_pct)
+
+    rollup_steps: list[str] = []
+    rem = money_q(Decimal('0'))
+
+    if has_distributor:
+        dt_p = dt_full
+    else:
+        dt_p = money_q(Decimal('0'))
+        rem = money_q(rem + dt_full)
+        if dt_full > 0:
+            rollup_steps.append(
+                f'Distributor slice ({package.distributor_pct}%) rolls up to Master Distributor'
+            )
+
+    if has_master_distributor:
+        md_p = money_q(md_full + rem)
+        if rem > 0 and md_full > 0:
+            rollup_steps.append('Rolled-up Distributor amount merged into Master Distributor payout')
+        elif rem > 0:
+            rollup_steps.append('Distributor slice absorbed by Master Distributor (MD present)')
+        rem = money_q(Decimal('0'))
+    else:
+        md_p = money_q(Decimal('0'))
+        rem = money_q(rem + md_full)
+        if md_full > 0 or (not has_distributor and dt_full > 0):
+            rollup_steps.append(
+                f'Master Distributor slice ({package.master_distributor_pct}%) rolls up to Super Distributor'
+            )
+
+    if has_super_distributor:
+        sd_p = money_q(sd_full + rem)
+        if rem > 0 and sd_full > 0:
+            rollup_steps.append('Rolled-up MD/D amounts merged into Super Distributor payout')
+        elif rem > 0:
+            rollup_steps.append('Missing upline slices absorbed by Super Distributor (SD present)')
+        rem = money_q(Decimal('0'))
+    else:
+        sd_p = money_q(Decimal('0'))
+        rem = money_q(rem + sd_full)
+        if sd_full > 0 or rem > sd_full:
+            rollup_steps.append(
+                f'Super Distributor slice ({package.super_distributor_pct}%) rolls up to Admin'
+            )
+
+    absorbed_to_admin = money_q(rem)
+    if absorbed_to_admin > 0:
+        rollup_steps.append(
+            f'₹{absorbed_to_admin} of missing upline commission absorbed into Admin share'
+        )
+
+    ad_total = money_q(ad_base + retailer_absorbed + absorbed_to_admin)
+    hierarchy_adjusted = not (has_super_distributor and has_master_distributor and has_distributor) or absorbed_to_admin > 0
+
+    total_deduction = money_q(gw + ad_total + sd_p + md_p + dt_p)
+    net_credit = money_q(gross - total_deduction)
+
+    lines = [
+        {'key': 'gateway_fee', 'label': 'Gateway fee', 'pct': str(gw_pct), 'amount': str(gw)},
+    ]
+    eff_admin_pct = (ad_total / gross * Decimal('100')) if gross else Decimal('0')
+    admin_line = {
+        'key': 'admin',
+        'label': 'Admin share',
+        'pct': str(eff_admin_pct),
+        'amount': str(ad_total),
+    }
+    if hierarchy_adjusted:
+        admin_line['label'] = 'Admin share (incl. absorbed upline shares)'
+        admin_line['note'] = (
+            'Missing upline roles: their package % rolls up to the nearest present role; '
+            'remainder is included in Admin.'
+        )
+    lines.append(admin_line)
+
+    role_payouts = [
+        ('Super Distributor', sd_p, package.super_distributor_pct, has_super_distributor),
+        ('Master Distributor', md_p, package.master_distributor_pct, has_master_distributor),
+        ('Distributor', dt_p, package.distributor_pct, has_distributor),
+    ]
+    assignments = {}
+    for role, amount, pct_val, present in role_payouts:
+        if present and amount > 0:
+            assignments[role] = {'name': role, 'amount': str(amount), 'status': 'paid'}
+            lines.append({
+                'key': role.lower().replace(' ', '_'),
+                'label': role,
+                'pct': str(pct_val),
+                'amount': str(amount),
+            })
+        elif amount > 0:
+            assignments[role] = {'name': None, 'amount': str(amount), 'status': 'rolls_up'}
+        else:
+            assignments[role] = {'name': None, 'amount': '0.00', 'status': 'rolls_up'}
+
+    return {
+        'lines': lines,
+        'total_deduction': str(total_deduction),
+        'net_credit': str(net_credit),
+        'hierarchy': {
+            'assignments': assignments,
+            'absorbed_to_admin': str(absorbed_to_admin),
+            'hierarchy_adjusted': hierarchy_adjusted,
+            'rollup_steps': rollup_steps,
+        },
+    }
+
+
+PREVIEW_HIERARCHY_SCENARIOS = (
+    {
+        'id': 'generic',
+        'title': 'No payer (theoretical)',
+        'description': (
+            'No retailer selected. Shows full SD, MD, and D slices at package % — '
+            'useful as a baseline before hierarchy roll-up.'
+        ),
+        'mode': 'no_payer',
+    },
+    {
+        'id': 'admin_direct_retailer',
+        'title': 'Admin → Retailer direct',
+        'description': (
+            'Retailer onboarded directly under Admin with no Super Distributor, Master Distributor, '
+            'or Distributor in upline. All chain slices roll up to Admin.'
+        ),
+        'mode': 'chain',
+        'has_super_distributor': False,
+        'has_master_distributor': False,
+        'has_distributor': False,
+    },
+    {
+        'id': 'full_chain',
+        'title': 'Full chain (SD + MD + D)',
+        'description': 'Retailer has Super Distributor, Master Distributor, and Distributor in upline. Each role receives its slice.',
+        'mode': 'chain',
+        'has_super_distributor': True,
+        'has_master_distributor': True,
+        'has_distributor': True,
+    },
+    {
+        'id': 'missing_distributor',
+        'title': 'Missing Distributor',
+        'description': 'SD and MD exist but no Distributor. D slice rolls to MD.',
+        'mode': 'chain',
+        'has_super_distributor': True,
+        'has_master_distributor': True,
+        'has_distributor': False,
+    },
+    {
+        'id': 'missing_md_and_d',
+        'title': 'Only Super Distributor',
+        'description': 'Only SD in upline. MD and D slices roll up to SD, then remainder to Admin if needed.',
+        'mode': 'chain',
+        'has_super_distributor': True,
+        'has_master_distributor': False,
+        'has_distributor': False,
+    },
+)
+
+
+def build_preview_hierarchy_scenarios(
+    package: PayInPackage,
+    gross: Decimal,
+    *,
+    gateway_fee_pct: Optional[Decimal] = None,
+) -> list[dict]:
+    """Return admin education scenarios for calculation preview."""
+    out = []
+    for spec in PREVIEW_HIERARCHY_SCENARIOS:
+        if spec['mode'] == 'no_payer':
+            dist = _compute_payin_distribution(package, gross, None, gateway_fee_pct=gateway_fee_pct)
+            out.append({
+                'id': spec['id'],
+                'title': spec['title'],
+                'description': spec['description'],
+                'lines': dist['lines'],
+                'total_deduction': str(dist['total_deduction']),
+                'net_credit': str(dist['net_credit']),
+                'hierarchy': {
+                    'assignments': {
+                        'Super Distributor': {
+                            'name': 'Theoretical SD',
+                            'amount': str(dist['sd_payout']),
+                            'status': 'theoretical',
+                        },
+                        'Master Distributor': {
+                            'name': 'Theoretical MD',
+                            'amount': str(dist['md_payout']),
+                            'status': 'theoretical',
+                        },
+                        'Distributor': {
+                            'name': 'Theoretical D',
+                            'amount': str(dist['dt_payout']),
+                            'status': 'theoretical',
+                        },
+                    },
+                    'absorbed_to_admin': '0.00',
+                    'hierarchy_adjusted': False,
+                    'rollup_steps': ['No payer — each role shown at full package %.'],
+                },
+            })
+            continue
+
+        result = compute_payin_for_chain_presence(
+            package,
+            gross,
+            gateway_fee_pct=gateway_fee_pct,
+            has_super_distributor=spec['has_super_distributor'],
+            has_master_distributor=spec['has_master_distributor'],
+            has_distributor=spec['has_distributor'],
+        )
+        out.append({
+            'id': spec['id'],
+            'title': spec['title'],
+            'description': spec['description'],
+            'lines': result['lines'],
+            'total_deduction': result['total_deduction'],
+            'net_credit': result['net_credit'],
+            'hierarchy': result['hierarchy'],
+        })
+    return out

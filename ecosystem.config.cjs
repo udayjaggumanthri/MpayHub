@@ -38,7 +38,7 @@ module.exports = {
       cwd: path.join(root, 'frontend'),
       script: serveMain,
       interpreter: 'node',
-      args: ['-s', 'build', '-l', '3001'],
+      args: ['-s', 'build', '-l', 'tcp://127.0.0.1:3002'],
       env: {
         NODE_ENV: 'production',
       },

@@ -24,7 +24,7 @@ const Table = ({
       <div className="flex items-center justify-center py-12">
         <div className="text-center">
           <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600 mx-auto"></div>
-          <p className="mt-4 text-gray-600">Loading...</p>
+          <p className="mt-4 text-gray-600 dark:text-slate-400">Loading...</p>
         </div>
       </div>
     );
@@ -32,23 +32,23 @@ const Table = ({
 
   if (!data || data.length === 0) {
     return (
-      <div className="text-center py-12 text-gray-500">
+      <div className="text-center py-12 text-gray-500 dark:text-slate-400">
         <p>{emptyMessage}</p>
       </div>
     );
   }
 
   return (
-    <div className={`overflow-x-auto rounded-lg border border-gray-200 ${className}`}>
-      <table className="min-w-full divide-y divide-gray-200 bg-white">
-        <thead className="bg-gray-50">
+    <div className={`overflow-x-auto rounded-lg border border-gray-200 dark:border-slate-700 ${className}`}>
+      <table className="min-w-full divide-y divide-gray-200 dark:divide-slate-700 bg-white dark:bg-slate-900">
+        <thead className="bg-gray-50 dark:bg-slate-800/50">
           <tr>
             {columns.map((column, index) => (
               <th
                 key={column.key || index}
                 className={`
-                  px-3 sm:px-4 md:px-6 py-3 text-left text-xs font-semibold text-gray-700 uppercase tracking-wider
-                  ${column.sortable !== false && onSort ? 'cursor-pointer hover:bg-gray-100' : ''}
+                  px-3 sm:px-4 md:px-6 py-3 text-left text-xs font-semibold text-gray-700 dark:text-slate-300 uppercase tracking-wider
+                  ${column.sortable !== false && onSort ? 'cursor-pointer hover:bg-gray-100 dark:hover:bg-slate-700' : ''}
                   ${column.align === 'right' ? 'text-right' : column.align === 'center' ? 'text-center' : 'text-left'}
                   ${column.className || ''}
                 `}
@@ -62,15 +62,15 @@ const Table = ({
                       <FiArrowUp
                         className={`h-3 w-3 ${
                           sortColumn === column.key && sortDirection === 'asc'
-                            ? 'text-blue-600'
-                            : 'text-gray-400'
+                            ? 'text-blue-600 dark:text-blue-400'
+                            : 'text-gray-400 dark:text-slate-500'
                         }`}
                       />
                       <FiArrowDown
                         className={`h-3 w-3 -mt-1 ${
                           sortColumn === column.key && sortDirection === 'desc'
-                            ? 'text-blue-600'
-                            : 'text-gray-400'
+                            ? 'text-blue-600 dark:text-blue-400'
+                            : 'text-gray-400 dark:text-slate-500'
                         }`}
                       />
                     </span>
@@ -80,12 +80,12 @@ const Table = ({
             ))}
           </tr>
         </thead>
-        <tbody className="bg-white divide-y divide-gray-200">
+        <tbody className="bg-white dark:bg-slate-900 divide-y divide-gray-200 dark:divide-slate-700">
           {data.map((row, rowIndex) => (
             <tr
               key={row.id || rowIndex}
               className={`
-                hover:bg-gray-50 transition-colors
+                hover:bg-gray-50 dark:hover:bg-slate-800 transition-colors
                 ${onRowClick ? 'cursor-pointer' : ''}
                 ${rowClassName ? rowClassName(row, rowIndex) : ''}
               `}

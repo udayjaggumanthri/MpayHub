@@ -11,13 +11,13 @@ import {
 } from 'react-icons/fa6';
 
 const moduleColors = {
-  auth: 'bg-violet-100 text-violet-800',
-  onboarding: 'bg-sky-100 text-sky-800',
-  kyc: 'bg-emerald-100 text-emerald-800',
-  payin: 'bg-amber-100 text-amber-800',
-  payout: 'bg-orange-100 text-orange-800',
-  bbps: 'bg-indigo-100 text-indigo-800',
-  complaints: 'bg-rose-100 text-rose-800',
+  auth: 'bg-violet-100 dark:bg-violet-900/40 text-violet-800 dark:text-violet-300',
+  onboarding: 'bg-sky-100 dark:bg-sky-900/40 text-sky-800 dark:text-sky-300',
+  kyc: 'bg-emerald-100 dark:bg-emerald-900/40 text-emerald-800 dark:text-emerald-300',
+  payin: 'bg-amber-100 dark:bg-amber-900/40 text-amber-800 dark:text-amber-300',
+  payout: 'bg-orange-100 dark:bg-orange-900/40 text-orange-800 dark:text-orange-300',
+  bbps: 'bg-indigo-100 dark:bg-indigo-900/40 text-indigo-800 dark:text-indigo-300',
+  complaints: 'bg-rose-100 dark:bg-rose-900/40 text-rose-800 dark:text-rose-300',
 };
 
 const EmailTemplateEditor = () => {
@@ -129,9 +129,9 @@ const EmailTemplateEditor = () => {
 
   if (!eventKey) {
     return (
-      <div className="max-w-3xl mx-auto p-8 text-center text-gray-500">
+      <div className="max-w-3xl mx-auto p-8 text-center text-gray-500 dark:text-slate-400">
         Invalid template link.{' '}
-        <Link to="/admin/email-notifications" className="text-blue-600 underline">
+        <Link to="/admin/email-notifications" className="text-blue-600 dark:text-blue-400 underline">
           Back to list
         </Link>
       </div>
@@ -141,8 +141,8 @@ const EmailTemplateEditor = () => {
   if (loading) {
     return (
       <div className="max-w-5xl mx-auto animate-pulse space-y-4 p-6">
-        <div className="h-8 bg-gray-200 rounded w-1/3" />
-        <div className="h-64 bg-gray-100 rounded-xl" />
+        <div className="h-8 bg-gray-200 dark:bg-slate-700 rounded w-1/3" />
+        <div className="h-64 bg-gray-100 dark:bg-slate-800 rounded-xl" />
       </div>
     );
   }
@@ -152,47 +152,47 @@ const EmailTemplateEditor = () => {
       <div className="max-w-3xl mx-auto space-y-4 p-6">
         <Link
           to="/admin/email-notifications"
-          className="inline-flex items-center gap-2 text-sm text-gray-600 hover:text-gray-900"
+          className="inline-flex items-center gap-2 text-sm text-gray-600 dark:text-slate-400 hover:text-gray-900 dark:hover:text-slate-100"
         >
           <FaArrowLeft /> Back
         </Link>
-        <div className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-red-800 text-sm">
+        <div className="rounded-xl border border-red-200 dark:border-red-800 bg-red-50 dark:bg-red-950/40 px-4 py-3 text-red-800 dark:text-red-300 text-sm">
           {msg.text || 'Template not found.'}
         </div>
       </div>
     );
   }
 
-  const modClass = moduleColors[template.module] || 'bg-gray-100 text-gray-700';
+  const modClass = moduleColors[template.module] || 'bg-gray-100 dark:bg-slate-800 text-gray-700 dark:text-slate-300';
 
   return (
     <div className="max-w-6xl mx-auto pb-12">
       {/* Gmail-style top bar */}
-      <div className="sticky top-0 z-20 -mx-4 px-4 py-3 mb-6 bg-white/95 backdrop-blur border-b border-gray-200 shadow-sm">
+      <div className="sticky top-0 z-20 -mx-4 px-4 py-3 mb-6 bg-white/95 dark:bg-slate-900/95 backdrop-blur border-b border-gray-200 dark:border-slate-700 shadow-sm">
         <div className="flex flex-wrap items-center justify-between gap-3">
           <div className="flex items-center gap-3 min-w-0">
             <Link
               to="/admin/email-notifications"
-              className="flex-shrink-0 p-2 rounded-full hover:bg-gray-100 text-gray-600"
+              className="flex-shrink-0 p-2 rounded-full hover:bg-gray-100 dark:hover:bg-slate-700 text-gray-600 dark:text-slate-400"
               title="Back"
             >
               <FaArrowLeft className="w-4 h-4" />
             </Link>
             <div className="min-w-0">
               <div className="flex items-center gap-2 flex-wrap">
-                <h1 className="text-lg font-semibold text-gray-900 truncate">{template.label}</h1>
+                <h1 className="text-lg font-semibold text-gray-900 dark:text-slate-100 truncate">{template.label}</h1>
                 <span className={`text-[10px] font-semibold uppercase tracking-wider px-2 py-0.5 rounded-full ${modClass}`}>
                   {template.module}
                 </span>
               </div>
-              <p className="text-xs text-gray-500 font-mono truncate">{eventKey}</p>
+              <p className="text-xs text-gray-500 dark:text-slate-400 font-mono truncate">{eventKey}</p>
             </div>
           </div>
           <div className="flex items-center gap-2">
-            <label className="flex items-center gap-2 text-sm text-gray-700 mr-2 cursor-pointer">
+            <label className="flex items-center gap-2 text-sm text-gray-700 dark:text-slate-300 mr-2 cursor-pointer">
               <input
                 type="checkbox"
-                className="rounded border-gray-300 text-blue-600 focus:ring-blue-500"
+                className="rounded border-gray-300 dark:border-slate-600 text-blue-600 dark:text-blue-400 focus:ring-blue-500"
                 checked={!!template.is_enabled}
                 onChange={(e) => setTemplate((p) => ({ ...p, is_enabled: e.target.checked }))}
               />
@@ -202,7 +202,7 @@ const EmailTemplateEditor = () => {
               type="button"
               disabled={saving}
               onClick={() => navigate('/admin/email-notifications')}
-              className="px-3 py-2 text-sm rounded-lg border border-gray-300 hover:bg-gray-50"
+              className="px-3 py-2 text-sm rounded-lg border border-gray-300 dark:border-slate-600 hover:bg-gray-50 dark:hover:bg-slate-800"
             >
               Discard
             </button>
@@ -220,7 +220,7 @@ const EmailTemplateEditor = () => {
       </div>
 
       {!smtpActive && (
-        <div className="mb-4 flex items-start gap-2 text-sm border rounded-xl px-4 py-3 bg-amber-50 border-amber-200 text-amber-900">
+        <div className="mb-4 flex items-start gap-2 text-sm border rounded-xl px-4 py-3 bg-amber-50 dark:bg-amber-950/40 border-amber-200 dark:border-amber-800 text-amber-900 dark:text-amber-300">
           <FaCircleInfo className="w-4 h-4 mt-0.5 flex-shrink-0" />
           <span>
             No active SMTP profile.{' '}
@@ -236,10 +236,10 @@ const EmailTemplateEditor = () => {
         <div
           className={`mb-4 text-sm border rounded-xl px-4 py-3 ${
             msg.type === 'success'
-              ? 'bg-green-50 border-green-200 text-green-800'
+              ? 'bg-green-50 dark:bg-green-950/40 border-green-200 dark:border-green-800 text-green-800 dark:text-green-300'
               : msg.type === 'error'
-                ? 'bg-red-50 border-red-200 text-red-800'
-                : 'bg-blue-50 border-blue-200 text-blue-800'
+                ? 'bg-red-50 dark:bg-red-950/40 border-red-200 dark:border-red-800 text-red-800 dark:text-red-300'
+                : 'bg-blue-50 dark:bg-blue-950/40 border-blue-200 dark:border-blue-800 text-blue-800 dark:text-blue-300'
           }`}
         >
           {msg.text}
@@ -248,13 +248,13 @@ const EmailTemplateEditor = () => {
 
       <div className="grid grid-cols-1 lg:grid-cols-[1fr_280px] gap-6">
         {/* Compose column — Gmail layout */}
-        <div className="rounded-2xl border border-gray-200 bg-white shadow-sm overflow-hidden">
-          <div className="px-4 py-3 border-b border-gray-100 bg-gradient-to-r from-gray-50 to-white">
-            <p className="text-xs font-medium text-gray-500 uppercase tracking-wide">Compose</p>
+        <div className="rounded-2xl border border-gray-200 dark:border-slate-700 bg-white dark:bg-slate-900 shadow-sm overflow-hidden">
+          <div className="px-4 py-3 border-b border-gray-100 dark:border-slate-800 bg-gradient-to-r from-gray-50 dark:from-slate-900 to-white dark:to-slate-900">
+            <p className="text-xs font-medium text-gray-500 dark:text-slate-400 uppercase tracking-wide">Compose</p>
           </div>
 
-          <div className="px-4 py-3 border-b border-gray-100 flex items-center gap-3">
-            <span className="text-sm font-medium text-gray-500 w-14 flex-shrink-0">Subject</span>
+          <div className="px-4 py-3 border-b border-gray-100 dark:border-slate-800 flex items-center gap-3">
+            <span className="text-sm font-medium text-gray-500 dark:text-slate-400 w-14 flex-shrink-0">Subject</span>
             <input
               ref={subjectRef}
               type="text"
@@ -273,13 +273,13 @@ const EmailTemplateEditor = () => {
             />
           </div>
 
-          <details className="border-t border-gray-100 group">
-            <summary className="px-4 py-2.5 text-sm text-gray-600 cursor-pointer hover:bg-gray-50 select-none">
+          <details className="border-t border-gray-100 dark:border-slate-800 group">
+            <summary className="px-4 py-2.5 text-sm text-gray-600 dark:text-slate-400 cursor-pointer hover:bg-gray-50 dark:hover:bg-slate-800 select-none">
               Plain-text fallback (optional)
             </summary>
             <div className="px-4 pb-4">
               <textarea
-                className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm font-mono min-h-[100px] focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                className="w-full border border-gray-200 dark:border-slate-700 rounded-lg px-3 py-2 text-sm font-mono min-h-[100px] focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
                 placeholder="Auto-generated from HTML if left empty"
                 value={template.body_plain_template || ''}
                 onChange={(e) => setTemplate((p) => ({ ...p, body_plain_template: e.target.value }))}
@@ -291,21 +291,21 @@ const EmailTemplateEditor = () => {
         {/* Sidebar */}
         <div className="space-y-4">
           {template.description && (
-            <div className="rounded-xl border border-gray-200 bg-white p-4 shadow-sm">
-              <p className="text-xs font-semibold text-gray-500 uppercase mb-2">About this event</p>
-              <p className="text-sm text-gray-600 leading-relaxed">{template.description}</p>
+            <div className="rounded-xl border border-gray-200 dark:border-slate-700 bg-white dark:bg-slate-900 p-4 shadow-sm">
+              <p className="text-xs font-semibold text-gray-500 dark:text-slate-400 uppercase mb-2">About this event</p>
+              <p className="text-sm text-gray-600 dark:text-slate-400 leading-relaxed">{template.description}</p>
             </div>
           )}
 
-          <div className="rounded-xl border border-gray-200 bg-white p-4 shadow-sm">
-            <p className="text-xs font-semibold text-gray-500 uppercase mb-3">Insert variables</p>
+          <div className="rounded-xl border border-gray-200 dark:border-slate-700 bg-white dark:bg-slate-900 p-4 shadow-sm">
+            <p className="text-xs font-semibold text-gray-500 dark:text-slate-400 uppercase mb-3">Insert variables</p>
             <div className="flex flex-wrap gap-1.5">
               {variableFields.map((field) => (
                 <button
                   key={field.name}
                   type="button"
                   onClick={() => insertVariable(field.name)}
-                  className="text-xs font-mono px-2 py-1 rounded-md bg-blue-50 text-blue-800 hover:bg-blue-100 border border-blue-100"
+                  className="text-xs font-mono px-2 py-1 rounded-md bg-blue-50 dark:bg-blue-950/40 text-blue-800 dark:text-blue-300 hover:bg-blue-100 dark:hover:bg-blue-900/60 border border-blue-100 dark:border-blue-900"
                   title={field.description || field.name}
                 >
                   {`{{${field.name}}}`}
@@ -313,16 +313,16 @@ const EmailTemplateEditor = () => {
                 </button>
               ))}
             </div>
-            <p className="text-[11px] text-gray-400 mt-2">* required when sending</p>
+            <p className="text-[11px] text-gray-400 dark:text-slate-500 mt-2">* required when sending</p>
           </div>
 
-          <div className="rounded-xl border border-gray-200 bg-white p-4 shadow-sm">
-            <p className="text-xs font-semibold text-gray-500 uppercase mb-3 flex items-center gap-1.5">
+          <div className="rounded-xl border border-gray-200 dark:border-slate-700 bg-white dark:bg-slate-900 p-4 shadow-sm">
+            <p className="text-xs font-semibold text-gray-500 dark:text-slate-400 uppercase mb-3 flex items-center gap-1.5">
               <FaPaperPlane className="w-3 h-3" /> Send test
             </p>
             <input
               type="email"
-              className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm mb-2 focus:ring-2 focus:ring-blue-500"
+              className="w-full border border-gray-300 dark:border-slate-600 rounded-lg px-3 py-2 text-sm mb-2 focus:ring-2 focus:ring-blue-500"
               placeholder="you@company.com"
               value={testEmail}
               onChange={(e) => setTestEmail(e.target.value)}
@@ -336,7 +336,7 @@ const EmailTemplateEditor = () => {
               <FaEnvelope className="w-3.5 h-3.5" />
               Send test email
             </button>
-            <p className="text-[11px] text-gray-400 mt-2">
+            <p className="text-[11px] text-gray-400 dark:text-slate-500 mt-2">
               Uses sample data from the catalog. Works even if live sending is off.
             </p>
           </div>

@@ -118,6 +118,89 @@ def _txn_merchant_pin(merchant, client) -> str:
     return digest
 
 
+CAPTURE_RESPONSE_KEYS = (
+    'PidDatatype',
+    'Piddata',
+    'ci',
+    'dc',
+    'dpID',
+    'errCode',
+    'errInfo',
+    'fCount',
+    'fType',
+    'hmac',
+    'iCount',
+    'iType',
+    'mc',
+    'mi',
+    'nmPoints',
+    'pCount',
+    'pType',
+    'qScore',
+    'rdsID',
+    'rdsVer',
+    'sessionKey',
+)
+
+
+def normalize_capture_response(capture_response) -> dict:
+    """
+    Keep only the 21 Fingpay CaptureResponse fields, in the sample JSON order.
+    Piddata must be the RD <Data> payload — never raw XML (that is the old
+    frontend fallback that UIDAI reports as missing biometric data).
+    """
+    if not isinstance(capture_response, dict):
+        raise ValidationError(
+            {
+                'code': 'DEVICE_REQUIRED',
+                'message': (
+                    'Fingerprint capture data is missing (no PID block from the RD service). '
+                    'Capture the finger again before submitting.'
+                ),
+            }
+        )
+    pid = str(capture_response.get('Piddata') or capture_response.get('PidData') or '').strip()
+    if not pid or pid.lstrip().startswith('<'):
+        raise ValidationError(
+            {
+                'code': 'DEVICE_REQUIRED',
+                'message': (
+                    'Fingerprint capture data is missing (no PID block from the RD service). '
+                    'Capture the finger again before submitting.'
+                ),
+            }
+        )
+    src = capture_response
+    return {
+        'PidDatatype': str(src.get('PidDatatype') or src.get('PidDataType') or 'X'),
+        'Piddata': pid,
+        'ci': str(src.get('ci') or ''),
+        'dc': str(src.get('dc') or ''),
+        'dpID': str(src.get('dpID') or src.get('dpId') or ''),
+        'errCode': str(src.get('errCode') or '0'),
+        'errInfo': str(src.get('errInfo') or 'Success'),
+        'fCount': str(src.get('fCount') or '1'),
+        'fType': str(src.get('fType') or '2'),
+        'hmac': str(src.get('hmac') or ''),
+        'iCount': str(src.get('iCount') or '0'),
+        'iType': str(src.get('iType') or '0'),
+        'mc': str(src.get('mc') or ''),
+        'mi': str(src.get('mi') or ''),
+        'nmPoints': str(src.get('nmPoints') or ''),
+        'pCount': str(src.get('pCount') or '0'),
+        'pType': str(src.get('pType') or '0'),
+        'qScore': str(src.get('qScore') or ''),
+        'rdsID': str(src.get('rdsID') or src.get('rdsId') or ''),
+        'rdsVer': str(src.get('rdsVer') or ''),
+        'sessionKey': str(src.get('sessionKey') or ''),
+    }
+
+
+def assert_capture_has_biometric(capture_response) -> None:
+    """UIDAI 3552: empty / XML-as-Piddata capture must not be posted."""
+    normalize_capture_response(capture_response)
+
+
 def _card_from_payload(payload: dict) -> dict:
     card = payload.get('cardnumberORUID') if isinstance(payload.get('cardnumberORUID'), dict) else {}
     raw = str(
@@ -233,6 +316,7 @@ def _simple_txn_body(
 def complete_daily_2fa(*, user, capture_response: dict, latitude, longitude, payload: dict | None = None) -> dict:
     merchant = assert_merchant_active(user)
     assert_device_ready(merchant)
+    capture_response = normalize_capture_response(capture_response)
     client = get_fingpay_client()
     today = timezone.localdate()
     row, _ = AepsDaily2FA.objects.get_or_create(merchant=merchant, for_date=today, defaults={'status': 'pending'})
@@ -241,26 +325,23 @@ def complete_daily_2fa(*, user, capture_response: dict, latitude, longitude, pay
     service_type = str(payload.get('serviceType') or 'AEPS').upper()
     if service_type not in ('AEPS', 'AP'):
         service_type = 'AEPS'
-    # 2FA BIOMETRIC API DOCUMENT — same identity as Mini Statement (no subMerchantId
-    # unless Fingpay says this account uses a single company merchant id/pin).
-    body = {
-        'superMerchantId': _super_merchant_id(client),
-        'merchantUserName': _merchant_user_name(merchant),
-        'merchantPin': _txn_merchant_pin(merchant, client),
-        'transactionType': 'AUO',
-        'latitude': float(latitude),
-        'longitude': float(longitude),
-        'requestRemarks': payload.get('requestRemarks') or '2fa',
-        'merchantTranId': generate_merchant_tran_id('2FA'),
-        'serviceType': service_type,
-        'mobileNumber': str(payload.get('mobileNumber') or ''),
-        'cardnumberORUID': _card_from_payload(payload),
-        'captureResponse': capture_response,
-    }
+    merchant_tran_id = generate_merchant_tran_id('2FA')
+    # 2FA BIOMETRIC API DOCUMENT sample key order. Do not send timestamp in the
+    # body — that field is Mini Statement / product only; it is not in the 2.1 sample.
+    body = twofa_request_body(
+        merchant=merchant,
+        client=client,
+        capture_response=capture_response,
+        latitude=latitude,
+        longitude=longitude,
+        payload=payload,
+        merchant_tran_id=merchant_tran_id,
+        service_type=service_type,
+    )
     txn = AepsTransaction.objects.create(
         user=user,
         merchant=merchant,
-        merchant_tran_id=body['merchantTranId'],
+        merchant_tran_id=merchant_tran_id,
         product='2FA',
         status='pending',
         latitude=latitude,
@@ -273,7 +354,13 @@ def complete_daily_2fa(*, user, capture_response: dict, latitude, longitude, pay
     )
     path_2fa = _path_from_client(client, 'twofa_validate', PATH_2FA)
     try:
-        resp = client.aeps_post(path_2fa, body, device_imei=merchant.device_imei, endpoint_key='twofa_validate')
+        resp = client.aeps_post(
+            path_2fa,
+            body,
+            device_imei=merchant.device_imei,
+            endpoint_key='twofa_validate',
+            include_body_timestamp=False,
+        )
     except Exception as exc:
         txn.status = 'failed'
         txn.response_message = str(exc)[:500]
@@ -284,12 +371,11 @@ def complete_daily_2fa(*, user, capture_response: dict, latitude, longitude, pay
         raise ValidationError({'code': 'PROVIDER_REJECTED', 'message': str(exc)}) from exc
 
     data = resp.get('data') if isinstance(resp.get('data'), dict) else {}
-    ok = bool(resp.get('status') is True or str(resp.get('statusCode')) == '10000')
+    # 2FA PDF checklist: success only when data.responseCode is '00'.
+    ok = twofa_is_success(data)
     txn.status = 'success' if ok else 'failed'
     txn.response_code = str((data or {}).get('responseCode') or resp.get('statusCode') or '')
-    txn.response_message = (
-        _identity_reject_message(resp, merchant) or str(resp.get('message') or '')
-    )[:500]
+    txn.response_message = explain_provider_failure(resp, data, merchant)[:500]
     txn.provider_meta = scrub_sensitive(resp)
     txn.save()
     row.status = 'success' if ok else 'failed'
@@ -304,6 +390,39 @@ def complete_daily_2fa(*, user, capture_response: dict, latitude, longitude, pay
     else:
         raise ValidationError({'code': 'PROVIDER_REJECTED', 'message': txn.response_message or '2FA failed'})
     return {'twofa': {'date': str(today), 'status': row.status}, 'transaction_id': txn.merchant_tran_id}
+
+
+def twofa_is_success(data) -> bool:
+    """2FA PDF: consider auth success only when the inner responseCode is '00'."""
+    return str((data or {}).get('responseCode') or '') == '00'
+
+
+def twofa_request_body(
+    *,
+    merchant,
+    client,
+    capture_response: dict,
+    latitude,
+    longitude,
+    payload: dict,
+    merchant_tran_id: str,
+    service_type: str = 'AEPS',
+) -> dict:
+    """Plain JSON for Simple 2FA — key order matches the 2.1 sample request."""
+    return {
+        'captureResponse': capture_response,
+        'cardnumberORUID': _card_from_payload(payload),
+        'latitude': float(latitude),
+        'longitude': float(longitude),
+        'requestRemarks': payload.get('requestRemarks') or '2fa',
+        'transactionType': 'AUO',
+        'merchantUserName': _merchant_user_name(merchant),
+        'merchantPin': _txn_merchant_pin(merchant, client),
+        'superMerchantId': _super_merchant_id(client),
+        'merchantTranId': merchant_tran_id,
+        'mobileNumber': str(payload.get('mobileNumber') or ''),
+        'serviceType': service_type,
+    }
 
 
 def _create_pending_txn(*, user, merchant, product, amount, payload, latitude, longitude, ip) -> AepsTransaction:
@@ -340,6 +459,7 @@ def _run_product(
 ) -> dict:
     merchant = assert_merchant_active(user)
     assert_device_ready(merchant)
+    capture_response = normalize_capture_response(capture_response)
     if require_2fa:
         assert_daily_2fa(merchant)
     client = get_fingpay_client()
@@ -409,9 +529,9 @@ def _run_product(
             txn.status = 'failed'
             txn.response_code = '403'
             txn.response_message = (
-                'Fingpay HTTP 403 (AWS ELB blocked the host). Tapits asked us to use '
-                'production Mini Statement fingpayap.tapits.in and said 139.99.47.143 '
-                f'is already whitelisted. Share this 403 with Tapits. Detail: {err}'
+                'Fingpay HTTP 403 (AWS ELB blocked the host before the application). '
+                f'Confirm with Tapits that our egress IP is whitelisted. {_provider_support_context(merchant)}. '
+                f'Detail: {err}'
             )[:500]
             txn.save()
             return {'transaction': serialize_txn(txn), 'needs_status_check': False, 'error': txn.response_message}
@@ -432,52 +552,185 @@ def _run_product(
     return {'transaction': serialize_txn(txn), 'needs_status_check': txn.status == 'pending'}
 
 
+def _provider_support_context(merchant=None) -> str:
+    """Login / superMerchantId / egress for Tapits tickets (best-effort)."""
+    parts: list[str] = []
+    login = str(getattr(merchant, 'merchant_login_id', '') or '').strip()
+    if login:
+        parts.append(f'merchantLoginId={login}')
+    try:
+        client = get_fingpay_client()
+        smid = str(getattr(client, 'super_merchant_id', '') or '').strip()
+        if smid:
+            parts.append(f'superMerchantId={smid}')
+        egress = str(getattr(client, 'effective_egress_ip', '') or '').strip()
+        if egress:
+            parts.append(f'egressIP={egress}')
+        env = str(getattr(client, 'environment', '') or getattr(client, 'api_mode', '') or '').strip()
+        if env:
+            parts.append(f'env={env}')
+    except Exception:
+        pass
+    return '; '.join(parts)
+
+
 def _identity_reject_message(resp: dict, merchant=None) -> str:
-    """10006/10005 after successful eKYC means Fingpay txn DB has not activated the merchant."""
+    """Map Fingpay identity / product-disabled codes to actionable UI text."""
     code = str(resp.get('statusCode') or '')
     msg = str(resp.get('message') or '')
+    msg_l = msg.lower()
     login = str(getattr(merchant, 'merchant_login_id', '') or '').strip()
-    if code == '10006' or 'incorrect merchantid or pin' in msg.lower():
-        who = login or 'this merchant'
+    who = login or 'this merchant'
+    ctx = _provider_support_context(merchant)
+
+    # 10027 is reused: daily product limits AND merchant AEPS-disabled. Match the text.
+    if 'daily limit' in msg_l or 'exceeded daily limit' in msg_l:
+        product_hint = ''
+        if 'balance inquir' in msg_l:
+            product_hint = (
+                ' Balance enquiry has a per-day cap at Fingpay. '
+                'Mini statement and other AEPS products may still work.'
+            )
         return (
-            f'Fingpay Mini Statement rejected {who} (10006 Incorrect merchantId or pin). '
-            'Reset the merchant PIN by re-hitting Simple onboarding on fingpayap, then retry Mini Statement '
-            'on fingpayap.tapits.in/fpaepsservice (not fpuat).'
+            f'{msg} ({code or "10027"}).{product_hint} '
+            'This is not an IP, hash, fingerprint, or URL issue.'
         )[:500]
-    if code == '10005' and 'merchant' in msg.lower():
-        who = login or 'this merchant'
+
+    if 'aeps services is temporarily disabled' in msg_l or (
+        code == '10027' and 'disabled' in msg_l and 'limit' not in msg_l
+    ):
+        return (
+            f'Fingpay disabled AEPS for {who} (10027). '
+            'This is not an IP, hash, fingerprint, or URL issue — Tapits must enable AEPS on '
+            'fpaepsservice for this super-merchant/merchant. '
+            f'Support context: {ctx or "see Admin → AEPS Provider"}.'
+        )[:500]
+
+    if code == '10006' or 'incorrect merchantid or pin' in msg_l:
+        return (
+            f'Fingpay rejected {who} (10006 Incorrect merchantId or pin). '
+            'Admin: Reset PIN / Re-sync onboarding (Simple create on fingpayap), then retry on '
+            'fingpayap.tapits.in/fpaepsservice (not fpuat). '
+            f'{ctx}'
+        )[:500]
+
+    if code == '10005' and (
+        'merchant' in msg_l or 'invalid merchant' in msg_l or 'does not recognise' in msg_l
+    ):
         return (
             f'Fingpay does not recognise {who} on the AEPS 2FA/txn API (10005). '
-            'eKYC is complete; ask Tapits to activate this User Id on fpaepsservice.'
+            'eKYC may be complete, but Tapits must activate this User Id on fpaepsservice. '
+            f'{ctx}'
         )[:500]
+
     return ''
+
+
+def _parse_balance_amount(data: dict):
+    """Pick a real account balance; skip Fingpay's -1.00 failure sentinel."""
+    if not isinstance(data, dict):
+        return None
+    for key in ('balanceAmount', 'bankAccountBalance', 'miniStatementBalance'):
+        raw = data.get(key)
+        if raw is None or raw == '':
+            continue
+        try:
+            val = Decimal(str(raw).strip().replace(',', ''))
+        except Exception:
+            continue
+        if val < 0:
+            continue
+        return val
+    return None
+
+
+def _parse_mini_statement(data: dict):
+    """Prefer on-us lines; fall back to off-us / legacy keys. Empty list is valid."""
+    if not isinstance(data, dict):
+        return None
+    on_us = data.get('miniStatementStructureModel')
+    off_us = data.get('miniOffusStatementStructureModel')
+    legacy = data.get('miniStatement')
+    if not isinstance(legacy, list):
+        legacy = data.get('statement')
+    for candidate in (on_us, off_us, legacy):
+        if isinstance(candidate, list) and candidate:
+            return candidate
+    for candidate in (on_us, off_us, legacy):
+        if isinstance(candidate, list):
+            return candidate
+    return None
+
+
+def _biometric_reject_message(inner_code: str, inner_msg: str) -> str:
+    """
+    Explain UIDAI-level rejections that arrive inside `data`, where the outer
+    envelope only says "Transaction failed." and hides the real cause.
+    """
+    m = (inner_msg or '').lower()
+
+    if 'missing biometric data' in m:
+        return (
+            f'UIDAI rejected the fingerprint ({inner_code}): {inner_msg}. '
+            'The capture reached UIDAI but carried no usable finger record. '
+            'Recapture with the RD service; if it keeps failing, the reader is not producing '
+            'the finger format this request asks for — change the AEPS capture fType in '
+            'Admin → AEPS Provider and retry.'
+        )[:500]
+
+    if 'biometric' in m and ('did not match' in m or 'not match' in m):
+        return (
+            f'UIDAI could not match the fingerprint ({inner_code}): {inner_msg}. '
+            'Clean the sensor and retry with a different finger.'
+        )[:500]
+
+    if 'biometric' in m and 'lock' in m:
+        return (
+            f'UIDAI reports biometrics locked for this Aadhaar ({inner_code}): {inner_msg}. '
+            'The holder must unlock biometrics on the UIDAI portal before AEPS will work.'
+        )[:500]
+
+    return ''
+
+
+def explain_provider_failure(resp: dict, data: dict, merchant=None) -> str:
+    """
+    Best available failure text: identity/entitlement mapping first, then the
+    UIDAI detail from `data`, then the provider's inner message, and only then
+    the outer envelope message (which is usually just "Transaction failed.").
+    """
+    identity = _identity_reject_message(resp, merchant)
+    if identity:
+        return identity
+
+    data = data if isinstance(data, dict) else {}
+    inner_code = str(data.get('responseCode') or '')
+    inner_msg = str(data.get('responseMessage') or data.get('errorMessage') or '')
+
+    biometric = _biometric_reject_message(inner_code, inner_msg)
+    if biometric:
+        return biometric
+
+    if inner_msg:
+        return (f'{inner_msg} ({inner_code})' if inner_code else inner_msg)[:500]
+    return str(resp.get('message') or '')[:500]
 
 
 def apply_provider_result(txn: AepsTransaction, resp: dict, data: dict) -> None:
     txn.response_code = str(data.get('responseCode') or resp.get('statusCode') or '')
-    explained = _identity_reject_message(resp, getattr(txn, 'merchant', None))
-    txn.response_message = (
-        explained
-        or str(data.get('responseMessage') or data.get('errorMessage') or resp.get('message') or '')
-    )[:500]
+    txn.response_message = explain_provider_failure(resp, data, getattr(txn, 'merchant', None))[:500]
     txn.fp_transaction_id = str(
         data.get('fpTransactionId') or data.get('fingpayTransactionId') or data.get('fpTxnId') or ''
     )
     txn.bank_rrn = str(data.get('bankRRN') or data.get('bankRrn') or data.get('rrn') or '')
     if data.get('bankName'):
         txn.bank_name = str(data.get('bankName'))[:120]
-    bal = data.get('balanceAmount') or data.get('bankAccountBalance')
+    bal = _parse_balance_amount(data)
     if bal is not None:
-        try:
-            txn.balance_amount = Decimal(str(bal))
-        except Exception:
-            pass
-    if isinstance(data.get('miniStatementStructureModel'), list):
-        txn.mini_statement = data.get('miniStatementStructureModel')
-    elif isinstance(data.get('miniStatement'), list):
-        txn.mini_statement = data.get('miniStatement')
-    elif isinstance(data.get('statement'), list):
-        txn.mini_statement = data.get('statement')
+        txn.balance_amount = bal
+    rows = _parse_mini_statement(data)
+    if rows is not None:
+        txn.mini_statement = rows
     txn.provider_meta = scrub_sensitive(resp)
 
     if _is_success(resp, data):

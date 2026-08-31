@@ -93,22 +93,22 @@ const SmsProfileList = () => {
     <div className="space-y-6 max-w-5xl mx-auto">
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
         <div>
-          <h1 className="text-2xl font-semibold text-gray-900">SMS Settings</h1>
-          <p className="text-sm text-gray-500 mt-1">
+          <h1 className="text-2xl font-semibold text-gray-900 dark:text-slate-100">SMS Settings</h1>
+          <p className="text-sm text-gray-500 dark:text-slate-400 mt-1">
             Manage MSG91 accounts. Only one profile is active for OTP, pay-in, payout, and BBPS SMS.
           </p>
         </div>
         <div className="flex flex-wrap gap-2 justify-end">
           <Link
             to="/admin/sms-settings/templates"
-            className="inline-flex items-center gap-2 px-4 py-2.5 rounded-lg border border-gray-300 text-sm font-medium text-gray-700 hover:bg-gray-50"
+            className="inline-flex items-center gap-2 px-4 py-2.5 rounded-lg border border-gray-300 dark:border-slate-600 text-sm font-medium text-gray-700 dark:text-slate-300 hover:bg-gray-50 dark:hover:bg-slate-800"
           >
             <FaListUl className="w-4 h-4" />
             Event templates
           </Link>
           <Link
             to="/admin/sms-settings/logs"
-            className="inline-flex items-center gap-2 px-4 py-2.5 rounded-lg border border-gray-300 text-sm font-medium text-gray-700 hover:bg-gray-50"
+            className="inline-flex items-center gap-2 px-4 py-2.5 rounded-lg border border-gray-300 dark:border-slate-600 text-sm font-medium text-gray-700 dark:text-slate-300 hover:bg-gray-50 dark:hover:bg-slate-800"
           >
             Delivery logs
           </Link>
@@ -126,17 +126,17 @@ const SmsProfileList = () => {
         <div
           className={`text-sm border rounded-lg px-4 py-3 ${
             msg.type === 'success'
-              ? 'bg-green-50 border-green-200 text-green-800'
+              ? 'bg-green-50 dark:bg-green-950/40 border-green-200 dark:border-green-800 text-green-800 dark:text-green-300'
               : msg.type === 'error'
-                ? 'bg-red-50 border-red-200 text-red-800'
-                : 'bg-blue-50 border-blue-200 text-blue-800'
+                ? 'bg-red-50 dark:bg-red-950/40 border-red-200 dark:border-red-800 text-red-800 dark:text-red-300'
+                : 'bg-blue-50 dark:bg-blue-950/40 border-blue-200 dark:border-blue-800 text-blue-800 dark:text-blue-300'
           }`}
         >
           {msg.text}
         </div>
       )}
 
-      <div className="bg-amber-50 border border-amber-200 rounded-xl p-4 text-sm text-amber-950">
+      <div className="bg-amber-50 dark:bg-amber-950/40 border border-amber-200 dark:border-amber-800 rounded-xl p-4 text-sm text-amber-950 dark:text-amber-200">
         <p className="font-semibold mb-1">Multiple MSG91 profiles</p>
         <p>
           Store separate MSG91 credentials (e.g. production vs staging). Only <strong>one</strong> profile is{' '}
@@ -149,14 +149,14 @@ const SmsProfileList = () => {
       </div>
 
       {loading ? (
-        <div className="bg-white rounded-xl border border-gray-200 p-12 text-center text-gray-500">
+        <div className="bg-white dark:bg-slate-900 rounded-xl border border-gray-200 dark:border-slate-700 p-12 text-center text-gray-500 dark:text-slate-400">
           Loading SMS profiles...
         </div>
       ) : configs.length === 0 ? (
-        <div className="bg-white rounded-xl border border-dashed border-gray-300 p-12 text-center">
+        <div className="bg-white dark:bg-slate-900 rounded-xl border border-dashed border-gray-300 dark:border-slate-600 p-12 text-center">
           <FaCommentSms className="w-10 h-10 text-gray-300 mx-auto mb-3" />
-          <p className="text-gray-600 font-medium">No SMS profiles yet</p>
-          <p className="text-sm text-gray-500 mt-1 mb-4">
+          <p className="text-gray-600 dark:text-slate-400 font-medium">No SMS profiles yet</p>
+          <p className="text-sm text-gray-500 dark:text-slate-400 mt-1 mb-4">
             Add your first MSG91 profile, then configure event templates.
           </p>
           <Link
@@ -167,9 +167,9 @@ const SmsProfileList = () => {
           </Link>
         </div>
       ) : (
-        <div className="bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden">
+        <div className="bg-white dark:bg-slate-900 rounded-xl border border-gray-200 dark:border-slate-700 shadow-sm overflow-hidden">
           <table className="min-w-full text-sm">
-            <thead className="bg-gray-50 text-left text-xs font-semibold text-gray-600 uppercase tracking-wide">
+            <thead className="bg-gray-50 dark:bg-slate-800/50 text-left text-xs font-semibold text-gray-600 dark:text-slate-400 uppercase tracking-wide">
               <tr>
                 <th className="px-4 py-3">Profile</th>
                 <th className="px-4 py-3">Provider</th>
@@ -178,21 +178,21 @@ const SmsProfileList = () => {
                 <th className="px-4 py-3 text-right">Actions</th>
               </tr>
             </thead>
-            <tbody className="divide-y divide-gray-100">
+            <tbody className="divide-y divide-gray-100 dark:divide-slate-800">
               {configs.map((cfg) => {
                 const busy = actionId === cfg.id;
                 return (
-                  <tr key={cfg.id} className="hover:bg-gray-50/80">
+                  <tr key={cfg.id} className="hover:bg-gray-50/80 dark:hover:bg-slate-800/80">
                     <td className="px-4 py-4">
-                      <div className="font-medium text-gray-900">{cfg.name}</div>
-                      <div className="text-xs text-gray-500">
+                      <div className="font-medium text-gray-900 dark:text-slate-100">{cfg.name}</div>
+                      <div className="text-xs text-gray-500 dark:text-slate-400">
                         {cfg.api_base_url?.replace(/^https?:\/\//, '') || '—'}
                       </div>
                     </td>
-                    <td className="px-4 py-4 text-gray-700">{providerLabel(cfg)}</td>
-                    <td className="px-4 py-4 text-gray-700">
+                    <td className="px-4 py-4 text-gray-700 dark:text-slate-300">{providerLabel(cfg)}</td>
+                    <td className="px-4 py-4 text-gray-700 dark:text-slate-300">
                       {cfg.sender_id || '—'}
-                      <div className="text-xs text-gray-500">
+                      <div className="text-xs text-gray-500 dark:text-slate-400">
                         +{cfg.country_code || '91'}
                         {!cfg.has_auth_key && cfg.provider === 'msg91' ? ' · No auth key' : ''}
                       </div>
@@ -200,16 +200,16 @@ const SmsProfileList = () => {
                     <td className="px-4 py-4">
                       <div className="flex flex-wrap gap-1.5">
                         {cfg.is_active && (
-                          <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-semibold bg-green-100 text-green-800">
+                          <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-semibold bg-green-100 dark:bg-green-900/40 text-green-800 dark:text-green-300">
                             <FaCircleCheck className="w-3 h-3" /> Active
                           </span>
                         )}
                         {cfg.enabled ? (
-                          <span className="px-2 py-0.5 rounded-full text-xs bg-gray-100 text-gray-700">
+                          <span className="px-2 py-0.5 rounded-full text-xs bg-gray-100 dark:bg-slate-800 text-gray-700 dark:text-slate-300">
                             Enabled
                           </span>
                         ) : (
-                          <span className="px-2 py-0.5 rounded-full text-xs bg-amber-100 text-amber-800">
+                          <span className="px-2 py-0.5 rounded-full text-xs bg-amber-100 dark:bg-amber-900/40 text-amber-800 dark:text-amber-300">
                             Disabled
                           </span>
                         )}
@@ -231,7 +231,7 @@ const SmsProfileList = () => {
                             type="button"
                             disabled={busy}
                             onClick={() => handleDeactivate(cfg)}
-                            className="px-2.5 py-1.5 rounded-md text-xs font-medium border border-gray-300 text-gray-700 hover:bg-gray-50 disabled:opacity-50"
+                            className="px-2.5 py-1.5 rounded-md text-xs font-medium border border-gray-300 dark:border-slate-600 text-gray-700 dark:text-slate-300 hover:bg-gray-50 dark:hover:bg-slate-800 disabled:opacity-50"
                           >
                             Deactivate
                           </button>
@@ -240,7 +240,7 @@ const SmsProfileList = () => {
                           type="button"
                           disabled={busy}
                           onClick={() => navigate(`/admin/sms-settings/${cfg.id}/edit`)}
-                          className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-md text-xs font-medium border border-gray-300 text-gray-700 hover:bg-gray-50 disabled:opacity-50"
+                          className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-md text-xs font-medium border border-gray-300 dark:border-slate-600 text-gray-700 dark:text-slate-300 hover:bg-gray-50 dark:hover:bg-slate-800 disabled:opacity-50"
                         >
                           <FaPenToSquare className="w-3 h-3" /> Edit
                         </button>
@@ -248,7 +248,7 @@ const SmsProfileList = () => {
                           type="button"
                           disabled={busy}
                           onClick={() => handleDelete(cfg)}
-                          className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-md text-xs font-medium border border-red-200 text-red-700 hover:bg-red-50 disabled:opacity-50"
+                          className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-md text-xs font-medium border border-red-200 dark:border-red-800 text-red-700 dark:text-red-300 hover:bg-red-50 dark:hover:bg-red-950/60 disabled:opacity-50"
                         >
                           <FaTrash className="w-3 h-3" /> Delete
                         </button>

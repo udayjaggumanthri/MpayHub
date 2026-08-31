@@ -16,6 +16,15 @@ import FeedbackModal from '../common/FeedbackModal';
 import Input from '../common/Input';
 import LoadingSpinner from '../common/LoadingSpinner';
 import ReportDateRange from '../common/ReportDateRange';
+import {
+  CollapsibleReportFilters,
+  FILTER_INPUT_CLASS,
+  FILTER_SELECT_CLASS,
+  ReportFilterDateRow,
+  ReportFilterField,
+  ReportFilterGrid,
+} from '../common/ReportFilterPanel';
+import { countActiveReportFilters } from '../../utils/reportFilters';
 
 const REASON_OPTIONS = [
   { value: 'failed_transaction', label: 'Failed transaction' },
@@ -87,6 +96,7 @@ const WalletAdjustments = () => {
   const [pagination, setPagination] = useState({ page: 1, page_size: 50, total: 0, total_pages: 1 });
   const [reportLoading, setReportLoading] = useState(false);
   const [exporting, setExporting] = useState(false);
+  const [showFilters, setShowFilters] = useState(false);
   const [detailRow, setDetailRow] = useState(null);
 
   const [feedback, setFeedback] = useState({ open: false, title: '', description: '' });
@@ -251,16 +261,16 @@ const WalletAdjustments = () => {
     <div className="space-y-6">
       <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
         <div>
-          <h1 className="text-2xl font-bold text-slate-900">Wallet Adjustments</h1>
-          <p className="mt-1 text-sm text-slate-600">
+          <h1 className="text-2xl font-bold text-slate-900 dark:text-slate-100">Wallet Adjustments</h1>
+          <p className="mt-1 text-sm text-slate-600 dark:text-slate-400">
             Manually credit or debit Main / BBPS wallets with mandatory documentation and a full audit trail.
           </p>
         </div>
-        <div className="inline-flex rounded-xl border border-slate-200 bg-white p-1 shadow-sm">
+        <div className="inline-flex rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 p-1 shadow-sm">
           <button
             type="button"
             className={`rounded-lg px-4 py-2 text-sm font-semibold transition ${
-              tab === 'new' ? 'bg-indigo-600 text-white' : 'text-slate-600 hover:bg-slate-50'
+              tab === 'new' ? 'bg-indigo-600 text-white' : 'text-slate-600 dark:text-slate-400 hover:bg-slate-50 dark:hover:bg-slate-800'
             }`}
             onClick={() => setTab('new')}
           >
@@ -269,7 +279,7 @@ const WalletAdjustments = () => {
           <button
             type="button"
             className={`rounded-lg px-4 py-2 text-sm font-semibold transition ${
-              tab === 'report' ? 'bg-indigo-600 text-white' : 'text-slate-600 hover:bg-slate-50'
+              tab === 'report' ? 'bg-indigo-600 text-white' : 'text-slate-600 dark:text-slate-400 hover:bg-slate-50 dark:hover:bg-slate-800'
             }`}
             onClick={() => setTab('report')}
           >
@@ -282,8 +292,8 @@ const WalletAdjustments = () => {
         <div className="grid gap-6 lg:grid-cols-5">
           <Card className="lg:col-span-3 space-y-5">
             <div>
-              <h2 className="text-lg font-semibold text-slate-900">Select user</h2>
-              <p className="text-xs text-slate-500 mt-0.5">
+              <h2 className="text-lg font-semibold text-slate-900 dark:text-slate-100">Select user</h2>
+              <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
                 Search by phone, user ID, display code, or name.
               </p>
               <div className="mt-3 relative">
@@ -296,16 +306,16 @@ const WalletAdjustments = () => {
                   error={fieldErrors.user}
                 />
                 {(lookupLoading || lookupResults.length > 0) && !selectedUser && (
-                  <div className="absolute z-20 mt-1 w-full max-h-64 overflow-auto rounded-xl border border-slate-200 bg-white shadow-lg">
+                  <div className="absolute z-20 mt-1 w-full max-h-64 overflow-auto rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 shadow-lg">
                     {lookupLoading && (
-                      <div className="px-4 py-3 text-sm text-slate-500">Searching…</div>
+                      <div className="px-4 py-3 text-sm text-slate-500 dark:text-slate-400">Searching…</div>
                     )}
                     {!lookupLoading &&
                       lookupResults.map((u) => (
                         <button
                           key={u.id}
                           type="button"
-                          className="w-full text-left px-4 py-3 hover:bg-indigo-50 border-b border-slate-100 last:border-0"
+                          className="w-full text-left px-4 py-3 hover:bg-indigo-50 dark:hover:bg-indigo-950/60 border-b border-slate-100 dark:border-slate-800 last:border-0"
                           onClick={() => {
                             setSelectedUser(u);
                             setLookupQ('');
@@ -313,10 +323,10 @@ const WalletAdjustments = () => {
                             setFieldErrors((prev) => ({ ...prev, user: undefined }));
                           }}
                         >
-                          <div className="font-semibold text-slate-900">
+                          <div className="font-semibold text-slate-900 dark:text-slate-100">
                             {u.name || u.display_code || u.user_id}
                           </div>
-                          <div className="text-xs text-slate-500">
+                          <div className="text-xs text-slate-500 dark:text-slate-400">
                             {[u.user_id, u.display_code, u.phone, u.role].filter(Boolean).join(' · ')}
                           </div>
                         </button>
@@ -326,13 +336,13 @@ const WalletAdjustments = () => {
               </div>
 
               {selectedUser && (
-                <div className="mt-4 rounded-xl border border-indigo-100 bg-indigo-50/60 p-4">
+                <div className="mt-4 rounded-xl border border-indigo-100 dark:border-indigo-900 bg-indigo-50/60 dark:bg-indigo-950/40 p-4">
                   <div className="flex items-start justify-between gap-3">
                     <div>
-                      <p className="font-semibold text-slate-900">
+                      <p className="font-semibold text-slate-900 dark:text-slate-100">
                         {selectedUser.name || selectedUser.user_id}
                       </p>
-                      <p className="text-xs text-slate-600 mt-0.5">
+                      <p className="text-xs text-slate-600 dark:text-slate-400 mt-0.5">
                         {[selectedUser.user_id, selectedUser.display_code, selectedUser.phone, selectedUser.role]
                           .filter(Boolean)
                           .join(' · ')}
@@ -351,19 +361,19 @@ const WalletAdjustments = () => {
                     </Button>
                   </div>
                   <div className="mt-3 grid grid-cols-2 gap-3">
-                    <div className="rounded-lg bg-white border border-slate-100 px-3 py-2">
-                      <p className="text-xs text-slate-500 flex items-center gap-1">
+                    <div className="rounded-lg bg-white dark:bg-slate-900 border border-slate-100 dark:border-slate-800 px-3 py-2">
+                      <p className="text-xs text-slate-500 dark:text-slate-400 flex items-center gap-1">
                         <FaWallet /> Main
                       </p>
-                      <p className="text-base font-bold text-slate-900">
+                      <p className="text-base font-bold text-slate-900 dark:text-slate-100">
                         {formatCurrency(selectedUser.balances?.main)}
                       </p>
                     </div>
-                    <div className="rounded-lg bg-white border border-slate-100 px-3 py-2">
-                      <p className="text-xs text-slate-500 flex items-center gap-1">
+                    <div className="rounded-lg bg-white dark:bg-slate-900 border border-slate-100 dark:border-slate-800 px-3 py-2">
+                      <p className="text-xs text-slate-500 dark:text-slate-400 flex items-center gap-1">
                         <FaWallet /> BBPS
                       </p>
-                      <p className="text-base font-bold text-slate-900">
+                      <p className="text-base font-bold text-slate-900 dark:text-slate-100">
                         {formatCurrency(selectedUser.balances?.bbps)}
                       </p>
                     </div>
@@ -372,14 +382,14 @@ const WalletAdjustments = () => {
               )}
             </div>
 
-            <form onSubmit={openConfirm} className="space-y-4 border-t border-slate-100 pt-5">
-              <h2 className="text-lg font-semibold text-slate-900">Adjustment details</h2>
+            <form onSubmit={openConfirm} className="space-y-4 border-t border-slate-100 dark:border-slate-800 pt-5">
+              <h2 className="text-lg font-semibold text-slate-900 dark:text-slate-100">Adjustment details</h2>
 
               <div className="grid gap-4 sm:grid-cols-2">
                 <div>
-                  <label className="block text-sm font-medium text-slate-700 mb-1.5">Wallet</label>
+                  <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1.5">Wallet</label>
                   <select
-                    className="w-full rounded-lg border border-slate-300 px-3 py-2.5 text-sm focus:ring-2 focus:ring-indigo-500"
+                    className="w-full rounded-lg border border-slate-300 dark:border-slate-600 px-3 py-2.5 text-sm focus:ring-2 focus:ring-indigo-500"
                     value={form.wallet_type}
                     onChange={(e) => setForm((f) => ({ ...f, wallet_type: e.target.value }))}
                   >
@@ -387,18 +397,18 @@ const WalletAdjustments = () => {
                     <option value="bbps">BBPS wallet</option>
                   </select>
                   {fieldErrors.wallet_type && (
-                    <p className="mt-1 text-xs text-red-600">{fieldErrors.wallet_type}</p>
+                    <p className="mt-1 text-xs text-red-600 dark:text-red-400">{fieldErrors.wallet_type}</p>
                   )}
                 </div>
                 <div>
-                  <label className="block text-sm font-medium text-slate-700 mb-1.5">Type</label>
-                  <div className="flex rounded-lg border border-slate-200 overflow-hidden">
+                  <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1.5">Type</label>
+                  <div className="flex rounded-lg border border-slate-200 dark:border-slate-700 overflow-hidden">
                     <button
                       type="button"
                       className={`flex-1 px-3 py-2.5 text-sm font-semibold flex items-center justify-center gap-1.5 ${
                         form.adjustment_type === 'CREDIT'
                           ? 'bg-emerald-600 text-white'
-                          : 'bg-white text-slate-600 hover:bg-slate-50'
+                          : 'bg-white dark:bg-slate-900 text-slate-600 dark:text-slate-400 hover:bg-slate-50 dark:hover:bg-slate-800'
                       }`}
                       onClick={() => setForm((f) => ({ ...f, adjustment_type: 'CREDIT' }))}
                     >
@@ -409,7 +419,7 @@ const WalletAdjustments = () => {
                       className={`flex-1 px-3 py-2.5 text-sm font-semibold flex items-center justify-center gap-1.5 ${
                         form.adjustment_type === 'DEBIT'
                           ? 'bg-red-600 text-white'
-                          : 'bg-white text-slate-600 hover:bg-slate-50'
+                          : 'bg-white dark:bg-slate-900 text-slate-600 dark:text-slate-400 hover:bg-slate-50 dark:hover:bg-slate-800'
                       }`}
                       onClick={() => setForm((f) => ({ ...f, adjustment_type: 'DEBIT' }))}
                     >
@@ -441,11 +451,11 @@ const WalletAdjustments = () => {
               />
 
               <div>
-                <label className="block text-sm font-medium text-slate-700 mb-1.5">
+                <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1.5">
                   Reason category <span className="text-red-500">*</span>
                 </label>
                 <select
-                  className="w-full rounded-lg border border-slate-300 px-3 py-2.5 text-sm focus:ring-2 focus:ring-indigo-500"
+                  className="w-full rounded-lg border border-slate-300 dark:border-slate-600 px-3 py-2.5 text-sm focus:ring-2 focus:ring-indigo-500"
                   value={form.reason_category}
                   onChange={(e) => setForm((f) => ({ ...f, reason_category: e.target.value }))}
                 >
@@ -458,12 +468,12 @@ const WalletAdjustments = () => {
               </div>
 
               <div>
-                <label className="block text-sm font-medium text-slate-700 mb-1.5">
+                <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1.5">
                   Remarks <span className="text-red-500">*</span>
                 </label>
                 <textarea
                   className={`w-full rounded-lg border px-3 py-2.5 text-sm focus:ring-2 focus:ring-indigo-500 min-h-[96px] ${
-                    fieldErrors.remarks ? 'border-red-400' : 'border-slate-300'
+                    fieldErrors.remarks ? 'border-red-400' : 'border-slate-300 dark:border-slate-600'
                   }`}
                   value={form.remarks}
                   onChange={(e) => setForm((f) => ({ ...f, remarks: e.target.value }))}
@@ -471,7 +481,7 @@ const WalletAdjustments = () => {
                   maxLength={2000}
                 />
                 {fieldErrors.remarks && (
-                  <p className="mt-1 text-xs text-red-600">{fieldErrors.remarks}</p>
+                  <p className="mt-1 text-xs text-red-600 dark:text-red-400">{fieldErrors.remarks}</p>
                 )}
               </div>
 
@@ -494,39 +504,39 @@ const WalletAdjustments = () => {
           </Card>
 
           <Card className="lg:col-span-2 h-fit space-y-3">
-            <h2 className="text-lg font-semibold text-slate-900">Preview</h2>
+            <h2 className="text-lg font-semibold text-slate-900 dark:text-slate-100">Preview</h2>
             {!selectedUser ? (
-              <p className="text-sm text-slate-500">Select a user to see the balance impact.</p>
+              <p className="text-sm text-slate-500 dark:text-slate-400">Select a user to see the balance impact.</p>
             ) : (
               <>
-                <div className="rounded-xl bg-slate-50 border border-slate-100 p-4 space-y-2 text-sm">
+                <div className="rounded-xl bg-slate-50 dark:bg-slate-800/50 border border-slate-100 dark:border-slate-800 p-4 space-y-2 text-sm">
                   <div className="flex justify-between">
-                    <span className="text-slate-500">Wallet</span>
+                    <span className="text-slate-500 dark:text-slate-400">Wallet</span>
                     <span className="font-semibold capitalize">{form.wallet_type}</span>
                   </div>
                   <div className="flex justify-between">
-                    <span className="text-slate-500">Current balance</span>
+                    <span className="text-slate-500 dark:text-slate-400">Current balance</span>
                     <span className="font-semibold">{formatCurrency(currentBalance)}</span>
                   </div>
                   <div className="flex justify-between">
-                    <span className="text-slate-500">Adjustment</span>
+                    <span className="text-slate-500 dark:text-slate-400">Adjustment</span>
                     <span
                       className={`font-semibold ${
-                        form.adjustment_type === 'DEBIT' ? 'text-red-600' : 'text-emerald-600'
+                        form.adjustment_type === 'DEBIT' ? 'text-red-600 dark:text-red-400' : 'text-emerald-600 dark:text-emerald-400'
                       }`}
                     >
                       {form.adjustment_type === 'DEBIT' ? '−' : '+'}
                       {form.amount ? formatCurrency(form.amount) : '—'}
                     </span>
                   </div>
-                  <div className="border-t border-slate-200 pt-2 flex justify-between">
-                    <span className="text-slate-500">New balance</span>
-                    <span className="font-bold text-slate-900">
+                  <div className="border-t border-slate-200 dark:border-slate-700 pt-2 flex justify-between">
+                    <span className="text-slate-500 dark:text-slate-400">New balance</span>
+                    <span className="font-bold text-slate-900 dark:text-slate-100">
                       {nextBalance == null ? '—' : formatCurrency(nextBalance)}
                     </span>
                   </div>
                 </div>
-                <p className="text-xs text-amber-700 bg-amber-50 border border-amber-100 rounded-lg px-3 py-2">
+                <p className="text-xs text-amber-700 dark:text-amber-300 bg-amber-50 dark:bg-amber-950/40 border border-amber-100 dark:border-amber-900 rounded-lg px-3 py-2">
                   This action posts immediately to the user&apos;s wallet and passbook. A confirmation
                   step is required before funds move.
                 </p>
@@ -538,96 +548,106 @@ const WalletAdjustments = () => {
 
       {tab === 'report' && (
         <div className="space-y-4">
-          <Card>
-            <form
-              onSubmit={applyReportFilters}
-              className="grid gap-3 md:grid-cols-3 lg:grid-cols-6 items-end"
+          <Card padding="md">
+            <CollapsibleReportFilters
+              open={showFilters}
+              onOpenChange={setShowFilters}
+              activeCount={countActiveReportFilters(appliedFilters)}
+              applying={reportLoading}
+              onApply={() => applyReportFilters()}
+              onClear={() => {
+                setFilters(emptyFilters());
+                setAppliedFilters(emptyFilters());
+              }}
+              actions={
+                <>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    icon={FaFileExcel}
+                    loading={exporting}
+                    onClick={handleExport}
+                    size="sm"
+                  >
+                    Export Excel
+                  </Button>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    icon={FaRotate}
+                    onClick={() => loadReport(pagination.page || 1)}
+                    size="sm"
+                  >
+                    Refresh
+                  </Button>
+                </>
+              }
             >
-              <Input
-                label="Search"
-                value={filters.q}
-                onChange={(e) => setFilters((f) => ({ ...f, q: e.target.value }))}
-                placeholder="User / adj id / ref"
-              />
-              <div>
-                <label className="block text-sm font-medium text-slate-700 mb-1.5">Wallet</label>
-                <select
-                  className="w-full rounded-lg border border-slate-300 px-3 py-2.5 text-sm"
-                  value={filters.wallet_type}
-                  onChange={(e) => setFilters((f) => ({ ...f, wallet_type: e.target.value }))}
-                >
-                  <option value="">All</option>
-                  <option value="main">Main</option>
-                  <option value="bbps">BBPS</option>
-                </select>
-              </div>
-              <div>
-                <label className="block text-sm font-medium text-slate-700 mb-1.5">Type</label>
-                <select
-                  className="w-full rounded-lg border border-slate-300 px-3 py-2.5 text-sm"
-                  value={filters.adjustment_type}
-                  onChange={(e) => setFilters((f) => ({ ...f, adjustment_type: e.target.value }))}
-                >
-                  <option value="">All</option>
-                  <option value="CREDIT">Credit</option>
-                  <option value="DEBIT">Debit</option>
-                </select>
-              </div>
-              <div className="md:col-span-3 lg:col-span-2">
+              <ReportFilterGrid>
+                <ReportFilterField label="Search" htmlFor="wa-search" span={2}>
+                  <input
+                    id="wa-search"
+                    type="text"
+                    value={filters.q}
+                    onChange={(e) => setFilters((f) => ({ ...f, q: e.target.value }))}
+                    placeholder="User / adj id / ref"
+                    className={FILTER_INPUT_CLASS}
+                  />
+                </ReportFilterField>
+                <ReportFilterField label="Wallet" htmlFor="wa-wallet">
+                  <select
+                    id="wa-wallet"
+                    value={filters.wallet_type}
+                    onChange={(e) => setFilters((f) => ({ ...f, wallet_type: e.target.value }))}
+                    className={FILTER_SELECT_CLASS}
+                  >
+                    <option value="">All</option>
+                    <option value="main">Main</option>
+                    <option value="bbps">BBPS</option>
+                  </select>
+                </ReportFilterField>
+                <ReportFilterField label="Type" htmlFor="wa-type">
+                  <select
+                    id="wa-type"
+                    value={filters.adjustment_type}
+                    onChange={(e) => setFilters((f) => ({ ...f, adjustment_type: e.target.value }))}
+                    className={FILTER_SELECT_CLASS}
+                  >
+                    <option value="">All</option>
+                    <option value="CREDIT">Credit</option>
+                    <option value="DEBIT">Debit</option>
+                  </select>
+                </ReportFilterField>
+                <ReportFilterField label="Reference" htmlFor="wa-ref">
+                  <input
+                    id="wa-ref"
+                    type="text"
+                    value={filters.reference}
+                    onChange={(e) => setFilters((f) => ({ ...f, reference: e.target.value }))}
+                    placeholder="Reference number"
+                    className={FILTER_INPUT_CLASS}
+                  />
+                </ReportFilterField>
+              </ReportFilterGrid>
+              <ReportFilterDateRow>
                 <ReportDateRange
                   idPrefix="wallet-adj"
                   dateFrom={filters.date_from}
                   dateTo={filters.date_to}
                   fromLabel="From"
                   toLabel="To"
+                  compact
                   onChange={({ dateFrom, dateTo }) =>
                     setFilters((f) => ({ ...f, date_from: dateFrom, date_to: dateTo }))
                   }
                 />
-              </div>
-              <Input
-                label="Reference"
-                value={filters.reference}
-                onChange={(e) => setFilters((f) => ({ ...f, reference: e.target.value }))}
-              />
-              <div className="md:col-span-3 lg:col-span-6 flex flex-wrap gap-2 justify-end">
-                <Button
-                  type="button"
-                  variant="outline"
-                  onClick={() => {
-                    setFilters(emptyFilters());
-                    setAppliedFilters(emptyFilters());
-                  }}
-                >
-                  Clear
-                </Button>
-                <Button type="submit" variant="primary" icon={FaMagnifyingGlass}>
-                  Apply filters
-                </Button>
-                <Button
-                  type="button"
-                  variant="outline"
-                  icon={FaFileExcel}
-                  loading={exporting}
-                  onClick={handleExport}
-                >
-                  Export Excel
-                </Button>
-                <Button
-                  type="button"
-                  variant="outline"
-                  icon={FaRotate}
-                  onClick={() => loadReport(pagination.page || 1)}
-                >
-                  Refresh
-                </Button>
-              </div>
-            </form>
+              </ReportFilterDateRow>
+            </CollapsibleReportFilters>
           </Card>
 
           <Card className="overflow-hidden" padding="none">
-            <div className="px-4 py-3 border-b border-slate-100 flex items-center justify-between">
-              <p className="text-sm text-slate-600">
+            <div className="px-4 py-3 border-b border-slate-100 dark:border-slate-800 flex items-center justify-between">
+              <p className="text-sm text-slate-600 dark:text-slate-400">
                 {reportLoading
                   ? 'Loading…'
                   : `${pagination.total || 0} adjustment${pagination.total === 1 ? '' : 's'}`}
@@ -638,13 +658,13 @@ const WalletAdjustments = () => {
                 <LoadingSpinner />
               </div>
             ) : rows.length === 0 ? (
-              <div className="py-16 text-center text-sm text-slate-500">
+              <div className="py-16 text-center text-sm text-slate-500 dark:text-slate-400">
                 No adjustments match these filters.
               </div>
             ) : (
               <div className="overflow-x-auto">
                 <table className="min-w-full text-sm">
-                  <thead className="bg-slate-50 text-left text-xs uppercase tracking-wide text-slate-500">
+                  <thead className="bg-slate-50 dark:bg-slate-800/50 text-left text-xs uppercase tracking-wide text-slate-500 dark:text-slate-400">
                     <tr>
                       <th className="px-4 py-3 font-semibold">Date</th>
                       <th className="px-4 py-3 font-semibold">Adjustment ID</th>
@@ -658,20 +678,20 @@ const WalletAdjustments = () => {
                       <th className="px-4 py-3 font-semibold" />
                     </tr>
                   </thead>
-                  <tbody className="divide-y divide-slate-100">
+                  <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
                     {rows.map((r) => (
-                      <tr key={r.id || r.adjustment_id} className="hover:bg-slate-50/80">
-                        <td className="px-4 py-3 whitespace-nowrap text-slate-600">
+                      <tr key={r.id || r.adjustment_id} className="hover:bg-slate-50/80 dark:hover:bg-slate-800/80">
+                        <td className="px-4 py-3 whitespace-nowrap text-slate-600 dark:text-slate-400">
                           {formatWhen(r.created_at)}
                         </td>
-                        <td className="px-4 py-3 font-mono text-xs text-slate-800">
+                        <td className="px-4 py-3 font-mono text-xs text-slate-800 dark:text-slate-200">
                           {r.adjustment_id}
                         </td>
                         <td className="px-4 py-3">
-                          <div className="font-medium text-slate-900">
+                          <div className="font-medium text-slate-900 dark:text-slate-100">
                             {r.user?.name || r.user?.user_id || '—'}
                           </div>
-                          <div className="text-xs text-slate-500">
+                          <div className="text-xs text-slate-500 dark:text-slate-400">
                             {[r.user?.user_id, r.user?.phone].filter(Boolean).join(' · ')}
                           </div>
                         </td>
@@ -687,17 +707,17 @@ const WalletAdjustments = () => {
                         <td className="px-4 py-3 text-right font-semibold">
                           {formatCurrency(r.amount)}
                         </td>
-                        <td className="px-4 py-3 text-right text-xs text-slate-600 whitespace-nowrap">
+                        <td className="px-4 py-3 text-right text-xs text-slate-600 dark:text-slate-400 whitespace-nowrap">
                           {formatCurrency(r.balance_before)} → {formatCurrency(r.balance_after)}
                         </td>
                         <td className="px-4 py-3 font-mono text-xs max-w-[140px] truncate">
                           {r.reference_number}
                         </td>
-                        <td className="px-4 py-3 text-slate-600">{r.adjusted_by?.name || '—'}</td>
+                        <td className="px-4 py-3 text-slate-600 dark:text-slate-400">{r.adjusted_by?.name || '—'}</td>
                         <td className="px-4 py-3 text-right">
                           <button
                             type="button"
-                            className="text-indigo-600 hover:underline text-xs font-semibold"
+                            className="text-indigo-600 dark:text-indigo-400 hover:underline text-xs font-semibold"
                             onClick={() => setDetailRow(r)}
                           >
                             Details
@@ -711,7 +731,7 @@ const WalletAdjustments = () => {
             )}
 
             {pagination.total_pages > 1 && (
-              <div className="px-4 py-3 border-t border-slate-100 flex items-center justify-between">
+              <div className="px-4 py-3 border-t border-slate-100 dark:border-slate-800 flex items-center justify-between">
                 <Button
                   type="button"
                   variant="outline"
@@ -721,7 +741,7 @@ const WalletAdjustments = () => {
                 >
                   Previous
                 </Button>
-                <span className="text-xs text-slate-500">
+                <span className="text-xs text-slate-500 dark:text-slate-400">
                   Page {pagination.page} of {pagination.total_pages}
                 </span>
                 <Button
@@ -748,51 +768,51 @@ const WalletAdjustments = () => {
           onClick={() => !submitting && setConfirmOpen(false)}
         >
           <div
-            className="w-full max-w-md rounded-2xl bg-white p-6 shadow-2xl"
+            className="w-full max-w-md rounded-2xl bg-white dark:bg-slate-900 p-6 shadow-2xl"
             onClick={(e) => e.stopPropagation()}
           >
-            <h3 className="text-lg font-bold text-slate-900">Confirm wallet adjustment</h3>
-            <p className="mt-1 text-sm text-slate-600">
+            <h3 className="text-lg font-bold text-slate-900 dark:text-slate-100">Confirm wallet adjustment</h3>
+            <p className="mt-1 text-sm text-slate-600 dark:text-slate-400">
               Review carefully — this posts funds immediately and cannot be undone (a reverse
               adjustment can be created if needed).
             </p>
-            <ul className="mt-4 space-y-2 rounded-xl border border-slate-100 bg-slate-50/80 px-4 py-3 text-sm text-slate-700">
+            <ul className="mt-4 space-y-2 rounded-xl border border-slate-100 dark:border-slate-800 bg-slate-50/80 dark:bg-slate-800/50 px-4 py-3 text-sm text-slate-700 dark:text-slate-300">
               <li>
-                <span className="text-slate-500">User:</span>{' '}
+                <span className="text-slate-500 dark:text-slate-400">User:</span>{' '}
                 <strong>
                   {selectedUser?.name || selectedUser?.user_id} ({selectedUser?.phone})
                 </strong>
               </li>
               <li>
-                <span className="text-slate-500">Wallet:</span>{' '}
+                <span className="text-slate-500 dark:text-slate-400">Wallet:</span>{' '}
                 <strong className="capitalize">{form.wallet_type}</strong>
               </li>
               <li>
-                <span className="text-slate-500">Action:</span>{' '}
+                <span className="text-slate-500 dark:text-slate-400">Action:</span>{' '}
                 <strong
                   className={
-                    form.adjustment_type === 'DEBIT' ? 'text-red-600' : 'text-emerald-600'
+                    form.adjustment_type === 'DEBIT' ? 'text-red-600 dark:text-red-400' : 'text-emerald-600 dark:text-emerald-400'
                   }
                 >
                   {form.adjustment_type} {formatCurrency(form.amount)}
                 </strong>
               </li>
               <li>
-                <span className="text-slate-500">Balance:</span>{' '}
+                <span className="text-slate-500 dark:text-slate-400">Balance:</span>{' '}
                 <strong>
                   {formatCurrency(currentBalance)} → {formatCurrency(nextBalance)}
                 </strong>
               </li>
               <li>
-                <span className="text-slate-500">Reference:</span>{' '}
+                <span className="text-slate-500 dark:text-slate-400">Reference:</span>{' '}
                 <strong className="font-mono">{form.reference_number}</strong>
               </li>
               <li>
-                <span className="text-slate-500">Reason:</span>{' '}
+                <span className="text-slate-500 dark:text-slate-400">Reason:</span>{' '}
                 <strong>{reasonLabel(form.reason_category)}</strong>
               </li>
               <li>
-                <span className="text-slate-500">Remarks:</span> {form.remarks}
+                <span className="text-slate-500 dark:text-slate-400">Remarks:</span> {form.remarks}
               </li>
             </ul>
             <div className="mt-5 flex justify-end gap-3">
@@ -826,13 +846,13 @@ const WalletAdjustments = () => {
           onClick={() => setDetailRow(null)}
         >
           <div
-            className="w-full max-w-lg rounded-2xl bg-white p-6 shadow-2xl max-h-[90vh] overflow-y-auto"
+            className="w-full max-w-lg rounded-2xl bg-white dark:bg-slate-900 p-6 shadow-2xl max-h-[90vh] overflow-y-auto"
             onClick={(e) => e.stopPropagation()}
           >
             <div className="flex items-start justify-between gap-3">
               <div>
-                <h3 className="text-lg font-bold text-slate-900">Adjustment details</h3>
-                <p className="text-xs font-mono text-slate-500 mt-0.5">{detailRow.adjustment_id}</p>
+                <h3 className="text-lg font-bold text-slate-900 dark:text-slate-100">Adjustment details</h3>
+                <p className="text-xs font-mono text-slate-500 dark:text-slate-400 mt-0.5">{detailRow.adjustment_id}</p>
               </div>
               <Badge
                 variant={detailRow.adjustment_type === 'CREDIT' ? 'success' : 'error'}
@@ -856,15 +876,15 @@ const WalletAdjustments = () => {
                 ['Admin', detailRow.adjusted_by?.name || '—'],
                 ['Status', detailRow.status],
               ].map(([k, v]) => (
-                <div key={k} className="rounded-lg bg-slate-50 px-3 py-2">
-                  <dt className="text-xs text-slate-500">{k}</dt>
-                  <dd className="font-medium text-slate-900 break-all">{v}</dd>
+                <div key={k} className="rounded-lg bg-slate-50 dark:bg-slate-800/50 px-3 py-2">
+                  <dt className="text-xs text-slate-500 dark:text-slate-400">{k}</dt>
+                  <dd className="font-medium text-slate-900 dark:text-slate-100 break-all">{v}</dd>
                 </div>
               ))}
             </dl>
-            <div className="mt-3 rounded-lg bg-slate-50 px-3 py-2 text-sm">
-              <p className="text-xs text-slate-500">Remarks</p>
-              <p className="text-slate-800 whitespace-pre-wrap">{detailRow.remarks}</p>
+            <div className="mt-3 rounded-lg bg-slate-50 dark:bg-slate-800/50 px-3 py-2 text-sm">
+              <p className="text-xs text-slate-500 dark:text-slate-400">Remarks</p>
+              <p className="text-slate-800 dark:text-slate-200 whitespace-pre-wrap">{detailRow.remarks}</p>
             </div>
             <div className="mt-5 flex justify-end">
               <Button type="button" variant="outline" onClick={() => setDetailRow(null)}>

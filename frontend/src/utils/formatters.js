@@ -90,15 +90,15 @@ export const formatCardNumber = (cardNumber, lastDigits = 4) => {
 export const getStatusColor = (status) => {
   const statusLower = status?.toLowerCase() || '';
   if (statusLower === 'success' || statusLower === 'completed') {
-    return 'text-success-green bg-green-50 border-green-200';
+    return 'text-success-green bg-green-50 dark:bg-green-950/40 border-green-200 dark:border-green-800';
   }
   if (statusLower === 'pending' || statusLower === 'processing') {
-    return 'text-warning-yellow bg-yellow-50 border-yellow-200';
+    return 'text-warning-yellow bg-yellow-50 dark:bg-yellow-950/40 border-yellow-200 dark:border-yellow-800';
   }
   if (statusLower === 'failed' || statusLower === 'failure' || statusLower === 'error') {
-    return 'text-error-red bg-red-50 border-red-200';
+    return 'text-error-red bg-red-50 dark:bg-red-950/40 border-red-200 dark:border-red-800';
   }
-  return 'text-gray-600 bg-gray-50 border-gray-200';
+  return 'text-gray-600 dark:text-slate-400 bg-gray-50 dark:bg-slate-800/50 border-gray-200 dark:border-slate-700';
 };
 
 // Format user ID for display

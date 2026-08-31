@@ -55,13 +55,13 @@ const accountIsActive = (u) => u && u.is_active !== false;
 const roleBadgeClass = (role) => {
   const r = role || '';
   const map = {
-    Admin: 'bg-violet-100 text-violet-900 ring-1 ring-violet-200',
-    'Super Distributor': 'bg-sky-100 text-sky-900 ring-1 ring-sky-200',
-    'Master Distributor': 'bg-cyan-100 text-cyan-900 ring-1 ring-cyan-200',
-    Distributor: 'bg-indigo-100 text-indigo-900 ring-1 ring-indigo-200',
-    Retailer: 'bg-slate-100 text-slate-800 ring-1 ring-slate-200',
+    Admin: 'bg-violet-100 dark:bg-violet-900/40 text-violet-900 dark:text-violet-300 ring-1 ring-violet-200 dark:ring-violet-800',
+    'Super Distributor': 'bg-sky-100 dark:bg-sky-900/40 text-sky-900 dark:text-sky-300 ring-1 ring-sky-200 dark:ring-sky-800',
+    'Master Distributor': 'bg-cyan-100 dark:bg-cyan-900/40 text-cyan-900 dark:text-cyan-300 ring-1 ring-cyan-200 dark:ring-cyan-800',
+    Distributor: 'bg-indigo-100 dark:bg-indigo-900/40 text-indigo-900 dark:text-indigo-300 ring-1 ring-indigo-200 dark:ring-indigo-800',
+    Retailer: 'bg-slate-100 dark:bg-slate-800 text-slate-800 dark:text-slate-200 ring-1 ring-slate-200 dark:ring-slate-700',
   };
-  return map[r] || 'bg-slate-100 text-slate-800 ring-1 ring-slate-200';
+  return map[r] || 'bg-slate-100 dark:bg-slate-800 text-slate-800 dark:text-slate-200 ring-1 ring-slate-200 dark:ring-slate-700';
 };
 
 const UserDetail = () => {
@@ -492,10 +492,10 @@ const UserDetail = () => {
 
   if (loading) {
     return (
-      <div className="min-h-[calc(100vh-6rem)] bg-gradient-to-b from-slate-50 via-white to-slate-50/80 flex items-center justify-center">
+      <div className="min-h-[calc(100vh-6rem)] bg-gradient-to-b from-slate-50 dark:from-slate-900 via-white dark:via-slate-900 to-slate-50/80 dark:to-slate-900/80 flex items-center justify-center">
         <div className="flex flex-col items-center gap-4">
           <div className="h-12 w-12 animate-spin rounded-full border-2 border-indigo-600 border-t-transparent" />
-          <p className="text-sm font-medium text-slate-600">Loading user details...</p>
+          <p className="text-sm font-medium text-slate-600 dark:text-slate-400">Loading user details...</p>
         </div>
       </div>
     );
@@ -503,12 +503,12 @@ const UserDetail = () => {
 
   if (error || !user) {
     return (
-      <div className="min-h-[calc(100vh-6rem)] bg-gradient-to-b from-slate-50 via-white to-slate-50/80">
+      <div className="min-h-[calc(100vh-6rem)] bg-gradient-to-b from-slate-50 dark:from-slate-900 via-white dark:via-slate-900 to-slate-50/80 dark:to-slate-900/80">
         <div className="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
           <Card className="text-center py-16">
             <FaUser className="mx-auto text-slate-300 mb-4" size={48} />
-            <h2 className="text-xl font-bold text-slate-900 mb-2">User Not Found</h2>
-            <p className="text-slate-600 mb-6">{error || 'The requested user could not be found.'}</p>
+            <h2 className="text-xl font-bold text-slate-900 dark:text-slate-100 mb-2">User Not Found</h2>
+            <p className="text-slate-600 dark:text-slate-400 mb-6">{error || 'The requested user could not be found.'}</p>
             <Button onClick={() => navigate(-1)} variant="outline" icon={FaArrowLeft} iconPosition="left">
               Go Back
             </Button>
@@ -536,7 +536,7 @@ const UserDetail = () => {
   const showProfitWallet = user.role === 'Admin';
 
   return (
-    <div className="min-h-[calc(100vh-6rem)] bg-gradient-to-b from-slate-50 via-white to-slate-50/80">
+    <div className="min-h-[calc(100vh-6rem)] bg-gradient-to-b from-slate-50 dark:from-slate-900 via-white dark:via-slate-900 to-slate-50/80 dark:to-slate-900/80">
       <div className="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8 py-8 space-y-6">
         <ProfileHeader
           fullName={fullName}
@@ -544,7 +544,7 @@ const UserDetail = () => {
           onBack={() => navigate(-1)}
         />
 
-        <div className="rounded-2xl border border-slate-200/90 bg-white px-2 pt-1 shadow-sm ring-1 ring-slate-900/5">
+        <div className="rounded-2xl border border-slate-200/90 dark:border-slate-700/90 bg-white dark:bg-slate-900 px-2 pt-1 shadow-sm ring-1 ring-slate-900/5">
           <ProfileTabs
             tabs={[
               { id: 'overview', label: 'Overview' },
@@ -569,15 +569,15 @@ const UserDetail = () => {
             <>
             {/* Identity Card */}
             <Card className="overflow-hidden">
-              <div className="border-b border-slate-100 bg-slate-50/80 px-6 py-6">
+              <div className="border-b border-slate-100 dark:border-slate-800 bg-slate-50/80 dark:bg-slate-800/50 px-6 py-6">
                 <div className="flex items-start justify-between gap-4">
                   <div>
-                    <p className="text-xs font-semibold uppercase tracking-wider text-slate-500 mb-1">Identifiers</p>
-                    <p className="font-mono text-2xl font-bold tracking-tight text-slate-900">
+                    <p className="text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400 mb-1">Identifiers</p>
+                    <p className="font-mono text-2xl font-bold tracking-tight text-slate-900 dark:text-slate-100">
                       {formatUserId(user)}
                     </p>
                     {user.member_id ? (
-                      <p className="mt-2 font-mono text-sm text-slate-500">
+                      <p className="mt-2 font-mono text-sm text-slate-500 dark:text-slate-400">
                         Member ID: {String(user.member_id).toUpperCase()}
                       </p>
                     ) : null}
@@ -589,8 +589,8 @@ const UserDetail = () => {
               </div>
               <div className="p-6">
                 {isAdmin && !isSelf && (
-                  <div className="mb-6 flex flex-wrap items-center justify-between gap-3 rounded-xl border border-indigo-100 bg-indigo-50/50 px-4 py-3">
-                    <p className="text-sm text-indigo-900">
+                  <div className="mb-6 flex flex-wrap items-center justify-between gap-3 rounded-xl border border-indigo-100 dark:border-indigo-900 bg-indigo-50/50 dark:bg-indigo-950/40 px-4 py-3">
+                    <p className="text-sm text-indigo-900 dark:text-indigo-300">
                       {contactEditing
                         ? 'Updating mobile changes how this user signs in. They will use the new number with their existing password or MPIN.'
                         : 'Administrators can update this user\'s email and mobile number.'}
@@ -612,20 +612,20 @@ const UserDetail = () => {
                   </div>
                 )}
                 {contactMessage && (
-                  <p className={`mb-4 text-sm ${contactMessage.includes('success') ? 'text-emerald-700' : 'text-red-600'}`}>
+                  <p className={`mb-4 text-sm ${contactMessage.includes('success') ? 'text-emerald-700 dark:text-emerald-300' : 'text-red-600 dark:text-red-400'}`}>
                     {contactMessage}
                   </p>
                 )}
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-6">
                   <div>
-                    <div className="flex items-center gap-2 text-slate-500 text-xs font-semibold uppercase tracking-wide mb-2">
+                    <div className="flex items-center gap-2 text-slate-500 dark:text-slate-400 text-xs font-semibold uppercase tracking-wide mb-2">
                       <FaUser size={12} />
                       Full Name
                     </div>
-                    <p className="text-lg font-semibold text-slate-900 capitalize">{fullName}</p>
+                    <p className="text-lg font-semibold text-slate-900 dark:text-slate-100 capitalize">{fullName}</p>
                   </div>
                   <div>
-                    <div className="flex items-center gap-2 text-slate-500 text-xs font-semibold uppercase tracking-wide mb-2">
+                    <div className="flex items-center gap-2 text-slate-500 dark:text-slate-400 text-xs font-semibold uppercase tracking-wide mb-2">
                       <FaEnvelope size={12} />
                       Email
                     </div>
@@ -638,19 +638,19 @@ const UserDetail = () => {
                             setContactDraft((d) => ({ ...d, email: e.target.value }));
                             setContactErrors((err) => ({ ...err, email: undefined }));
                           }}
-                          className="w-full rounded-xl border border-slate-200 px-3 py-2 text-sm focus:border-indigo-300 focus:ring-2 focus:ring-indigo-500/20"
+                          className="w-full rounded-xl border border-slate-200 dark:border-slate-700 px-3 py-2 text-sm focus:border-indigo-300 focus:ring-2 focus:ring-indigo-500/20"
                           autoComplete="off"
                         />
                         {contactErrors.email && (
-                          <p className="mt-1 text-xs text-red-600">{contactErrors.email}</p>
+                          <p className="mt-1 text-xs text-red-600 dark:text-red-400">{contactErrors.email}</p>
                         )}
                       </div>
                     ) : (
-                      <p className="text-slate-900 break-all">{user.email || 'N/A'}</p>
+                      <p className="text-slate-900 dark:text-slate-100 break-all">{user.email || 'N/A'}</p>
                     )}
                   </div>
                   <div>
-                    <div className="flex items-center gap-2 text-slate-500 text-xs font-semibold uppercase tracking-wide mb-2">
+                    <div className="flex items-center gap-2 text-slate-500 dark:text-slate-400 text-xs font-semibold uppercase tracking-wide mb-2">
                       <FaPhone size={12} />
                       Phone
                     </div>
@@ -665,24 +665,24 @@ const UserDetail = () => {
                             setContactDraft((d) => ({ ...d, phone: e.target.value.replace(/\D/g, '').slice(0, 10) }));
                             setContactErrors((err) => ({ ...err, phone: undefined }));
                           }}
-                          className="w-full rounded-xl border border-slate-200 px-3 py-2 font-mono text-sm tabular-nums focus:border-indigo-300 focus:ring-2 focus:ring-indigo-500/20"
+                          className="w-full rounded-xl border border-slate-200 dark:border-slate-700 px-3 py-2 font-mono text-sm tabular-nums focus:border-indigo-300 focus:ring-2 focus:ring-indigo-500/20"
                           autoComplete="off"
                         />
                         {contactErrors.phone && (
-                          <p className="mt-1 text-xs text-red-600">{contactErrors.phone}</p>
+                          <p className="mt-1 text-xs text-red-600 dark:text-red-400">{contactErrors.phone}</p>
                         )}
                       </div>
                     ) : (
-                      <p className="text-slate-900 font-mono tabular-nums">{user.phone || 'N/A'}</p>
+                      <p className="text-slate-900 dark:text-slate-100 font-mono tabular-nums">{user.phone || 'N/A'}</p>
                     )}
                   </div>
                   {user.profile?.alternate_phone && (
                     <div>
-                      <div className="flex items-center gap-2 text-slate-500 text-xs font-semibold uppercase tracking-wide mb-2">
+                      <div className="flex items-center gap-2 text-slate-500 dark:text-slate-400 text-xs font-semibold uppercase tracking-wide mb-2">
                         <FaPhone size={12} />
                         Alternate Phone
                       </div>
-                      <p className="text-slate-900 font-mono tabular-nums">{user.profile.alternate_phone}</p>
+                      <p className="text-slate-900 dark:text-slate-100 font-mono tabular-nums">{user.profile.alternate_phone}</p>
                     </div>
                   )}
                 </div>
@@ -691,18 +691,18 @@ const UserDetail = () => {
 
             {isAdmin && (
               <Card>
-                <div className="px-6 py-4 border-b border-slate-100 flex items-center justify-between gap-3">
+                <div className="px-6 py-4 border-b border-slate-100 dark:border-slate-800 flex items-center justify-between gap-3">
                   <div className="flex items-center gap-3">
-                    <div className="h-10 w-10 rounded-xl bg-emerald-100 flex items-center justify-center">
-                      <FaWallet className="text-emerald-600" size={18} />
+                    <div className="h-10 w-10 rounded-xl bg-emerald-100 dark:bg-emerald-900/40 flex items-center justify-center">
+                      <FaWallet className="text-emerald-600 dark:text-emerald-400" size={18} />
                     </div>
-                    <h2 className="text-lg font-bold text-slate-900">Wallet Balances</h2>
+                    <h2 className="text-lg font-bold text-slate-900 dark:text-slate-100">Wallet Balances</h2>
                   </div>
                   <button
                     type="button"
                     onClick={loadUserWallets}
                     disabled={walletsLoading}
-                    className="flex items-center gap-1.5 text-sm font-medium text-indigo-600 hover:text-indigo-800 disabled:opacity-50"
+                    className="flex items-center gap-1.5 text-sm font-medium text-indigo-600 dark:text-indigo-400 hover:text-indigo-800 dark:hover:text-indigo-200 disabled:opacity-50"
                   >
                     <FaArrowsRotate className={walletsLoading ? 'animate-spin' : ''} size={14} />
                     Refresh
@@ -710,33 +710,33 @@ const UserDetail = () => {
                 </div>
                 <div className="p-6">
                   {walletsError && (
-                    <p className="mb-4 text-sm text-red-600">{walletsError}</p>
+                    <p className="mb-4 text-sm text-red-600 dark:text-red-400">{walletsError}</p>
                   )}
                   <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
-                    <div className="rounded-xl border border-blue-100 bg-blue-50/80 p-4 text-center">
-                      <p className="text-xs font-semibold uppercase tracking-wide text-slate-600 mb-1">Main Wallet</p>
-                      <p className="text-xl font-bold text-blue-700 tabular-nums">
+                    <div className="rounded-xl border border-blue-100 dark:border-blue-900 bg-blue-50/80 dark:bg-blue-950/40 p-4 text-center">
+                      <p className="text-xs font-semibold uppercase tracking-wide text-slate-600 dark:text-slate-400 mb-1">Main Wallet</p>
+                      <p className="text-xl font-bold text-blue-700 dark:text-blue-300 tabular-nums">
                         {walletsLoading ? '...' : formatCurrency(userWallets.main)}
                       </p>
                     </div>
                     {showCommissionWallet && (
-                      <div className="rounded-xl border border-emerald-100 bg-emerald-50/80 p-4 text-center">
-                        <p className="text-xs font-semibold uppercase tracking-wide text-slate-600 mb-1">Commission Wallet</p>
-                        <p className="text-xl font-bold text-emerald-700 tabular-nums">
+                      <div className="rounded-xl border border-emerald-100 dark:border-emerald-900 bg-emerald-50/80 dark:bg-emerald-950/40 p-4 text-center">
+                        <p className="text-xs font-semibold uppercase tracking-wide text-slate-600 dark:text-slate-400 mb-1">Commission Wallet</p>
+                        <p className="text-xl font-bold text-emerald-700 dark:text-emerald-300 tabular-nums">
                           {walletsLoading ? '...' : formatCurrency(userWallets.commission)}
                         </p>
                       </div>
                     )}
-                    <div className="rounded-xl border border-amber-100 bg-amber-50/80 p-4 text-center">
-                      <p className="text-xs font-semibold uppercase tracking-wide text-slate-600 mb-1">BBPS Wallet</p>
-                      <p className="text-xl font-bold text-amber-700 tabular-nums">
+                    <div className="rounded-xl border border-amber-100 dark:border-amber-900 bg-amber-50/80 dark:bg-amber-950/40 p-4 text-center">
+                      <p className="text-xs font-semibold uppercase tracking-wide text-slate-600 dark:text-slate-400 mb-1">BBPS Wallet</p>
+                      <p className="text-xl font-bold text-amber-700 dark:text-amber-300 tabular-nums">
                         {walletsLoading ? '...' : formatCurrency(userWallets.bbps)}
                       </p>
                     </div>
                     {showProfitWallet && (
-                      <div className="rounded-xl border border-violet-100 bg-violet-50/80 p-4 text-center">
-                        <p className="text-xs font-semibold uppercase tracking-wide text-slate-600 mb-1">Profit Wallet</p>
-                        <p className="text-xl font-bold text-violet-700 tabular-nums">
+                      <div className="rounded-xl border border-violet-100 dark:border-violet-900 bg-violet-50/80 dark:bg-violet-950/40 p-4 text-center">
+                        <p className="text-xs font-semibold uppercase tracking-wide text-slate-600 dark:text-slate-400 mb-1">Profit Wallet</p>
+                        <p className="text-xl font-bold text-violet-700 dark:text-violet-300 tabular-nums">
                           {walletsLoading ? '...' : formatCurrency(userWallets.profit)}
                         </p>
                       </div>
@@ -748,24 +748,24 @@ const UserDetail = () => {
 
             {/* Business Information */}
             <Card>
-              <div className="px-6 py-4 border-b border-slate-100">
+              <div className="px-6 py-4 border-b border-slate-100 dark:border-slate-800">
                 <div className="flex items-center gap-3">
-                  <div className="h-10 w-10 rounded-xl bg-amber-100 flex items-center justify-center">
-                    <FaBuilding className="text-amber-600" size={18} />
+                  <div className="h-10 w-10 rounded-xl bg-amber-100 dark:bg-amber-900/40 flex items-center justify-center">
+                    <FaBuilding className="text-amber-600 dark:text-amber-400" size={18} />
                   </div>
-                  <h2 className="text-lg font-bold text-slate-900">Business Information</h2>
+                  <h2 className="text-lg font-bold text-slate-900 dark:text-slate-100">Business Information</h2>
                 </div>
               </div>
               <div className="p-6">
                 <div className="grid grid-cols-1 gap-4">
                   <div>
-                    <p className="text-xs font-semibold uppercase tracking-wide text-slate-500 mb-1">Business Name</p>
-                    <p className="text-slate-900 font-medium">{user.profile?.business_name || 'N/A'}</p>
+                    <p className="text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400 mb-1">Business Name</p>
+                    <p className="text-slate-900 dark:text-slate-100 font-medium">{user.profile?.business_name || 'N/A'}</p>
                   </div>
                   {user.profile?.business_address && (
                     <div>
-                      <p className="text-xs font-semibold uppercase tracking-wide text-slate-500 mb-1">Business Address</p>
-                      <p className="text-slate-700">{user.profile.business_address}</p>
+                      <p className="text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400 mb-1">Business Address</p>
+                      <p className="text-slate-700 dark:text-slate-300">{user.profile.business_address}</p>
                     </div>
                   )}
                 </div>
@@ -785,37 +785,37 @@ const UserDetail = () => {
             <>
             {/* KYC Information */}
             <Card>
-              <div className="px-6 py-4 border-b border-slate-100">
+              <div className="px-6 py-4 border-b border-slate-100 dark:border-slate-800">
                 <div className="flex items-center gap-3">
-                  <div className="h-10 w-10 rounded-xl bg-emerald-100 flex items-center justify-center">
-                    <FaIdCard className="text-emerald-600" size={18} />
+                  <div className="h-10 w-10 rounded-xl bg-emerald-100 dark:bg-emerald-900/40 flex items-center justify-center">
+                    <FaIdCard className="text-emerald-600 dark:text-emerald-400" size={18} />
                   </div>
-                  <h2 id="kyc-compliance-heading" className="text-lg font-bold text-slate-900">KYC & Compliance</h2>
+                  <h2 id="kyc-compliance-heading" className="text-lg font-bold text-slate-900 dark:text-slate-100">KYC & Compliance</h2>
                 </div>
               </div>
               <section className="p-6" aria-labelledby="kyc-compliance-heading">
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-6">
                   <div className="flex items-start gap-3">
                     <div className={`h-10 w-10 rounded-xl flex items-center justify-center ${
-                      kycOk ? 'bg-emerald-100' : kycRejected ? 'bg-red-100' : 'bg-amber-100'
+                      kycOk ? 'bg-emerald-100 dark:bg-emerald-900/40' : kycRejected ? 'bg-red-100 dark:bg-red-900/40' : 'bg-amber-100 dark:bg-amber-900/40'
                     }`}>
                       {kycOk ? (
-                        <FaCircleCheck className="text-emerald-600" size={18} />
+                        <FaCircleCheck className="text-emerald-600 dark:text-emerald-400" size={18} />
                       ) : kycRejected ? (
-                        <FaBan className="text-red-600" size={18} />
+                        <FaBan className="text-red-600 dark:text-red-400" size={18} />
                       ) : (
-                        <FaClock className="text-amber-600" size={18} />
+                        <FaClock className="text-amber-600 dark:text-amber-400" size={18} />
                       )}
                     </div>
                     <div>
-                      <p className="text-xs font-semibold uppercase tracking-wide text-slate-500 mb-1">KYC Status</p>
+                      <p className="text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400 mb-1">KYC Status</p>
                       <p className={`text-lg font-semibold ${
-                        kycOk ? 'text-emerald-700' : kycRejected ? 'text-red-700' : 'text-amber-700'
+                        kycOk ? 'text-emerald-700 dark:text-emerald-300' : kycRejected ? 'text-red-700 dark:text-red-300' : 'text-amber-700 dark:text-amber-300'
                       }`}>
                         {kycStatusLabel}
                       </p>
                       {user.kyc?.decided_at && (kycOk || kycRejected) ? (
-                        <p className="mt-1 text-xs text-slate-500">
+                        <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">
                           {kycOk ? 'Approved' : 'Rejected'}
                           {user.kyc.decided_by_name ? ` by ${user.kyc.decided_by_name}` : ''}
                           {user.kyc.decision_notes ? ` — ${user.kyc.decision_notes}` : ''}
@@ -825,17 +825,17 @@ const UserDetail = () => {
                   </div>
                   <div className="flex items-start gap-3">
                     <div className={`h-10 w-10 rounded-xl flex items-center justify-center ${
-                      mpinOk ? 'bg-emerald-100' : 'bg-amber-100'
+                      mpinOk ? 'bg-emerald-100 dark:bg-emerald-900/40' : 'bg-amber-100 dark:bg-amber-900/40'
                     }`}>
                       {mpinOk ? (
-                        <FaShieldHalved className="text-emerald-600" size={18} />
+                        <FaShieldHalved className="text-emerald-600 dark:text-emerald-400" size={18} />
                       ) : (
-                        <FaClock className="text-amber-600" size={18} />
+                        <FaClock className="text-amber-600 dark:text-amber-400" size={18} />
                       )}
                     </div>
                     <div>
-                      <p className="text-xs font-semibold uppercase tracking-wide text-slate-500 mb-1">MPIN</p>
-                      <p className={`text-lg font-semibold ${mpinOk ? 'text-emerald-700' : 'text-amber-700'}`}>
+                      <p className="text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400 mb-1">MPIN</p>
+                      <p className={`text-lg font-semibold ${mpinOk ? 'text-emerald-700 dark:text-emerald-300' : 'text-amber-700 dark:text-amber-300'}`}>
                         {mpinOk ? 'Configured' : 'Not Set'}
                       </p>
                     </div>
@@ -843,7 +843,7 @@ const UserDetail = () => {
                 </div>
 
                 {(user.kyc_verification?.pan || user.kyc_verification?.aadhaar) ? (
-                  <div className="mt-6 pt-6 border-t border-slate-100">
+                  <div className="mt-6 pt-6 border-t border-slate-100 dark:border-slate-800">
                     <KycVerificationPanel
                       verification={user.kyc_verification}
                       title={
@@ -854,8 +854,8 @@ const UserDetail = () => {
                       showTechnicalDetails={isAdmin}
                     />
                     {isAdmin && !isSelf && (kycAwaiting || kycRejected) ? (
-                      <div className="mt-6 rounded-xl border border-amber-200 bg-amber-50/60 px-4 py-4 space-y-3">
-                        <p className="text-sm font-semibold text-amber-950">
+                      <div className="mt-6 rounded-xl border border-amber-200 dark:border-amber-800 bg-amber-50/60 dark:bg-amber-950/40 px-4 py-4 space-y-3">
+                        <p className="text-sm font-semibold text-amber-950 dark:text-amber-200">
                           {kycAwaiting
                             ? 'Documents verified — Admin approval required before this account becomes active.'
                             : 'KYC was rejected. You may approve after review if documents are acceptable.'}
@@ -882,7 +882,7 @@ const UserDetail = () => {
                               size="md"
                               icon={FaBan}
                               iconPosition="left"
-                              className="border-red-200 text-red-800 hover:bg-red-50"
+                              className="border-red-200 dark:border-red-800 text-red-800 dark:text-red-300 hover:bg-red-50 dark:hover:bg-red-950/60"
                             >
                               Reject
                             </Button>
@@ -890,7 +890,7 @@ const UserDetail = () => {
                         </div>
                         {kycRejectOpen ? (
                           <div className="space-y-2">
-                            <label htmlFor="kyc-reject-notes" className="block text-xs font-semibold uppercase tracking-wide text-slate-600">
+                            <label htmlFor="kyc-reject-notes" className="block text-xs font-semibold uppercase tracking-wide text-slate-600 dark:text-slate-400">
                               Rejection reason
                             </label>
                             <textarea
@@ -898,7 +898,7 @@ const UserDetail = () => {
                               value={kycRejectNotes}
                               onChange={(e) => setKycRejectNotes(e.target.value)}
                               rows={3}
-                              className="w-full rounded-xl border border-slate-200 px-3 py-2 text-sm focus:border-indigo-300 focus:ring-2 focus:ring-indigo-500/20"
+                              className="w-full rounded-xl border border-slate-200 dark:border-slate-700 px-3 py-2 text-sm focus:border-indigo-300 focus:ring-2 focus:ring-indigo-500/20"
                               placeholder="Explain why KYC cannot be approved…"
                             />
                             <Button
@@ -906,7 +906,7 @@ const UserDetail = () => {
                               disabled={kycDecisionSaving || !kycRejectNotes.trim()}
                               variant="outline"
                               size="md"
-                              className="border-red-200 text-red-800 hover:bg-red-50"
+                              className="border-red-200 dark:border-red-800 text-red-800 dark:text-red-300 hover:bg-red-50 dark:hover:bg-red-950/60"
                             >
                               Confirm reject
                             </Button>
@@ -916,8 +916,8 @@ const UserDetail = () => {
                           <p
                             className={`text-sm ${
                               /approv/i.test(kycDecisionMessage) && !/fail|cannot|required|error/i.test(kycDecisionMessage)
-                                ? 'text-emerald-700'
-                                : 'text-slate-700'
+                                ? 'text-emerald-700 dark:text-emerald-300'
+                                : 'text-slate-700 dark:text-slate-300'
                             }`}
                           >
                             {kycDecisionMessage}
@@ -927,12 +927,12 @@ const UserDetail = () => {
                     ) : null}
                     {isAdmin && Array.isArray(user.profile_sync_audits) && user.profile_sync_audits.length > 0 ? (
                       <div className="mt-6">
-                        <p className="text-xs font-semibold uppercase tracking-wide text-slate-600 mb-3">
+                        <p className="text-xs font-semibold uppercase tracking-wide text-slate-600 dark:text-slate-400 mb-3">
                           Profile sync audit
                         </p>
                         <div className="space-y-2 max-h-48 overflow-y-auto">
                           {user.profile_sync_audits.map((row) => (
-                            <div key={row.id} className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-xs text-slate-700">
+                            <div key={row.id} className="rounded-lg border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800/50 px-3 py-2 text-xs text-slate-700 dark:text-slate-300">
                               <span className="font-semibold capitalize">{row.status}</span>
                               {' · '}
                               <span>{row.source}</span>
@@ -953,8 +953,8 @@ const UserDetail = () => {
                     ) : null}
                   </div>
                 ) : (
-                  <div className="mt-6 pt-6 border-t border-slate-100">
-                    <p className="text-sm text-slate-600 bg-slate-50 rounded-xl px-4 py-3 border border-slate-200">
+                  <div className="mt-6 pt-6 border-t border-slate-100 dark:border-slate-800">
+                    <p className="text-sm text-slate-600 dark:text-slate-400 bg-slate-50 dark:bg-slate-800/50 rounded-xl px-4 py-3 border border-slate-200 dark:border-slate-700">
                       {kycOk
                         ? 'KYC is marked complete but detailed provider records are not on file.'
                         : 'User has not completed KYC onboarding yet.'}
@@ -973,18 +973,18 @@ const UserDetail = () => {
             {/* Account Actions (Admin only) */}
             {isAdmin && !isSelf && (
               <Card>
-                <div className="px-6 py-4 border-b border-slate-100">
+                <div className="px-6 py-4 border-b border-slate-100 dark:border-slate-800">
                   <div className="flex items-center gap-3">
-                    <div className="h-10 w-10 rounded-xl bg-indigo-100 flex items-center justify-center">
-                      <FaPenToSquare className="text-indigo-600" size={18} />
+                    <div className="h-10 w-10 rounded-xl bg-indigo-100 dark:bg-indigo-900/40 flex items-center justify-center">
+                      <FaPenToSquare className="text-indigo-600 dark:text-indigo-400" size={18} />
                     </div>
-                    <h2 className="text-lg font-bold text-slate-900">Account Actions</h2>
+                    <h2 className="text-lg font-bold text-slate-900 dark:text-slate-100">Account Actions</h2>
                   </div>
                 </div>
                 <div className="p-6 space-y-6">
                   {/* Role Change */}
                   <div>
-                    <p className="text-xs font-semibold uppercase tracking-wide text-slate-600 mb-2">Change Role</p>
+                    <p className="text-xs font-semibold uppercase tracking-wide text-slate-600 dark:text-slate-400 mb-2">Change Role</p>
                     <div className="flex gap-2">
                       <select
                         value={roleDraft}
@@ -992,7 +992,7 @@ const UserDetail = () => {
                           setRoleDraft(e.target.value);
                           setRoleMessage('');
                         }}
-                        className="flex-1 rounded-xl border border-slate-200 px-3 py-2.5 text-sm focus:border-indigo-300 focus:ring-2 focus:ring-indigo-500/20"
+                        className="flex-1 rounded-xl border border-slate-200 dark:border-slate-700 px-3 py-2.5 text-sm focus:border-indigo-300 focus:ring-2 focus:ring-indigo-500/20"
                       >
                         {ADMIN_ASSIGNABLE_ROLES.map((r) => (
                           <option key={r} value={r}>{r}</option>
@@ -1008,18 +1008,18 @@ const UserDetail = () => {
                       </Button>
                     </div>
                     {roleMessage && (
-                      <p className={`mt-2 text-sm ${roleMessage.includes('success') ? 'text-emerald-700' : 'text-red-600'}`}>
+                      <p className={`mt-2 text-sm ${roleMessage.includes('success') ? 'text-emerald-700 dark:text-emerald-300' : 'text-red-600 dark:text-red-400'}`}>
                         {roleMessage}
                       </p>
                     )}
                   </div>
 
                   {/* Account Status */}
-                  <div className="pt-4 border-t border-slate-100">
-                    <p className="text-xs font-semibold uppercase tracking-wide text-slate-600 mb-3">Account Access</p>
+                  <div className="pt-4 border-t border-slate-100 dark:border-slate-800">
+                    <p className="text-xs font-semibold uppercase tracking-wide text-slate-600 dark:text-slate-400 mb-3">Account Access</p>
                     <AccessStatusBadges user={user} className="mb-3" />
                     {user.allow_concurrent_sessions ? (
-                      <p className="mb-3 inline-flex rounded-full bg-sky-50 px-2.5 py-1 text-xs font-semibold text-sky-800 ring-1 ring-sky-200">
+                      <p className="mb-3 inline-flex rounded-full bg-sky-50 dark:bg-sky-950/40 px-2.5 py-1 text-xs font-semibold text-sky-800 dark:text-sky-300 ring-1 ring-sky-200 dark:ring-sky-800">
                         Multi-session allowed
                       </p>
                     ) : null}
@@ -1032,7 +1032,7 @@ const UserDetail = () => {
                         size="md"
                         icon={FaUserSlash}
                         iconPosition="left"
-                        className="flex-1 border-amber-200 text-amber-800 hover:bg-amber-50"
+                        className="flex-1 border-amber-200 dark:border-amber-800 text-amber-800 dark:text-amber-300 hover:bg-amber-50 dark:hover:bg-amber-950/60"
                       >
                         Disable
                       </Button>
@@ -1051,57 +1051,57 @@ const UserDetail = () => {
                     {activeStatusMessage && (
                       <p className={`mt-2 text-sm ${
                         activeStatusMessage.includes('success') || activeStatusMessage.includes('enabled') || activeStatusMessage.includes('disabled')
-                          ? 'text-emerald-700'
-                          : 'text-red-600'
+                          ? 'text-emerald-700 dark:text-emerald-300'
+                          : 'text-red-600 dark:text-red-400'
                       }`}>
                         {activeStatusMessage}
                       </p>
                     )}
                   </div>
 
-                  <div className="pt-4 border-t border-slate-100 space-y-3">
-                    <p className="text-xs font-semibold uppercase tracking-wide text-slate-600">Access restrictions</p>
-                    <label className="flex items-start gap-3 rounded-xl border border-slate-200 bg-slate-50/80 px-4 py-3 text-sm text-slate-700 cursor-pointer">
+                  <div className="pt-4 border-t border-slate-100 dark:border-slate-800 space-y-3">
+                    <p className="text-xs font-semibold uppercase tracking-wide text-slate-600 dark:text-slate-400">Access restrictions</p>
+                    <label className="flex items-start gap-3 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50/80 dark:bg-slate-800/50 px-4 py-3 text-sm text-slate-700 dark:text-slate-300 cursor-pointer">
                       <input
                         type="checkbox"
-                        className="mt-0.5 h-4 w-4 rounded border-slate-300 text-indigo-600 focus:ring-indigo-500"
+                        className="mt-0.5 h-4 w-4 rounded border-slate-300 dark:border-slate-600 text-indigo-600 dark:text-indigo-400 focus:ring-indigo-500"
                         checked={Boolean(user.is_restricted)}
                         disabled={accessControlsSaving || activeStatusSaving}
                         onChange={(e) => requestRestrictToggle(e.target.checked)}
                       />
                       <span>
-                        <span className="font-medium text-slate-900">Restrict user</span>
-                        <span className="block text-xs text-slate-500 mt-0.5">
+                        <span className="font-medium text-slate-900 dark:text-slate-100">Restrict user</span>
+                        <span className="block text-xs text-slate-500 dark:text-slate-400 mt-0.5">
                           Read-only portal: reports and profile only; no pay-in or payments.
                         </span>
                       </span>
                     </label>
-                    <label className="flex items-start gap-3 rounded-xl border border-slate-200 bg-slate-50/80 px-4 py-3 text-sm text-slate-700 cursor-pointer">
+                    <label className="flex items-start gap-3 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50/80 dark:bg-slate-800/50 px-4 py-3 text-sm text-slate-700 dark:text-slate-300 cursor-pointer">
                       <input
                         type="checkbox"
-                        className="mt-0.5 h-4 w-4 rounded border-slate-300 text-indigo-600 focus:ring-indigo-500"
+                        className="mt-0.5 h-4 w-4 rounded border-slate-300 dark:border-slate-600 text-indigo-600 dark:text-indigo-400 focus:ring-indigo-500"
                         checked={Boolean(user.payments_locked)}
                         disabled={accessControlsSaving || activeStatusSaving || !accountIsActive(user)}
                         onChange={(e) => requestPaymentsLockToggle(e.target.checked)}
                       />
                       <span>
-                        <span className="font-medium text-slate-900">Lock payments</span>
-                        <span className="block text-xs text-slate-500 mt-0.5">
+                        <span className="font-medium text-slate-900 dark:text-slate-100">Lock payments</span>
+                        <span className="block text-xs text-slate-500 dark:text-slate-400 mt-0.5">
                           Blocks BBPS, payout, and transfers; pay-in still allowed unless restricted.
                         </span>
                       </span>
                     </label>
                     {accessControlsMessage && (
-                      <p className={`text-sm ${accessControlsMessage.includes('updated') ? 'text-emerald-700' : 'text-red-600'}`}>
+                      <p className={`text-sm ${accessControlsMessage.includes('updated') ? 'text-emerald-700 dark:text-emerald-300' : 'text-red-600 dark:text-red-400'}`}>
                         {accessControlsMessage}
                       </p>
                     )}
                   </div>
 
                   {!isSelf ? (
-                    <div className="pt-4 border-t border-red-100">
-                      <p className="text-xs font-semibold uppercase tracking-wide text-red-700 mb-2">Danger zone</p>
-                      <p className="text-sm text-slate-600 mb-3">
+                    <div className="pt-4 border-t border-red-100 dark:border-red-900">
+                      <p className="text-xs font-semibold uppercase tracking-wide text-red-700 dark:text-red-300 mb-2">Danger zone</p>
+                      <p className="text-sm text-slate-600 dark:text-slate-400 mb-3">
                         Permanently delete this user and all related account data. This cannot be undone.
                       </p>
                       <Button
@@ -1116,7 +1116,7 @@ const UserDetail = () => {
                         Delete user permanently
                       </Button>
                       {deleteError ? (
-                        <p role="alert" className="mt-2 text-sm text-red-600">{deleteError}</p>
+                        <p role="alert" className="mt-2 text-sm text-red-600 dark:text-red-400">{deleteError}</p>
                       ) : null}
                     </div>
                   ) : null}
@@ -1126,12 +1126,12 @@ const UserDetail = () => {
 
             {isAdmin && (
             <Card>
-              <div className="px-6 py-4 border-b border-slate-100">
+              <div className="px-6 py-4 border-b border-slate-100 dark:border-slate-800">
                 <div className="flex items-center gap-3">
-                  <div className="h-10 w-10 rounded-xl bg-violet-100 flex items-center justify-center">
-                    <FaBox className="text-violet-600" size={18} />
+                  <div className="h-10 w-10 rounded-xl bg-violet-100 dark:bg-violet-900/40 flex items-center justify-center">
+                    <FaBox className="text-violet-600 dark:text-violet-400" size={18} />
                   </div>
-                  <h2 className="text-lg font-bold text-slate-900">Pay-in Packages</h2>
+                  <h2 className="text-lg font-bold text-slate-900 dark:text-slate-100">Pay-in Packages</h2>
                 </div>
               </div>
               <div className="p-6 space-y-5">
@@ -1143,11 +1143,11 @@ const UserDetail = () => {
                   <>
                     {/* Assigned Packages */}
                     <div>
-                      <p className="text-xs font-semibold uppercase tracking-wide text-slate-600 mb-3">
+                      <p className="text-xs font-semibold uppercase tracking-wide text-slate-600 dark:text-slate-400 mb-3">
                         Assigned Packages
                       </p>
                       {userPackages.assigned.length === 0 ? (
-                        <p className="text-sm text-slate-500 bg-slate-50 rounded-xl px-4 py-3">
+                        <p className="text-sm text-slate-500 dark:text-slate-400 bg-slate-50 dark:bg-slate-800/50 rounded-xl px-4 py-3">
                           No packages explicitly assigned. Using default package (if configured).
                         </p>
                       ) : (
@@ -1155,17 +1155,17 @@ const UserDetail = () => {
                           {userPackages.assigned.map((pkg) => (
                             <div
                               key={pkg.id}
-                              className="flex items-center justify-between rounded-xl border border-violet-200 bg-violet-50 px-4 py-3"
+                              className="flex items-center justify-between rounded-xl border border-violet-200 dark:border-violet-800 bg-violet-50 dark:bg-violet-950/40 px-4 py-3"
                             >
                               <div className="flex items-center gap-2">
                                 {pkg.is_default && <FaStar className="text-amber-500" size={14} />}
-                                <span className="font-medium text-violet-900">{pkg.display_name}</span>
+                                <span className="font-medium text-violet-900 dark:text-violet-300">{pkg.display_name}</span>
                               </div>
                               {isAdmin ? (
                                 <button
                                   onClick={() => handleRemovePackage(pkg.id)}
                                   disabled={packageAssigning === pkg.id}
-                                  className="rounded-lg p-2 text-violet-600 hover:bg-violet-100 hover:text-red-600 transition-colors disabled:opacity-50"
+                                  className="rounded-lg p-2 text-violet-600 dark:text-violet-400 hover:bg-violet-100 dark:hover:bg-violet-900/60 hover:text-red-600 transition-colors disabled:opacity-50"
                                   title="Remove package"
                                 >
                                   <FaTrash size={14} />
@@ -1178,12 +1178,12 @@ const UserDetail = () => {
                     </div>
 
                     {/* Effective Access */}
-                    <div className="pt-4 border-t border-slate-100">
-                      <p className="text-xs font-semibold uppercase tracking-wide text-slate-600 mb-3">
+                    <div className="pt-4 border-t border-slate-100 dark:border-slate-800">
+                      <p className="text-xs font-semibold uppercase tracking-wide text-slate-600 dark:text-slate-400 mb-3">
                         Effective Access
                       </p>
                       {userPackages.accessible.length === 0 ? (
-                        <p className="text-sm text-slate-500 bg-slate-50 rounded-xl px-4 py-3">
+                        <p className="text-sm text-slate-500 dark:text-slate-400 bg-slate-50 dark:bg-slate-800/50 rounded-xl px-4 py-3">
                           No packages accessible.
                         </p>
                       ) : (
@@ -1191,7 +1191,7 @@ const UserDetail = () => {
                           {userPackages.accessible.map((pkg) => (
                             <span
                               key={pkg.id}
-                              className="inline-flex items-center gap-1.5 rounded-lg bg-slate-100 px-3 py-1.5 text-sm font-medium text-slate-700"
+                              className="inline-flex items-center gap-1.5 rounded-lg bg-slate-100 dark:bg-slate-800 px-3 py-1.5 text-sm font-medium text-slate-700 dark:text-slate-300"
                             >
                               {pkg.is_default && <FaStar className="text-amber-500" size={10} />}
                               {pkg.display_name}
@@ -1205,8 +1205,8 @@ const UserDetail = () => {
                     {isAdmin &&
                       assignablePackages.filter((pkg) => !userPackages.assigned.find((ap) => ap.id === pkg.id)).length >
                         0 && (
-                      <div className="pt-4 border-t border-slate-100">
-                        <p className="text-xs font-semibold uppercase tracking-wide text-slate-600 mb-3">
+                      <div className="pt-4 border-t border-slate-100 dark:border-slate-800">
+                        <p className="text-xs font-semibold uppercase tracking-wide text-slate-600 dark:text-slate-400 mb-3">
                           Assign Package
                         </p>
                         <div className="space-y-2">
@@ -1217,13 +1217,13 @@ const UserDetail = () => {
                                 key={pkg.id}
                                 onClick={() => handleAssignPackage(pkg.id)}
                                 disabled={packageAssigning === pkg.id}
-                                className="w-full flex items-center justify-between rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm font-medium text-slate-700 transition-colors hover:border-violet-300 hover:bg-violet-50 disabled:opacity-50"
+                                className="w-full flex items-center justify-between rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 px-4 py-3 text-sm font-medium text-slate-700 dark:text-slate-300 transition-colors hover:border-violet-300 dark:hover:border-violet-700 hover:bg-violet-50 dark:hover:bg-violet-950/60 disabled:opacity-50"
                               >
                                 <span className="flex items-center gap-2">
                                   {pkg.is_default && <FaStar className="text-amber-500" size={12} />}
                                   {pkg.display_name}
                                 </span>
-                                <FaPlus size={12} className="text-violet-600" />
+                                <FaPlus size={12} className="text-violet-600 dark:text-violet-400" />
                               </button>
                             ))}
                         </div>
@@ -1231,7 +1231,7 @@ const UserDetail = () => {
                     )}
 
                     {packageMessage && (
-                      <p className={`text-sm ${packageMessage.includes('Failed') || packageMessage.includes('error') ? 'text-red-600' : 'text-emerald-700'}`}>
+                      <p className={`text-sm ${packageMessage.includes('Failed') || packageMessage.includes('error') ? 'text-red-600 dark:text-red-400' : 'text-emerald-700 dark:text-emerald-300'}`}>
                         {packageMessage}
                       </p>
                     )}
@@ -1243,19 +1243,19 @@ const UserDetail = () => {
 
             {isAdmin && !isSelf && (
               <Card>
-                <div className="px-6 py-4 border-b border-slate-100">
+                <div className="px-6 py-4 border-b border-slate-100 dark:border-slate-800">
                   <div className="flex items-center gap-3">
-                    <div className="h-10 w-10 rounded-xl bg-blue-100 flex items-center justify-center">
-                      <FaShieldHalved className="text-blue-600" size={18} />
+                    <div className="h-10 w-10 rounded-xl bg-blue-100 dark:bg-blue-900/40 flex items-center justify-center">
+                      <FaShieldHalved className="text-blue-600 dark:text-blue-400" size={18} />
                     </div>
                     <div>
-                      <h2 className="text-lg font-bold text-slate-900">AEPS access</h2>
-                      <p className="text-xs text-slate-500">Admin-only. Does not cascade to downline.</p>
+                      <h2 className="text-lg font-bold text-slate-900 dark:text-slate-100">AEPS access</h2>
+                      <p className="text-xs text-slate-500 dark:text-slate-400">Admin-only. Does not cascade to downline.</p>
                     </div>
                   </div>
                 </div>
                 <div className="p-6 space-y-3">
-                  <p className="text-sm text-slate-700">
+                  <p className="text-sm text-slate-700 dark:text-slate-300">
                     Status:{' '}
                     <span className="font-semibold">
                       {aepsEntitlement?.enabled ? 'Enabled' : 'Disabled'}
@@ -1300,31 +1300,31 @@ const UserDetail = () => {
                       Disable AEPS
                     </Button>
                   </div>
-                  {aepsMessage ? <p className="text-sm text-slate-600">{aepsMessage}</p> : null}
+                  {aepsMessage ? <p className="text-sm text-slate-600 dark:text-slate-400">{aepsMessage}</p> : null}
                 </div>
               </Card>
             )}
 
             {/* Account Info */}
             <Card>
-              <div className="px-6 py-4 border-b border-slate-100">
+              <div className="px-6 py-4 border-b border-slate-100 dark:border-slate-800">
                 <div className="flex items-center gap-3">
-                  <div className="h-10 w-10 rounded-xl bg-slate-100 flex items-center justify-center">
-                    <FaCalendar className="text-slate-600" size={18} />
+                  <div className="h-10 w-10 rounded-xl bg-slate-100 dark:bg-slate-800 flex items-center justify-center">
+                    <FaCalendar className="text-slate-600 dark:text-slate-400" size={18} />
                   </div>
-                  <h2 className="text-lg font-bold text-slate-900">Account Info</h2>
+                  <h2 className="text-lg font-bold text-slate-900 dark:text-slate-100">Account Info</h2>
                 </div>
               </div>
               <div className="p-6">
                 <div className="space-y-4 text-sm">
                   <div>
-                    <p className="text-xs font-semibold uppercase tracking-wide text-slate-500 mb-1">Created</p>
-                    <p className="text-slate-900">{user.created_at ? new Date(user.created_at).toLocaleString() : 'N/A'}</p>
+                    <p className="text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400 mb-1">Created</p>
+                    <p className="text-slate-900 dark:text-slate-100">{user.created_at ? new Date(user.created_at).toLocaleString() : 'N/A'}</p>
                   </div>
                   {user.updated_at && (
                     <div>
-                      <p className="text-xs font-semibold uppercase tracking-wide text-slate-500 mb-1">Last Updated</p>
-                      <p className="text-slate-900">{new Date(user.updated_at).toLocaleString()}</p>
+                      <p className="text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400 mb-1">Last Updated</p>
+                      <p className="text-slate-900 dark:text-slate-100">{new Date(user.updated_at).toLocaleString()}</p>
                     </div>
                   )}
                 </div>

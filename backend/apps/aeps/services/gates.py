@@ -171,4 +171,20 @@ def me_status_payload(user) -> dict:
         'merchant': merchant_block,
         'stage': stage,
         'next_action': next_action,
+        'capture_profile': capture_profile_payload(),
+    }
+
+
+def capture_profile_payload() -> dict:
+    """RD-service capture options the browser should use, from provider config."""
+    from apps.aeps.models import AepsProviderConfig
+
+    row = (
+        AepsProviderConfig.objects.filter(is_active=True, is_deleted=False)
+        .order_by('-updated_at')
+        .first()
+    )
+    return {
+        'ftype_aeps': (getattr(row, 'capture_ftype_aeps', '') or '2'),
+        'ftype_ekyc': (getattr(row, 'capture_ftype_ekyc', '') or '2'),
     }

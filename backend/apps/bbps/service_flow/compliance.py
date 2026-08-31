@@ -164,6 +164,16 @@ def enforce_biller_mode_channel_constraints(
     payment_channel: str,
     amount,
 ) -> None:
+    from apps.bbps.service_flow.catalog_ux_settings import is_cash_only_for_users
+
+    if is_cash_only_for_users():
+        mode = _normalize_mode_for_compare(payment_mode)
+        channel = _normalize_text(payment_channel).upper()
+        if mode != 'cash':
+            raise TransactionFailed('Only Cash payment mode is allowed while cash-only catalog mode is enabled.')
+        if channel != 'AGT':
+            raise TransactionFailed('Only AGT payment channel is allowed while cash-only catalog mode is enabled.')
+
     from apps.bbps.service_flow.provider_policy import provider_policy_decision_for_combo
 
     mode = _normalize_mode_for_compare(payment_mode)

@@ -818,3 +818,36 @@ class BbpsProviderFloatLedger(BaseModel):
 
     def __str__(self):
         return f'{self.entry_type} ₹{self.amount} ({self.environment})'
+
+
+class BbpsCatalogUxSettings(BaseModel):
+  """Per-environment BBPS catalog UX flags (admin-controlled)."""
+
+  ENVIRONMENT_CHOICES = [('uat', 'UAT'), ('prod', 'Production')]
+
+  environment = models.CharField(
+      max_length=10,
+      choices=ENVIRONMENT_CHOICES,
+      unique=True,
+      db_index=True,
+  )
+  cash_only_for_users = models.BooleanField(
+      default=False,
+      db_index=True,
+      help_text='When True, end users see only AGT+Cash-capable billers and payment method is hidden.',
+  )
+  updated_by = models.ForeignKey(
+      User,
+      null=True,
+      blank=True,
+      on_delete=models.SET_NULL,
+      related_name='bbps_catalog_ux_updates',
+  )
+
+  class Meta:
+      db_table = 'bbps_catalog_ux_settings'
+      ordering = ['environment']
+
+  def __str__(self):
+      flag = 'cash-only' if self.cash_only_for_users else 'standard'
+      return f'{self.environment} catalog UX ({flag})'

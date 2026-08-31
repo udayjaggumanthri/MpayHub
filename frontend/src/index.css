@@ -4,7 +4,50 @@
 
 /* Matches Layout Header: py-3 + min-h-12 (mobile) / py-4 + min-h-14 (sm+) */
 :root {
+  color-scheme: light;
   --mpay-app-header-offset: 4.5rem;
+
+  /* Surface elevation ladder */
+  --mpay-bg-page: #f9fafb;
+  --mpay-bg-surface: #ffffff;
+  --mpay-bg-raised: #f8fafc;
+  --mpay-bg-overlay: #ffffff;
+
+  /* Text hierarchy */
+  --mpay-text-primary: #111827;
+  --mpay-text-secondary: #4b5563;
+  --mpay-text-muted: #6b7280;
+
+  /* Border hierarchy */
+  --mpay-border-subtle: #f1f5f9;
+  --mpay-border: #e5e7eb;
+  --mpay-border-strong: #cbd5e1;
+
+  /* Scrollbar */
+  --mpay-scrollbar-track: #f1f1f1;
+  --mpay-scrollbar-thumb: #cbd5e1;
+  --mpay-scrollbar-thumb-hover: #94a3b8;
+}
+
+.dark {
+  color-scheme: dark;
+
+  --mpay-bg-page: #020617;
+  --mpay-bg-surface: #0f172a;
+  --mpay-bg-raised: #1e293b;
+  --mpay-bg-overlay: #1e293b;
+
+  --mpay-text-primary: #f1f5f9;
+  --mpay-text-secondary: #cbd5e1;
+  --mpay-text-muted: #94a3b8;
+
+  --mpay-border-subtle: #1e293b;
+  --mpay-border: #334155;
+  --mpay-border-strong: #475569;
+
+  --mpay-scrollbar-track: #0f172a;
+  --mpay-scrollbar-thumb: #334155;
+  --mpay-scrollbar-thumb-hover: #475569;
 }
 
 @media (min-width: 640px) {
@@ -20,11 +63,27 @@ body {
     sans-serif;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
+  background-color: var(--mpay-bg-page);
+  color: var(--mpay-text-primary);
 }
 
 code {
   font-family: source-code-pro, Menlo, Monaco, Consolas, 'Courier New',
     monospace;
+}
+
+/*
+ * Printed/emailed documents keep light styling in both themes, so what the user
+ * sees on screen matches the paper and email output.
+ */
+.mpay-paper,
+.mpay-paper * {
+  color-scheme: light;
+}
+
+.mpay-paper {
+  background-color: #ffffff;
+  color: #111827;
 }
 
 /* Gmail-style HTML email editor */
@@ -60,18 +119,18 @@ code {
 }
 
 .scroll-smooth::-webkit-scrollbar-track {
-  background: #f1f1f1;
+  background: var(--mpay-scrollbar-track);
   border-radius: 10px;
 }
 
 .scroll-smooth::-webkit-scrollbar-thumb {
-  background: #cbd5e1;
+  background: var(--mpay-scrollbar-thumb);
   border-radius: 10px;
   transition: background 0.2s ease;
 }
 
 .scroll-smooth::-webkit-scrollbar-thumb:hover {
-  background: #94a3b8;
+  background: var(--mpay-scrollbar-thumb-hover);
 }
 
 /* Fade in animation for submenu */

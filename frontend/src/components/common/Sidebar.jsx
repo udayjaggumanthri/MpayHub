@@ -4,7 +4,6 @@ import { useAuth } from '../../context/AuthContext';
 import { getMenuForRole } from '../../utils/rolePermissions';
 import { shouldBlockPathForUser } from '../../utils/userAccess';
 import {
-  FiMenu,
   FiX,
   FiChevronDown,
   FiChevronRight,
@@ -13,18 +12,22 @@ import {
   HiHomeModern, 
   HiUsers, 
   HiChartBar, 
-  HiCog6Tooth 
+  HiCog6Tooth,
+  HiBanknotes,
+  HiQrCode,
+  HiBell,
 } from 'react-icons/hi2';
 import bMnemonicPrimary from '../../assets/bbps/b-mnemonic-primary.svg';
+import { useBranding } from '../../context/AppearanceContext';
+import BrandingLogo from './BrandingLogo';
 
-const LOGO_SRC = `${process.env.PUBLIC_URL || ''}/images/logo.png`;
 const BBPS_MENU_ICON = 'bbps-mnemonic';
 
-const Sidebar = () => {
+const Sidebar = ({ mobileMenuOpen = false, setMobileMenuOpen = () => {} }) => {
   const { user } = useAuth();
+  const { siteTitle } = useBranding();
   const location = useLocation();
   const [expandedMenus, setExpandedMenus] = useState({});
-  const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const menuNavRef = useRef(null);
 
   const menu = getMenuForRole(user?.role || 'Retailer');
@@ -64,6 +67,9 @@ const Sidebar = () => {
       users: HiUsers,
       reports: HiChartBar,
       profile: HiCog6Tooth,
+      payin: HiBanknotes,
+      qr: HiQrCode,
+      notifications: HiBell,
     };
     return icons[iconName] || HiHomeModern;
   };
@@ -86,10 +92,10 @@ const Sidebar = () => {
     return (
       <div
         className={`flex-shrink-0 p-1.5 rounded-lg ${
-          active ? 'bg-blue-100' : 'bg-gray-100'
+          active ? 'bg-blue-100 dark:bg-blue-900/40' : 'bg-gray-100 dark:bg-slate-800'
         } transition-colors`}
       >
-        <Icon size={18} className={active ? 'text-blue-600' : 'text-gray-600'} />
+        <Icon size={18} className={active ? 'text-blue-600 dark:text-blue-400' : 'text-gray-600 dark:text-slate-400'} />
       </div>
     );
   };
@@ -139,15 +145,15 @@ const Sidebar = () => {
             onClick={() => toggleMenu(item.name)}
             className={`w-full flex items-center justify-between gap-2 px-3 sm:px-4 py-2.5 sm:py-3 rounded-xl transition-all duration-200 ${
               active
-                ? 'bg-gradient-to-r from-blue-50 to-indigo-50 text-blue-600 font-semibold shadow-md border-l-4 border-blue-600'
-                : 'text-gray-700 hover:bg-gray-50 hover:border-l-4 hover:border-gray-300 font-medium'
+                ? 'bg-gradient-to-r from-blue-50 dark:from-blue-950/40 to-indigo-50 dark:to-indigo-950/40 text-blue-600 dark:text-blue-400 font-semibold shadow-md border-l-4 border-blue-600'
+                : 'text-gray-700 dark:text-slate-300 hover:bg-gray-50 dark:hover:bg-slate-800 hover:border-l-4 hover:border-gray-300 dark:hover:border-slate-600 font-medium'
             }`}
           >
             <div className="flex items-center space-x-2 sm:space-x-3 flex-1 min-w-0 overflow-hidden">
               <MenuIcon iconName={item.icon} active={active} />
               <span className={`text-sm sm:text-base whitespace-nowrap ${active ? 'font-semibold' : 'font-medium'}`}>{item.name}</span>
             </div>
-            <div className={`flex-shrink-0 ${active ? 'text-blue-600' : 'text-gray-400'} transition-colors`}>
+            <div className={`flex-shrink-0 ${active ? 'text-blue-600 dark:text-blue-400' : 'text-gray-400 dark:text-slate-500'} transition-colors`}>
               {isExpanded ? (
                 <FiChevronDown className="transition-transform duration-200" size={16} />
               ) : (
@@ -169,8 +175,8 @@ const Sidebar = () => {
                     }}
                     className={`block px-3 sm:px-4 py-2 sm:py-2.5 rounded-xl transition-all duration-200 text-sm sm:text-base ${
                       subActive
-                        ? 'bg-gradient-to-r from-blue-50 to-indigo-50 text-blue-600 font-semibold shadow-sm border-l-4 border-blue-600'
-                        : 'text-gray-600 hover:bg-gray-50 hover:text-gray-900 hover:border-l-4 hover:border-gray-300 font-medium'
+                        ? 'bg-gradient-to-r from-blue-50 dark:from-blue-950/40 to-indigo-50 dark:to-indigo-950/40 text-blue-600 dark:text-blue-400 font-semibold shadow-sm border-l-4 border-blue-600'
+                        : 'text-gray-600 dark:text-slate-400 hover:bg-gray-50 dark:hover:bg-slate-800 hover:text-gray-900 dark:hover:text-slate-100 hover:border-l-4 hover:border-gray-300 dark:hover:border-slate-600 font-medium'
                     }`}
                   >
                     {subItem.name}
@@ -189,8 +195,8 @@ const Sidebar = () => {
         onClick={() => setMobileMenuOpen(false)}
         className={`flex items-center space-x-2 sm:space-x-3 px-3 sm:px-4 py-2.5 sm:py-3 rounded-xl transition-all duration-200 ${
           active
-            ? 'bg-gradient-to-r from-blue-50 to-indigo-50 text-blue-600 font-semibold shadow-md border-l-4 border-blue-600'
-            : 'text-gray-700 hover:bg-gray-50 hover:border-l-4 hover:border-gray-300 font-medium'
+            ? 'bg-gradient-to-r from-blue-50 dark:from-blue-950/40 to-indigo-50 dark:to-indigo-950/40 text-blue-600 dark:text-blue-400 font-semibold shadow-md border-l-4 border-blue-600'
+            : 'text-gray-700 dark:text-slate-300 hover:bg-gray-50 dark:hover:bg-slate-800 hover:border-l-4 hover:border-gray-300 dark:hover:border-slate-600 font-medium'
         }`}
       >
         <MenuIcon iconName={item.icon} active={active} />
@@ -201,36 +207,17 @@ const Sidebar = () => {
 
   return (
     <>
-      {/* Mobile Menu Button - Top Left (Fixed position) */}
-      <button
-        onClick={() => {
-          setMobileMenuOpen(!mobileMenuOpen);
-          // Scroll to top immediately when opening
-          if (!mobileMenuOpen && menuNavRef.current) {
-            setTimeout(() => {
-              if (menuNavRef.current) {
-                menuNavRef.current.scrollTop = 0;
-              }
-            }, 10);
-          }
-        }}
-        className="lg:hidden fixed top-3 left-3 z-50 p-2.5 bg-white rounded-lg shadow-lg border border-gray-200 hover:bg-gray-50 transition-colors"
-        aria-label="Toggle menu"
-      >
-        {mobileMenuOpen ? <FiX size={22} className="text-gray-700" /> : <FiMenu size={22} className="text-gray-700" />}
-      </button>
-
       {/* Overlay for mobile - Behind sidebar but covers content */}
       {mobileMenuOpen && (
         <div
-          className="fixed inset-0 bg-black bg-opacity-50 z-30 lg:hidden transition-opacity duration-300"
+          className="fixed inset-0 bg-black/50 z-40 lg:hidden transition-opacity duration-300"
           onClick={() => setMobileMenuOpen(false)}
         ></div>
       )}
 
-      {/* Sidebar */}
+      {/* Sidebar — above the sticky header (z-40) so the drawer is not clipped by it on mobile */}
       <aside
-        className={`fixed inset-y-0 left-0 z-40 w-64 bg-white border-r border-gray-200 transform transition-transform duration-300 ease-in-out ${
+        className={`fixed inset-y-0 left-0 z-50 w-64 transform border-r border-gray-200 bg-white transition-transform duration-300 ease-in-out dark:border-slate-700 dark:bg-slate-900 ${
           mobileMenuOpen ? 'translate-x-0' : '-translate-x-full lg:translate-x-0'
         }`}
       >
@@ -240,24 +227,42 @@ const Sidebar = () => {
             <Link
               to="/dashboard"
               className="flex w-full items-center justify-center rounded-xl py-1 transition-opacity hover:opacity-90 focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 focus-visible:ring-offset-2"
-              aria-label="mPayhub home"
+              aria-label={`${siteTitle} home`}
             >
-              <img
-                src={LOGO_SRC}
-                alt="mPayhub"
+              <BrandingLogo
                 className="max-h-14 w-auto max-w-[min(100%,13.5rem)] object-contain object-center"
                 draggable={false}
               />
             </Link>
           </div>
           
-          {/* Mobile: No border or padding - Dashboard starts immediately */}
-          <div className="lg:hidden flex-shrink-0 h-0"></div>
+          {/* Mobile drawer header: brand plus an explicit close control */}
+          <div className="flex flex-shrink-0 items-center justify-between gap-2 border-b border-gray-200 px-3 py-2.5 dark:border-slate-700 lg:hidden">
+            <Link
+              to="/dashboard"
+              onClick={() => setMobileMenuOpen(false)}
+              className="flex min-w-0 items-center rounded-xl transition-opacity hover:opacity-90 focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500"
+              aria-label={`${siteTitle} home`}
+            >
+              <BrandingLogo
+                className="h-11 w-auto max-w-full object-contain object-left"
+                draggable={false}
+              />
+            </Link>
+            <button
+              type="button"
+              onClick={() => setMobileMenuOpen(false)}
+              className="inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-lg text-gray-600 transition-colors hover:bg-gray-100 focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 dark:text-slate-400 dark:hover:bg-slate-800"
+              aria-label="Close menu"
+            >
+              <FiX size={20} />
+            </button>
+          </div>
 
           {/* Menu Items - Scrollable area - Dashboard always visible at top */}
           <nav 
             ref={menuNavRef}
-            className="flex-1 overflow-y-auto overflow-x-hidden px-3 sm:px-4 pt-[68px] lg:pt-0 pb-2 scroll-smooth" 
+            className="flex-1 overflow-y-auto overflow-x-hidden px-3 sm:px-4 pt-3 lg:pt-0 pb-2 scroll-smooth" 
             style={{ scrollPaddingTop: 0 }}
           >
             <div className="space-y-1.5 min-h-0">
@@ -268,21 +273,21 @@ const Sidebar = () => {
                   </div>
                 ))
               ) : (
-                <div className="px-3 py-2 text-sm text-gray-500">No menu items available</div>
+                <div className="px-3 py-2 text-sm text-gray-500 dark:text-slate-400">No menu items available</div>
               )}
             </div>
           </nav>
 
           {/* User Info - Mobile & Desktop */}
           {user && (
-            <div className="px-3 sm:px-4 py-3 sm:py-4 border-t border-gray-200 flex-shrink-0 bg-gray-50">
+            <div className="px-3 sm:px-4 py-3 sm:py-4 border-t border-gray-200 dark:border-slate-700 flex-shrink-0 bg-gray-50 dark:bg-slate-800/50">
               <div className="flex items-center space-x-2 sm:space-x-3">
                 <div className="w-9 h-9 sm:w-10 sm:h-10 bg-blue-600 rounded-full flex items-center justify-center text-white font-semibold text-xs sm:text-sm flex-shrink-0">
                   {user.name?.charAt(0).toUpperCase() || 'U'}
                 </div>
                 <div className="min-w-0 flex-1">
-                  <p className="text-xs sm:text-sm font-medium text-gray-900 truncate">{user.name}</p>
-                  <p className="text-xs text-gray-500 truncate">
+                  <p className="text-xs sm:text-sm font-medium text-gray-900 dark:text-slate-100 truncate">{user.name}</p>
+                  <p className="text-xs text-gray-500 dark:text-slate-400 truncate">
                     {user.displayCode || user.userId || user.user_id || user.memberId}
                   </p>
                 </div>

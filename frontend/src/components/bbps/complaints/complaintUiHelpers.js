@@ -1,16 +1,16 @@
 export const toneClass = (tone) => {
-  if (tone === 'success') return 'border-emerald-200 bg-emerald-50 text-emerald-900';
-  if (tone === 'warning') return 'border-amber-300 bg-amber-50 text-amber-950';
-  if (tone === 'error') return 'border-red-200 bg-red-50 text-red-900';
-  return 'border-slate-200 bg-slate-50 text-slate-800';
+  if (tone === 'success') return 'border-emerald-200 dark:border-emerald-800 bg-emerald-50 dark:bg-emerald-950/40 text-emerald-900 dark:text-emerald-300';
+  if (tone === 'warning') return 'border-amber-300 dark:border-amber-800 bg-amber-50 dark:bg-amber-950/40 text-amber-950 dark:text-amber-200';
+  if (tone === 'error') return 'border-red-200 dark:border-red-800 bg-red-50 dark:bg-red-950/40 text-red-900 dark:text-red-300';
+  return 'border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800/50 text-slate-800 dark:text-slate-200';
 };
 
 export const statusBadgeClass = (status) => {
   const s = String(status || '').toUpperCase();
-  if (s === 'MANUAL_ESCALATION_REQUIRED') return 'bg-amber-100 text-amber-900 border-amber-300';
-  if (s === 'ASSIGNED' || s === 'OPEN') return 'bg-blue-100 text-blue-900 border-blue-300';
-  if (s === 'RESOLVED' || s === 'CLOSED') return 'bg-emerald-100 text-emerald-900 border-emerald-300';
-  return 'bg-gray-100 text-gray-800 border-gray-300';
+  if (s === 'MANUAL_ESCALATION_REQUIRED') return 'bg-amber-100 dark:bg-amber-900/40 text-amber-900 dark:text-amber-300 border-amber-300 dark:border-amber-800';
+  if (s === 'ASSIGNED' || s === 'OPEN') return 'bg-blue-100 dark:bg-blue-900/40 text-blue-900 dark:text-blue-300 border-blue-300 dark:border-blue-800';
+  if (s === 'RESOLVED' || s === 'CLOSED') return 'bg-emerald-100 dark:bg-emerald-900/40 text-emerald-900 dark:text-emerald-300 border-emerald-300 dark:border-emerald-800';
+  return 'bg-gray-100 dark:bg-slate-800 text-gray-800 dark:text-slate-200 border-gray-300 dark:border-slate-600';
 };
 
 export const statusLabel = (status) => {

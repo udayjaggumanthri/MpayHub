@@ -143,9 +143,21 @@ def max_payout_eligible(balance: Decimal) -> Decimal:
     return _max_payout_eligible_global(balance)
 
 
-def quote_payin(package: PayInPackage, gross: Decimal, payer_user: Optional[User] = None) -> dict:
+def quote_payin(
+    package: PayInPackage,
+    gross: Decimal,
+    payer_user: Optional[User] = None,
+    *,
+    gateway_id: int | None = None,
+    qr_account_id: int | None = None,
+) -> dict:
     """Build line-item breakdown; net = gross - sum(deduction slices). Pass payer_user for upline-aware admin absorption."""
-    dist = _compute_payin_distribution(package, gross, payer_user)
+    from apps.fund_management.rail_fees import resolve_rail_gateway_fee_pct
+
+    rail_fee = resolve_rail_gateway_fee_pct(
+        package, gateway_id=gateway_id, qr_account_id=qr_account_id
+    )
+    dist = _compute_payin_distribution(package, gross, payer_user, gateway_fee_pct=rail_fee)
     return {
         'snapshot': dist['snapshot'],
         'net_credit': dist['net_credit'],
@@ -266,7 +278,7 @@ def create_payin_order(
     if not contact:
         raise ValueError('Contact not found')
 
-    q = quote_payin(package, gross, user)
+    q = quote_payin(package, gross, user, gateway_id=selected_gateway.id)
 
     lm = None
     last_integrity: IntegrityError | None = None

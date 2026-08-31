@@ -35,7 +35,7 @@ const FeedbackModal = ({
       onClick={onClose}
     >
       <div
-        className="relative w-full max-w-md rounded-2xl bg-white p-6 shadow-2xl ring-1 ring-black/5"
+        className="relative w-full max-w-md rounded-2xl bg-white dark:bg-slate-800 p-6 shadow-2xl ring-1 ring-black/5 dark:ring-white/10"
         role="dialog"
         aria-modal="true"
         aria-labelledby="feedback-modal-title"
@@ -44,16 +44,16 @@ const FeedbackModal = ({
         <button
           type="button"
           onClick={onClose}
-          className="absolute right-4 top-4 rounded-lg p-1 text-gray-400 transition-colors hover:bg-gray-100 hover:text-gray-600"
+          className="absolute right-4 top-4 rounded-lg p-1 text-gray-400 dark:text-slate-500 transition-colors hover:bg-gray-100 dark:hover:bg-slate-700 hover:text-gray-600 dark:hover:text-slate-400"
           aria-label="Close"
         >
           <FiX size={22} />
         </button>
 
-        <h2 id="feedback-modal-title" className="pr-10 text-xl font-bold text-gray-900">
+        <h2 id="feedback-modal-title" className="pr-10 text-xl font-bold text-gray-900 dark:text-slate-100">
           {title}
         </h2>
-        <p className="mt-3 whitespace-pre-line text-sm leading-relaxed text-gray-600">{description}</p>
+        <p className="mt-3 whitespace-pre-line text-sm leading-relaxed text-gray-600 dark:text-slate-400">{description}</p>
 
         <div className="mt-6 flex flex-col-reverse gap-3 sm:flex-row sm:flex-wrap sm:justify-end">
           {primaryAction ? (

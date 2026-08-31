@@ -7,6 +7,7 @@ import Input from '../common/Input';
 import Button from '../common/Button';
 import FeedbackModal from '../common/FeedbackModal';
 import ContactSearchTypeahead from './ContactSearchTypeahead';
+import SelectField from '../common/SelectField';
 import { formatCurrency } from '../../utils/formatters';
 import { validateAmount } from '../../utils/validators';
 import { useWallet } from '../../context/WalletContext';
@@ -85,12 +86,17 @@ const LoadMoney = () => {
       setGatewaysLoading(true);
       const res = await fundManagementAPI.listPayInCheckoutGateways();
       if (cancelled) return;
-      const list = res.success && res.data?.gateways ? res.data.gateways : [];
+      const list =
+        res.success && res.data?.payment_methods
+          ? res.data.payment_methods
+          : res.success && res.data?.gateways
+            ? res.data.gateways
+            : [];
       setCheckoutGateways(list);
       setSelectedCheckoutKey((prev) => {
         if (prev && list.some((g) => g.option_key === prev)) return prev;
         if (!list.length) return '';
-        const def = list.find((g) => g.is_default) || list[0];
+        const def = list.find((g) => g.is_default && !g.disabled) || list.find((g) => !g.disabled) || list[0];
         return def.option_key;
       });
       setGatewaysLoading(false);
@@ -102,12 +108,12 @@ const LoadMoney = () => {
 
   const selectedCheckout =
     checkoutGateways.find((g) => g.option_key === selectedCheckoutKey) || null;
+  const isQrRail = selectedCheckout?.rail_type === 'qr';
   const selectedPackageId = selectedCheckout?.package_id
     ? String(selectedCheckout.package_id)
     : '';
-  const selectedGatewayId = selectedCheckout?.gateway_id
-    ? String(selectedCheckout.gateway_id)
-    : '';
+  const selectedGatewayId =
+    !isQrRail && selectedCheckout?.gateway_id ? String(selectedCheckout.gateway_id) : '';
 
   useEffect(() => {
     if (!selectedPackageId || !amount) {
@@ -226,7 +232,22 @@ const LoadMoney = () => {
       return;
     }
     if (!selectedCheckoutKey || !selectedPackageId) {
-      alert('Please select a payment gateway');
+      alert('Please select a payment method');
+      return;
+    }
+    if (isQrRail) {
+      if (quoteError || !quote) {
+        alert(quoteError || 'Wait for a valid price quote, or adjust the amount.');
+        return;
+      }
+      navigate('/fund-management/load-money/qr', {
+        state: {
+          contact: customerDetails,
+          amount,
+          quote,
+          checkoutKey: selectedCheckoutKey,
+        },
+      });
       return;
     }
     if (quoteError || !quote) {
@@ -410,10 +431,10 @@ const LoadMoney = () => {
       <AccountAccessBanner user={user} mode="pay_in" maintenance={maintenance} />
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between">
         <div>
-          <h1 className="text-2xl sm:text-3xl font-bold text-gray-900">Load Money</h1>
-          <p className="mt-1 sm:mt-2 text-sm sm:text-base text-gray-600">
+          <h1 className="text-2xl sm:text-3xl font-bold text-gray-900 dark:text-slate-100">Load Money</h1>
+          <p className="mt-1 sm:mt-2 text-sm sm:text-base text-gray-600 dark:text-slate-400">
             Add funds using your assigned payment gateway (fees shown before you pay). Pay-in history lives under{' '}
-            <span className="font-medium text-gray-800">Reports → Pay In</span>.
+            <span className="font-medium text-gray-800 dark:text-slate-200">Reports → Pay In</span>.
           </p>
         </div>
       </div>
@@ -451,7 +472,7 @@ const LoadMoney = () => {
           />
 
           {customerDetails && (
-            <div className="p-6 bg-gradient-to-r from-blue-50 to-indigo-50 border-2 border-blue-200 rounded-xl">
+            <div className="p-6 bg-gradient-to-r from-blue-50 dark:from-blue-950/40 to-indigo-50 dark:to-indigo-950/40 border-2 border-blue-200 dark:border-blue-800 rounded-xl">
               <div className="flex items-start space-x-4">
                 <div className="flex-shrink-0">
                   <div className="w-14 h-14 bg-gradient-to-br from-blue-500 to-indigo-600 rounded-full flex items-center justify-center shadow-lg">
@@ -460,26 +481,26 @@ const LoadMoney = () => {
                 </div>
                 <div className="flex-1">
                   <div className="flex items-center space-x-2 mb-3">
-                    <FaCircleCheck className="text-green-600" size={22} />
-                    <h3 className="text-lg font-bold text-gray-900">Contact Information</h3>
+                    <FaCircleCheck className="text-green-600 dark:text-green-400" size={22} />
+                    <h3 className="text-lg font-bold text-gray-900 dark:text-slate-100">Contact Information</h3>
                   </div>
-                  <p className="text-xs text-gray-600 mb-2">
+                  <p className="text-xs text-gray-600 dark:text-slate-400 mb-2">
                     Matched from your saved contacts — confirm identity before sending money.
                   </p>
                   <div className="space-y-2">
                     <div className="flex items-center space-x-2">
-                      <FaUser className="text-blue-600" size={18} />
-                      <p className="font-semibold text-gray-900">{customerDetails.name}</p>
+                      <FaUser className="text-blue-600 dark:text-blue-400" size={18} />
+                      <p className="font-semibold text-gray-900 dark:text-slate-100">{customerDetails.name}</p>
                     </div>
                     <div className="flex items-center space-x-2">
-                      <FiMail className="text-blue-600" size={18} />
-                      <p className="text-sm text-gray-600">
+                      <FiMail className="text-blue-600 dark:text-blue-400" size={18} />
+                      <p className="text-sm text-gray-600 dark:text-slate-400">
                         <span className="font-medium">{customerDetails.email || '—'}</span>
                       </p>
                     </div>
                     <div className="flex items-center space-x-2">
-                      <FaPhone className="text-blue-600" size={18} />
-                      <p className="text-sm text-gray-600">
+                      <FaPhone className="text-blue-600 dark:text-blue-400" size={18} />
+                      <p className="text-sm text-gray-600 dark:text-slate-400">
                         <span className="font-medium">{customerDetails.phone}</span>
                       </p>
                     </div>
@@ -493,55 +514,61 @@ const LoadMoney = () => {
 
       {customerDetails && (
         <>
-          <Card title="Payment gateway" subtitle="Choose how you want to pay in" padding="lg">
+          <Card title="Payment method" subtitle="Choose gateway checkout or manual QR pay-in" padding="lg">
             <div className="space-y-3">
               {gatewaysLoading ? (
-                <p className="text-sm text-gray-600">Loading payment gateways…</p>
+                <p className="text-sm text-gray-600 dark:text-slate-400">Loading payment gateways…</p>
               ) : checkoutGateways.length === 0 ? (
-                <div className="p-4 bg-yellow-50 border border-yellow-200 rounded-lg flex items-center gap-2">
-                  <FaCircleExclamation className="text-yellow-600 flex-shrink-0" size={20} />
-                  <p className="text-yellow-800 text-sm">
-                    No payment gateways are available on your account. Contact your administrator.
+                <div className="p-4 bg-yellow-50 dark:bg-yellow-950/40 border border-yellow-200 dark:border-yellow-800 rounded-lg flex items-center gap-2">
+                  <FaCircleExclamation className="text-yellow-600 dark:text-yellow-400 flex-shrink-0" size={20} />
+                  <p className="text-yellow-800 dark:text-yellow-300 text-sm">
+                    No payment methods are available on your account. Contact your administrator.
                   </p>
                 </div>
               ) : (
                 <>
-                  <label className="block text-sm font-medium text-gray-700">
-                    Payment gateway <span className="text-red-500">*</span>
-                  </label>
-                  <select
+                  <SelectField
+                    label="Payment method"
+                    required
                     value={selectedCheckoutKey}
-                    onChange={(e) => {
-                      setSelectedCheckoutKey(e.target.value);
+                    onChange={(val) => {
+                      setSelectedCheckoutKey(val);
                       setGatewayRetryMode(false);
                     }}
-                    className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 text-gray-900 bg-white"
-                  >
-                    {checkoutGateways.map((g) => (
-                      <option
-                        key={g.option_key}
-                        value={g.option_key}
-                        disabled={g.status && g.status !== 'active'}
-                      >
-                        {g.name}
-                        {g.is_default ? ' (default)' : ''}
-                        {g.status && g.status !== 'active' ? ` — ${g.status}` : ''}
-                      </option>
-                    ))}
-                  </select>
+                    searchable={!checkoutGateways.some((g) => g.disabled || (g.status && g.status !== 'active'))}
+                    options={checkoutGateways.map((g) => {
+                      const isDisabled = g.disabled || (g.status && g.status !== 'active');
+                      const suffix = isDisabled && g.disabled_reason ? ` — ${g.disabled_reason}` : '';
+                      const railLabel = g.rail_type === 'qr' ? ' [QR]' : '';
+                      return {
+                        value: g.option_key,
+                        label: `${g.name}${railLabel}${g.is_default ? ' (default)' : ''}${suffix}`,
+                        disabled: isDisabled,
+                      };
+                    })}
+                    getOptionValue={(g) => g.value}
+                    getOptionLabel={(g) => g.label}
+                    includeEmptyOption={false}
+                  />
                   {selectedCheckout && (
-                    <p className="text-sm text-gray-500">
+                    <p className="text-sm text-gray-500 dark:text-slate-400">
                       Allowed amount: {formatCurrency(parseFloat(selectedCheckout.min_amount))} –{' '}
                       {formatCurrency(parseFloat(selectedCheckout.max_amount_per_txn))} per transaction
                     </p>
                   )}
+                  {isQrRail ? (
+                    <p className="text-sm text-emerald-800 dark:text-emerald-300 bg-emerald-50 dark:bg-emerald-950/40 border border-emerald-100 dark:border-emerald-900 rounded-lg px-3 py-2">
+                      You will be taken to a QR top-up screen where <strong>all available QR accounts</strong> are shown.
+                      Scan any one, then submit UTR and payment screenshot for admin review.
+                    </p>
+                  ) : null}
                   {selectedCheckout?.status && selectedCheckout.status !== 'active' ? (
-                    <p className="text-xs text-amber-700">
+                    <p className="text-xs text-amber-700 dark:text-amber-300">
                       This gateway may be unavailable. Consider choosing another option.
                     </p>
                   ) : null}
                   {gatewayRetryMode && (
-                    <div className="mt-3 p-3 rounded-lg border border-amber-300 bg-amber-50 text-sm text-amber-900">
+                    <div className="mt-3 p-3 rounded-lg border border-amber-300 dark:border-amber-800 bg-amber-50 dark:bg-amber-950/40 text-sm text-amber-900 dark:text-amber-300">
                       The previous gateway did not complete payment. Choose another gateway below and tap{' '}
                       <strong>PAY NOW</strong> to try again with the same amount.
                     </div>
@@ -554,7 +581,7 @@ const LoadMoney = () => {
           <Card title="Enter amount (INR)" subtitle="Quote updates as you type" padding="lg">
             <div className="space-y-6">
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">
+                <label className="block text-sm font-medium text-gray-700 dark:text-slate-300 mb-2">
                   Amount (INR) <span className="text-red-500">*</span>
                 </label>
                 <Input
@@ -570,39 +597,39 @@ const LoadMoney = () => {
               </div>
 
               {quoteLoading && (
-                <p className="text-sm text-gray-600">Calculating fees…</p>
+                <p className="text-sm text-gray-600 dark:text-slate-400">Calculating fees…</p>
               )}
               {quoteError && (
-                <div className="p-4 bg-red-50 border border-red-200 rounded-lg text-red-800 text-sm">{quoteError}</div>
+                <div className="p-4 bg-red-50 dark:bg-red-950/40 border border-red-200 dark:border-red-800 rounded-lg text-red-800 dark:text-red-300 text-sm">{quoteError}</div>
               )}
 
               {quote && !quoteError && grossNum > 0 && (
                 <div className="space-y-4">
-                  <div className="p-6 bg-gray-50 rounded-xl border border-gray-200">
-                    <h4 className="text-sm font-semibold text-gray-700 mb-4 uppercase tracking-wide">Summary</h4>
+                  <div className="p-6 bg-gray-50 dark:bg-slate-800/50 rounded-xl border border-gray-200 dark:border-slate-700">
+                    <h4 className="text-sm font-semibold text-gray-700 dark:text-slate-300 mb-4 uppercase tracking-wide">Summary</h4>
                     <div className="space-y-3">
-                      <div className="flex justify-between items-center py-2 border-b border-gray-200">
-                        <span className="text-gray-600">You pay (gross)</span>
-                        <span className="font-semibold text-gray-900 text-lg">{formatCurrency(grossNum)}</span>
+                      <div className="flex justify-between items-center py-2 border-b border-gray-200 dark:border-slate-700">
+                        <span className="text-gray-600 dark:text-slate-400">You pay (gross)</span>
+                        <span className="font-semibold text-gray-900 dark:text-slate-100 text-lg">{formatCurrency(grossNum)}</span>
                       </div>
                       {showPayinCommissionDetail &&
                       quoteTotalDeduction != null &&
                       !Number.isNaN(quoteTotalDeduction) ? (
-                        <div className="flex justify-between items-center py-2 border-b border-gray-200">
-                          <span className="text-gray-600">Total deductions (gateway + platform + upline)</span>
-                          <span className="font-semibold text-red-600">-{formatCurrency(quoteTotalDeduction)}</span>
+                        <div className="flex justify-between items-center py-2 border-b border-gray-200 dark:border-slate-700">
+                          <span className="text-gray-600 dark:text-slate-400">Total deductions (gateway + platform + upline)</span>
+                          <span className="font-semibold text-red-600 dark:text-red-400">-{formatCurrency(quoteTotalDeduction)}</span>
                         </div>
                       ) : null}
                       {showPayinCommissionDetail && absorbedRetailerShare > 0 ? (
-                        <p className="text-xs text-gray-600 bg-slate-50 border border-slate-200 rounded-lg px-3 py-2">
+                        <p className="text-xs text-gray-600 dark:text-slate-400 bg-slate-50 dark:bg-slate-800/50 border border-slate-200 dark:border-slate-700 rounded-lg px-3 py-2">
                           The package’s retailer commission rate ({quote.breakdown?.retailer_commission_pct ?? '—'}%) is
                           included in the <strong>Admin (platform)</strong> share — it is not added to your commission
                           wallet.
                         </p>
                       ) : null}
-                      <div className="flex justify-between items-center pt-3 bg-blue-50 p-3 rounded-lg">
-                        <span className="text-lg font-bold text-gray-900">Net credit (main wallet)</span>
-                        <span className="text-2xl font-bold text-blue-600">{formatCurrency(netNum)}</span>
+                      <div className="flex justify-between items-center pt-3 bg-blue-50 dark:bg-blue-950/40 p-3 rounded-lg">
+                        <span className="text-lg font-bold text-gray-900 dark:text-slate-100">Net credit (main wallet)</span>
+                        <span className="text-2xl font-bold text-blue-600 dark:text-blue-400">{formatCurrency(netNum)}</span>
                       </div>
                     </div>
                   </div>
@@ -612,7 +639,7 @@ const LoadMoney = () => {
                     <button
                       type="button"
                       onClick={() => setShowPriceBreakdown((v) => !v)}
-                      className="inline-flex items-center gap-2 text-sm font-medium text-blue-700 hover:text-blue-900"
+                      className="inline-flex items-center gap-2 text-sm font-medium text-blue-700 dark:text-blue-300 hover:text-blue-900 dark:hover:text-blue-200"
                     >
                       <FiInfo size={18} />
                       {showPriceBreakdown ? 'Hide price breakdown' : 'Prices — full breakdown'}
@@ -620,33 +647,33 @@ const LoadMoney = () => {
                     {showPriceBreakdown && quote.lines && quote.lines.length > 0 ? (
                       <div className="mt-3 space-y-2">
                         {quote.breakdown?.hierarchy_adjusted ? (
-                          <p className="text-xs text-gray-600 rounded-lg bg-slate-50 border border-slate-200 px-3 py-2">
+                          <p className="text-xs text-gray-600 dark:text-slate-400 rounded-lg bg-slate-50 dark:bg-slate-800/50 border border-slate-200 dark:border-slate-700 px-3 py-2">
                             Your upline does not include every distributor tier in the package. Missing tiers roll
                             up to the nearest present upline (Distributor → Master → Super); any remainder is in the{' '}
                             <strong>Admin (platform)</strong> row. Net credit and total deductions follow your Gateway
                             pay-in package settings.
                           </p>
                         ) : null}
-                        <div className="border border-gray-200 rounded-xl overflow-hidden shadow-sm bg-white">
+                        <div className="border border-gray-200 dark:border-slate-700 rounded-xl overflow-hidden shadow-sm bg-white dark:bg-slate-900">
                           <table className="w-full text-sm">
-                            <thead className="bg-gray-100">
+                            <thead className="bg-gray-100 dark:bg-slate-800">
                               <tr>
-                                <th className="text-left p-3 font-semibold text-gray-700">Component</th>
-                                <th className="text-right p-3 font-semibold text-gray-700">%</th>
-                                <th className="text-right p-3 font-semibold text-gray-700">Amount</th>
+                                <th className="text-left p-3 font-semibold text-gray-700 dark:text-slate-300">Component</th>
+                                <th className="text-right p-3 font-semibold text-gray-700 dark:text-slate-300">%</th>
+                                <th className="text-right p-3 font-semibold text-gray-700 dark:text-slate-300">Amount</th>
                               </tr>
                             </thead>
                             <tbody>
                               {quote.lines.map((line) => (
-                                <tr key={line.key} className="border-t border-gray-100">
-                                  <td className="p-3 text-gray-800">
+                                <tr key={line.key} className="border-t border-gray-100 dark:border-slate-800">
+                                  <td className="p-3 text-gray-800 dark:text-slate-200">
                                     <span className="block">{line.label}</span>
                                     {line.note ? (
-                                      <span className="mt-1 block text-xs font-normal text-gray-500">{line.note}</span>
+                                      <span className="mt-1 block text-xs font-normal text-gray-500 dark:text-slate-400">{line.note}</span>
                                     ) : null}
                                   </td>
-                                  <td className="p-3 text-right text-gray-600 align-top">{line.pct}%</td>
-                                  <td className="p-3 text-right font-medium text-gray-900 align-top">
+                                  <td className="p-3 text-right text-gray-600 dark:text-slate-400 align-top">{line.pct}%</td>
+                                  <td className="p-3 text-right font-medium text-gray-900 dark:text-slate-100 align-top">
                                     {formatCurrency(parseFloat(line.amount))}
                                   </td>
                                 </tr>
@@ -668,6 +695,7 @@ const LoadMoney = () => {
                   !amount ||
                   parseFloat(amount) <= 0 ||
                   !selectedCheckoutKey ||
+                  selectedCheckout?.disabled ||
                   gatewaysLoading ||
                   !quote ||
                   !!quoteError ||
@@ -679,7 +707,7 @@ const LoadMoney = () => {
                 icon={FaDollarSign}
                 iconPosition="left"
               >
-                PAY NOW
+                {isQrRail ? 'CONTINUE TO QR PAYMENT' : 'PAY NOW'}
               </Button>
             </div>
           </Card>
@@ -689,36 +717,36 @@ const LoadMoney = () => {
 
       {showPaymentModal && quote && !payInMaintenance && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black bg-opacity-50 overflow-y-auto">
-          <Card className="max-w-md w-full border-2 border-blue-200 my-auto" padding="lg" shadow="xl">
-            <h2 className="text-xl sm:text-2xl font-bold text-gray-900 mb-4 sm:mb-6">Payment confirmation</h2>
+          <Card className="max-w-md w-full border-2 border-blue-200 dark:border-blue-800 my-auto" padding="lg" shadow="xl">
+            <h2 className="text-xl sm:text-2xl font-bold text-gray-900 dark:text-slate-100 mb-4 sm:mb-6">Payment confirmation</h2>
 
             <div className="space-y-3 sm:space-y-4 mb-4 sm:mb-6">
-              <div className="p-4 bg-gray-50 rounded-lg space-y-3">
+              <div className="p-4 bg-gray-50 dark:bg-slate-800/50 rounded-lg space-y-3">
                 <div className="flex justify-between">
-                  <span className="text-gray-600">Customer</span>
-                  <span className="font-semibold text-gray-900">{customerDetails.name}</span>
+                  <span className="text-gray-600 dark:text-slate-400">Customer</span>
+                  <span className="font-semibold text-gray-900 dark:text-slate-100">{customerDetails.name}</span>
                 </div>
                 {selectedCheckout ? (
                   <div className="flex justify-between">
-                    <span className="text-gray-600">Gateway</span>
-                    <span className="font-semibold text-gray-900 text-right max-w-[60%]">{selectedCheckout.name}</span>
+                    <span className="text-gray-600 dark:text-slate-400">Gateway</span>
+                    <span className="font-semibold text-gray-900 dark:text-slate-100 text-right max-w-[60%]">{selectedCheckout.name}</span>
                   </div>
                 ) : null}
                 <div className="flex justify-between">
-                  <span className="text-gray-600">Gross</span>
-                  <span className="font-semibold text-gray-900">{formatCurrency(grossNum)}</span>
+                  <span className="text-gray-600 dark:text-slate-400">Gross</span>
+                  <span className="font-semibold text-gray-900 dark:text-slate-100">{formatCurrency(grossNum)}</span>
                 </div>
                 {showPayinCommissionDetail &&
                 quoteTotalDeduction != null &&
                 !Number.isNaN(quoteTotalDeduction) ? (
                   <div className="flex justify-between">
-                    <span className="text-gray-600">Deductions</span>
-                    <span className="font-semibold text-red-600">-{formatCurrency(quoteTotalDeduction)}</span>
+                    <span className="text-gray-600 dark:text-slate-400">Deductions</span>
+                    <span className="font-semibold text-red-600 dark:text-red-400">-{formatCurrency(quoteTotalDeduction)}</span>
                   </div>
                 ) : null}
-                <div className="pt-3 border-t border-gray-300 flex justify-between">
-                  <span className="font-semibold text-gray-900">Net credit</span>
-                  <span className="font-bold text-blue-600 text-xl">{formatCurrency(netNum)}</span>
+                <div className="pt-3 border-t border-gray-300 dark:border-slate-600 flex justify-between">
+                  <span className="font-semibold text-gray-900 dark:text-slate-100">Net credit</span>
+                  <span className="font-bold text-blue-600 dark:text-blue-400 text-xl">{formatCurrency(netNum)}</span>
                 </div>
               </div>
             </div>
@@ -744,12 +772,12 @@ const LoadMoney = () => {
 
       {showGatewayInterface && orderPayload && !payInMaintenance && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black bg-opacity-50 overflow-y-auto">
-          <div className="bg-white rounded-2xl shadow-2xl max-w-lg w-full max-h-[90vh] overflow-y-auto">
+          <div className="bg-white dark:bg-slate-900 rounded-2xl shadow-2xl max-w-lg w-full max-h-[90vh] overflow-y-auto">
             <div className="p-6">
               <div className="flex items-center justify-between mb-6">
                 <div>
-                  <h2 className="text-2xl font-bold text-gray-900">Checkout</h2>
-                  <p className="text-sm text-gray-600 mt-1 capitalize">{orderPayload.provider}</p>
+                  <h2 className="text-2xl font-bold text-gray-900 dark:text-slate-100">Checkout</h2>
+                  <p className="text-sm text-gray-600 dark:text-slate-400 mt-1 capitalize">{orderPayload.provider}</p>
                 </div>
                 <button
                   type="button"
@@ -761,32 +789,32 @@ const LoadMoney = () => {
                       setOrderPayload(null);
                     }
                   }}
-                  className="text-gray-400 hover:text-gray-600 transition-colors"
+                  className="text-gray-400 dark:text-slate-500 hover:text-gray-600 dark:hover:text-slate-400 transition-colors"
                 >
                   <FiX size={24} />
                 </button>
               </div>
 
-              <div className="p-4 bg-blue-50 rounded-lg border border-blue-200 mb-6 space-y-2 text-sm">
+              <div className="p-4 bg-blue-50 dark:bg-blue-950/40 rounded-lg border border-blue-200 dark:border-blue-800 mb-6 space-y-2 text-sm">
                 <div className="flex justify-between">
-                  <span className="text-gray-600">Amount</span>
-                  <span className="font-bold text-blue-700">{formatCurrency(parseFloat(orderPayload.amount))}</span>
+                  <span className="text-gray-600 dark:text-slate-400">Amount</span>
+                  <span className="font-bold text-blue-700 dark:text-blue-300">{formatCurrency(parseFloat(orderPayload.amount))}</span>
                 </div>
-                <div className="flex justify-between text-gray-600">
+                <div className="flex justify-between text-gray-600 dark:text-slate-400">
                   <span>Reference</span>
                   <span className="font-mono text-xs">{orderPayload.transaction_id}</span>
                 </div>
                 {orderPayload.payment_gateway_name ? (
-                  <div className="flex justify-between text-gray-600">
+                  <div className="flex justify-between text-gray-600 dark:text-slate-400">
                     <span>Gateway</span>
-                    <span className="font-medium text-gray-800">{orderPayload.payment_gateway_name}</span>
+                    <span className="font-medium text-gray-800 dark:text-slate-200">{orderPayload.payment_gateway_name}</span>
                   </div>
                 ) : null}
               </div>
 
               {orderPayload.provider === 'razorpay' && orderPayload.razorpay && (
                 <div className="space-y-4">
-                  <p className="text-sm text-gray-600">
+                  <p className="text-sm text-gray-600 dark:text-slate-400">
                     After you pay, we verify the payment with Razorpay and credit your wallet immediately. In production,
                     also configure a Razorpay webhook to <span className="font-mono text-xs">/api/integrations/razorpay/webhook/</span>{' '}
                     on a public URL for redundancy.
@@ -798,13 +826,13 @@ const LoadMoney = () => {
               )}
 
               {orderPayload.provider === 'payu' && (
-                <p className="text-sm text-amber-800 bg-amber-50 border border-amber-200 rounded-lg p-4">
+                <p className="text-sm text-amber-800 dark:text-amber-300 bg-amber-50 dark:bg-amber-950/40 border border-amber-200 dark:border-amber-800 rounded-lg p-4">
                   PayU checkout is not enabled yet. Please choose a Razorpay package.
                 </p>
               )}
 
               {!['razorpay', 'payu'].includes(orderPayload.provider) && (
-                <p className="text-sm text-red-800 bg-red-50 border border-red-200 rounded-lg p-4">
+                <p className="text-sm text-red-800 dark:text-red-300 bg-red-50 dark:bg-red-950/40 border border-red-200 dark:border-red-800 rounded-lg p-4">
                   Unknown provider "{orderPayload.provider}". Please contact support or select a different package.
                 </p>
               )}

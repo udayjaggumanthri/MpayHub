@@ -31,7 +31,7 @@ const Input = ({
     block border rounded-lg
     transition-all duration-200
     focus:outline-none focus:ring-2 focus:ring-offset-1
-    disabled:bg-gray-50 disabled:text-gray-500 disabled:cursor-not-allowed
+    disabled:bg-gray-50 disabled:text-gray-500 disabled:cursor-not-allowed dark:disabled:bg-slate-800 dark:disabled:text-slate-500
     ${sizeClasses[size]}
     ${fullWidth ? 'w-full' : ''}
     ${Icon && iconPosition === 'left' ? 'pl-11' : ''}
@@ -43,7 +43,7 @@ const Input = ({
   return (
     <div className={fullWidth ? 'w-full' : ''}>
       {label && (
-        <label className="block text-sm font-medium text-gray-700 mb-2">
+        <label className="block text-sm font-medium text-gray-700 dark:text-slate-300 mb-2">
           {label}
           {required && <span className="text-red-500 ml-1">*</span>}
         </label>
@@ -51,7 +51,7 @@ const Input = ({
       <div className="relative">
         {Icon && iconPosition === 'left' && (
           <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
-            <Icon className="text-gray-400" size={20} />
+            <Icon className="text-gray-400 dark:text-slate-500" size={20} />
           </div>
         )}
         <input
@@ -72,20 +72,20 @@ const Input = ({
           <button
             type="button"
             onClick={onRightIconClick}
-            className="absolute inset-y-0 right-0 pr-3 flex items-center text-gray-500 hover:text-gray-700 transition-colors"
+            className="absolute inset-y-0 right-0 pr-3 flex items-center text-gray-500 dark:text-slate-400 hover:text-gray-700 dark:hover:text-slate-300 transition-colors"
           >
             <RightIcon size={20} />
           </button>
         )}
       </div>
       {error && (
-        <p className="mt-1.5 text-sm text-red-600 flex items-center">
+        <p className="mt-1.5 text-sm text-red-600 dark:text-red-400 flex items-center">
           <FiAlertCircle className="mr-1" size={14} />
           {error}
         </p>
       )}
       {helperText && !error && (
-        <p className="mt-1.5 text-sm text-gray-500">{helperText}</p>
+        <p className="mt-1.5 text-sm text-gray-500 dark:text-slate-400">{helperText}</p>
       )}
     </div>
   );

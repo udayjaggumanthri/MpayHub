@@ -11,7 +11,7 @@ const AccountAccessBanner = ({ user, mode = 'pay_out', maintenance = null }) => 
 
   return (
     <div
-      className="mb-4 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-950"
+      className="mb-4 rounded-xl border border-amber-200 dark:border-amber-800 bg-amber-50 dark:bg-amber-950/40 px-4 py-3 text-sm text-amber-950 dark:text-amber-200"
       role="alert"
     >
       <p className="font-semibold">{notice.title}</p>

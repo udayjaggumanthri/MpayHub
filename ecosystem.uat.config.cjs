@@ -1,12 +1,6 @@
 /**
- * PM2 — MpayHub UAT (this VPS)
- * Cloudflare tunnel: partner-uat.mpayhub.in → :3001 (uat-proxy)
- *   /api  → backend :8001
- *   /     → frontend static :3002
- *
- *   cd ~/mpayhub-uat/MpayHub
- *   pm2 start ecosystem.uat.config.cjs
- *   pm2 save
+ * @deprecated Use ecosystem.config.cjs + scripts/setup-uat-pm2-and-domain.sh
+ * Legacy UAT stack (uat-proxy on :3001, backend :8001, frontend :3002) — removed.
  */
 const path = require('path');
 

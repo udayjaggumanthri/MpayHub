@@ -12,26 +12,75 @@ const maskAadhaarDisplay = (v) => {
   return `${'X'.repeat(Math.max(0, d.length - 4))}${d.slice(-4)}`;
 };
 
+const formatAepsBalance = (raw) => {
+  if (raw == null || raw === '') return null;
+  const n = Number(String(raw).replace(/,/g, '').trim());
+  if (!Number.isFinite(n) || n < 0) return null;
+  return `₹${n.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+};
+
+const aepsBalanceLabel = (txn) => {
+  if (!txn) return null;
+  const data = txn.provider_meta?.data || {};
+  return (
+    formatAepsBalance(txn.balance_amount) ||
+    formatAepsBalance(data.balanceAmount) ||
+    formatAepsBalance(data.bankAccountBalance) ||
+    formatAepsBalance(data.miniStatementBalance)
+  );
+};
+
+const aepsStatementRows = (txn) => {
+  const data = txn?.provider_meta?.data || {};
+  const candidates = [
+    txn?.mini_statement,
+    data.miniStatementStructureModel,
+    data.miniOffusStatementStructureModel,
+    data.miniStatement,
+    data.statement,
+  ];
+  for (const c of candidates) {
+    if (Array.isArray(c) && c.length) return c;
+  }
+  return [];
+};
+
 const GateCard = ({ title, text, to }) => (
   <Card className="text-center" shadow="sm">
-    <h2 className="text-lg font-bold text-slate-900">{title}</h2>
-    <p className="mt-2 text-sm text-slate-600">{text}</p>
+    <h2 className="text-lg font-bold text-slate-900 dark:text-slate-100">{title}</h2>
+    <p className="mt-2 text-sm text-slate-600 dark:text-slate-400">{text}</p>
     {to ? (
-      <Link to={to} className="mt-4 inline-block text-sm font-semibold text-blue-700">
+      <Link to={to} className="mt-4 inline-block text-sm font-semibold text-blue-700 dark:text-blue-300">
         Continue →
       </Link>
     ) : null}
   </Card>
 );
 
-const ReceiptCard = ({ result, onStatusCheck, onAck, busy }) => {
+export const ReceiptCard = ({ result, onStatusCheck, onAck, busy }) => {
   if (!result) return null;
   const txn = result.transaction || result;
-  const statements = txn.mini_statement || txn.provider_meta?.data?.miniStatement || [];
-  const rows = Array.isArray(statements) ? statements : [];
+  const rows = aepsStatementRows(txn);
+  const balanceLabel = aepsBalanceLabel(txn);
+  const isMini = txn.product === 'MS';
+  const isEnquiry = txn.product === 'BE' || isMini;
 
   return (
     <Card title="Receipt" shadow="sm" className="space-y-3">
+      {balanceLabel ? (
+        <div className="rounded-xl bg-emerald-50 px-4 py-3 ring-1 ring-emerald-100 dark:bg-emerald-950/40 dark:ring-emerald-900">
+          <p className="text-[10px] font-semibold uppercase tracking-wide text-emerald-700 dark:text-emerald-300">
+            Available balance
+          </p>
+          <p className="mt-0.5 text-2xl font-bold tabular-nums text-emerald-900 dark:text-emerald-100">
+            {balanceLabel}
+          </p>
+        </div>
+      ) : isEnquiry && txn.status === 'success' ? (
+        <p className="text-sm text-slate-600 dark:text-slate-400">
+          Bank did not return a displayable balance for this account.
+        </p>
+      ) : null}
       <div className="grid gap-3 sm:grid-cols-2">
         <Stat label="Status" value={txn.status || '—'} />
         <Stat label="Amount" value={txn.amount != null ? `₹${txn.amount}` : '—'} />
@@ -41,9 +90,9 @@ const ReceiptCard = ({ result, onStatusCheck, onAck, busy }) => {
         <Stat label="Product" value={txn.product || '—'} />
       </div>
       {rows.length ? (
-        <div className="overflow-x-auto rounded-lg border border-slate-100">
+        <div className="overflow-x-auto rounded-lg border border-slate-100 dark:border-slate-800">
           <table className="min-w-full text-left text-sm">
-            <thead className="bg-slate-50 text-xs uppercase text-slate-500">
+            <thead className="bg-slate-50 dark:bg-slate-800/50 text-xs uppercase text-slate-500 dark:text-slate-400">
               <tr>
                 <th className="px-3 py-2">Date</th>
                 <th className="px-3 py-2">Narration</th>
@@ -53,7 +102,7 @@ const ReceiptCard = ({ result, onStatusCheck, onAck, busy }) => {
             </thead>
             <tbody>
               {rows.map((r, i) => (
-                <tr key={i} className="border-t border-slate-100">
+                <tr key={i} className="border-t border-slate-100 dark:border-slate-800">
                   <td className="px-3 py-2">{r.date || r.txnDate || '—'}</td>
                   <td className="px-3 py-2">{r.narration || r.remarks || '—'}</td>
                   <td className="px-3 py-2">{r.amount || r.txnAmount || '—'}</td>
@@ -63,15 +112,24 @@ const ReceiptCard = ({ result, onStatusCheck, onAck, busy }) => {
             </tbody>
           </table>
         </div>
+      ) : isMini && txn.status === 'success' ? (
+        <p className="rounded-lg border border-slate-100 bg-slate-50 px-3 py-2 text-sm text-slate-600 dark:border-slate-800 dark:bg-slate-800/50 dark:text-slate-400">
+          Bank returned no mini-statement lines for this account.
+          {balanceLabel ? ' Available balance is shown above.' : ''}
+        </p>
       ) : null}
-      {txn.merchant_tran_id ? (
+      {txn.merchant_tran_id && (onStatusCheck || onAck) ? (
         <div className="flex flex-wrap gap-2">
-          <Button size="sm" variant="secondary" loading={busy} onClick={() => onStatusCheck(txn)}>
-            Status check
-          </Button>
-          <Button size="sm" variant="secondary" loading={busy} onClick={() => onAck(txn)}>
-            Acknowledge
-          </Button>
+          {onStatusCheck ? (
+            <Button size="sm" variant="secondary" loading={busy} onClick={() => onStatusCheck(txn)}>
+              Status check
+            </Button>
+          ) : null}
+          {onAck ? (
+            <Button size="sm" variant="secondary" loading={busy} onClick={() => onAck(txn)}>
+              Acknowledge
+            </Button>
+          ) : null}
         </div>
       ) : null}
     </Card>
@@ -79,9 +137,9 @@ const ReceiptCard = ({ result, onStatusCheck, onAck, busy }) => {
 };
 
 const Stat = ({ label, value, mono }) => (
-  <div className="rounded-lg bg-slate-50 px-3 py-2 ring-1 ring-slate-100">
-    <p className="text-[10px] font-semibold uppercase tracking-wide text-slate-500">{label}</p>
-    <p className={`mt-0.5 break-all text-sm font-semibold text-slate-900 ${mono ? 'font-mono text-xs' : ''}`}>
+  <div className="rounded-lg bg-slate-50 dark:bg-slate-800/50 px-3 py-2 ring-1 ring-slate-100 dark:ring-slate-800">
+    <p className="text-[10px] font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">{label}</p>
+    <p className={`mt-0.5 break-all text-sm font-semibold text-slate-900 dark:text-slate-100 ${mono ? 'font-mono text-xs' : ''}`}>
       {value}
     </p>
   </div>
@@ -182,7 +240,9 @@ const AepsProductPage = ({
     if (finalTxn?.status === 'success' && mid) {
       const ack = await aepsAPI.acknowledge(mid, { otp_mode: otpMode });
       if (ack.success) setResult(ack.data);
-      setMsg('Transaction successful.');
+      const shown = ack.success ? ack.data?.transaction || ack.data : finalTxn;
+      const bal = aepsBalanceLabel(shown);
+      setMsg(bal ? `Transaction successful. Available balance: ${bal}` : 'Transaction successful.');
     } else {
       setMsg(finalTxn?.response_message || res.message || 'Transaction failed');
     }
@@ -307,8 +367,8 @@ const AepsProductPage = ({
   return (
     <div className="space-y-5">
       <header>
-        <h2 className="text-xl font-bold text-slate-900">{title}</h2>
-        <p className="text-sm text-slate-500">{description}</p>
+        <h2 className="text-xl font-bold text-slate-900 dark:text-slate-100">{title}</h2>
+        <p className="text-sm text-slate-500 dark:text-slate-400">{description}</p>
       </header>
 
       {allowCdOtp ? (
@@ -317,7 +377,7 @@ const AepsProductPage = ({
             type="button"
             onClick={() => setCdMode('bio')}
             className={`rounded-lg px-3 py-1.5 text-xs font-semibold ring-1 ${
-              cdMode === 'bio' ? 'bg-blue-600 text-white ring-blue-600' : 'bg-white text-slate-700 ring-slate-200'
+              cdMode === 'bio' ? 'bg-blue-600 text-white ring-blue-600' : 'bg-white dark:bg-slate-900 text-slate-700 dark:text-slate-300 ring-slate-200 dark:ring-slate-700'
             }`}
           >
             Biometric
@@ -326,7 +386,7 @@ const AepsProductPage = ({
             type="button"
             onClick={() => setCdMode('otp')}
             className={`rounded-lg px-3 py-1.5 text-xs font-semibold ring-1 ${
-              cdMode === 'otp' ? 'bg-blue-600 text-white ring-blue-600' : 'bg-white text-slate-700 ring-slate-200'
+              cdMode === 'otp' ? 'bg-blue-600 text-white ring-blue-600' : 'bg-white dark:bg-slate-900 text-slate-700 dark:text-slate-300 ring-slate-200 dark:ring-slate-700'
             }`}
           >
             OTP deposit
@@ -360,24 +420,24 @@ const AepsProductPage = ({
             inputMode="numeric"
           />
           <label className="block">
-            <span className="mb-1.5 flex items-center justify-between text-sm font-medium text-gray-700">
+            <span className="mb-1.5 flex items-center justify-between text-sm font-medium text-gray-700 dark:text-slate-300">
               <span>Bank (IIN)</span>
               <button
                 type="button"
-                className="text-xs font-semibold text-blue-700 hover:underline"
+                className="text-xs font-semibold text-blue-700 dark:text-blue-300 hover:underline"
                 onClick={refreshBanks}
               >
                 Refresh banks
               </button>
             </span>
             <input
-              className="mb-2 w-full rounded-lg border border-gray-300 px-3 py-2 text-sm"
+              className="mb-2 w-full rounded-lg border border-gray-300 dark:border-slate-600 px-3 py-2 text-sm"
               placeholder="Search bank name or IIN"
               value={bankQuery}
               onChange={(e) => setBankQuery(e.target.value)}
             />
             <select
-              className="w-full rounded-lg border border-gray-300 px-3 py-2.5 text-sm"
+              className="w-full rounded-lg border border-gray-300 dark:border-slate-600 px-3 py-2.5 text-sm"
               value={form.nationalBankIdentificationNumber}
               onChange={(e) => setForm({ ...form, nationalBankIdentificationNumber: e.target.value })}
               required
@@ -404,7 +464,7 @@ const AepsProductPage = ({
           ) : null}
 
           {allowCdOtp && cdMode === 'otp' ? (
-            <div className="space-y-3 rounded-lg border border-slate-100 bg-slate-50 p-3">
+            <div className="space-y-3 rounded-lg border border-slate-100 dark:border-slate-800 bg-slate-50 dark:bg-slate-800/50 p-3">
               {otpStep === 'idle' || otpStep === 'sent' ? (
                 <Button type="button" loading={busy} onClick={cdOtpGenerate} disabled={!form.nationalBankIdentificationNumber}>
                   Generate OTP
@@ -439,7 +499,7 @@ const AepsProductPage = ({
         </form>
       </Card>
 
-      {msg ? <p className="text-sm text-slate-700">{msg}</p> : null}
+      {msg ? <p className="text-sm text-slate-700 dark:text-slate-300">{msg}</p> : null}
       <ReceiptCard result={result} onStatusCheck={onStatusCheck} onAck={onAck} busy={busy} />
     </div>
   );

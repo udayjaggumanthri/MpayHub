@@ -14,33 +14,33 @@ const TransactionDetailCard = ({ row, onRaiseComplaint }) => {
 
   const Field = ({ label, value }) => (
     <div>
-      <div className="text-xs text-gray-500">{label}</div>
-      <div className="font-semibold text-gray-900 break-all">{fmtVal(value)}</div>
+      <div className="text-xs text-gray-500 dark:text-slate-400">{label}</div>
+      <div className="font-semibold text-gray-900 dark:text-slate-100 break-all">{fmtVal(value)}</div>
     </div>
   );
 
   return (
-    <div className="mt-8 border border-indigo-100 rounded-xl bg-white shadow-sm overflow-hidden">
-      <div className="bg-gradient-to-r from-indigo-50 to-white px-5 py-3 border-b border-indigo-100">
-        <h3 className="text-lg font-semibold text-indigo-900">Query Transaction</h3>
-        <p className="text-sm text-gray-600">
+    <div className="mt-8 border border-indigo-100 dark:border-indigo-900 rounded-xl bg-white dark:bg-slate-900 shadow-sm overflow-hidden">
+      <div className="bg-gradient-to-r from-indigo-50 dark:from-indigo-950/40 to-white dark:to-slate-900 px-5 py-3 border-b border-indigo-100 dark:border-indigo-900">
+        <h3 className="text-lg font-semibold text-indigo-900 dark:text-indigo-300">Query Transaction</h3>
+        <p className="text-sm text-gray-600 dark:text-slate-400">
           You can verify the status of your online transaction using your mobile number or transaction reference.
         </p>
       </div>
       {fields.length === 0 ? (
-        <p className="p-5 text-sm text-gray-600">No transaction details were returned for this record.</p>
+        <p className="p-5 text-sm text-gray-600 dark:text-slate-400">No transaction details were returned for this record.</p>
       ) : (
         <div className="p-5 grid md:grid-cols-2 gap-x-8 gap-y-4 text-sm">
           {fields.map((f) =>
             f.isStatus ? (
               <div key={f.key}>
-                <div className="text-xs text-gray-500">{f.label}</div>
+                <div className="text-xs text-gray-500 dark:text-slate-400">{f.label}</div>
                 <span
                   className={`inline-flex mt-1 rounded-full px-3 py-0.5 text-xs font-semibold border ${
                     String(f.value).toUpperCase().includes('SUCCESS') ||
                     String(f.value).toUpperCase().includes('PAID')
-                      ? 'bg-emerald-100 text-emerald-900 border-emerald-300'
-                      : 'bg-gray-100 text-gray-800 border-gray-300'
+                      ? 'bg-emerald-100 dark:bg-emerald-900/40 text-emerald-900 dark:text-emerald-300 border-emerald-300 dark:border-emerald-800'
+                      : 'bg-gray-100 dark:bg-slate-800 text-gray-800 dark:text-slate-200 border-gray-300 dark:border-slate-600'
                   }`}
                 >
                   {f.value}
@@ -119,8 +119,8 @@ const BbpsTransactionQuery = ({ variant = 'standalone' }) => {
   };
 
   const outerClass = complaintsMode
-    ? 'max-w-6xl mx-auto bg-white rounded-xl border border-violet-100 shadow-sm p-6 md:p-8'
-    : 'max-w-6xl mx-auto bg-white rounded-xl border border-gray-200 shadow-sm p-6';
+    ? 'max-w-6xl mx-auto bg-white dark:bg-slate-900 rounded-xl border border-violet-100 dark:border-violet-900 shadow-sm p-6 md:p-8'
+    : 'max-w-6xl mx-auto bg-white dark:bg-slate-900 rounded-xl border border-gray-200 dark:border-slate-700 shadow-sm p-6';
 
   const title = complaintsMode ? 'SEARCH TRANSACTION' : 'Transaction Query';
 
@@ -128,7 +128,7 @@ const BbpsTransactionQuery = ({ variant = 'standalone' }) => {
     <div className={outerClass}>
       <BharatConnectBranding stage="stage2" title={title} />
       {complaintsMode && (
-        <Link to="/bill-payments/complaints" className="text-sm text-blue-700 hover:underline mb-4 inline-block">
+        <Link to="/bill-payments/complaints" className="text-sm text-blue-700 dark:text-blue-300 hover:underline mb-4 inline-block">
           ← Back to Complaint Management
         </Link>
       )}
@@ -136,7 +136,7 @@ const BbpsTransactionQuery = ({ variant = 'standalone' }) => {
       {complaintsMode ? (
         <div className="space-y-6">
           <div>
-            <p className="text-sm font-medium text-gray-700 mb-2">type:</p>
+            <p className="text-sm font-medium text-gray-700 dark:text-slate-300 mb-2">type:</p>
             <div className="flex flex-wrap gap-6">
               <label className="inline-flex items-center gap-2 cursor-pointer">
                 <input
@@ -161,7 +161,7 @@ const BbpsTransactionQuery = ({ variant = 'standalone' }) => {
 
           <div className="flex flex-col sm:flex-row gap-4 items-end">
             <div className="flex-1 w-full">
-              <label className="block text-xs text-gray-500 mb-1">
+              <label className="block text-xs text-gray-500 dark:text-slate-400 mb-1">
                 {trackingType === 'MOBILE_NO' ? 'Mobile Number' : 'B-Connect TXN ID'}
               </label>
               <input
@@ -207,11 +207,11 @@ const BbpsTransactionQuery = ({ variant = 'standalone' }) => {
         </div>
       )}
 
-      {error && <div className="mt-3 text-sm text-red-700 bg-red-50 border border-red-200 rounded p-2">{error}</div>}
+      {error && <div className="mt-3 text-sm text-red-700 dark:text-red-300 bg-red-50 dark:bg-red-950/40 border border-red-200 dark:border-red-800 rounded p-2">{error}</div>}
 
       {complaintsMode && rows.length > 0 && (
         <div className="mt-6">
-          <p className="text-sm font-medium text-gray-700 mb-2">Matching transactions — select one for details</p>
+          <p className="text-sm font-medium text-gray-700 dark:text-slate-300 mb-2">Matching transactions — select one for details</p>
           <div className="border rounded-lg divide-y max-h-52 overflow-auto">
             {rows.map((r, idx) => {
               const { ref, sub } = listLabel(r, idx);
@@ -220,11 +220,11 @@ const BbpsTransactionQuery = ({ variant = 'standalone' }) => {
                 <button
                   key={`${ref}-${idx}`}
                   type="button"
-                  className={`w-full text-left px-3 py-2 text-sm hover:bg-violet-50 ${sel ? 'bg-violet-100' : ''}`}
+                  className={`w-full text-left px-3 py-2 text-sm hover:bg-violet-50 dark:hover:bg-violet-950/60 ${sel ? 'bg-violet-100 dark:bg-violet-900/40' : ''}`}
                   onClick={() => setSelectedIdx(idx)}
                 >
                   <span className="font-medium">{ref}</span>
-                  <span className="text-gray-600 text-xs block">{sub}</span>
+                  <span className="text-gray-600 dark:text-slate-400 text-xs block">{sub}</span>
                 </button>
               );
             })}

@@ -201,6 +201,19 @@ def validate_biller_inputs(*, biller_id: str, input_map: dict, plan_id: str = ''
         if not val:
             continue
 
+        from apps.bbps.services import _canonical_input_key
+
+        canon = _canonical_input_key(wire)
+        if canon == 'card_last4' and val and not re.fullmatch(r'\d{4}', val):
+            field_errors.append(
+                {
+                    'param': wire,
+                    'code': 'VE013',
+                    'message': f'{label} must be exactly 4 digits.',
+                }
+            )
+            continue
+
         mn = int(getattr(p, 'min_length', 0) or 0)
         mx = int(getattr(p, 'max_length', 0) or 0)
         if mn > 0 and len(val) < mn:

@@ -7,7 +7,7 @@ from rest_framework import serializers
 from django.core.files.uploadedfile import UploadedFile
 from django.utils.text import slugify
 from apps.admin_panel.models import Announcement, PaymentGateway, PayoutGateway, PayoutSlabConfig, SmtpConfig
-from apps.fund_management.models import PayInPackage, PayoutSlabTier
+from apps.fund_management.models import PayInPackage, PayInQrAccount, PayoutSlabTier
 
 MAX_IMAGE_BYTES = 5 * 1024 * 1024  # 5 MB
 ALLOWED_IMAGE_CONTENT_TYPES = {
@@ -252,6 +252,86 @@ def _sync_payout_slabs(package, slabs):
         )
 
 
+def _parse_rail_fee(value):
+    if value is None or value == '':
+        return None
+    return Decimal(str(value))
+
+
+def _gateway_specs_from_initial(initial: dict, gateway_ids: list[int] | None) -> list[dict]:
+    if isinstance(initial, dict) and initial.get('package_gateways_input'):
+        specs = []
+        for row in initial.get('package_gateways_input') or []:
+            if not isinstance(row, dict):
+                continue
+            gid = row.get('payment_gateway_id') or row.get('id')
+            if gid is None:
+                continue
+            specs.append(
+                {
+                    'payment_gateway_id': int(gid),
+                    'gateway_fee_pct': _parse_rail_fee(row.get('gateway_fee_pct')),
+                }
+            )
+        return specs
+    if isinstance(initial, dict) and initial.get('package_gateways'):
+        specs = []
+        for row in initial.get('package_gateways') or []:
+            if not isinstance(row, dict):
+                continue
+            gid = row.get('payment_gateway_id') or row.get('id')
+            if gid is None:
+                continue
+            specs.append(
+                {
+                    'payment_gateway_id': int(gid),
+                    'gateway_fee_pct': _parse_rail_fee(row.get('gateway_fee_pct')),
+                }
+            )
+        return specs
+    return [
+        {'payment_gateway_id': int(gid), 'gateway_fee_pct': None}
+        for gid in (gateway_ids or [])
+    ]
+
+
+def _qr_specs_from_initial(initial: dict, qr_ids: list[int] | None) -> list[dict]:
+    if isinstance(initial, dict) and initial.get('package_qr_accounts_input'):
+        specs = []
+        for row in initial.get('package_qr_accounts_input') or []:
+            if not isinstance(row, dict):
+                continue
+            qid = row.get('qr_account_id') or row.get('id')
+            if qid is None:
+                continue
+            specs.append(
+                {
+                    'qr_account_id': int(qid),
+                    'gateway_fee_pct': _parse_rail_fee(row.get('gateway_fee_pct')),
+                }
+            )
+        return specs
+    if isinstance(initial, dict) and initial.get('package_qr_accounts'):
+        specs = []
+        for row in initial.get('package_qr_accounts') or []:
+            if not isinstance(row, dict):
+                continue
+            qid = row.get('qr_account_id') or row.get('id')
+            if qid is None:
+                continue
+            specs.append(
+                {
+                    'qr_account_id': int(qid),
+                    'gateway_fee_pct': _parse_rail_fee(row.get('gateway_fee_pct')),
+                }
+            )
+        return specs
+    return [
+        {'qr_account_id': int(qid), 'gateway_fee_pct': None}
+        for qid in (qr_ids or [])
+    ]
+
+
 class PayInPackageAdminSerializer(serializers.ModelSerializer):
     """Admin serializer for dynamic pay-in commission profiles."""
 
@@ -268,7 +348,28 @@ class PayInPackageAdminSerializer(serializers.ModelSerializer):
         write_only=True, required=False, allow_null=True,
     )
     package_gateways = serializers.SerializerMethodField(read_only=True)
+    package_gateways_input = serializers.ListField(
+        child=serializers.DictField(),
+        write_only=True,
+        required=False,
+    )
+    qr_account_ids = serializers.ListField(
+        child=serializers.IntegerField(min_value=1),
+        write_only=True,
+        required=False,
+        allow_empty=True,
+    )
+    default_qr_account_id = serializers.IntegerField(
+        write_only=True, required=False, allow_null=True,
+    )
+    package_qr_accounts = serializers.SerializerMethodField(read_only=True)
+    package_qr_accounts_input = serializers.ListField(
+        child=serializers.DictField(),
+        write_only=True,
+        required=False,
+    )
     total_deduction_pct = serializers.SerializerMethodField(read_only=True)
+    max_rail_gateway_fee_pct = serializers.SerializerMethodField(read_only=True)
     payout_slabs = serializers.SerializerMethodField(read_only=True)
 
     class Meta:
@@ -283,9 +384,15 @@ class PayInPackageAdminSerializer(serializers.ModelSerializer):
             'payment_gateway_ids',
             'default_payment_gateway_id',
             'package_gateways',
+            'package_gateways_input',
+            'qr_account_ids',
+            'default_qr_account_id',
+            'package_qr_accounts',
+            'package_qr_accounts_input',
             'min_amount',
             'max_amount_per_txn',
             'gateway_fee_pct',
+            'max_rail_gateway_fee_pct',
             'admin_pct',
             'super_distributor_pct',
             'master_distributor_pct',
@@ -299,7 +406,15 @@ class PayInPackageAdminSerializer(serializers.ModelSerializer):
             'created_at',
             'updated_at',
         ]
-        read_only_fields = ['id', 'created_at', 'updated_at', 'total_deduction_pct']
+        read_only_fields = [
+            'id',
+            'created_at',
+            'updated_at',
+            'total_deduction_pct',
+            'max_rail_gateway_fee_pct',
+            'gateway_fee_pct',
+            'provider',
+        ]
 
     def get_payout_slabs(self, obj):
         qs = obj.payout_slabs.filter(is_deleted=False).order_by('sort_order', 'min_amount')
@@ -310,9 +425,22 @@ class PayInPackageAdminSerializer(serializers.ModelSerializer):
 
         return serialize_package_gateways(obj)
 
+    def get_package_qr_accounts(self, obj):
+        from apps.fund_management.package_qr_accounts import serialize_package_qr_accounts
+
+        return serialize_package_qr_accounts(obj)
+
+    def get_max_rail_gateway_fee_pct(self, obj):
+        from apps.fund_management.rail_fees import max_package_gateway_fee_pct
+
+        return max_package_gateway_fee_pct(obj)
+
     def get_total_deduction_pct(self, obj):
+        from apps.fund_management.rail_fees import max_package_gateway_fee_pct
+
+        gw = max_package_gateway_fee_pct(obj)
         return (
-            Decimal(str(obj.gateway_fee_pct))
+            gw
             + Decimal(str(obj.admin_pct))
             + Decimal(str(obj.super_distributor_pct))
             + Decimal(str(obj.master_distributor_pct))
@@ -329,7 +457,6 @@ class PayInPackageAdminSerializer(serializers.ModelSerializer):
     def validate(self, attrs):
         attrs = super().validate(attrs)
         instance = getattr(self, 'instance', None)
-        provider = attrs.get('provider', getattr(instance, 'provider', 'mock'))
         payment_gateway = attrs.get('payment_gateway', getattr(instance, 'payment_gateway', None))
         payment_gateway_id = attrs.get('payment_gateway_id', None)
         if payment_gateway_id is not None:
@@ -339,14 +466,17 @@ class PayInPackageAdminSerializer(serializers.ModelSerializer):
         initial = getattr(self, 'initial_data', None) or {}
         if gateway_ids is None and isinstance(initial, dict) and 'payment_gateway_ids' in initial:
             gateway_ids = initial.get('payment_gateway_ids')
-        if provider in ('razorpay', 'payu'):
-            if gateway_ids is not None and len(gateway_ids) == 0:
+        if gateway_ids is not None and len(gateway_ids) == 0:
+            raise serializers.ValidationError(
+                {'payment_gateway_ids': ['At least one payment gateway is required.']}
+            )
+        if not gateway_ids and not payment_gateway:
+            has_existing = False
+            if instance and instance.package_gateways.filter(is_deleted=False).exists():
+                has_existing = True
+            if not has_existing:
                 raise serializers.ValidationError(
                     {'payment_gateway_ids': ['At least one payment gateway is required.']}
-                )
-            if not gateway_ids and not payment_gateway:
-                raise serializers.ValidationError(
-                    {'payment_gateway_id': ['Payment gateway is required for non-mock providers.']}
                 )
 
         min_amount = attrs.get('min_amount', getattr(instance, 'min_amount', Decimal('0')))
@@ -357,7 +487,6 @@ class PayInPackageAdminSerializer(serializers.ModelSerializer):
             )
 
         pct_fields = [
-            'gateway_fee_pct',
             'admin_pct',
             'super_distributor_pct',
             'master_distributor_pct',
@@ -371,17 +500,79 @@ class PayInPackageAdminSerializer(serializers.ModelSerializer):
             if val > 100:
                 raise serializers.ValidationError({field: ['Percentage cannot exceed 100.']})
 
-        total_deduction = (
-            Decimal(str(attrs.get('gateway_fee_pct', getattr(instance, 'gateway_fee_pct', Decimal('0')))))
-            + Decimal(str(attrs.get('admin_pct', getattr(instance, 'admin_pct', Decimal('0')))))
-            + Decimal(
-                str(attrs.get('super_distributor_pct', getattr(instance, 'super_distributor_pct', Decimal('0'))))
-            )
-            + Decimal(
-                str(attrs.get('master_distributor_pct', getattr(instance, 'master_distributor_pct', Decimal('0'))))
-            )
-            + Decimal(str(attrs.get('distributor_pct', getattr(instance, 'distributor_pct', Decimal('0')))))
+        admin_pct = Decimal(str(attrs.get('admin_pct', getattr(instance, 'admin_pct', Decimal('0')))))
+        sd_pct = Decimal(str(attrs.get('super_distributor_pct', getattr(instance, 'super_distributor_pct', Decimal('0')))))
+        md_pct = Decimal(str(attrs.get('master_distributor_pct', getattr(instance, 'master_distributor_pct', Decimal('0')))))
+        d_pct = Decimal(str(attrs.get('distributor_pct', getattr(instance, 'distributor_pct', Decimal('0')))))
+
+        qr_ids = attrs.get('qr_account_ids')
+        if qr_ids is None and isinstance(initial, dict) and 'qr_account_ids' in initial:
+            qr_ids = initial.get('qr_account_ids')
+
+        gw_specs = _gateway_specs_from_initial(initial if isinstance(initial, dict) else {}, gateway_ids)
+        qr_specs = _qr_specs_from_initial(initial if isinstance(initial, dict) else {}, qr_ids)
+
+        from apps.fund_management.models import PayInPackage as PayInPackageModel
+        from apps.fund_management.rail_fees import (
+            effective_link_fee,
+            gateway_floor_pct,
+            qr_floor_pct,
+            validate_package_rail_fees,
         )
+
+        max_gw_fee = Decimal('0')
+        for spec in gw_specs:
+            gid = int(spec['payment_gateway_id'])
+            gw = PaymentGateway.objects.filter(pk=gid).first()
+            if not gw:
+                continue
+            link_fee = spec.get('gateway_fee_pct')
+            if link_fee is not None and link_fee != '':
+                fee = Decimal(str(link_fee))
+            else:
+                fee = gateway_floor_pct(gw)
+            max_gw_fee = max(max_gw_fee, fee)
+
+        for spec in qr_specs:
+            qid = int(spec['qr_account_id'])
+            qr = PayInQrAccount.objects.filter(pk=qid).first()
+            if not qr:
+                continue
+            link_fee = spec.get('gateway_fee_pct')
+            if link_fee is not None and link_fee != '':
+                fee = Decimal(str(link_fee))
+            else:
+                fee = qr_floor_pct(qr)
+            max_gw_fee = max(max_gw_fee, fee)
+
+        if not gw_specs and not qr_specs and instance:
+            from apps.fund_management.rail_fees import max_package_gateway_fee_pct
+
+            max_gw_fee = max_package_gateway_fee_pct(instance)
+        elif not gw_specs and not qr_specs:
+            max_gw_fee = Decimal(
+                str(getattr(instance, 'gateway_fee_pct', Decimal('0')) if instance else Decimal('0'))
+            )
+
+        attrs['gateway_fee_pct'] = max_gw_fee
+
+        pkg_stub = instance or PayInPackageModel(
+            gateway_fee_pct=max_gw_fee,
+            admin_pct=admin_pct,
+            super_distributor_pct=sd_pct,
+            master_distributor_pct=md_pct,
+            distributor_pct=d_pct,
+        )
+        if instance:
+            pkg_stub.gateway_fee_pct = max_gw_fee
+
+        rail_errors = validate_package_rail_fees(pkg_stub, gw_specs, qr_specs)
+        if rail_errors:
+            raise serializers.ValidationError({'package_gateways': rail_errors})
+
+        attrs['gateway_fee_pct'] = max_gw_fee
+
+        total_deduction = max_gw_fee + admin_pct + sd_pct + md_pct + d_pct
         if total_deduction <= 0:
             raise serializers.ValidationError(
                 {'non_field_errors': ['Total deduction percentage must be greater than zero.']}
@@ -391,7 +582,6 @@ class PayInPackageAdminSerializer(serializers.ModelSerializer):
                 {'non_field_errors': ['Total deduction percentage cannot exceed 100%.']}
             )
 
-        initial = getattr(self, 'initial_data', None) or {}
         if isinstance(initial, dict) and 'payout_slabs' in initial:
             _validate_payout_slabs_list(initial.get('payout_slabs'))
 
@@ -399,38 +589,70 @@ class PayInPackageAdminSerializer(serializers.ModelSerializer):
 
     def create(self, validated_data):
         from apps.fund_management.package_gateways import sync_package_gateway_links
+        from apps.fund_management.rail_fees import derive_provider_from_gateway
 
+        validated_data.pop('package_gateways_input', None)
+        validated_data.pop('package_qr_accounts_input', None)
         gateway_ids = validated_data.pop('payment_gateway_ids', None)
         default_gateway_id = validated_data.pop('default_payment_gateway_id', None)
         payment_gateway_id = validated_data.pop('payment_gateway_id', None)
+        qr_ids = validated_data.pop('qr_account_ids', None)
+        default_qr_id = validated_data.pop('default_qr_account_id', None)
+
         if gateway_ids:
             primary_id = default_gateway_id or gateway_ids[0]
-            validated_data['payment_gateway'] = PaymentGateway.objects.filter(id=primary_id).first()
+            primary_gw = PaymentGateway.objects.filter(id=primary_id).first()
+            validated_data['payment_gateway'] = primary_gw
+            validated_data['provider'] = derive_provider_from_gateway(primary_gw)
         elif payment_gateway_id:
-            validated_data['payment_gateway'] = PaymentGateway.objects.filter(id=payment_gateway_id).first()
-        # Pay-in packages configured via admin UI match razorpay: no hidden retailer slice.
+            primary_gw = PaymentGateway.objects.filter(id=payment_gateway_id).first()
+            validated_data['payment_gateway'] = primary_gw
+            validated_data['provider'] = derive_provider_from_gateway(primary_gw)
+
         validated_data['retailer_commission_pct'] = Decimal('0')
         instance = super().create(validated_data)
+
+        initial = getattr(self, 'initial_data', None) or {}
+        gw_specs = _gateway_specs_from_initial(initial if isinstance(initial, dict) else {}, gateway_ids)
+        qr_specs = _qr_specs_from_initial(initial if isinstance(initial, dict) else {}, qr_ids)
+        gw_fee_map = {s['payment_gateway_id']: s.get('gateway_fee_pct') for s in gw_specs}
+        qr_fee_map = {s['qr_account_id']: s.get('gateway_fee_pct') for s in qr_specs}
+
         if gateway_ids is not None:
             sync_package_gateway_links(
-                instance, gateway_ids, default_gateway_id=default_gateway_id
+                instance,
+                gateway_ids,
+                default_gateway_id=default_gateway_id,
+                gateway_fees=gw_fee_map,
             )
         elif instance.payment_gateway_id:
             sync_package_gateway_links(
                 instance,
                 [instance.payment_gateway_id],
                 default_gateway_id=default_gateway_id or instance.payment_gateway_id,
+                gateway_fees=gw_fee_map,
             )
-        initial = getattr(self, 'initial_data', None) or {}
         if isinstance(initial, dict) and 'payout_slabs' in initial:
             _sync_payout_slabs(instance, initial.get('payout_slabs') or [])
+        if qr_ids is not None:
+            from apps.fund_management.package_qr_accounts import sync_package_qr_links
+
+            sync_package_qr_links(
+                instance, qr_ids, default_qr_account_id=default_qr_id, qr_fees=qr_fee_map
+            )
         return instance
 
     def update(self, instance, validated_data):
         from apps.fund_management.package_gateways import sync_package_gateway_links
+        from apps.fund_management.rail_fees import derive_provider_from_gateway
 
+        validated_data.pop('package_gateways_input', None)
+        validated_data.pop('package_qr_accounts_input', None)
         gateway_ids = validated_data.pop('payment_gateway_ids', None)
         default_gateway_id = validated_data.pop('default_payment_gateway_id', None)
+        qr_ids = validated_data.pop('qr_account_ids', None)
+        default_qr_id = validated_data.pop('default_qr_account_id', None)
+
         if 'payment_gateway_id' in validated_data:
             pg_id = validated_data.pop('payment_gateway_id')
             validated_data['payment_gateway'] = (
@@ -439,17 +661,110 @@ class PayInPackageAdminSerializer(serializers.ModelSerializer):
         if gateway_ids is not None:
             primary_id = default_gateway_id or (gateway_ids[0] if gateway_ids else None)
             if primary_id:
-                validated_data['payment_gateway'] = PaymentGateway.objects.filter(id=primary_id).first()
+                primary_gw = PaymentGateway.objects.filter(id=primary_id).first()
+                validated_data['payment_gateway'] = primary_gw
+                validated_data['provider'] = derive_provider_from_gateway(primary_gw)
+        elif validated_data.get('payment_gateway'):
+            validated_data['provider'] = derive_provider_from_gateway(validated_data['payment_gateway'])
+
         validated_data['retailer_commission_pct'] = Decimal('0')
         instance = super().update(instance, validated_data)
+
+        initial = getattr(self, 'initial_data', None) or {}
+        gw_specs = _gateway_specs_from_initial(initial if isinstance(initial, dict) else {}, gateway_ids)
+        qr_specs = _qr_specs_from_initial(initial if isinstance(initial, dict) else {}, qr_ids)
+        gw_fee_map = {s['payment_gateway_id']: s.get('gateway_fee_pct') for s in gw_specs}
+        qr_fee_map = {s['qr_account_id']: s.get('gateway_fee_pct') for s in qr_specs}
+
         if gateway_ids is not None:
             sync_package_gateway_links(
-                instance, gateway_ids, default_gateway_id=default_gateway_id
+                instance,
+                gateway_ids,
+                default_gateway_id=default_gateway_id,
+                gateway_fees=gw_fee_map,
             )
-        initial = getattr(self, 'initial_data', None) or {}
         if isinstance(initial, dict) and 'payout_slabs' in initial:
             _sync_payout_slabs(instance, initial.get('payout_slabs') or [])
+        if qr_ids is not None:
+            from apps.fund_management.package_qr_accounts import sync_package_qr_links
+
+            sync_package_qr_links(
+                instance, qr_ids, default_qr_account_id=default_qr_id, qr_fees=qr_fee_map
+            )
         return instance
+
+
+class PayInPackageListSerializer(serializers.ModelSerializer):
+    """Lightweight serializer for paginated package list."""
+
+    total_deduction_pct = serializers.SerializerMethodField(read_only=True)
+    max_rail_gateway_fee_pct = serializers.SerializerMethodField(read_only=True)
+    gateway_count = serializers.SerializerMethodField(read_only=True)
+    qr_count = serializers.SerializerMethodField(read_only=True)
+    default_gateway_name = serializers.SerializerMethodField(read_only=True)
+
+    class Meta:
+        model = PayInPackage
+        fields = [
+            'id',
+            'code',
+            'display_name',
+            'provider',
+            'min_amount',
+            'max_amount_per_txn',
+            'max_rail_gateway_fee_pct',
+            'admin_pct',
+            'super_distributor_pct',
+            'master_distributor_pct',
+            'distributor_pct',
+            'total_deduction_pct',
+            'gateway_count',
+            'qr_count',
+            'default_gateway_name',
+            'is_active',
+            'is_default',
+            'sort_order',
+            'payout_slabs',
+        ]
+        read_only_fields = fields
+
+    def get_payout_slabs(self, obj):
+        return obj.payout_slabs.filter(is_deleted=False).count()
+
+    def get_max_rail_gateway_fee_pct(self, obj):
+        from apps.fund_management.rail_fees import max_package_gateway_fee_pct
+
+        return max_package_gateway_fee_pct(obj)
+
+    def get_total_deduction_pct(self, obj):
+        from apps.fund_management.rail_fees import max_package_gateway_fee_pct
+
+        gw = max_package_gateway_fee_pct(obj)
+        return (
+            gw
+            + Decimal(str(obj.admin_pct))
+            + Decimal(str(obj.super_distributor_pct))
+            + Decimal(str(obj.master_distributor_pct))
+            + Decimal(str(obj.distributor_pct))
+        )
+
+    def get_gateway_count(self, obj):
+        return obj.package_gateways.filter(is_deleted=False, is_active=True).count()
+
+    def get_qr_count(self, obj):
+        return obj.package_qr_links.filter(is_deleted=False, is_active=True).count()
+
+    def get_default_gateway_name(self, obj):
+        link = (
+            obj.package_gateways.filter(is_deleted=False, is_active=True, is_default=True)
+            .select_related('payment_gateway')
+            .first()
+        )
+        if link and link.payment_gateway:
+            return link.payment_gateway.name
+        if obj.payment_gateway:
+            return obj.payment_gateway.name
+        return obj.provider or '—'
 
 
 class PayoutSlabConfigSerializer(serializers.ModelSerializer):

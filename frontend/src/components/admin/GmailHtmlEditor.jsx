@@ -56,7 +56,7 @@ const GmailHtmlEditor = ({ value, onChange, placeholder = 'Compose email body…
     'p-2 rounded-md text-gray-600 hover:bg-gray-200 hover:text-gray-900 transition-colors';
 
   return (
-    <div className="gmail-editor rounded-lg border border-gray-200 bg-white overflow-hidden shadow-inner">
+    <div className="mpay-paper gmail-editor rounded-lg border border-gray-200 bg-white overflow-hidden shadow-inner">
       <div className="flex flex-wrap items-center gap-0.5 px-2 py-1.5 border-b border-gray-200 bg-gray-50">
         <button type="button" className={btnClass} title="Bold" onMouseDown={(e) => handleToolbar(e, 'bold')}>
           <FaBold className="w-3.5 h-3.5" />

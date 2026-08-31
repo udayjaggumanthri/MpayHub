@@ -62,7 +62,7 @@ const MODULE_LABELS = {
 };
 
 const selectClass =
-  'rounded-md border border-slate-200 bg-white px-2 py-1 text-xs font-medium text-slate-800 shadow-sm focus:border-blue-400 focus:outline-none focus:ring-1 focus:ring-blue-400';
+  'rounded-md border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 px-2 py-1 text-xs font-medium text-slate-800 dark:text-slate-200 shadow-sm focus:border-blue-400 focus:outline-none focus:ring-1 focus:ring-blue-400';
 
 /**
  * @param {{ variant?: 'compact' | 'full' }} props
@@ -197,9 +197,9 @@ const DashboardTransactionStatus = ({ variant = 'compact' }) => {
       short: 'P',
       value: counts.PENDING ?? 0,
       icon: FaClock,
-      ring: 'ring-amber-200/80',
-      bg: 'bg-amber-50',
-      accent: 'text-amber-900',
+      ring: 'ring-amber-200/80 dark:ring-amber-800/80',
+      bg: 'bg-amber-50 dark:bg-amber-950/40',
+      accent: 'text-amber-900 dark:text-amber-300',
       dot: 'bg-amber-500',
     },
     {
@@ -208,9 +208,9 @@ const DashboardTransactionStatus = ({ variant = 'compact' }) => {
       short: 'S',
       value: counts.SUCCESS ?? 0,
       icon: FaCircleCheck,
-      ring: 'ring-emerald-200/80',
-      bg: 'bg-emerald-50',
-      accent: 'text-emerald-900',
+      ring: 'ring-emerald-200/80 dark:ring-emerald-800/80',
+      bg: 'bg-emerald-50 dark:bg-emerald-950/40',
+      accent: 'text-emerald-900 dark:text-emerald-300',
       dot: 'bg-emerald-500',
     },
     {
@@ -219,15 +219,15 @@ const DashboardTransactionStatus = ({ variant = 'compact' }) => {
       short: 'F',
       value: counts.FAILED ?? 0,
       icon: FaCircleXmark,
-      ring: 'ring-red-200/80',
-      bg: 'bg-red-50',
-      accent: 'text-red-900',
+      ring: 'ring-red-200/80 dark:ring-red-800/80',
+      bg: 'bg-red-50 dark:bg-red-950/40',
+      accent: 'text-red-900 dark:text-red-300',
       dot: 'bg-red-500',
     },
   ];
 
   const filterBar = (
-    <div className={`flex flex-wrap items-center gap-1.5 ${isCompact ? '' : 'mb-6 rounded-xl border border-slate-100 bg-slate-50/50 p-4 gap-3'}`}>
+    <div className={`flex flex-wrap items-center gap-1.5 ${isCompact ? '' : 'mb-6 rounded-xl border border-slate-100 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-800/50 p-4 gap-3'}`}>
       <select
         value={filters.module}
         onChange={(e) => {
@@ -235,7 +235,7 @@ const DashboardTransactionStatus = ({ variant = 'compact' }) => {
           setFilters((f) => ({ ...f, module }));
           setAppliedQuery((q) => ({ ...q, module }));
         }}
-        className={isCompact ? selectClass : 'min-w-[160px] rounded-lg border border-slate-200 bg-white px-3 py-2.5 text-sm font-medium text-slate-800 shadow-sm'}
+        className={isCompact ? selectClass : 'min-w-[160px] rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 px-3 py-2.5 text-sm font-medium text-slate-800 dark:text-slate-200 shadow-sm'}
         aria-label="Module"
       >
         {MODULE_OPTIONS.map((o) => (
@@ -247,7 +247,7 @@ const DashboardTransactionStatus = ({ variant = 'compact' }) => {
       <select
         value={filters.interval}
         onChange={(e) => handleIntervalChange(e.target.value)}
-        className={isCompact ? selectClass : 'min-w-[130px] rounded-lg border border-slate-200 bg-white px-3 py-2.5 text-sm font-medium text-slate-800 shadow-sm'}
+        className={isCompact ? selectClass : 'min-w-[130px] rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 px-3 py-2.5 text-sm font-medium text-slate-800 dark:text-slate-200 shadow-sm'}
         aria-label="Period"
       >
         {INTERVAL_OPTIONS.map((o) => (
@@ -260,7 +260,7 @@ const DashboardTransactionStatus = ({ variant = 'compact' }) => {
         <button
           type="button"
           onClick={() => setShowDates((v) => !v)}
-          className="rounded-md px-2 py-1 text-xs font-medium text-slate-600 hover:bg-white hover:text-slate-900"
+          className="rounded-md px-2 py-1 text-xs font-medium text-slate-600 dark:text-slate-400 hover:bg-white dark:hover:bg-slate-900 hover:text-slate-900 dark:hover:text-slate-100"
           aria-expanded={showDates}
         >
           {showDates ? 'Hide dates' : 'Dates'}
@@ -341,7 +341,7 @@ const DashboardTransactionStatus = ({ variant = 'compact' }) => {
           return (
             <div
               key={c.key}
-              className={`rounded-lg border border-slate-200/90 ${c.bg} px-2.5 py-2.5 ring-1 ${c.ring}`}
+              className={`rounded-lg border border-slate-200/90 dark:border-slate-700/90 ${c.bg} px-2.5 py-2.5 ring-1 ${c.ring}`}
             >
               {canDrill ? (
                 <button
@@ -362,7 +362,7 @@ const DashboardTransactionStatus = ({ variant = 'compact' }) => {
           <div key={c.key} className={`rounded-xl border p-5 shadow-sm ${c.ring} ${c.bg}`}>
             <div className="flex items-start justify-between gap-2">
               <div>
-                <p className="text-xs font-semibold uppercase tracking-wide text-slate-600">{c.label}</p>
+                <p className="text-xs font-semibold uppercase tracking-wide text-slate-600 dark:text-slate-400">{c.label}</p>
                 {canDrill ? (
                   <button
                     type="button"
@@ -378,7 +378,7 @@ const DashboardTransactionStatus = ({ variant = 'compact' }) => {
                   </p>
                 )}
               </div>
-              <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-white/80">
+              <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-white/80 dark:bg-slate-900/80">
                 <Icon size={22} className={c.accent} />
               </span>
             </div>
@@ -394,25 +394,25 @@ const DashboardTransactionStatus = ({ variant = 'compact' }) => {
         className={
           isCompact
             ? 'mt-2 flex flex-wrap gap-1'
-            : 'mt-6 flex flex-wrap gap-2 border-t border-slate-100 pt-4'
+            : 'mt-6 flex flex-wrap gap-2 border-t border-slate-100 dark:border-slate-800 pt-4'
         }
       >
         {Object.entries(byModule).map(([key, row]) => {
           const statuses = [
-            { key: 'PENDING', value: row.PENDING ?? 0, className: 'text-amber-700' },
-            { key: 'SUCCESS', value: row.SUCCESS ?? 0, className: 'text-emerald-700' },
-            { key: 'FAILED', value: row.FAILED ?? 0, className: 'text-red-700' },
+            { key: 'PENDING', value: row.PENDING ?? 0, className: 'text-amber-700 dark:text-amber-300' },
+            { key: 'SUCCESS', value: row.SUCCESS ?? 0, className: 'text-emerald-700 dark:text-emerald-300' },
+            { key: 'FAILED', value: row.FAILED ?? 0, className: 'text-red-700 dark:text-red-300' },
           ];
           return (
             <span
               key={key}
               className={
                 isCompact
-                  ? 'inline-flex items-center gap-1 rounded-md bg-white/90 px-2 py-0.5 text-[10px] text-slate-600 ring-1 ring-slate-200/80'
-                  : 'rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs text-slate-700'
+                  ? 'inline-flex items-center gap-1 rounded-md bg-white/90 dark:bg-slate-900/90 px-2 py-0.5 text-[10px] text-slate-600 dark:text-slate-400 ring-1 ring-slate-200/80 dark:ring-slate-700/80'
+                  : 'rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 px-3 py-2 text-xs text-slate-700 dark:text-slate-300'
               }
             >
-              <span className="font-semibold text-slate-800">{MODULE_LABELS[key] || key}</span>
+              <span className="font-semibold text-slate-800 dark:text-slate-200">{MODULE_LABELS[key] || key}</span>
               {statuses.map((st, idx) => (
                 <React.Fragment key={st.key}>
                   {idx > 0 ? <span className="text-slate-300">/</span> : null}
@@ -443,7 +443,7 @@ const DashboardTransactionStatus = ({ variant = 'compact' }) => {
 
   const footer =
     periodLabel && !loading ? (
-      <p className={isCompact ? 'mt-2 text-[10px] leading-snug text-slate-500' : 'mt-4 text-xs text-slate-500'}>
+      <p className={isCompact ? 'mt-2 text-[10px] leading-snug text-slate-500 dark:text-slate-400' : 'mt-4 text-xs text-slate-500 dark:text-slate-400'}>
         {periodLabel}
         <span className="text-slate-300"> · </span>
         {(counts.total ?? 0).toLocaleString('en-IN')} total
@@ -455,16 +455,16 @@ const DashboardTransactionStatus = ({ variant = 'compact' }) => {
   if (isCompact) {
     return (
       <div
-        className="w-full rounded-xl border border-slate-200/90 bg-gradient-to-br from-slate-50/90 to-white p-3.5 shadow-sm sm:p-4"
+        className="w-full rounded-xl border border-slate-200/90 dark:border-slate-700/90 bg-gradient-to-br from-slate-50/90 dark:from-slate-900/90 to-white dark:to-slate-900 p-3.5 shadow-sm sm:p-4"
         aria-label="Portal transaction status"
       >
         <div className="mb-2.5 flex flex-wrap items-center justify-between gap-2">
-          <p className="text-xs font-semibold uppercase tracking-wider text-slate-500">Portal activity</p>
+          <p className="text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">Portal activity</p>
           {filterBar}
         </div>
         {dateRow}
         {error && (
-          <p className="mb-2 text-xs text-red-700" role="alert">
+          <p className="mb-2 text-xs text-red-700 dark:text-red-300" role="alert">
             {error}
           </p>
         )}
@@ -477,20 +477,20 @@ const DashboardTransactionStatus = ({ variant = 'compact' }) => {
 
   return (
     <section aria-labelledby="dash-txn-status-heading" className="space-y-4">
-      <div className="flex flex-col gap-1 border-b border-slate-100 pb-4">
-        <h2 id="dash-txn-status-heading" className="text-lg font-semibold tracking-tight text-slate-900">
+      <div className="flex flex-col gap-1 border-b border-slate-100 dark:border-slate-800 pb-4">
+        <h2 id="dash-txn-status-heading" className="text-lg font-semibold tracking-tight text-slate-900 dark:text-slate-100">
           Transaction status overview
         </h2>
       </div>
-      <Card className="border border-slate-200/90 shadow-sm" padding="lg">
+      <Card className="border border-slate-200/90 dark:border-slate-700/90 shadow-sm" padding="lg">
         {filterBar}
         {error && (
-          <div className="mb-4 rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-800">
+          <div className="mb-4 rounded-lg border border-red-200 dark:border-red-800 bg-red-50 dark:bg-red-950/40 px-4 py-3 text-sm text-red-800 dark:text-red-300">
             {error}
           </div>
         )}
         {loading ? (
-          <div className="py-12 text-center text-sm text-slate-500">Loading…</div>
+          <div className="py-12 text-center text-sm text-slate-500 dark:text-slate-400">Loading…</div>
         ) : (
           <>
             {statusGrid}

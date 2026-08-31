@@ -7,17 +7,38 @@ from rest_framework import serializers
 
 from apps.core.utils import validate_mpin
 from apps.fund_management.models import LoadMoney, PayInPackage, Payout
+from apps.fund_management.payin_rail_labels import payin_collection_method_label, payin_is_qr_rail
 from apps.bank_accounts.serializers import BankAccountSerializer
 
 
 def payin_payment_mode_display(obj: LoadMoney) -> str:
     """Human label for reports (UPI, Net Banking, cards, etc.)."""
+    if payin_is_qr_rail(obj):
+        st = (obj.status or '').upper()
+        if st == 'PENDING_REVIEW':
+            return 'Manual QR — Pending review'
+        base = 'Manual QR'
+        pm = (obj.payment_method or '').strip().lower()
+        if pm:
+            channel_labels = {
+                'upi': 'UPI',
+                'mock': 'Test / Mock',
+            }
+            if pm in channel_labels:
+                return f'{base} ({channel_labels[pm]})'
+        return base
+    return _payin_payment_mode_display_gateway(obj)
+
+
+def _payin_payment_mode_display_gateway(obj: LoadMoney) -> str:
     pm = (obj.payment_method or '').strip().lower()
     meta = obj.payment_meta if isinstance(obj.payment_meta, dict) else {}
     st = (obj.status or '').upper()
     if not pm:
         if st == 'PENDING':
             return 'Pending'
+        if st == 'PENDING_REVIEW':
+            return 'QR — Pending review'
         if st == 'FAILED':
             return '—'
         return 'Not recorded'
@@ -46,24 +67,8 @@ def payin_payment_mode_display(obj: LoadMoney) -> str:
 
 
 def payin_payment_gateway_name(obj: LoadMoney) -> str:
-    """Configured PaymentGateway name, else provider / package label."""
-    pg = getattr(obj, 'payment_gateway', None)
-    if pg and getattr(pg, 'name', None):
-        return pg.name
-    pkg = getattr(obj, 'package', None)
-    if not pkg:
-        return '—'
-    pg = getattr(pkg, 'payment_gateway', None)
-    if pg and getattr(pg, 'name', None):
-        return pg.name
-    prov = (getattr(pkg, 'provider', '') or '').strip().lower()
-    if prov == 'razorpay':
-        return 'Razorpay'
-    if prov == 'payu':
-        return 'PayU'
-    if prov == 'mock':
-        return 'Mock (test)'
-    return (pkg.display_name or pkg.code or '—') or '—'
+    """Configured collection method: QR account or payment gateway."""
+    return payin_collection_method_label(obj)
 
 
 class PayInPackageSerializer(serializers.ModelSerializer):
@@ -97,6 +102,7 @@ class LoadMoneySerializer(serializers.ModelSerializer):
     payment_mode_display = serializers.SerializerMethodField()
     payment_gateway_name = serializers.SerializerMethodField()
     fee_breakdown_snapshot = serializers.SerializerMethodField()
+    reject_reason = serializers.SerializerMethodField()
 
     class Meta:
         model = LoadMoney
@@ -120,6 +126,12 @@ class LoadMoneySerializer(serializers.ModelSerializer):
             'transaction_id',
             'gateway_transaction_id',
             'failure_reason',
+            'collection_rail',
+            'utr',
+            'payment_date',
+            'submitted_amount',
+            'reject_reason',
+            'reviewed_at',
             'created_at',
         ]
         read_only_fields = [
@@ -130,12 +142,22 @@ class LoadMoneySerializer(serializers.ModelSerializer):
             'transaction_id',
             'gateway_transaction_id',
             'failure_reason',
-            'created_at',
+            'collection_rail',
+            'utr',
+            'payment_date',
+            'submitted_amount',
+            'reviewed_at',
             'payment_method',
             'payment_meta',
             'payment_mode_display',
             'payment_gateway_name',
+            'fee_breakdown_snapshot',
         ]
+
+    def get_reject_reason(self, obj):
+        if (getattr(obj, 'collection_rail', None) or '') == 'qr' and (obj.status or '') == 'FAILED':
+            return (obj.failure_reason or '').strip()
+        return ''
 
     def get_fee_breakdown_snapshot(self, obj):
         raw = obj.fee_breakdown_snapshot if isinstance(obj.fee_breakdown_snapshot, dict) else {}

@@ -45,14 +45,14 @@ const BbpsConsole = () => {
   const isProd = String(liveMode).toLowerCase() === 'prod';
 
   return (
-    <div className="-m-3 min-h-screen bg-slate-50 p-3 sm:-m-4 sm:p-4 md:-m-6 md:p-6 lg:-m-8 lg:p-8">
+    <div className="-m-3 min-h-screen bg-slate-50 dark:bg-slate-800/50 p-3 sm:-m-4 sm:p-4 md:-m-6 md:p-6 lg:-m-8 lg:p-8">
       <div className="mx-auto max-w-[1400px] space-y-5">
         <header className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
           <div>
-            <p className="text-xs font-semibold uppercase tracking-[0.18em] text-blue-700">
+            <p className="text-xs font-semibold uppercase tracking-[0.18em] text-blue-700 dark:text-blue-300">
               BBPS Configuration
             </p>
-            <h1 className="mt-1 text-2xl font-bold tracking-tight text-slate-900 sm:text-3xl">
+            <h1 className="mt-1 text-2xl font-bold tracking-tight text-slate-900 dark:text-slate-100 sm:text-3xl">
               BBPS Console
             </h1>
           </div>
@@ -61,15 +61,15 @@ const BbpsConsole = () => {
               <span
                 className={`rounded-full px-3 py-1 text-xs font-semibold ring-1 ${
                   isProd
-                    ? 'bg-emerald-50 text-emerald-800 ring-emerald-300'
-                    : 'bg-amber-50 text-amber-900 ring-amber-300'
+                    ? 'bg-emerald-50 dark:bg-emerald-950/40 text-emerald-800 dark:text-emerald-300 ring-emerald-300'
+                    : 'bg-amber-50 dark:bg-amber-950/40 text-amber-900 dark:text-amber-300 ring-amber-300'
                 }`}
               >
                 Live: {isProd ? 'Production' : 'UAT'}
               </span>
             )}
             {counts && (
-              <span className="rounded-full bg-slate-100 px-3 py-1 text-xs font-semibold text-slate-700 ring-1 ring-slate-200">
+              <span className="rounded-full bg-slate-100 dark:bg-slate-800 px-3 py-1 text-xs font-semibold text-slate-700 dark:text-slate-300 ring-1 ring-slate-200 dark:ring-slate-700">
                 PROD {counts.prod ?? 0} · UAT {counts.uat ?? 0} billers
               </span>
             )}
@@ -85,7 +85,7 @@ const BbpsConsole = () => {
               end={item.end}
               className={({ isActive }) =>
                 `whitespace-nowrap rounded-full px-3 py-1.5 text-xs font-semibold ring-1 ${
-                  isActive ? 'bg-blue-600 text-white ring-blue-600' : 'bg-white text-slate-700 ring-slate-200'
+                  isActive ? 'bg-blue-600 text-white ring-blue-600' : 'bg-white dark:bg-slate-900 text-slate-700 dark:text-slate-300 ring-slate-200 dark:ring-slate-700'
                 }`
               }
             >

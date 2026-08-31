@@ -3,6 +3,7 @@ import Card from '../../../components/common/Card';
 import Button from '../../../components/common/Button';
 import ReportDateRange from '../../../components/common/ReportDateRange';
 import aepsAPI from '../services/aepsApi';
+import { ReceiptCard } from './AepsProductPages';
 
 const AepsHistory = () => {
   const [rows, setRows] = useState([]);
@@ -38,13 +39,14 @@ const AepsHistory = () => {
   }, []);
 
   const exportCsv = () => {
-    const header = ['created_at', 'product', 'amount', 'status', 'bank_rrn', 'merchant_tran_id'];
+    const header = ['created_at', 'product', 'amount', 'balance_amount', 'status', 'bank_rrn', 'merchant_tran_id'];
     const lines = [header.join(',')].concat(
       rows.map((r) =>
         [
           r.created_at || '',
           r.product || '',
           r.amount ?? '',
+          r.balance_amount ?? '',
           r.status || '',
           r.bank_rrn || '',
           r.merchant_tran_id || '',
@@ -74,12 +76,31 @@ const AepsHistory = () => {
     setBusy(false);
   };
 
+  const acknowledge = async (r) => {
+    setBusy(true);
+    const ack = await aepsAPI.acknowledge(r.merchant_tran_id, {
+      otp_mode: r.product === 'CD_OTP',
+    });
+    if (ack.success) {
+      setDetail(ack.data?.transaction || ack.data);
+      await load();
+    }
+    setBusy(false);
+  };
+
+  const formatBalance = (raw) => {
+    if (raw == null || raw === '') return '—';
+    const n = Number(String(raw).replace(/,/g, '').trim());
+    if (!Number.isFinite(n) || n < 0) return '—';
+    return `₹${n.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+  };
+
   return (
     <div className="space-y-4">
       <header className="flex flex-wrap items-end justify-between gap-3">
         <div>
-          <h2 className="text-xl font-bold text-slate-900">AEPS history</h2>
-          <p className="text-sm text-slate-500">Module-local only — not mixed with Pay-in/Payout/BBPS.</p>
+          <h2 className="text-xl font-bold text-slate-900 dark:text-slate-100">AEPS history</h2>
+          <p className="text-sm text-slate-500 dark:text-slate-400">Module-local only — not mixed with Pay-in/Payout/BBPS.</p>
         </div>
         <div className="flex gap-2">
           <Button size="sm" variant="secondary" onClick={exportCsv}>
@@ -94,7 +115,7 @@ const AepsHistory = () => {
       <Card padding="sm" shadow="sm">
         <div className="flex flex-wrap gap-2">
           <select
-            className="rounded-lg border border-slate-200 px-3 py-2 text-sm"
+            className="rounded-lg border border-slate-200 dark:border-slate-700 px-3 py-2 text-sm"
             value={filters.product}
             onChange={(e) => setFilters({ ...filters, product: e.target.value })}
           >
@@ -106,7 +127,7 @@ const AepsHistory = () => {
             ))}
           </select>
           <select
-            className="rounded-lg border border-slate-200 px-3 py-2 text-sm"
+            className="rounded-lg border border-slate-200 dark:border-slate-700 px-3 py-2 text-sm"
             value={filters.status}
             onChange={(e) => setFilters({ ...filters, status: e.target.value })}
           >
@@ -130,7 +151,7 @@ const AepsHistory = () => {
             />
           </div>
           <input
-            className="rounded-lg border border-slate-200 px-3 py-2 text-sm"
+            className="rounded-lg border border-slate-200 dark:border-slate-700 px-3 py-2 text-sm"
             placeholder="Search RRN / txn id"
             value={filters.search}
             onChange={(e) => setFilters({ ...filters, search: e.target.value })}
@@ -141,13 +162,14 @@ const AepsHistory = () => {
         </div>
       </Card>
 
-      <div className="overflow-x-auto rounded-xl border border-slate-200 bg-white shadow-sm">
+      <div className="overflow-x-auto rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 shadow-sm">
         <table className="min-w-full text-left text-sm">
-          <thead className="bg-slate-50 text-xs uppercase tracking-wide text-slate-500">
+          <thead className="bg-slate-50 dark:bg-slate-800/50 text-xs uppercase tracking-wide text-slate-500 dark:text-slate-400">
             <tr>
               <th className="px-4 py-3">Time</th>
               <th className="px-4 py-3">Product</th>
               <th className="px-4 py-3">Amount</th>
+              <th className="px-4 py-3">Balance</th>
               <th className="px-4 py-3">Status</th>
               <th className="px-4 py-3">RRN</th>
               <th className="px-4 py-3">Txn id</th>
@@ -156,12 +178,13 @@ const AepsHistory = () => {
           </thead>
           <tbody>
             {rows.map((r) => (
-              <tr key={r.merchant_tran_id} className="border-t border-slate-100">
-                <td className="whitespace-nowrap px-4 py-3 text-slate-600">
+              <tr key={r.merchant_tran_id} className="border-t border-slate-100 dark:border-slate-800">
+                <td className="whitespace-nowrap px-4 py-3 text-slate-600 dark:text-slate-400">
                   {r.created_at ? new Date(r.created_at).toLocaleString() : '—'}
                 </td>
                 <td className="px-4 py-3 font-medium">{r.product}</td>
                 <td className="px-4 py-3">₹{r.amount}</td>
+                <td className="px-4 py-3">{formatBalance(r.balance_amount)}</td>
                 <td className="px-4 py-3">{r.status}</td>
                 <td className="px-4 py-3 font-mono text-xs">{r.bank_rrn || '—'}</td>
                 <td className="px-4 py-3 font-mono text-xs">{r.merchant_tran_id}</td>
@@ -169,7 +192,7 @@ const AepsHistory = () => {
                   <div className="flex gap-2">
                     <button
                       type="button"
-                      className="text-xs font-semibold text-blue-700"
+                      className="text-xs font-semibold text-blue-700 dark:text-blue-300"
                       onClick={() => setDetail(r)}
                     >
                       Detail
@@ -178,7 +201,7 @@ const AepsHistory = () => {
                       <button
                         type="button"
                         disabled={busy}
-                        className="text-xs font-semibold text-slate-700"
+                        className="text-xs font-semibold text-slate-700 dark:text-slate-300"
                         onClick={() => statusCheck(r)}
                       >
                         Check
@@ -190,7 +213,7 @@ const AepsHistory = () => {
             ))}
             {!rows.length ? (
               <tr>
-                <td colSpan={7} className="px-4 py-10 text-center text-slate-500">
+                <td colSpan={8} className="px-4 py-10 text-center text-slate-500 dark:text-slate-400">
                   No AEPS transactions yet ({total} total).
                 </td>
               </tr>
@@ -202,9 +225,12 @@ const AepsHistory = () => {
       {detail ? (
         <div className="fixed inset-0 z-40 flex items-end justify-center bg-black/40 p-4 sm:items-center">
           <Card className="max-h-[80vh] w-full max-w-lg overflow-auto" shadow="lg" title="Transaction detail">
-            <pre className="overflow-auto rounded-lg bg-slate-50 p-3 text-xs text-slate-800">
-              {JSON.stringify(detail, null, 2)}
-            </pre>
+            <ReceiptCard
+              result={detail}
+              onStatusCheck={statusCheck}
+              onAck={acknowledge}
+              busy={busy}
+            />
             <Button className="mt-3" variant="secondary" onClick={() => setDetail(null)}>
               Close
             </Button>

@@ -34,22 +34,22 @@ const SessionPausedNotice = ({ code = 'SESSION_IDLE', onDismiss }) => {
     <div
       role="status"
       aria-live="polite"
-      className="overflow-hidden rounded-2xl border border-sky-200/90 bg-gradient-to-b from-sky-50 to-white shadow-sm ring-1 ring-sky-100 animate-fadeIn"
+      className="overflow-hidden rounded-2xl border border-sky-200/90 dark:border-sky-800/90 bg-gradient-to-b from-sky-50 dark:from-sky-950/40 to-white dark:to-slate-900 shadow-sm ring-1 ring-sky-100 dark:ring-sky-900 animate-fadeIn"
     >
       <div className="flex flex-col items-center px-5 pb-5 pt-6 text-center sm:px-6">
         <div className="relative mb-4 flex h-16 w-20 items-center justify-center">
           <div
-            className="absolute inset-0 rounded-2xl bg-sky-100/80"
+            className="absolute inset-0 rounded-2xl bg-sky-100/80 dark:bg-sky-900/40"
             aria-hidden
           />
-          <div className="relative flex h-12 w-16 flex-col overflow-hidden rounded-lg border-2 border-sky-500/80 bg-white shadow-sm">
-            <div className="flex h-3 items-center gap-0.5 border-b border-sky-100 bg-sky-50 px-1.5">
+          <div className="relative flex h-12 w-16 flex-col overflow-hidden rounded-lg border-2 border-sky-500/80 bg-white dark:bg-slate-900 shadow-sm">
+            <div className="flex h-3 items-center gap-0.5 border-b border-sky-100 dark:border-sky-900 bg-sky-50 dark:bg-sky-950/40 px-1.5">
               <span className="h-1 w-1 rounded-full bg-sky-300" />
               <span className="h-1 w-1 rounded-full bg-sky-300" />
               <span className="h-1 w-1 rounded-full bg-sky-300" />
             </div>
             <div className="flex flex-1 items-center justify-center">
-              <FaDesktop className="text-sky-600" size={18} aria-hidden />
+              <FaDesktop className="text-sky-600 dark:text-sky-400" size={18} aria-hidden />
             </div>
           </div>
           <div
@@ -60,14 +60,14 @@ const SessionPausedNotice = ({ code = 'SESSION_IDLE', onDismiss }) => {
           </div>
         </div>
 
-        <h3 className="text-lg font-semibold tracking-tight text-slate-900 sm:text-xl">
+        <h3 className="text-lg font-semibold tracking-tight text-slate-900 dark:text-slate-100 sm:text-xl">
           {title}
         </h3>
-        <p className="mt-2 max-w-sm text-sm leading-relaxed text-slate-600">
+        <p className="mt-2 max-w-sm text-sm leading-relaxed text-slate-600 dark:text-slate-400">
           {message}
         </p>
 
-        <p className="mt-4 text-xs font-medium text-sky-700/90">
+        <p className="mt-4 text-xs font-medium text-sky-700/90 dark:text-sky-300/90">
           Enter your phone and password below to resume
         </p>
 
@@ -75,7 +75,7 @@ const SessionPausedNotice = ({ code = 'SESSION_IDLE', onDismiss }) => {
           <button
             type="button"
             onClick={onDismiss}
-            className="mt-3 text-xs font-semibold text-slate-500 underline-offset-2 hover:text-slate-700 hover:underline"
+            className="mt-3 text-xs font-semibold text-slate-500 dark:text-slate-400 underline-offset-2 hover:text-slate-700 dark:hover:text-slate-300 hover:underline"
           >
             Dismiss
           </button>

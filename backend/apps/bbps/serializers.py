@@ -2,6 +2,7 @@
 Serializers for BBPS app.
 """
 from rest_framework import serializers
+from django.core.validators import RegexValidator
 from urllib.parse import urlparse
 import re
 from apps.bbps.models import (
@@ -183,7 +184,12 @@ class FetchBillSerializer(serializers.Serializer):
     provider_id = serializers.IntegerField(required=False)
     init_channel = serializers.CharField(max_length=20, required=False, allow_blank=True)
     # Category-specific fields (allow_blank: client may send "" when values only exist in input_params)
-    card_last4 = serializers.CharField(max_length=4, required=False, allow_blank=True)
+    card_last4 = serializers.CharField(
+        max_length=4,
+        required=False,
+        allow_blank=True,
+        validators=[RegexValidator(r'^\d{4}$', message='Must be exactly 4 digits.')],
+    )
     mobile = serializers.CharField(max_length=10, required=False, allow_blank=True)
     customer_number = serializers.CharField(max_length=50, required=False, allow_blank=True)
     input_params = serializers.ListField(

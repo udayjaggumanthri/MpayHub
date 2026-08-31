@@ -5,6 +5,7 @@ import { authAPI } from '../../services/api';
 import { validateMPIN } from '../../utils/validators';
 import Card from '../common/Card';
 import Button from '../common/Button';
+import MpinInput from '../common/MpinInput';
 
 const OnboardingMPINSetup = () => {
   const navigate = useNavigate();
@@ -62,31 +63,21 @@ const OnboardingMPINSetup = () => {
         padding="lg"
       >
         <form className="space-y-5" onSubmit={handleSubmit}>
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">MPIN</label>
-            <input
-              type="password"
-              inputMode="numeric"
-              value={mpin}
-              onChange={(e) => setMpin(e.target.value.replace(/\D/g, '').slice(0, 6))}
-              className="w-full px-4 py-3 border border-gray-300 rounded-lg text-center text-xl tracking-widest"
-              maxLength={6}
-              autoComplete="new-password"
-            />
-          </div>
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">Confirm MPIN</label>
-            <input
-              type="password"
-              inputMode="numeric"
-              value={confirm}
-              onChange={(e) => setConfirm(e.target.value.replace(/\D/g, '').slice(0, 6))}
-              className="w-full px-4 py-3 border border-gray-300 rounded-lg text-center text-xl tracking-widest"
-              maxLength={6}
-              autoComplete="new-password"
-            />
-          </div>
-          {error ? <p className="text-sm text-red-600">{error}</p> : null}
+          <MpinInput
+            variant="single"
+            label="MPIN"
+            value={mpin}
+            onChange={setMpin}
+            placeholder="Enter 6-digit MPIN"
+          />
+          <MpinInput
+            variant="single"
+            label="Confirm MPIN"
+            value={confirm}
+            onChange={setConfirm}
+            placeholder="Re-enter MPIN"
+          />
+          {error ? <p className="text-sm text-red-600 dark:text-red-400">{error}</p> : null}
           <Button type="submit" variant="primary" size="lg" fullWidth loading={loading}>
             Save MPIN & continue
           </Button>

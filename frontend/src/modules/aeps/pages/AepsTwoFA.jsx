@@ -101,9 +101,9 @@ const AepsTwoFA = ({ aepsStatus: status, refreshStatus }) => {
   if (gate.block) {
     return (
       <Card className="text-center" shadow="sm">
-        <h2 className="text-lg font-bold text-slate-900">Daily 2FA</h2>
-        <p className="mt-2 text-sm text-slate-600">{gate.text}</p>
-        <Link to={gate.to} className="mt-4 inline-block text-sm font-semibold text-blue-700">
+        <h2 className="text-lg font-bold text-slate-900 dark:text-slate-100">Daily 2FA</h2>
+        <p className="mt-2 text-sm text-slate-600 dark:text-slate-400">{gate.text}</p>
+        <Link to={gate.to} className="mt-4 inline-block text-sm font-semibold text-blue-700 dark:text-blue-300">
           Continue setup →
         </Link>
       </Card>
@@ -113,9 +113,9 @@ const AepsTwoFA = ({ aepsStatus: status, refreshStatus }) => {
   if (status?.merchant?.twofa_ok_today && !forceRedo) {
     return (
       <Card shadow="sm">
-        <p className="text-xs font-semibold uppercase tracking-wide text-emerald-700">2FA</p>
-        <h2 className="mt-1 text-xl font-bold text-slate-900">Already verified today</h2>
-        <p className="mt-2 text-sm text-slate-600">
+        <p className="text-xs font-semibold uppercase tracking-wide text-emerald-700 dark:text-emerald-300">2FA</p>
+        <h2 className="mt-1 text-xl font-bold text-slate-900 dark:text-slate-100">Already verified today</h2>
+        <p className="mt-2 text-sm text-slate-600 dark:text-slate-400">
           You can run cash withdrawal, Aadhaar Pay, and cash deposit. Re-run only if Fingpay asks.
         </p>
         <div className="mt-4 flex flex-wrap gap-2">
@@ -136,8 +136,8 @@ const AepsTwoFA = ({ aepsStatus: status, refreshStatus }) => {
   return (
     <div className="mx-auto max-w-xl space-y-4">
       <header>
-        <h2 className="text-xl font-bold text-slate-900">Daily 2FA</h2>
-        <p className="text-sm text-slate-500">
+        <h2 className="text-xl font-bold text-slate-900 dark:text-slate-100">Daily 2FA</h2>
+        <p className="text-sm text-slate-500 dark:text-slate-400">
           Required once per day before cash withdrawal, Aadhaar Pay, and cash deposit.
         </p>
       </header>
@@ -146,8 +146,8 @@ const AepsTwoFA = ({ aepsStatus: status, refreshStatus }) => {
         <div
           className={`rounded-xl border px-4 py-3 text-sm ${
             msg.type === 'error'
-              ? 'border-rose-200 bg-rose-50 text-rose-800'
-              : 'border-emerald-200 bg-emerald-50 text-emerald-800'
+              ? 'border-rose-200 dark:border-rose-800 bg-rose-50 dark:bg-rose-950/40 text-rose-800 dark:text-rose-300'
+              : 'border-emerald-200 dark:border-emerald-800 bg-emerald-50 dark:bg-emerald-950/40 text-emerald-800 dark:text-emerald-300'
           }`}
         >
           {msg.text}
@@ -176,11 +176,11 @@ const AepsTwoFA = ({ aepsStatus: status, refreshStatus }) => {
             inputMode="numeric"
           />
           <label className="block">
-            <span className="mb-1.5 flex items-center justify-between text-sm font-medium text-gray-700">
+            <span className="mb-1.5 flex items-center justify-between text-sm font-medium text-gray-700 dark:text-slate-300">
               <span>Bank (IIN)</span>
               <button
                 type="button"
-                className="text-xs font-semibold text-blue-700 hover:underline disabled:opacity-50"
+                className="text-xs font-semibold text-blue-700 dark:text-blue-300 hover:underline disabled:opacity-50"
                 disabled={banksLoading || busy}
                 onClick={() => loadBanks({ refresh: true })}
               >
@@ -188,13 +188,13 @@ const AepsTwoFA = ({ aepsStatus: status, refreshStatus }) => {
               </button>
             </span>
             <input
-              className="mb-2 w-full rounded-lg border border-gray-300 px-3 py-2 text-sm"
+              className="mb-2 w-full rounded-lg border border-gray-300 dark:border-slate-600 px-3 py-2 text-sm"
               placeholder="Search bank name or IIN"
               value={bankQuery}
               onChange={(e) => setBankQuery(e.target.value)}
             />
             <select
-              className="w-full rounded-lg border border-gray-300 px-3 py-2.5 text-sm"
+              className="w-full rounded-lg border border-gray-300 dark:border-slate-600 px-3 py-2.5 text-sm"
               value={form.nationalBankIdentificationNumber}
               onChange={(e) => setForm({ ...form, nationalBankIdentificationNumber: e.target.value })}
               required
@@ -208,9 +208,9 @@ const AepsTwoFA = ({ aepsStatus: status, refreshStatus }) => {
               ))}
             </select>
             {!banksLoading && !banks.length ? (
-              <p className="mt-1 text-xs text-rose-600">Bank list missing — click Refresh banks.</p>
+              <p className="mt-1 text-xs text-rose-600 dark:text-rose-400">Bank list missing — click Refresh banks.</p>
             ) : (
-              <p className="mt-1 text-xs text-slate-400">{banks.length} banks available</p>
+              <p className="mt-1 text-xs text-slate-400 dark:text-slate-500">{banks.length} banks available</p>
             )}
           </label>
           <Button type="submit" loading={busy} fullWidth>

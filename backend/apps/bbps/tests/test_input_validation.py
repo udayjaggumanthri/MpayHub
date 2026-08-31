@@ -83,6 +83,43 @@ class BbpsInputValidationUnitTests(TestCase):
             ],
         )
 
+    def test_card_last4_must_be_four_digits(self):
+        cc_biller = BbpsBillerMaster.objects.create(
+            environment='uat',
+            biller_id='CCLAST401',
+            biller_name='CC Last4 Test',
+            biller_category='Credit Card',
+            biller_status='ACTIVE',
+        )
+        BbpsBillerInputParam.objects.create(
+            biller=cc_biller,
+            param_name='Last 4 digits',
+            data_type='NUMERIC',
+            is_optional=False,
+            min_length=4,
+            max_length=4,
+            display_order=1,
+        )
+        with self.assertRaises(BbpsInputValidationError) as ctx:
+            validate_biller_inputs(
+                biller_id='CCLAST401',
+                input_map={'Last 4 digits': '12ab'},
+            )
+        self.assertTrue(any(e['code'] == 'VE011' for e in ctx.exception.field_errors))
+
+        with self.assertRaises(BbpsInputValidationError) as ctx2:
+            validate_biller_inputs(
+                biller_id='CCLAST401',
+                input_map={'Last 4 digits': '123'},
+            )
+        self.assertTrue(any(e['code'] in ('VE009', 'VE010') for e in ctx2.exception.field_errors))
+
+        wire = validate_biller_inputs(
+            biller_id='CCLAST401',
+            input_map={'Last 4 digits': '1234'},
+        )
+        self.assertEqual(wire, [{'paramName': 'Last 4 digits', 'paramValue': '1234'}])
+
     def test_hidden_required_param_skipped_when_blank(self):
         BbpsBillerInputParam.objects.create(
             biller=self.biller,

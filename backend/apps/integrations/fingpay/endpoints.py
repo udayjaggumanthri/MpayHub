@@ -12,7 +12,10 @@ from __future__ import annotations
 from copy import deepcopy
 from typing import Any
 
-DEFAULT_EGRESS_IP = '139.99.47.143'
+# No literal here on purpose: the egress address is a property of wherever this
+# host is deployed, so it is detected at runtime (see fingpay.netinfo) and only
+# falls back to the admin-configured provider value.
+DEFAULT_EGRESS_IP = ''
 
 # Encrypted PHP paths (uat/prod default when onboarding_api_style=php)
 ENCRYPTED_PHP_ENDPOINTS: dict[str, str] = {

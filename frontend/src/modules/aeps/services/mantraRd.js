@@ -109,7 +109,10 @@ async function tryFetch(url, options = {}, timeoutMs = 4000) {
 
 function parseAttr(xml, name) {
   if (!xml) return '';
-  const m = xml.match(new RegExp(`${name}\\s*=\\s*["']([^"']*)["']`, 'i'));
+  // Anchor on a tag/whitespace boundary. Unanchored, a short name also matches
+  // the tail of a longer attribute — `type` matches `fType="0"` — and silently
+  // returns the wrong value.
+  const m = xml.match(new RegExp(`[\\s<]${name}\\s*=\\s*["']([^"']*)["']`, 'i'));
   return m ? m[1] : '';
 }
 
@@ -377,23 +380,43 @@ export async function detectMantraRd() {
 // WADH is the e-KYC value from SIMPLE API FOR E-KYC doc.
 const EKYC_WADH = 'E0jzJ/P8UopUHAieZn8CKqS4WPMi5ZSYXgfnlfkWjrc=';
 
-function buildPidOptions({ fCount = 1, timeout = 20000, purpose = 'aeps' } = {}) {
+// Finger format requested from the reader. Readers differ in what they can
+// emit, and asking for one this device cannot produce reaches UIDAI as
+// "Missing biometric data as specified in Uses", so the backend serves the
+// value from provider config (/aeps/me/status/) and these are only fallbacks.
+const DEFAULT_FTYPE = { aeps: '2', ekyc: '2' };
+let captureFtype = { ...DEFAULT_FTYPE };
+
+export function setCaptureProfile(profile) {
+  if (!profile) return;
+  captureFtype = {
+    aeps: String(profile.ftype_aeps ?? DEFAULT_FTYPE.aeps),
+    ekyc: String(profile.ftype_ekyc ?? DEFAULT_FTYPE.ekyc),
+  };
+}
+
+export function getCaptureProfile() {
+  return { ...captureFtype };
+}
+
+export function buildPidOptions({ fCount = 1, timeout = 20000, purpose = 'aeps' } = {}) {
   // env="P" is required by several drivers (incl. Mantra) even on UAT.
   if (purpose === 'ekyc') {
     return (
       `<?xml version="1.0"?>` +
       `<PidOptions ver="1.0">` +
-      `<Opts env="P" fCount="${fCount}" fType="2" iCount="0" pCount="0" format="0" pidVer="2.0" ` +
+      `<Opts env="P" fCount="${fCount}" fType="${captureFtype.ekyc}" iCount="0" pCount="0" format="0" pidVer="2.0" ` +
       `timeout="${timeout}" wadh="${EKYC_WADH}" posh="UNKNOWN" />` +
       `</PidOptions>`
     );
   }
-  // Mini Statement / 2FA sample captureResponse uses fType=0 (FMR). eKYC stays fType=2 above.
+  // AEPS / 2FA: never send empty wadh or otp — a blank wadh binds the PID and
+  // UIDAI answers "Missing biometric data as specified in Uses".
   return (
     `<?xml version="1.0"?>` +
     `<PidOptions ver="1.0">` +
-    `<Opts fCount="${fCount}" fType="0" iCount="0" pCount="0" format="0" pidVer="2.0" ` +
-    `timeout="${timeout}" otp="" wadh="" posh="UNKNOWN" env="P" />` +
+    `<Opts env="P" fCount="${fCount}" fType="${captureFtype.aeps}" iCount="0" iType="0" pCount="0" pType="0" ` +
+    `format="0" pidVer="2.0" timeout="${timeout}" posh="UNKNOWN" />` +
     `</PidOptions>`
   );
 }
@@ -449,39 +472,78 @@ export async function captureMantraFingerprint({ fCount = 1, timeout = 20000, pu
     };
   }
 
+  const mapped = xmlToCaptureResponse(result.text);
+  if (mapped.error) {
+    return {
+      success: false,
+      message: mapped.error,
+      rawXml: result.text,
+    };
+  }
+
   return {
     success: true,
-    captureResponse: xmlToCaptureResponse(result.text),
+    captureResponse: mapped.captureResponse,
     rawXml: result.text,
     baseUrl: disc.baseUrl,
   };
 }
 
-function xmlToCaptureResponse(xml) {
+function unescapeXml(text) {
+  return String(text || '')
+    .replace(/&lt;/g, '<')
+    .replace(/&gt;/g, '>')
+    .replace(/&quot;/g, '"')
+    .replace(/&apos;/g, "'")
+    .replace(/&amp;/g, '&');
+}
+
+function tagBlock(xml, name) {
+  if (!xml) return '';
+  const closed = xml.match(new RegExp(`<${name}\\b[^>]*>[\\s\\S]*?</${name}>`, 'i'));
+  if (closed) return closed[0];
+  const selfClosing = xml.match(new RegExp(`<${name}\\b[^>]*/>`, 'i'));
+  return selfClosing ? selfClosing[0] : '';
+}
+
+/**
+ * Map RD-service XML to Fingpay captureResponse (PHP sample field names + order).
+ * Returns { captureResponse } or { error }.
+ * Never falls back to the raw XML as Piddata — UIDAI treats that as missing bio.
+ */
+export function xmlToCaptureResponse(xml) {
+  const resp = tagBlock(xml, 'Resp');
+  const device = tagBlock(xml, 'DeviceInfo');
+  const skeyOpen = xml.match(/<Skey\b[^>]*>/i)?.[0] || '';
   const dataOpen = xml.match(/<Data\b[^>]*>/i)?.[0] || '';
-  const pidData = parseTag(xml, 'Data') || '';
+  const pidData = unescapeXml(parseTag(xml, 'Data') || '').trim();
+  if (!pidData) {
+    return { error: 'PID Data block missing from RD capture. Recapture the finger.' };
+  }
   return {
-    errCode: parseAttr(xml, 'errCode') || '0',
-    errInfo: parseAttr(xml, 'errInfo') || 'Success',
-    fCount: parseAttr(xml, 'fCount') || '1',
-    fType: parseAttr(xml, 'fType') || '0',
-    iCount: parseAttr(xml, 'iCount') || '0',
-    iType: parseAttr(xml, 'iType') || '',
-    pCount: parseAttr(xml, 'pCount') || '0',
-    pType: parseAttr(xml, 'pType') || '',
-    nmPoints: parseAttr(xml, 'nmPoints') || '',
-    qScore: parseAttr(xml, 'qScore') || '',
-    dpID: parseAttr(xml, 'dpId') || parseAttr(xml, 'dpID') || '',
-    rdsID: parseAttr(xml, 'rdsId') || parseAttr(xml, 'rdsID') || '',
-    rdsVer: parseAttr(xml, 'rdsVer') || '',
-    dc: parseAttr(xml, 'dc') || '',
-    mi: parseAttr(xml, 'mi') || '',
-    mc: parseAttr(xml, 'mc') || '',
-    ci: parseAttr(xml, 'ci') || parseAttr(dataOpen || xml, 'ci') || '',
-    sessionKey: parseTag(xml, 'Skey') || parseAttr(xml, 'sessionKey') || '',
-    hmac: parseTag(xml, 'Hmac') || parseAttr(xml, 'hmac') || '',
-    PidDatatype: parseAttr(dataOpen || xml, 'type') || 'X',
-    Piddata: pidData || xml,
+    captureResponse: {
+      PidDatatype: parseAttr(dataOpen, 'type') || 'X',
+      Piddata: pidData,
+      ci: parseAttr(skeyOpen, 'ci') || '',
+      dc: parseAttr(device, 'dc') || '',
+      dpID: parseAttr(device, 'dpId') || parseAttr(device, 'dpID') || '',
+      errCode: parseAttr(resp, 'errCode') || parseAttr(xml, 'errCode') || '0',
+      errInfo: parseAttr(resp, 'errInfo') || parseAttr(xml, 'errInfo') || 'Success',
+      fCount: parseAttr(resp, 'fCount') || '1',
+      fType: parseAttr(resp, 'fType') || captureFtype.aeps || '2',
+      hmac: unescapeXml(parseTag(xml, 'Hmac') || ''),
+      iCount: parseAttr(resp, 'iCount') || '0',
+      iType: parseAttr(resp, 'iType') || '0',
+      mc: parseAttr(device, 'mc') || '',
+      mi: parseAttr(device, 'mi') || '',
+      nmPoints: parseAttr(resp, 'nmPoints') || '',
+      pCount: parseAttr(resp, 'pCount') || '0',
+      pType: parseAttr(resp, 'pType') || '0',
+      qScore: parseAttr(resp, 'qScore') || '',
+      rdsID: parseAttr(device, 'rdsId') || parseAttr(device, 'rdsID') || '',
+      rdsVer: parseAttr(device, 'rdsVer') || '',
+      sessionKey: unescapeXml(parseTag(xml, 'Skey') || ''),
+    },
   };
 }
 

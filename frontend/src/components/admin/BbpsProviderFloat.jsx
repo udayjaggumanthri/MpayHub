@@ -175,8 +175,8 @@ const BbpsProviderFloat = () => {
     <div className="space-y-6 p-4 md:p-6">
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div>
-          <h1 className="text-2xl font-semibold text-slate-900">BBPS Provider Float</h1>
-          <p className="mt-1 text-sm text-slate-600">
+          <h1 className="text-2xl font-semibold text-slate-900 dark:text-slate-100">BBPS Provider Float</h1>
+          <p className="mt-1 text-sm text-slate-600 dark:text-slate-400">
             Track your company BillAvenue prepaid balance. Admin-only — retailers never see this figure.
           </p>
         </div>
@@ -195,8 +195,8 @@ const BbpsProviderFloat = () => {
             <div
               className={`rounded-lg border px-4 py-3 text-sm ${
                 isNegative
-                  ? 'border-red-300 bg-red-50 text-red-800'
-                  : 'border-amber-300 bg-amber-50 text-amber-900'
+                  ? 'border-red-300 dark:border-red-800 bg-red-50 dark:bg-red-950/40 text-red-800 dark:text-red-300'
+                  : 'border-amber-300 dark:border-amber-800 bg-amber-50 dark:bg-amber-950/40 text-amber-900 dark:text-amber-300'
               }`}
             >
               {isNegative
@@ -207,13 +207,13 @@ const BbpsProviderFloat = () => {
 
           <div className="grid gap-4 md:grid-cols-3">
             <Card className="p-5">
-              <div className="flex items-center gap-2 text-slate-500 text-sm">
+              <div className="flex items-center gap-2 text-slate-500 dark:text-slate-400 text-sm">
                 <FaWallet /> Tracked float balance
               </div>
-              <div className={`mt-2 text-3xl font-semibold ${isNegative ? 'text-red-600' : 'text-slate-900'}`}>
+              <div className={`mt-2 text-3xl font-semibold ${isNegative ? 'text-red-600 dark:text-red-400' : 'text-slate-900 dark:text-slate-100'}`}>
                 {formatCurrency(floatInfo?.balance)}
               </div>
-              <p className="mt-2 text-xs text-slate-500">
+              <p className="mt-2 text-xs text-slate-500 dark:text-slate-400">
                 Mode: {(floatInfo?.environment || '—').toUpperCase()}
                 {floatInfo?.last_manual_set_at
                   ? ` · Last set ${formatWhen(floatInfo.last_manual_set_at)}`
@@ -221,17 +221,17 @@ const BbpsProviderFloat = () => {
               </p>
             </Card>
             <Card className="p-5">
-              <div className="text-sm text-slate-500">Today&apos;s auto-debit (spend)</div>
-              <div className="mt-2 text-3xl font-semibold text-slate-900">
+              <div className="text-sm text-slate-500 dark:text-slate-400">Today&apos;s auto-debit (spend)</div>
+              <div className="mt-2 text-3xl font-semibold text-slate-900 dark:text-slate-100">
                 {formatCurrency(floatInfo?.today_auto_debit_total)}
               </div>
-              <p className="mt-2 text-xs text-slate-500">Sum of AUTO_DEBIT ledger entries for today</p>
+              <p className="mt-2 text-xs text-slate-500 dark:text-slate-400">Sum of AUTO_DEBIT ledger entries for today</p>
             </Card>
             <Card className="p-5 space-y-3">
               <div className="flex items-center justify-between gap-2">
                 <div>
-                  <div className="text-sm text-slate-500">Payment gate</div>
-                  <div className="mt-1 font-medium text-slate-900">
+                  <div className="text-sm text-slate-500 dark:text-slate-400">Payment gate</div>
+                  <div className="mt-1 font-medium text-slate-900 dark:text-slate-100">
                     {floatInfo?.enforcement_enabled ? 'Enforcement ON' : 'Enforcement OFF'}
                   </div>
                 </div>
@@ -261,8 +261,8 @@ const BbpsProviderFloat = () => {
           </div>
 
           <Card className="p-5 space-y-4">
-            <h2 className="text-lg font-semibold text-slate-900">Update balance</h2>
-            <p className="text-sm text-slate-600">
+            <h2 className="text-lg font-semibold text-slate-900 dark:text-slate-100">Update balance</h2>
+            <p className="text-sm text-slate-600 dark:text-slate-400">
               After recharging on the BillAvenue dashboard, override the tracked balance here (e.g. ₹2,00,000 →
               ₹7,00,000). This does not call BillAvenue — it only updates MpayHub tracking.
             </p>
@@ -290,12 +290,12 @@ const BbpsProviderFloat = () => {
 
           <Card className="p-5 space-y-4">
             <div className="flex flex-wrap items-end justify-between gap-3">
-              <h2 className="text-lg font-semibold text-slate-900">Ledger</h2>
+              <h2 className="text-lg font-semibold text-slate-900 dark:text-slate-100">Ledger</h2>
               <div className="flex flex-wrap items-end gap-2">
                 <div>
-                  <label className="mb-1 block text-xs font-medium text-slate-600">Type</label>
+                  <label className="mb-1 block text-xs font-medium text-slate-600 dark:text-slate-400">Type</label>
                   <select
-                    className="rounded-md border border-slate-300 px-3 py-2 text-sm"
+                    className="rounded-md border border-slate-300 dark:border-slate-600 px-3 py-2 text-sm"
                     value={filters.entry_type}
                     onChange={(e) => setFilters((s) => ({ ...s, entry_type: e.target.value }))}
                   >
@@ -326,7 +326,7 @@ const BbpsProviderFloat = () => {
 
             <div className="overflow-x-auto">
               <table className="min-w-full text-left text-sm">
-                <thead className="border-b border-slate-200 text-xs uppercase text-slate-500">
+                <thead className="border-b border-slate-200 dark:border-slate-700 text-xs uppercase text-slate-500 dark:text-slate-400">
                   <tr>
                     <th className="px-3 py-2">Date</th>
                     <th className="px-3 py-2">Type</th>
@@ -340,13 +340,13 @@ const BbpsProviderFloat = () => {
                 <tbody>
                   {ledger.length === 0 ? (
                     <tr>
-                      <td colSpan={7} className="px-3 py-8 text-center text-slate-500">
+                      <td colSpan={7} className="px-3 py-8 text-center text-slate-500 dark:text-slate-400">
                         No ledger entries yet.
                       </td>
                     </tr>
                   ) : (
                     ledger.map((row) => (
-                      <tr key={row.id} className="border-b border-slate-100">
+                      <tr key={row.id} className="border-b border-slate-100 dark:border-slate-800">
                         <td className="px-3 py-2 whitespace-nowrap">{formatWhen(row.created_at)}</td>
                         <td className="px-3 py-2">
                           <Badge variant={entryBadgeVariant(row.entry_type)}>{entryLabel(row.entry_type)}</Badge>
@@ -368,7 +368,7 @@ const BbpsProviderFloat = () => {
             </div>
 
             {pagination.total_pages > 1 && (
-              <div className="flex items-center justify-between text-sm text-slate-600">
+              <div className="flex items-center justify-between text-sm text-slate-600 dark:text-slate-400">
                 <span>
                   Page {pagination.page} of {pagination.total_pages} · {pagination.total} entries
                 </span>
@@ -398,14 +398,14 @@ const BbpsProviderFloat = () => {
 
       {confirmOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
-          <div className="w-full max-w-md rounded-xl bg-white p-6 shadow-xl">
-            <h3 className="text-lg font-semibold text-slate-900">Confirm float override</h3>
-            <p className="mt-3 text-sm text-slate-700">
+          <div className="w-full max-w-md rounded-xl bg-white dark:bg-slate-900 p-6 shadow-xl">
+            <h3 className="text-lg font-semibold text-slate-900 dark:text-slate-100">Confirm float override</h3>
+            <p className="mt-3 text-sm text-slate-700 dark:text-slate-300">
               Override{' '}
               <span className="font-semibold">{formatCurrency(floatInfo?.balance)}</span> →{' '}
               <span className="font-semibold">{formatCurrency(newBalance)}</span>?
             </p>
-            <p className="mt-2 text-xs text-slate-500">Remarks: {remarks}</p>
+            <p className="mt-2 text-xs text-slate-500 dark:text-slate-400">Remarks: {remarks}</p>
             <div className="mt-6 flex justify-end gap-2">
               <Button variant="secondary" disabled={saving} onClick={() => setConfirmOpen(false)}>
                 Cancel

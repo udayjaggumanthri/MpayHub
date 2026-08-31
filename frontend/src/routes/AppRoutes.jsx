@@ -15,6 +15,7 @@ import Dashboard from '../components/dashboard/Dashboard';
 
 // Fund Management
 import LoadMoney from '../components/fundManagement/LoadMoney';
+import QrPayInPage from '../components/fundManagement/QrPayInPage';
 import Payout from '../components/fundManagement/Payout';
 
 // BBPS
@@ -49,7 +50,11 @@ import SetPasswordOnboarding from '../components/onboarding/SetPasswordOnboardin
 // Admin
 import AnnouncementManagement from '../components/admin/AnnouncementManagement';
 import PaymentGatewaysAdmin from '../components/admin/PaymentGatewaysAdmin';
+import PayInQrAccountsAdmin from '../components/admin/PayInQrAccountsAdmin';
+import PayInQrOperations from '../components/admin/PayInQrOperations';
 import PayInPackagesAdmin from '../components/admin/PayInPackagesAdmin';
+import PayInPackageFormPage from '../components/admin/PayInPackageFormPage';
+import PayInPackageCalculationPreview from '../components/admin/PayInPackageCalculationPreview';
 import APIMasterManagement from '../components/admin/APIMasterManagement';
 import SmtpSettings from '../components/admin/SmtpSettings';
 import EmailNotifications from '../components/admin/EmailNotifications';
@@ -57,6 +62,7 @@ import SmsSettings from '../components/admin/SmsSettings';
 import BbpsBillerDetails from '../components/admin/BbpsBillerDetails';
 import BbpsConsole from '../components/admin/bbps/BbpsConsole';
 import MaintenanceMode from '../components/admin/MaintenanceMode';
+import AppearanceSettings from '../components/admin/AppearanceSettings';
 import UserManagementSettings from '../components/admin/UserManagementSettings';
 import WalletAdjustments from '../components/admin/WalletAdjustments';
 import WalletHistoryPage from '../components/wallets/WalletHistoryPage';
@@ -169,6 +175,17 @@ const AppRoutes = () => {
           <ProtectedRoute blockFinancialTransactions>
             <Layout>
               <LoadMoney />
+            </Layout>
+          </ProtectedRoute>
+        }
+      />
+
+      <Route
+        path="/fund-management/load-money/qr"
+        element={
+          <ProtectedRoute blockFinancialTransactions>
+            <Layout>
+              <QrPayInPage />
             </Layout>
           </ProtectedRoute>
         }
@@ -470,6 +487,20 @@ const AppRoutes = () => {
         }
       />
 
+      {/* Admin - Appearance & theme */}
+      <Route
+        path="/admin/appearance"
+        element={
+          <ProtectedRoute>
+            <AdminRoute>
+              <Layout>
+                <AppearanceSettings />
+              </Layout>
+            </AdminRoute>
+          </ProtectedRoute>
+        }
+      />
+
       {/* Admin - Wallet Adjustments */}
       <Route
         path="/admin/wallet-adjustments"
@@ -520,6 +551,73 @@ const AppRoutes = () => {
             <AdminRoute>
               <Layout>
                 <PayInPackagesAdmin />
+              </Layout>
+            </AdminRoute>
+          </ProtectedRoute>
+        }
+      />
+
+      <Route
+        path="/admin/pay-in-packages/new"
+        element={
+          <ProtectedRoute>
+            <AdminRoute>
+              <Layout>
+                <PayInPackageFormPage />
+              </Layout>
+            </AdminRoute>
+          </ProtectedRoute>
+        }
+      />
+
+      <Route
+        path="/admin/pay-in-packages/:id/edit"
+        element={
+          <ProtectedRoute>
+            <AdminRoute>
+              <Layout>
+                <PayInPackageFormPage />
+              </Layout>
+            </AdminRoute>
+          </ProtectedRoute>
+        }
+      />
+
+      <Route
+        path="/admin/pay-in-packages/:id/calculation-preview"
+        element={
+          <ProtectedRoute>
+            <AdminRoute>
+              <Layout>
+                <PayInPackageCalculationPreview />
+              </Layout>
+            </AdminRoute>
+          </ProtectedRoute>
+        }
+      />
+
+      {/* Admin - QR collection accounts */}
+      <Route
+        path="/admin/pay-in-qr-accounts"
+        element={
+          <ProtectedRoute>
+            <AdminRoute>
+              <Layout>
+                <PayInQrAccountsAdmin />
+              </Layout>
+            </AdminRoute>
+          </ProtectedRoute>
+        }
+      />
+
+      {/* Admin - QR pay-in operations */}
+      <Route
+        path="/admin/pay-in-qr-operations"
+        element={
+          <ProtectedRoute>
+            <AdminRoute>
+              <Layout>
+                <PayInQrOperations />
               </Layout>
             </AdminRoute>
           </ProtectedRoute>

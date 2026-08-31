@@ -168,8 +168,8 @@ const BbpsOpsConsole = () => {
   return (
     <div className="mx-auto max-w-6xl space-y-6 p-4 md:p-6">
       <div>
-        <h1 className="text-2xl font-semibold text-slate-900">BBPS Ops Console</h1>
-        <p className="mt-1 text-sm text-slate-600">
+        <h1 className="text-2xl font-semibold text-slate-900 dark:text-slate-100">BBPS Ops Console</h1>
+        <p className="mt-1 text-sm text-slate-600 dark:text-slate-400">
           Operator tools against the live BillAvenue config
           {envLabel ? ` (${String(envLabel).toUpperCase()})` : ''}. Deposit enquiry results are stored for
           reporting.
@@ -177,10 +177,10 @@ const BbpsOpsConsole = () => {
       </div>
 
       <Card className="space-y-3 p-5">
-        <h2 className="text-lg font-semibold text-slate-900">Plan Pull</h2>
-        <p className="text-sm text-slate-600">Pull plan MDM for specific biller IDs (comma-separated).</p>
+        <h2 className="text-lg font-semibold text-slate-900 dark:text-slate-100">Plan Pull</h2>
+        <p className="text-sm text-slate-600 dark:text-slate-400">Pull plan MDM for specific biller IDs (comma-separated).</p>
         <input
-          className="w-full rounded-md border border-slate-300 px-3 py-2 text-sm"
+          className="w-full rounded-md border border-slate-300 dark:border-slate-600 px-3 py-2 text-sm"
           placeholder="e.g. BSNL00000NAT01, ..."
           value={planIds}
           onChange={(e) => setPlanIds(e.target.value)}
@@ -189,7 +189,7 @@ const BbpsOpsConsole = () => {
           {planLoading ? 'Running…' : 'Run Plan Pull'}
         </Button>
         {planOutput && (
-          <pre className="max-h-48 overflow-auto rounded-md border border-slate-200 bg-slate-50 p-3 text-xs">
+          <pre className="max-h-48 overflow-auto rounded-md border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800/50 p-3 text-xs">
             {JSON.stringify(planOutput, null, 2)}
           </pre>
         )}
@@ -198,8 +198,8 @@ const BbpsOpsConsole = () => {
       <Card className="space-y-4 p-5">
         <div className="flex flex-wrap items-start justify-between gap-3">
           <div>
-            <h2 className="text-lg font-semibold text-slate-900">Deposit Enquiry</h2>
-            <p className="mt-1 text-sm text-slate-600">
+            <h2 className="text-lg font-semibold text-slate-900 dark:text-slate-100">Deposit Enquiry</h2>
+            <p className="mt-1 text-sm text-slate-600 dark:text-slate-400">
               Fetches BillAvenue prepaid deposit ledger for selected agent(s). Each run is saved so you can
               review balance and CR/DR rows later.
             </p>
@@ -223,9 +223,9 @@ const BbpsOpsConsole = () => {
           />
         </div>
           <div>
-            <label className="mb-1 block text-xs font-medium text-slate-600">Trans type</label>
+            <label className="mb-1 block text-xs font-medium text-slate-600 dark:text-slate-400">Trans type</label>
             <select
-              className="w-full rounded-md border border-slate-300 px-3 py-2 text-sm"
+              className="w-full rounded-md border border-slate-300 dark:border-slate-600 px-3 py-2 text-sm"
               value={depositForm.trans_type}
               onChange={(e) => setDepositForm((p) => ({ ...p, trans_type: e.target.value }))}
             >
@@ -237,9 +237,9 @@ const BbpsOpsConsole = () => {
         </div>
 
         <div className="space-y-2">
-          <div className="text-xs font-medium text-slate-600">Agents (required)</div>
+          <div className="text-xs font-medium text-slate-600 dark:text-slate-400">Agents (required)</div>
           {agentOptions.length === 0 ? (
-            <p className="text-sm text-amber-800 bg-amber-50 border border-amber-200 rounded-md px-3 py-2">
+            <p className="text-sm text-amber-800 dark:text-amber-300 bg-amber-50 dark:bg-amber-950/40 border border-amber-200 dark:border-amber-800 rounded-md px-3 py-2">
               No agent profiles on the active BillAvenue config. Add one under BillAvenue Settings, or paste an
               agent ID below.
             </p>
@@ -254,13 +254,13 @@ const BbpsOpsConsole = () => {
                     onClick={() => toggleAgent(opt.agent_id)}
                     className={`rounded-lg border px-3 py-2 text-left text-sm transition ${
                       checked
-                        ? 'border-blue-500 bg-blue-50 text-blue-900'
-                        : 'border-slate-200 bg-white text-slate-700 hover:border-slate-300'
+                        ? 'border-blue-500 bg-blue-50 dark:bg-blue-950/40 text-blue-900 dark:text-blue-300'
+                        : 'border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 text-slate-700 dark:text-slate-300 hover:border-slate-300 dark:hover:border-slate-600'
                     }`}
                   >
                     <div className="font-medium">{opt.name || 'Agent'}</div>
                     <div className="font-mono text-xs opacity-80">{opt.agent_id}</div>
-                    {!opt.enabled && <span className="text-xs text-amber-700">disabled</span>}
+                    {!opt.enabled && <span className="text-xs text-amber-700 dark:text-amber-300">disabled</span>}
                   </button>
                 );
               })}
@@ -268,7 +268,7 @@ const BbpsOpsConsole = () => {
           )}
           <div className="flex flex-wrap gap-2">
             <input
-              className="min-w-[220px] flex-1 rounded-md border border-slate-300 px-3 py-2 text-sm font-mono"
+              className="min-w-[220px] flex-1 rounded-md border border-slate-300 dark:border-slate-600 px-3 py-2 text-sm font-mono"
               placeholder="Paste extra agent ID"
               value={extraAgent}
               onChange={(e) => setExtraAgent(e.target.value)}
@@ -290,7 +290,7 @@ const BbpsOpsConsole = () => {
                   key={id}
                   type="button"
                   onClick={() => toggleAgent(id)}
-                  className="rounded-full border border-slate-200 bg-slate-50 px-2.5 py-0.5 font-mono text-xs text-slate-700 hover:bg-red-50"
+                  className="rounded-full border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800/50 px-2.5 py-0.5 font-mono text-xs text-slate-700 dark:text-slate-300 hover:bg-red-50 dark:hover:bg-red-950/60"
                   title="Remove"
                 >
                   {id} ×
@@ -317,8 +317,8 @@ const BbpsOpsConsole = () => {
         <Card className="space-y-4 p-5">
           <div className="flex flex-wrap items-start justify-between gap-3">
             <div>
-              <h2 className="text-lg font-semibold text-slate-900">Enquiry result</h2>
-              <p className="mt-1 text-sm text-slate-600">
+              <h2 className="text-lg font-semibold text-slate-900 dark:text-slate-100">Enquiry result</h2>
+              <p className="mt-1 text-sm text-slate-600 dark:text-slate-400">
                 Snapshot #{activeResult.id} · {activeResult.from_date} → {activeResult.to_date} · request{' '}
                 <span className="font-mono text-xs">{activeResult.request_id || '—'}</span>
               </p>
@@ -329,39 +329,39 @@ const BbpsOpsConsole = () => {
           </div>
 
           {activeResult.error_message ? (
-            <div className="rounded-md border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-800">
+            <div className="rounded-md border border-red-200 dark:border-red-800 bg-red-50 dark:bg-red-950/40 px-3 py-2 text-sm text-red-800 dark:text-red-300">
               {activeResult.error_message}
             </div>
           ) : null}
 
           <div className="grid gap-3 sm:grid-cols-3">
-            <div className="rounded-lg border border-slate-200 bg-slate-50 p-4">
-              <div className="flex items-center gap-2 text-xs text-slate-500">
+            <div className="rounded-lg border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800/50 p-4">
+              <div className="flex items-center gap-2 text-xs text-slate-500 dark:text-slate-400">
                 <FaWallet /> Current balance (BillAvenue)
               </div>
-              <div className="mt-1 text-2xl font-semibold text-slate-900">
+              <div className="mt-1 text-2xl font-semibold text-slate-900 dark:text-slate-100">
                 {formatCurrency(activeResult.current_balance)}
               </div>
-              <div className="text-xs text-slate-500">{activeResult.currency || 'INR'}</div>
+              <div className="text-xs text-slate-500 dark:text-slate-400">{activeResult.currency || 'INR'}</div>
             </div>
-            <div className="rounded-lg border border-slate-200 bg-slate-50 p-4">
-              <div className="text-xs text-slate-500">Transactions</div>
-              <div className="mt-1 text-2xl font-semibold text-slate-900">
+            <div className="rounded-lg border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800/50 p-4">
+              <div className="text-xs text-slate-500 dark:text-slate-400">Transactions</div>
+              <div className="mt-1 text-2xl font-semibold text-slate-900 dark:text-slate-100">
                 {activeResult.transaction_count ?? txns.length}
               </div>
-              <div className="text-xs text-slate-500">In this date range</div>
+              <div className="text-xs text-slate-500 dark:text-slate-400">In this date range</div>
             </div>
-            <div className="rounded-lg border border-slate-200 bg-slate-50 p-4">
-              <div className="text-xs text-slate-500">Agents queried</div>
+            <div className="rounded-lg border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800/50 p-4">
+              <div className="text-xs text-slate-500 dark:text-slate-400">Agents queried</div>
               <div className="mt-2 space-y-1">
                 {(activeResult.agents || []).length ? (
                   (activeResult.agents || []).map((a) => (
-                    <div key={a} className="font-mono text-xs text-slate-800">
+                    <div key={a} className="font-mono text-xs text-slate-800 dark:text-slate-200">
                       {a}
                     </div>
                   ))
                 ) : (
-                  <span className="text-sm text-slate-500">—</span>
+                  <span className="text-sm text-slate-500 dark:text-slate-400">—</span>
                 )}
               </div>
             </div>
@@ -369,7 +369,7 @@ const BbpsOpsConsole = () => {
 
           <div className="overflow-x-auto">
             <table className="min-w-full text-left text-sm">
-              <thead className="border-b border-slate-200 text-xs uppercase text-slate-500">
+              <thead className="border-b border-slate-200 dark:border-slate-700 text-xs uppercase text-slate-500 dark:text-slate-400">
                 <tr>
                   <th className="px-3 py-2">Date/time</th>
                   <th className="px-3 py-2">Agent</th>
@@ -383,13 +383,13 @@ const BbpsOpsConsole = () => {
               <tbody>
                 {txns.length === 0 ? (
                   <tr>
-                    <td colSpan={7} className="px-3 py-8 text-center text-slate-500">
+                    <td colSpan={7} className="px-3 py-8 text-center text-slate-500 dark:text-slate-400">
                       No deposit transactions in this range.
                     </td>
                   </tr>
                 ) : (
                   txns.map((row, idx) => (
-                    <tr key={`${row.transaction_id}-${idx}`} className="border-b border-slate-100">
+                    <tr key={`${row.transaction_id}-${idx}`} className="border-b border-slate-100 dark:border-slate-800">
                       <td className="px-3 py-2 whitespace-nowrap">{row.datetime || '—'}</td>
                       <td className="px-3 py-2 font-mono text-xs">{row.agent_id || '—'}</td>
                       <td className="px-3 py-2">
@@ -411,8 +411,8 @@ const BbpsOpsConsole = () => {
       )}
 
       <Card className="space-y-4 p-5">
-        <h2 className="text-lg font-semibold text-slate-900">Enquiry history</h2>
-        <p className="text-sm text-slate-600">Saved BillAvenue deposit enquiry runs — click a row to reopen the report.</p>
+        <h2 className="text-lg font-semibold text-slate-900 dark:text-slate-100">Enquiry history</h2>
+        <p className="text-sm text-slate-600 dark:text-slate-400">Saved BillAvenue deposit enquiry runs — click a row to reopen the report.</p>
         {historyLoading && history.length === 0 ? (
           <div className="flex justify-center py-8">
             <LoadingSpinner />
@@ -420,7 +420,7 @@ const BbpsOpsConsole = () => {
         ) : (
           <div className="overflow-x-auto">
             <table className="min-w-full text-left text-sm">
-              <thead className="border-b border-slate-200 text-xs uppercase text-slate-500">
+              <thead className="border-b border-slate-200 dark:border-slate-700 text-xs uppercase text-slate-500 dark:text-slate-400">
                 <tr>
                   <th className="px-3 py-2">When</th>
                   <th className="px-3 py-2">Range</th>
@@ -433,7 +433,7 @@ const BbpsOpsConsole = () => {
               <tbody>
                 {history.length === 0 ? (
                   <tr>
-                    <td colSpan={6} className="px-3 py-8 text-center text-slate-500">
+                    <td colSpan={6} className="px-3 py-8 text-center text-slate-500 dark:text-slate-400">
                       No enquiries yet. Run one above.
                     </td>
                   </tr>
@@ -441,7 +441,7 @@ const BbpsOpsConsole = () => {
                   history.map((row) => (
                     <tr
                       key={row.id}
-                      className="cursor-pointer border-b border-slate-100 hover:bg-slate-50"
+                      className="cursor-pointer border-b border-slate-100 dark:border-slate-800 hover:bg-slate-50 dark:hover:bg-slate-800"
                       onClick={() => openHistoryRow(row.id)}
                     >
                       <td className="px-3 py-2 whitespace-nowrap">{formatWhen(row.created_at)}</td>
@@ -467,7 +467,7 @@ const BbpsOpsConsole = () => {
           </div>
         )}
         {pagination.total_pages > 1 && (
-          <div className="flex items-center justify-between text-sm text-slate-600">
+          <div className="flex items-center justify-between text-sm text-slate-600 dark:text-slate-400">
             <span>
               Page {pagination.page} of {pagination.total_pages}
             </span>

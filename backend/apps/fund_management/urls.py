@@ -4,6 +4,7 @@ URL configuration for fund management app.
 from django.urls import path
 
 from apps.fund_management import views
+from apps.fund_management import views_qr
 
 app_name = 'fund_management'
 
@@ -20,6 +21,12 @@ urlpatterns = [
     path('pay-in/create-order/', views.pay_in_create_order_view, name='pay-in-create-order'),
     path('pay-in/verify-razorpay/', views.pay_in_verify_razorpay_view, name='pay-in-verify-razorpay'),
     path('pay-in/complete-mock/', views.pay_in_complete_mock_view, name='pay-in-complete-mock'),
+    path('pay-in/qr/submit/', views_qr.pay_in_qr_submit_view, name='pay-in-qr-submit'),
+    path(
+        'pay-in/qr/receipt/<str:transaction_id>/',
+        views_qr.pay_in_qr_receipt_view,
+        name='pay-in-qr-receipt',
+    ),
 
     # Package assignment endpoints
     path('packages/user/<int:user_id>/', views.user_packages_view, name='user-packages'),

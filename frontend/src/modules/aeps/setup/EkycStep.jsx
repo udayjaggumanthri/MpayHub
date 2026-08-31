@@ -187,7 +187,7 @@ export default function EkycStep({ aepsStatus: status, refreshStatus, loadingSta
 
   if (loadingStatus || status == null) {
     return (
-      <div className="rounded-2xl border border-slate-200 bg-white p-10 text-center text-sm text-slate-500 shadow-sm">
+      <div className="rounded-2xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 p-10 text-center text-sm text-slate-500 dark:text-slate-400 shadow-sm">
         Checking AEPS access…
       </div>
     );
@@ -195,16 +195,16 @@ export default function EkycStep({ aepsStatus: status, refreshStatus, loadingSta
 
   if (!status.entitled) {
     return (
-      <div className="rounded-2xl border border-slate-200 bg-white p-8 text-center shadow-sm">
-        <h2 className="text-xl font-bold text-slate-900">Access required</h2>
-        <p className="mt-2 text-slate-600">Ask Admin to enable AEPS for your account.</p>
+      <div className="rounded-2xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 p-8 text-center shadow-sm">
+        <h2 className="text-xl font-bold text-slate-900 dark:text-slate-100">Access required</h2>
+        <p className="mt-2 text-slate-600 dark:text-slate-400">Ask Admin to enable AEPS for your account.</p>
       </div>
     );
   }
 
   if (loading) {
     return (
-      <div className="rounded-2xl border border-slate-200 bg-white p-10 text-center text-sm text-slate-500 shadow-sm">
+      <div className="rounded-2xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 p-10 text-center text-sm text-slate-500 dark:text-slate-400 shadow-sm">
         Loading eKYC…
       </div>
     );
@@ -223,12 +223,12 @@ export default function EkycStep({ aepsStatus: status, refreshStatus, loadingSta
           steps={SETUP_STEPS}
         />
         <Section title="You're ready">
-          <p className="text-sm text-emerald-700">eKYC and merchant activation are complete.</p>
+          <p className="text-sm text-emerald-700 dark:text-emerald-300">eKYC and merchant activation are complete.</p>
           <div className="mt-4 flex flex-wrap gap-2">
             <Link to="/aeps/2fa" className="rounded-xl bg-blue-600 px-4 py-2.5 text-sm font-semibold text-white hover:bg-blue-700">
               Daily 2FA
             </Link>
-            <Link to="/aeps/withdraw" className="rounded-xl border border-slate-200 px-4 py-2.5 text-sm font-semibold text-slate-800 hover:bg-slate-50">
+            <Link to="/aeps/withdraw" className="rounded-xl border border-slate-200 dark:border-slate-700 px-4 py-2.5 text-sm font-semibold text-slate-800 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-800">
               Start trading
             </Link>
           </div>
@@ -255,7 +255,7 @@ export default function EkycStep({ aepsStatus: status, refreshStatus, loadingSta
 
       {!status?.merchant?.device_ready || !deviceImei ? (
         <InlineAlert type="info" text="Save your phone/tablet IMEI (15 digits) under Device — this is sent as the Fingpay deviceIMEI header (not the Mantra scanner serial).">
-          <Link to="/aeps/device" className="mt-2 inline-block text-sm font-semibold text-blue-700 underline">
+          <Link to="/aeps/device" className="mt-2 inline-block text-sm font-semibold text-blue-700 dark:text-blue-300 underline">
             Go to Device setup →
           </Link>
         </InlineAlert>

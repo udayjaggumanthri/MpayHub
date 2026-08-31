@@ -148,7 +148,7 @@ const OnboardingDigilockerCallback = () => {
         {kycDetails ? (
           <div className="space-y-4">
             <KycDetailsCard details={kycDetails} title="Aadhaar verified — details from DigiLocker" />
-            <p className="text-sm text-gray-600 text-center">
+            <p className="text-sm text-gray-600 dark:text-slate-400 text-center">
               Documents verified. Waiting for Admin approval before account activation…
             </p>
           </div>
@@ -157,14 +157,14 @@ const OnboardingDigilockerCallback = () => {
         {loading && !error && !kycDetails ? (
           <div className="text-center space-y-4 py-6">
             <div className="animate-spin rounded-full h-10 w-10 border-b-2 border-blue-600 mx-auto" />
-            <p className="text-sm text-gray-600">Status: {status}</p>
-            <p className="text-xs text-gray-500">Do not close this window.</p>
+            <p className="text-sm text-gray-600 dark:text-slate-400">Status: {status}</p>
+            <p className="text-xs text-gray-500 dark:text-slate-400">Do not close this window.</p>
           </div>
         ) : null}
 
         {error ? (
           <div className="space-y-4">
-            <p className="text-sm text-red-600">{error}</p>
+            <p className="text-sm text-red-600 dark:text-red-400">{error}</p>
             <Button
               type="button"
               variant="primary"

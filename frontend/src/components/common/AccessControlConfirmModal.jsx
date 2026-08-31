@@ -4,9 +4,9 @@ import Button from './Button';
 import { ADMIN_ACCESS_ACTIONS } from '../../utils/accessControl';
 
 const toneStyles = {
-  danger: { icon: FaUserSlash, box: 'bg-red-50 text-red-700', button: 'danger' },
-  warning: { icon: FaTriangleExclamation, box: 'bg-amber-50 text-amber-800', button: 'danger' },
-  success: { icon: FaCircleCheck, box: 'bg-emerald-50 text-emerald-700', button: 'success' },
+  danger: { icon: FaUserSlash, box: 'bg-red-50 dark:bg-red-950/40 text-red-700 dark:text-red-300', button: 'danger' },
+  warning: { icon: FaTriangleExclamation, box: 'bg-amber-50 dark:bg-amber-950/40 text-amber-800 dark:text-amber-300', button: 'danger' },
+  success: { icon: FaCircleCheck, box: 'bg-emerald-50 dark:bg-emerald-950/40 text-emerald-700 dark:text-emerald-300', button: 'success' },
 };
 
 /**
@@ -39,7 +39,7 @@ const AccessControlConfirmModal = ({
       onClick={() => !loading && onCancel()}
     >
       <div
-        className="w-full max-w-md rounded-2xl bg-white p-6 shadow-2xl"
+        className="w-full max-w-md rounded-2xl bg-white dark:bg-slate-800 p-6 shadow-2xl"
         onClick={(e) => e.stopPropagation()}
       >
         <div className="flex items-start gap-4">
@@ -47,17 +47,17 @@ const AccessControlConfirmModal = ({
             <Icon size={22} aria-hidden />
           </div>
           <div className="min-w-0 flex-1">
-            <h3 id="access-confirm-title" className="text-lg font-bold text-slate-900">
+            <h3 id="access-confirm-title" className="text-lg font-bold text-slate-900 dark:text-slate-100">
               {config.title}
             </h3>
-            <p className="mt-1 text-sm font-medium text-slate-800">{userName}</p>
+            <p className="mt-1 text-sm font-medium text-slate-800 dark:text-slate-200">{userName}</p>
           </div>
         </div>
 
-        <ul className="mt-4 space-y-2 rounded-xl border border-slate-100 bg-slate-50/80 px-4 py-3 text-sm text-slate-600">
+        <ul className="mt-4 space-y-2 rounded-xl border border-slate-100 dark:border-slate-800 bg-slate-50/80 dark:bg-slate-800/50 px-4 py-3 text-sm text-slate-600 dark:text-slate-400">
           {config.bullets.map((line) => (
             <li key={line} className="flex gap-2">
-              <span className="text-slate-400" aria-hidden>
+              <span className="text-slate-400 dark:text-slate-500" aria-hidden>
                 •
               </span>
               <span>{line}</span>
@@ -66,17 +66,17 @@ const AccessControlConfirmModal = ({
         </ul>
 
         {config.showPayInOption && onAllowPayInChange ? (
-          <label className="mt-4 flex items-start gap-3 rounded-xl border border-amber-200 bg-amber-50/60 px-4 py-3 text-sm text-slate-800 cursor-pointer">
+          <label className="mt-4 flex items-start gap-3 rounded-xl border border-amber-200 dark:border-amber-800 bg-amber-50/60 dark:bg-amber-950/40 px-4 py-3 text-sm text-slate-800 dark:text-slate-200 cursor-pointer">
             <input
               type="checkbox"
-              className="mt-0.5 h-4 w-4 rounded border-slate-300 text-indigo-600 focus:ring-indigo-500"
+              className="mt-0.5 h-4 w-4 rounded border-slate-300 dark:border-slate-600 text-indigo-600 dark:text-indigo-400 focus:ring-indigo-500"
               checked={allowPayInWhenDisabled}
               onChange={(e) => onAllowPayInChange(e.target.checked)}
               disabled={loading}
             />
             <span>
               <span className="font-medium">Allow pay-in only</span>
-              <span className="mt-0.5 block text-xs text-slate-600">
+              <span className="mt-0.5 block text-xs text-slate-600 dark:text-slate-400">
                 User may sign in and load money; payout, BBPS, and other services stay off.
               </span>
             </span>

@@ -49,7 +49,9 @@ export const AepsAdminProvider = () => {
     debug_mode: false,
     onboarding_api_style: 'java',
     password_mode: 'plain',
-    egress_ip: '139.99.47.143',
+    egress_ip: '',
+    capture_ftype_aeps: '2',
+    capture_ftype_ekyc: '2',
     endpoints_json: {},
     full_endpoints: {},
     super_merchant_id: '',
@@ -87,7 +89,10 @@ export const AepsAdminProvider = () => {
       debug_mode: !!data.debug_mode,
       password_mode: data.password_mode === 'md5' ? 'md5' : 'plain',
       onboarding_api_style: data.onboarding_api_style || 'java',
-      egress_ip: data.egress_ip || data.server_egress_ip || '139.99.47.143',
+      // Blank means "auto-detect"; only a real NAT override belongs in this box.
+      egress_ip: data.egress_ip_override ?? '',
+      capture_ftype_aeps: data.capture_ftype_aeps || '2',
+      capture_ftype_ekyc: data.capture_ftype_ekyc || '2',
       endpoints_json: endpoints,
       full_endpoints: fullEndpoints,
       super_merchant_id: data.super_merchant_id || '',
@@ -249,7 +254,7 @@ export const AepsAdminProvider = () => {
   );
   const isSimple = env === 'simple';
   const tabColor = (e, selected) => {
-    if (!selected) return 'bg-white text-slate-700 ring-slate-200';
+    if (!selected) return 'bg-white dark:bg-slate-900 text-slate-700 dark:text-slate-300 ring-slate-200 dark:ring-slate-700';
     if (e === 'prod') return 'bg-emerald-600 text-white ring-emerald-600';
     if (e === 'simple') return 'bg-sky-600 text-white ring-sky-600';
     return 'bg-amber-500 text-white ring-amber-500';
@@ -257,15 +262,15 @@ export const AepsAdminProvider = () => {
 
   return (
     <div className="mx-auto max-w-3xl space-y-4 p-4">
-      <h1 className="text-2xl font-bold text-slate-900">AEPS provider (Fingpay)</h1>
-      <p className="text-sm text-slate-500">
+      <h1 className="text-2xl font-bold text-slate-900 dark:text-slate-100">AEPS provider (Fingpay)</h1>
+      <p className="text-sm text-slate-500 dark:text-slate-400">
         Three profiles — <strong>UAT</strong>, <strong>Production</strong>, and <strong>Simple API</strong> — each with
         its own credentials. Activate exactly one for all users. Turn on <strong>Debug mode</strong> to store every
         request/response for Tapits sharing.
       </p>
 
-      <div className="flex flex-wrap items-center gap-2 rounded-xl border border-slate-200 bg-white p-3 shadow-sm">
-        <span className="text-xs font-semibold uppercase text-slate-500">Profile</span>
+      <div className="flex flex-wrap items-center gap-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 p-3 shadow-sm">
+        <span className="text-xs font-semibold uppercase text-slate-500 dark:text-slate-400">Profile</span>
         {ENV_TABS.map((tab) => {
           const info = envs.find((x) => x.environment === tab.id);
           const selected = env === tab.id;
@@ -282,7 +287,7 @@ export const AepsAdminProvider = () => {
             </button>
           );
         })}
-        <span className="ml-auto text-xs text-slate-500">
+        <span className="ml-auto text-xs text-slate-500 dark:text-slate-400">
           Live: <strong className="uppercase">{activeLabel}</strong>
           {activeOnboarding ? (
             <>
@@ -293,24 +298,24 @@ export const AepsAdminProvider = () => {
         </span>
       </div>
 
-      <div className="rounded-xl border border-indigo-200 bg-indigo-50 px-4 py-3 text-sm text-indigo-950 shadow-sm">
+      <div className="rounded-xl border border-indigo-200 dark:border-indigo-800 bg-indigo-50 dark:bg-indigo-950/40 px-4 py-3 text-sm text-indigo-950 dark:text-indigo-200 shadow-sm">
         <p className="font-semibold">Activate one profile for all users</p>
-        <p className="mt-1 text-xs text-indigo-900/80">
+        <p className="mt-1 text-xs text-indigo-900/80 dark:text-indigo-300/80">
           Encrypted UAT/Prod use Java or PHP paths. Simple API uses plain JSON + secret-key hashes (no RSA).
         </p>
         <div className="mt-3 grid gap-2 sm:grid-cols-2">
           {(onboardingEndpoints.length ? onboardingEndpoints : []).map((api) => (
             <div
               key={api.id}
-              className={`rounded-lg border bg-white p-3 ${
-                api.is_active ? 'border-indigo-500 ring-2 ring-indigo-200' : 'border-slate-200'
+              className={`rounded-lg border bg-white dark:bg-slate-900 p-3 ${
+                api.is_active ? 'border-indigo-500 ring-2 ring-indigo-200 dark:ring-indigo-800' : 'border-slate-200 dark:border-slate-700'
               }`}
             >
               <div className="flex items-start justify-between gap-2">
                 <div>
-                  <p className="text-sm font-semibold text-slate-900">{api.label}</p>
-                  <p className="mt-1 break-all font-mono text-[11px] text-slate-600">{api.endpoint}</p>
-                  <p className="mt-1 text-[11px] text-slate-500">
+                  <p className="text-sm font-semibold text-slate-900 dark:text-slate-100">{api.label}</p>
+                  <p className="mt-1 break-all font-mono text-[11px] text-slate-600 dark:text-slate-400">{api.endpoint}</p>
+                  <p className="mt-1 text-[11px] text-slate-500 dark:text-slate-400">
                     {api.api_mode === 'simple' ? 'Plain JSON' : `AES ${String(api.aes_mode || '').toUpperCase()}`}
                     {api.configured ? '' : ' · credentials not saved yet'}
                     {api.is_active ? ' · LIVE' : ''}
@@ -323,7 +328,7 @@ export const AepsAdminProvider = () => {
                   className={`shrink-0 rounded-lg px-2.5 py-1.5 text-xs font-semibold ${
                     api.is_active
                       ? 'bg-indigo-600 text-white'
-                      : 'border border-indigo-300 bg-indigo-50 text-indigo-900 hover:bg-indigo-100 disabled:opacity-50'
+                      : 'border border-indigo-300 dark:border-indigo-800 bg-indigo-50 dark:bg-indigo-950/40 text-indigo-900 dark:text-indigo-300 hover:bg-indigo-100 dark:hover:bg-indigo-900/60 disabled:opacity-50'
                   }`}
                 >
                   {api.is_active ? 'Active' : 'Activate'}
@@ -334,14 +339,19 @@ export const AepsAdminProvider = () => {
         </div>
       </div>
 
-      <div className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-950">
+      <div className="rounded-xl border border-amber-200 dark:border-amber-800 bg-amber-50 dark:bg-amber-950/40 px-4 py-3 text-sm text-amber-950 dark:text-amber-200">
         <p className="font-semibold">Server egress IP (whitelist with Tapits)</p>
-        <p className="mt-1 font-mono text-base font-bold">{form.egress_ip || meta?.server_egress_ip}</p>
-        <p className="mt-2 text-xs text-amber-900/90">{meta?.whitelist_note}</p>
+        <p className="mt-1 font-mono text-base font-bold">{meta?.server_egress_ip || '—'}</p>
+        <p className="mt-1 text-xs text-amber-900/90 dark:text-amber-300/90">
+          {form.egress_ip
+            ? `Manual override in use. Auto-detected address: ${meta?.egress_ip_detected || 'unavailable'}.`
+            : 'Auto-detected from this server. Re-check after any host or network move.'}
+        </p>
+        <p className="mt-2 text-xs text-amber-900/90 dark:text-amber-300/90">{meta?.whitelist_note}</p>
       </div>
 
       {isSimple ? (
-        <div className="rounded-xl border border-sky-200 bg-sky-50 px-4 py-3 text-sm text-sky-950">
+        <div className="rounded-xl border border-sky-200 dark:border-sky-800 bg-sky-50 dark:bg-sky-950/40 px-4 py-3 text-sm text-sky-950 dark:text-sky-200">
           <p className="font-semibold">Simple API hash formulas</p>
           <ul className="mt-2 list-disc space-y-1 pl-5 text-xs">
             <li>
@@ -355,11 +365,11 @@ export const AepsAdminProvider = () => {
         </div>
       ) : null}
 
-      <div className="rounded-xl border border-slate-200 bg-white px-4 py-3 shadow-sm">
+      <div className="rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 px-4 py-3 shadow-sm">
         <div className="flex flex-wrap items-center justify-between gap-3">
           <div>
-            <p className="text-sm font-semibold text-slate-900">Bank IIN cache</p>
-            <p className="text-xs text-slate-500">Uses the currently active environment URLs.</p>
+            <p className="text-sm font-semibold text-slate-900 dark:text-slate-100">Bank IIN cache</p>
+            <p className="text-xs text-slate-500 dark:text-slate-400">Uses the currently active environment URLs.</p>
           </div>
           <button
             type="button"
@@ -373,19 +383,19 @@ export const AepsAdminProvider = () => {
       </div>
 
       {meta ? (
-        <p className="text-xs text-slate-500">
+        <p className="text-xs text-slate-500 dark:text-slate-400">
           Secrets on file ({env}): password {meta.has_password ? 'yes' : 'no'}, secret{' '}
           {meta.has_secret_key ? 'yes' : 'no'}, public cert {meta.has_public_key ? 'yes' : 'no'} · debug{' '}
           {meta.debug_mode ? 'ON' : 'off'}
         </p>
       ) : null}
 
-      <form onSubmit={(e) => save(e)} className="space-y-3 rounded-2xl border bg-white p-6 shadow-sm">
+      <form onSubmit={(e) => save(e)} className="space-y-3 rounded-2xl border bg-white dark:bg-slate-900 p-6 shadow-sm">
         <div className="flex flex-wrap gap-2">
           <button
             type="button"
             onClick={applyPresetUrls}
-            className="rounded-lg border border-slate-300 bg-slate-50 px-3 py-2 text-sm font-medium text-slate-900"
+            className="rounded-lg border border-slate-300 dark:border-slate-600 bg-slate-50 dark:bg-slate-800/50 px-3 py-2 text-sm font-medium text-slate-900 dark:text-slate-100"
           >
             Apply {env.toUpperCase()} URLs
           </button>
@@ -393,13 +403,13 @@ export const AepsAdminProvider = () => {
             type="button"
             onClick={activateEnv}
             disabled={saving}
-            className="rounded-lg border border-blue-300 bg-blue-50 px-3 py-2 text-sm font-medium text-blue-900 disabled:opacity-50"
+            className="rounded-lg border border-blue-300 dark:border-blue-800 bg-blue-50 dark:bg-blue-950/40 px-3 py-2 text-sm font-medium text-blue-900 dark:text-blue-300 disabled:opacity-50"
           >
             Save & make {env.toUpperCase()} active
           </button>
         </div>
 
-        <label className="flex items-center gap-2 rounded-lg border border-rose-200 bg-rose-50 px-3 py-2 text-sm text-rose-950">
+        <label className="flex items-center gap-2 rounded-lg border border-rose-200 dark:border-rose-800 bg-rose-50 dark:bg-rose-950/40 px-3 py-2 text-sm text-rose-950 dark:text-rose-200">
           <input
             type="checkbox"
             checked={!!form.debug_mode}
@@ -423,7 +433,7 @@ export const AepsAdminProvider = () => {
                 className={`rounded-lg px-3 py-1.5 text-xs font-semibold ring-1 ${
                   form.onboarding_api_style === opt.id
                     ? 'bg-slate-900 text-white ring-slate-900'
-                    : 'bg-white text-slate-700 ring-slate-300'
+                    : 'bg-white dark:bg-slate-900 text-slate-700 dark:text-slate-300 ring-slate-300 dark:ring-slate-600'
                 }`}
               >
                 {opt.label}
@@ -432,9 +442,9 @@ export const AepsAdminProvider = () => {
           </div>
         ) : null}
 
-        <div className="rounded-xl border border-slate-200 bg-slate-50 p-3 space-y-3">
-          <p className="text-sm font-semibold text-slate-900">Super merchant credentials</p>
-          <label className="block text-xs font-semibold uppercase text-slate-500">
+        <div className="rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800/50 p-3 space-y-3">
+          <p className="text-sm font-semibold text-slate-900 dark:text-slate-100">Super merchant credentials</p>
+          <label className="block text-xs font-semibold uppercase text-slate-500 dark:text-slate-400">
             Super merchant ID
             <input
               className="mt-1 w-full rounded-lg border px-3 py-2 text-sm"
@@ -442,7 +452,7 @@ export const AepsAdminProvider = () => {
               onChange={(e) => setForm({ ...form, super_merchant_id: e.target.value })}
             />
           </label>
-          <label className="block text-xs font-semibold uppercase text-slate-500">
+          <label className="block text-xs font-semibold uppercase text-slate-500 dark:text-slate-400">
             Super merchant username (login ID)
             <input
               className="mt-1 w-full rounded-lg border px-3 py-2 text-sm"
@@ -452,7 +462,7 @@ export const AepsAdminProvider = () => {
             />
           </label>
           <div>
-            <p className="text-xs font-semibold uppercase text-slate-500">Password storage mode</p>
+            <p className="text-xs font-semibold uppercase text-slate-500 dark:text-slate-400">Password storage mode</p>
             <div className="mt-2 flex flex-wrap gap-2">
               {[
                 { id: 'plain', label: 'Plain text → auto MD5' },
@@ -465,20 +475,20 @@ export const AepsAdminProvider = () => {
                   className={`rounded-lg px-3 py-1.5 text-xs font-semibold ring-1 ${
                     form.password_mode === opt.id
                       ? 'bg-slate-900 text-white ring-slate-900'
-                      : 'bg-white text-slate-700 ring-slate-300'
+                      : 'bg-white dark:bg-slate-900 text-slate-700 dark:text-slate-300 ring-slate-300 dark:ring-slate-600'
                   }`}
                 >
                   {opt.label}
                 </button>
               ))}
             </div>
-            <p className="mt-1 text-[11px] text-slate-500">
+            <p className="mt-1 text-[11px] text-slate-500 dark:text-slate-400">
               {form.password_mode === 'md5'
                 ? 'Paste the 32-char MD5 hex from Tapits — used as-is in API body / Simple onboard hash.'
                 : 'Paste the plain API password — app MD5-hashes it before calling Fingpay (per docs).'}
             </p>
           </div>
-          <label className="block text-xs font-semibold uppercase text-slate-500">
+          <label className="block text-xs font-semibold uppercase text-slate-500 dark:text-slate-400">
             Super merchant password
             <input
               className="mt-1 w-full rounded-lg border px-3 py-2 text-sm font-mono"
@@ -489,7 +499,7 @@ export const AepsAdminProvider = () => {
               placeholder={meta?.has_password ? '•••• leave blank to keep saved value' : ''}
             />
           </label>
-          <label className="block text-xs font-semibold uppercase text-slate-500">
+          <label className="block text-xs font-semibold uppercase text-slate-500 dark:text-slate-400">
             Secret key {isSimple ? '(required for txn / eKYC / 2FA hash)' : '(recon + Simple hashes)'}
             <input
               className="mt-1 w-full rounded-lg border px-3 py-2 text-sm"
@@ -500,25 +510,57 @@ export const AepsAdminProvider = () => {
               placeholder={meta?.has_secret_key ? '•••• leave blank to keep' : ''}
             />
           </label>
-          <label className="block text-xs font-semibold uppercase text-slate-500">
-            Egress IP (ipAddress + whitelist diagnosis)
+          <label className="block text-xs font-semibold uppercase text-slate-500 dark:text-slate-400">
+            Egress IP override (leave blank to auto-detect)
             <input
               className="mt-1 w-full rounded-lg border px-3 py-2 text-sm font-mono"
               value={form.egress_ip || ''}
+              placeholder={meta?.egress_ip_detected || 'auto-detected'}
               onChange={(e) => setForm({ ...form, egress_ip: e.target.value })}
             />
+            <span className="mt-1 block text-[11px] font-normal normal-case text-slate-500 dark:text-slate-400">
+              Only needed behind NAT, where this server cannot see its own public address.
+            </span>
+          </label>
+          <label className="block text-xs font-semibold uppercase text-slate-500 dark:text-slate-400">
+            Capture fType — AEPS &amp; 2FA
+            <select
+              className="mt-1 w-full rounded-lg border px-3 py-2 text-sm"
+              value={form.capture_ftype_aeps || '2'}
+              onChange={(e) => setForm({ ...form, capture_ftype_aeps: e.target.value })}
+            >
+              <option value="0">0 — FMR</option>
+              <option value="1">1 — FIR</option>
+              <option value="2">2 — Full image</option>
+            </select>
+            <span className="mt-1 block text-[11px] font-normal normal-case text-slate-500 dark:text-slate-400">
+              Finger format asked of the reader. If UIDAI replies “Missing biometric data as
+              specified in Uses”, this device cannot produce the selected format — try another.
+            </span>
+          </label>
+          <label className="block text-xs font-semibold uppercase text-slate-500 dark:text-slate-400">
+            Capture fType — eKYC
+            <select
+              className="mt-1 w-full rounded-lg border px-3 py-2 text-sm"
+              value={form.capture_ftype_ekyc || '2'}
+              onChange={(e) => setForm({ ...form, capture_ftype_ekyc: e.target.value })}
+            >
+              <option value="0">0 — FMR</option>
+              <option value="1">1 — FIR</option>
+              <option value="2">2 — Full image</option>
+            </select>
           </label>
         </div>
 
-        <div className="rounded-lg border border-slate-200 p-3">
+        <div className="rounded-lg border border-slate-200 dark:border-slate-700 p-3">
           <button
             type="button"
-            className="text-sm font-semibold text-slate-800"
+            className="text-sm font-semibold text-slate-800 dark:text-slate-200"
             onClick={() => setShowEndpoints((v) => !v)}
           >
             {showEndpoints ? 'Hide' : 'Show'} full module endpoints
           </button>
-          <p className="mt-1 text-[11px] text-slate-500">
+          <p className="mt-1 text-[11px] text-slate-500 dark:text-slate-400">
             Edit full URLs for each Fingpay module (or keep relative paths). Changes apply without a code deploy.
           </p>
           {showEndpoints ? (
@@ -533,7 +575,7 @@ export const AepsAdminProvider = () => {
                   return !['onboarding_create_java', 'onboarding_create_php'].includes(f.key);
                 })
                 .map((f) => (
-                  <label key={f.key} className="block text-[11px] font-semibold uppercase text-slate-500">
+                  <label key={f.key} className="block text-[11px] font-semibold uppercase text-slate-500 dark:text-slate-400">
                     {f.label || f.key}
                     <input
                       className="mt-1 w-full rounded-lg border px-2 py-1.5 font-mono text-xs normal-case"
@@ -551,7 +593,7 @@ export const AepsAdminProvider = () => {
                 type="button"
                 onClick={resetEndpoints}
                 disabled={saving}
-                className="rounded-lg border border-slate-300 bg-slate-50 px-3 py-1.5 text-xs font-semibold"
+                className="rounded-lg border border-slate-300 dark:border-slate-600 bg-slate-50 dark:bg-slate-800/50 px-3 py-1.5 text-xs font-semibold"
               >
                 Reset paths to doc defaults
               </button>
@@ -559,10 +601,10 @@ export const AepsAdminProvider = () => {
           ) : null}
         </div>
 
-        <div className="rounded-lg border border-slate-200 p-3">
+        <div className="rounded-lg border border-slate-200 dark:border-slate-700 p-3">
           <button
             type="button"
-            className="text-sm font-semibold text-slate-800"
+            className="text-sm font-semibold text-slate-800 dark:text-slate-200"
             onClick={() => setShowAdvanced((v) => !v)}
           >
             {showAdvanced ? 'Hide' : 'Show'} advanced (base URLs
@@ -571,7 +613,7 @@ export const AepsAdminProvider = () => {
           {showAdvanced ? (
             <div className="mt-3 space-y-3">
               {['onboarding_base_url', 'ekyc_base_url', 'aeps_base_url', 'recon_base_url'].map((k) => (
-                <label key={k} className="block text-xs font-semibold uppercase text-slate-500">
+                <label key={k} className="block text-xs font-semibold uppercase text-slate-500 dark:text-slate-400">
                   {k}
                   <input
                     className="mt-1 w-full rounded-lg border px-3 py-2 text-sm"
@@ -583,7 +625,7 @@ export const AepsAdminProvider = () => {
               {!isSimple ? (
                 <>
                   {['gstin_number', 'company_or_shop_pan'].map((k) => (
-                    <label key={k} className="block text-xs font-semibold uppercase text-slate-500">
+                    <label key={k} className="block text-xs font-semibold uppercase text-slate-500 dark:text-slate-400">
                       {k === 'gstin_number' ? 'Super merchant GSTIN' : 'Company / shop PAN'}
                       <input
                         className="mt-1 w-full rounded-lg border px-3 py-2 text-sm"
@@ -592,7 +634,7 @@ export const AepsAdminProvider = () => {
                       />
                     </label>
                   ))}
-                  <label className="block text-xs font-semibold uppercase text-slate-500">
+                  <label className="block text-xs font-semibold uppercase text-slate-500 dark:text-slate-400">
                     Fingpay public certificate (PEM — BEGIN CERTIFICATE)
                     <textarea
                       className="mt-1 w-full rounded-lg border px-3 py-2 font-mono text-xs"
@@ -610,7 +652,7 @@ export const AepsAdminProvider = () => {
                     <button
                       type="button"
                       onClick={loadBundledCert}
-                      className="rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm font-medium text-slate-700"
+                      className="rounded-lg border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-900 px-3 py-2 text-sm font-medium text-slate-700 dark:text-slate-300"
                     >
                       Load bundled certificate into form
                     </button>
@@ -618,7 +660,7 @@ export const AepsAdminProvider = () => {
                       type="button"
                       onClick={saveBundledCert}
                       disabled={saving || !meta?.has_bundled_certificate}
-                      className="rounded-lg border border-emerald-300 bg-emerald-50 px-3 py-2 text-sm font-medium text-emerald-900 disabled:opacity-50"
+                      className="rounded-lg border border-emerald-300 dark:border-emerald-800 bg-emerald-50 dark:bg-emerald-950/40 px-3 py-2 text-sm font-medium text-emerald-900 dark:text-emerald-300 disabled:opacity-50"
                     >
                       Save bundled certificate now
                     </button>
@@ -648,7 +690,7 @@ export const AepsAdminProvider = () => {
           type="button"
           onClick={testCreds}
           disabled={saving}
-          className="ml-2 rounded-lg border border-slate-300 bg-white px-4 py-2 text-sm font-semibold text-slate-800 disabled:opacity-50"
+          className="ml-2 rounded-lg border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-900 px-4 py-2 text-sm font-semibold text-slate-800 dark:text-slate-200 disabled:opacity-50"
         >
           Test active profile
         </button>
@@ -656,7 +698,7 @@ export const AepsAdminProvider = () => {
           <button
             type="button"
             onClick={copyProbeForEmail}
-            className="ml-2 rounded-lg border border-indigo-300 bg-indigo-50 px-4 py-2 text-sm font-semibold text-indigo-900"
+            className="ml-2 rounded-lg border border-indigo-300 dark:border-indigo-800 bg-indigo-50 dark:bg-indigo-950/40 px-4 py-2 text-sm font-semibold text-indigo-900 dark:text-indigo-300"
           >
             Copy JSON for Tapits email
           </button>
@@ -731,8 +773,8 @@ export const AepsAdminDebugLogs = () => {
 
   return (
     <div className="mx-auto max-w-4xl space-y-4 p-4">
-      <h1 className="text-2xl font-bold text-slate-900">AEPS debug logs</h1>
-      <p className="text-sm text-slate-500">
+      <h1 className="text-2xl font-bold text-slate-900 dark:text-slate-100">AEPS debug logs</h1>
+      <p className="text-sm text-slate-500 dark:text-slate-400">
         When Debug mode is on for the active provider, full request/response packs are stored here for Tapits
         troubleshooting.
       </p>
@@ -757,10 +799,10 @@ export const AepsAdminDebugLogs = () => {
           Refresh
         </button>
       </div>
-      {msg ? <p className="text-sm text-slate-700">{msg}</p> : null}
-      <div className="overflow-x-auto rounded-2xl border bg-white shadow-sm">
+      {msg ? <p className="text-sm text-slate-700 dark:text-slate-300">{msg}</p> : null}
+      <div className="overflow-x-auto rounded-2xl border bg-white dark:bg-slate-900 shadow-sm">
         <table className="min-w-full text-sm">
-          <thead className="bg-slate-50 text-xs uppercase text-slate-500">
+          <thead className="bg-slate-50 dark:bg-slate-800/50 text-xs uppercase text-slate-500 dark:text-slate-400">
             <tr>
               <th className="px-3 py-2 text-left">When</th>
               <th className="px-3 py-2 text-left">Endpoint</th>
@@ -781,7 +823,7 @@ export const AepsAdminDebugLogs = () => {
                 <td className="px-3 py-2">
                   <button
                     type="button"
-                    className="text-xs font-semibold text-blue-700"
+                    className="text-xs font-semibold text-blue-700 dark:text-blue-300"
                     onClick={() => openDetail(r.id)}
                   >
                     Open
@@ -791,10 +833,10 @@ export const AepsAdminDebugLogs = () => {
             ))}
           </tbody>
         </table>
-        {!rows.length ? <p className="p-6 text-slate-500">No audit rows yet.</p> : null}
+        {!rows.length ? <p className="p-6 text-slate-500 dark:text-slate-400">No audit rows yet.</p> : null}
       </div>
       {selected ? (
-        <div className="space-y-2 rounded-2xl border bg-white p-4 shadow-sm">
+        <div className="space-y-2 rounded-2xl border bg-white dark:bg-slate-900 p-4 shadow-sm">
           <div className="flex flex-wrap items-center justify-between gap-2">
             <p className="font-semibold">
               #{selected.id} · {selected.endpoint}
@@ -804,7 +846,7 @@ export const AepsAdminDebugLogs = () => {
               <button
                 type="button"
                 onClick={copyPack}
-                className="rounded-lg border border-indigo-300 bg-indigo-50 px-3 py-1.5 text-xs font-semibold text-indigo-900"
+                className="rounded-lg border border-indigo-300 dark:border-indigo-800 bg-indigo-50 dark:bg-indigo-950/40 px-3 py-1.5 text-xs font-semibold text-indigo-900 dark:text-indigo-300"
               >
                 Copy Tapits pack
               </button>
@@ -842,14 +884,14 @@ export const AepsAdminRequests = () => {
   return (
     <div className="space-y-4 p-4">
       <h1 className="text-2xl font-bold">AEPS access requests</h1>
-      <div className="rounded-2xl border bg-white shadow-sm">
+      <div className="rounded-2xl border bg-white dark:bg-slate-900 shadow-sm">
         {rows.map((r) => (
           <div key={r.id} className="flex flex-wrap items-center justify-between gap-3 border-b px-4 py-3">
             <div>
               <p className="font-medium">
                 {r.user?.name} · {r.user?.phone} · {r.user?.role}
               </p>
-              <p className="text-sm text-slate-500">{r.reason || 'No reason'}</p>
+              <p className="text-sm text-slate-500 dark:text-slate-400">{r.reason || 'No reason'}</p>
             </div>
             <div className="flex gap-2">
               <button
@@ -864,7 +906,7 @@ export const AepsAdminRequests = () => {
               </button>
               <button
                 type="button"
-                className="rounded-lg bg-slate-200 px-3 py-1.5 text-sm"
+                className="rounded-lg bg-slate-200 dark:bg-slate-700 px-3 py-1.5 text-sm"
                 onClick={async () => {
                   await aepsAPI.adminDecideRequest(r.id, 'rejected');
                   load();
@@ -875,7 +917,7 @@ export const AepsAdminRequests = () => {
             </div>
           </div>
         ))}
-        {!rows.length ? <p className="p-6 text-slate-500">No pending requests.</p> : null}
+        {!rows.length ? <p className="p-6 text-slate-500 dark:text-slate-400">No pending requests.</p> : null}
       </div>
     </div>
   );
@@ -920,12 +962,12 @@ export const AepsAdminMerchants = () => {
     const res = await aepsAPI.adminMerchantResetPin(selectedId, pin ? { new_pin: pin } : {});
     setResetLoading(false);
     if (res.success) {
-      setResetMsg(res.message || 'PIN reset submitted to Fingpay.');
+      setResetMsg(res.message || 'PIN re-sync submitted to Fingpay (Simple onboarding).');
       setNewPin('');
       if (res.data?.merchant) setDetail(res.data.merchant);
       load();
     } else {
-      setResetErr(res.message || 'PIN reset failed.');
+      setResetErr(res.message || 'PIN re-sync failed.');
       loadDetail(selectedId);
     }
   };
@@ -949,9 +991,9 @@ export const AepsAdminMerchants = () => {
           Apply
         </button>
       </div>
-      <div className="overflow-x-auto rounded-2xl border bg-white shadow-sm">
+      <div className="overflow-x-auto rounded-2xl border bg-white dark:bg-slate-900 shadow-sm">
         <table className="min-w-full text-sm">
-          <thead className="bg-slate-50 text-xs uppercase text-slate-500">
+          <thead className="bg-slate-50 dark:bg-slate-800/50 text-xs uppercase text-slate-500 dark:text-slate-400">
             <tr>
               <th className="px-4 py-3 text-left">User</th>
               <th className="px-4 py-3 text-left">Login id</th>
@@ -966,7 +1008,7 @@ export const AepsAdminMerchants = () => {
             {rows.map((m) => (
               <tr
                 key={m.id}
-                className={`cursor-pointer border-t hover:bg-slate-50 ${selectedId === m.id ? 'bg-blue-50' : ''}`}
+                className={`cursor-pointer border-t hover:bg-slate-50 dark:hover:bg-slate-800 ${selectedId === m.id ? 'bg-blue-50 dark:bg-blue-950/40' : ''}`}
                 onClick={() => loadDetail(m.id)}
               >
                 <td className="px-4 py-3">
@@ -976,10 +1018,10 @@ export const AepsAdminMerchants = () => {
                 <td className="px-4 py-3">{m.stage}</td>
                 <td className="px-4 py-3 font-mono text-xs">{m.device_ready ? m.device_imei : '—'}</td>
                 <td className="px-4 py-3 font-mono text-xs">{m.masked_aadhaar || '—'}</td>
-                <td className="max-w-[200px] truncate px-4 py-3 text-rose-700" title={m.last_error || ''}>
+                <td className="max-w-[200px] truncate px-4 py-3 text-rose-700 dark:text-rose-300" title={m.last_error || ''}>
                   {m.last_error || '—'}
                 </td>
-                <td className="px-4 py-3 text-xs text-slate-500">
+                <td className="px-4 py-3 text-xs text-slate-500 dark:text-slate-400">
                   {m.updated_at ? new Date(m.updated_at).toLocaleString() : '—'}
                 </td>
               </tr>
@@ -989,19 +1031,19 @@ export const AepsAdminMerchants = () => {
       </div>
 
       {selectedId ? (
-        <div className="rounded-2xl border bg-white p-5 shadow-sm">
+        <div className="rounded-2xl border bg-white dark:bg-slate-900 p-5 shadow-sm">
           <div className="mb-4 flex flex-wrap items-center justify-between gap-2">
             <h2 className="text-lg font-semibold">Merchant detail #{selectedId}</h2>
-            <button type="button" className="text-sm text-slate-500 hover:text-slate-800" onClick={() => setSelectedId(null)}>
+            <button type="button" className="text-sm text-slate-500 dark:text-slate-400 hover:text-slate-800 dark:hover:text-slate-200" onClick={() => setSelectedId(null)}>
               Close
             </button>
           </div>
           {detailLoading ? (
-            <p className="text-sm text-slate-500">Loading…</p>
+            <p className="text-sm text-slate-500 dark:text-slate-400">Loading…</p>
           ) : detail ? (
             <div className="grid gap-6 lg:grid-cols-2">
               <section>
-                <h3 className="text-xs font-semibold uppercase tracking-wide text-slate-500">User</h3>
+                <h3 className="text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">User</h3>
                 <dl className="mt-2 space-y-1 text-sm">
                   <div>
                     <dt className="inline font-medium">Name:</dt> {detail.user?.name}
@@ -1018,7 +1060,7 @@ export const AepsAdminMerchants = () => {
                 </dl>
               </section>
               <section>
-                <h3 className="text-xs font-semibold uppercase tracking-wide text-slate-500">Merchant</h3>
+                <h3 className="text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">Merchant</h3>
                 <dl className="mt-2 space-y-1 text-sm">
                   <div>
                     <dt className="inline font-medium">Login:</dt>{' '}
@@ -1035,20 +1077,24 @@ export const AepsAdminMerchants = () => {
                     <dt className="inline font-medium">Masked Aadhaar:</dt> {detail.merchant?.masked_aadhaar || '—'}
                   </div>
                   {detail.merchant?.last_error ? (
-                    <div className="text-rose-700">
+                    <div className="text-rose-700 dark:text-rose-300">
                       <dt className="inline font-medium">Last error:</dt> {detail.merchant.last_error}
                     </div>
                   ) : null}
                 </dl>
-                <div className="mt-4 rounded-xl border border-amber-200 bg-amber-50/70 p-3 space-y-2">
-                  <p className="text-xs font-semibold uppercase tracking-wide text-amber-800">Reset merchant PIN</p>
-                  <p className="text-xs text-amber-900">
-                    Re-submits Simple onboarding to Fingpay with this merchant PIN (Tapits reset).
-                    Leave the box empty to reuse the current PIN, or enter a new 4–8 digit PIN.
+                <div className="mt-4 rounded-xl border border-amber-200 dark:border-amber-800 bg-amber-50/70 dark:bg-amber-950/40 p-3 space-y-2">
+                  <p className="text-xs font-semibold uppercase tracking-wide text-amber-800 dark:text-amber-300">
+                    Reset PIN / Re-sync onboarding
+                  </p>
+                  <p className="text-xs text-amber-900 dark:text-amber-300">
+                    Re-submits Simple onboarding create on <span className="font-mono">fingpayap</span> so
+                    Fingpay merchantLoginId + PIN match our DB (fixes 10006). Leave blank to keep the
+                    current PIN. Does not clear Bank eKYC. If you still see <span className="font-mono">10027</span>,
+                    Tapits must enable AEPS on fpaepsservice — this button cannot clear that.
                   </p>
                   <div className="flex flex-wrap items-end gap-2">
                     <label className="text-sm">
-                      <span className="mb-1 block text-xs text-slate-600">New PIN (optional)</span>
+                      <span className="mb-1 block text-xs text-slate-600 dark:text-slate-400">New PIN (optional)</span>
                       <input
                         className="w-32 rounded-lg border px-3 py-2 font-mono text-sm"
                         inputMode="numeric"
@@ -1064,16 +1110,16 @@ export const AepsAdminMerchants = () => {
                       onClick={handleResetPin}
                       className="rounded-lg bg-amber-700 px-3 py-2 text-sm font-semibold text-white disabled:opacity-60"
                     >
-                      {resetLoading ? 'Submitting…' : 'Reset PIN'}
+                      {resetLoading ? 'Submitting…' : 'Reset PIN / Re-sync'}
                     </button>
                   </div>
-                  {resetMsg ? <p className="text-sm text-emerald-800">{resetMsg}</p> : null}
-                  {resetErr ? <p className="text-sm text-rose-700">{resetErr}</p> : null}
+                  {resetMsg ? <p className="text-sm text-emerald-800 dark:text-emerald-300">{resetMsg}</p> : null}
+                  {resetErr ? <p className="text-sm text-rose-700 dark:text-rose-300">{resetErr}</p> : null}
                 </div>
               </section>
               {detail.kyc ? (
                 <section>
-                  <h3 className="text-xs font-semibold uppercase tracking-wide text-slate-500">User KYC</h3>
+                  <h3 className="text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">User KYC</h3>
                   <dl className="mt-2 space-y-1 text-sm">
                     <div>
                       PAN: {detail.kyc.masked_pan || '—'} ({detail.kyc.pan_verified ? 'verified' : 'not verified'})
@@ -1087,12 +1133,12 @@ export const AepsAdminMerchants = () => {
                 </section>
               ) : null}
               <section>
-                <h3 className="text-xs font-semibold uppercase tracking-wide text-slate-500">Onboarding fields</h3>
-                <pre className="mt-2 max-h-48 overflow-auto rounded-lg bg-slate-50 p-3 text-xs">
+                <h3 className="text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">Onboarding fields</h3>
+                <pre className="mt-2 max-h-48 overflow-auto rounded-lg bg-slate-50 dark:bg-slate-800/50 p-3 text-xs">
                   {JSON.stringify(detail.onboarding?.fields || {}, null, 2)}
                 </pre>
                 {detail.onboarding?.saved_images ? (
-                  <p className="mt-2 text-xs text-slate-500">
+                  <p className="mt-2 text-xs text-slate-500 dark:text-slate-400">
                     Images saved:{' '}
                     {Object.entries(detail.onboarding.saved_images)
                       .filter(([, v]) => v)
@@ -1102,28 +1148,28 @@ export const AepsAdminMerchants = () => {
                 ) : null}
               </section>
               <section className="lg:col-span-2">
-                <h3 className="text-xs font-semibold uppercase tracking-wide text-slate-500">Recent transactions</h3>
+                <h3 className="text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">Recent transactions</h3>
                 <ul className="mt-2 space-y-1 text-sm">
                   {(detail.recent_transactions || []).map((t) => (
-                    <li key={t.id} className="rounded-lg bg-slate-50 px-3 py-2">
+                    <li key={t.id} className="rounded-lg bg-slate-50 dark:bg-slate-800/50 px-3 py-2">
                       <span className="font-mono text-xs">{t.merchant_tran_id}</span> · {t.product} · {t.status}
                       {t.response_message ? ` — ${t.response_message}` : ''}
                     </li>
                   ))}
-                  {!detail.recent_transactions?.length ? <li className="text-slate-500">No transactions yet.</li> : null}
+                  {!detail.recent_transactions?.length ? <li className="text-slate-500 dark:text-slate-400">No transactions yet.</li> : null}
                 </ul>
               </section>
               <section className="lg:col-span-2">
-                <h3 className="text-xs font-semibold uppercase tracking-wide text-slate-500">Debug audit logs</h3>
-                <p className="mt-1 text-sm text-slate-600">
+                <h3 className="text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">Debug audit logs</h3>
+                <p className="mt-1 text-sm text-slate-600 dark:text-slate-400">
                   {detail.audit_logs?.count || 0} log(s) for this user.{' '}
-                  <Link to="/admin/aeps/debug-logs" className="font-semibold text-blue-700 underline">
+                  <Link to="/admin/aeps/debug-logs" className="font-semibold text-blue-700 dark:text-blue-300 underline">
                     Open debug logs
                   </Link>
                 </p>
                 <ul className="mt-2 space-y-1 text-sm">
                   {(detail.audit_logs?.recent || []).map((log) => (
-                    <li key={log.id} className="rounded-lg bg-slate-50 px-3 py-2">
+                    <li key={log.id} className="rounded-lg bg-slate-50 dark:bg-slate-800/50 px-3 py-2">
                       #{log.id} · {log.endpoint} · {log.success ? 'ok' : 'fail'}
                       {log.error_message ? ` — ${log.error_message}` : ''}
                     </li>
@@ -1132,7 +1178,7 @@ export const AepsAdminMerchants = () => {
               </section>
             </div>
           ) : (
-            <p className="text-sm text-rose-600">Could not load merchant detail.</p>
+            <p className="text-sm text-rose-600 dark:text-rose-400">Could not load merchant detail.</p>
           )}
         </div>
       ) : null}
@@ -1149,7 +1195,7 @@ export const AepsAdminRecon = () => {
   return (
     <div className="space-y-4 p-4">
       <h1 className="text-2xl font-bold">AEPS recon batches</h1>
-      <ul className="rounded-2xl border bg-white p-4 text-sm shadow-sm">
+      <ul className="rounded-2xl border bg-white dark:bg-slate-900 p-4 text-sm shadow-sm">
         {rows.map((b) => (
           <li key={b.id} className="border-b py-3 last:border-0">
             <button
@@ -1161,16 +1207,16 @@ export const AepsAdminRecon = () => {
                 #{b.id} · {b.txn_date || '—'} · {b.item_count} items ·{' '}
                 {b.created_at ? new Date(b.created_at).toLocaleString() : ''}
               </span>
-              <span className="text-xs font-semibold text-blue-700">{openId === b.id ? 'Hide' : 'Items'}</span>
+              <span className="text-xs font-semibold text-blue-700 dark:text-blue-300">{openId === b.id ? 'Hide' : 'Items'}</span>
             </button>
             {openId === b.id ? (
-              <pre className="mt-2 max-h-48 overflow-auto rounded-lg bg-slate-50 p-2 text-xs">
+              <pre className="mt-2 max-h-48 overflow-auto rounded-lg bg-slate-50 dark:bg-slate-800/50 p-2 text-xs">
                 {JSON.stringify(b.items || b.sample_items || b, null, 2)}
               </pre>
             ) : null}
           </li>
         ))}
-        {!rows.length ? <li className="text-slate-500">No recon batches yet.</li> : null}
+        {!rows.length ? <li className="text-slate-500 dark:text-slate-400">No recon batches yet.</li> : null}
       </ul>
     </div>
   );

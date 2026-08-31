@@ -105,19 +105,19 @@ const AepsOverview = ({ aepsStatus: status, refreshStatus }) => {
 };
 
 const Stat = ({ label, value }) => (
-  <div className="rounded-xl bg-slate-50 px-4 py-3 ring-1 ring-slate-100">
-    <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">{label}</p>
-    <p className="mt-1 truncate text-lg font-semibold text-slate-900">{value}</p>
+  <div className="rounded-xl bg-slate-50 dark:bg-slate-800/50 px-4 py-3 ring-1 ring-slate-100 dark:ring-slate-800">
+    <p className="text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">{label}</p>
+    <p className="mt-1 truncate text-lg font-semibold text-slate-900 dark:text-slate-100">{value}</p>
   </div>
 );
 
 const Quick = ({ to, title, desc }) => (
   <Link
     to={to}
-    className="rounded-xl border border-slate-200 bg-white p-5 shadow-sm transition hover:border-blue-200 hover:shadow-md"
+    className="rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 p-5 shadow-sm transition hover:border-blue-200 hover:shadow-md"
   >
-    <p className="font-semibold text-slate-900">{title}</p>
-    <p className="mt-1 text-sm text-slate-500">{desc}</p>
+    <p className="font-semibold text-slate-900 dark:text-slate-100">{title}</p>
+    <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">{desc}</p>
   </Link>
 );
 

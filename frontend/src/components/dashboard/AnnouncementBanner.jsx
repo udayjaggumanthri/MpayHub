@@ -142,7 +142,7 @@ const AnnouncementBanner = () => {
       onClick={handleClose}
     >
       <div
-        className="bg-white rounded-2xl shadow-2xl max-w-md w-full max-h-[90vh] overflow-y-auto p-6 relative ring-1 ring-black/5"
+        className="bg-white dark:bg-slate-900 rounded-2xl shadow-2xl max-w-md w-full max-h-[90vh] overflow-y-auto p-6 relative ring-1 ring-black/5"
         role="dialog"
         aria-modal="true"
         aria-labelledby="announcement-banner-title"
@@ -151,14 +151,14 @@ const AnnouncementBanner = () => {
         <button
           type="button"
           onClick={handleClose}
-          className="absolute top-4 right-4 text-gray-400 hover:text-gray-600 transition-colors rounded-lg p-1 hover:bg-gray-100"
+          className="absolute top-4 right-4 text-gray-400 dark:text-slate-500 hover:text-gray-600 dark:hover:text-slate-400 transition-colors rounded-lg p-1 hover:bg-gray-100 dark:hover:bg-slate-700"
           aria-label="Close announcement"
         >
           <FiX size={24} />
         </button>
 
         {source === 'auto' && queueLength > 1 && (
-          <p className="text-xs font-medium text-blue-600 mb-3 pr-10">
+          <p className="text-xs font-medium text-blue-600 dark:text-blue-400 mb-3 pr-10">
             Important announcement {queuePosition} of {queueLength}
           </p>
         )}
@@ -172,17 +172,17 @@ const AnnouncementBanner = () => {
           <div className="flex-1 min-w-0">
             <h3
               id="announcement-banner-title"
-              className="text-xl font-bold text-gray-900 mb-2 pr-8"
+              className="text-xl font-bold text-gray-900 dark:text-slate-100 mb-2 pr-8"
             >
               {announcement.title}
             </h3>
             {announcement.priority === 'high' && (
-              <span className="inline-block mb-2 px-2 py-0.5 text-xs font-semibold rounded-full bg-red-100 text-red-800 border border-red-200">
+              <span className="inline-block mb-2 px-2 py-0.5 text-xs font-semibold rounded-full bg-red-100 dark:bg-red-900/40 text-red-800 dark:text-red-300 border border-red-200 dark:border-red-800">
                 High priority
               </span>
             )}
             {hasImage && (
-              <div className="mb-4 rounded-lg overflow-hidden border border-gray-100 bg-gray-50">
+              <div className="mb-4 rounded-lg overflow-hidden border border-gray-100 dark:border-slate-800 bg-gray-50 dark:bg-slate-800/50">
                 <img
                   src={announcement.imageUrl}
                   alt=""
@@ -191,12 +191,12 @@ const AnnouncementBanner = () => {
               </div>
             )}
             {hasText && (
-              <p className="text-gray-600 mb-4 leading-relaxed whitespace-pre-wrap">
+              <p className="text-gray-600 dark:text-slate-400 mb-4 leading-relaxed whitespace-pre-wrap">
                 {announcement.message}
               </p>
             )}
             {!hasText && !hasImage && (
-              <p className="text-gray-500 mb-4 text-sm">No content</p>
+              <p className="text-gray-500 dark:text-slate-400 mb-4 text-sm">No content</p>
             )}
             <button
               type="button"

@@ -9,7 +9,7 @@ import {
 } from '../../utils/reportDate';
 
 const inputClass =
-  'w-full min-w-0 rounded-lg border bg-white px-3 py-2.5 text-sm text-gray-900 focus:outline-none focus:ring-2 min-h-[44px]';
+  'w-full min-w-0 rounded-lg border bg-white dark:bg-slate-900 px-3 py-2.5 text-sm text-gray-900 dark:text-slate-100 focus:outline-none focus:ring-2 min-h-[44px]';
 
 function DateField({ id, label, isoValue, onDraftChange, sizeClass, compact = false }) {
   const [text, setText] = useState(() => isoToDmy(isoValue));
@@ -55,7 +55,7 @@ function DateField({ id, label, isoValue, onDraftChange, sizeClass, compact = fa
   return (
     <div className="min-w-0 w-full">
       {label ? (
-        <label htmlFor={id} className="mb-1.5 block text-sm font-medium text-gray-700">
+        <label htmlFor={id} className="mb-1.5 block text-sm font-medium text-gray-700 dark:text-slate-300">
           {label}
         </label>
       ) : null}
@@ -82,7 +82,7 @@ function DateField({ id, label, isoValue, onDraftChange, sizeClass, compact = fa
           className={`${sizeClass || inputClass} pr-12 ${
             invalid
               ? 'border-red-400 focus:border-red-500 focus:ring-red-500'
-              : 'border-gray-300 focus:border-blue-500 focus:ring-blue-500'
+              : 'border-gray-300 dark:border-slate-600 focus:border-blue-500 focus:ring-blue-500'
           }`}
           lang="en-IN"
           aria-invalid={invalid}
@@ -90,7 +90,7 @@ function DateField({ id, label, isoValue, onDraftChange, sizeClass, compact = fa
           aria-label={label || 'Date'}
         />
         <span
-          className="pointer-events-none absolute inset-y-0 right-0 z-10 flex w-11 items-center justify-center text-gray-500"
+          className="pointer-events-none absolute inset-y-0 right-0 z-10 flex w-11 items-center justify-center text-gray-500 dark:text-slate-400"
           aria-hidden
         >
           <svg className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
@@ -118,11 +118,11 @@ function DateField({ id, label, isoValue, onDraftChange, sizeClass, compact = fa
         />
       </div>
       {localError ? (
-        <p id={`${id}-hint`} className="mt-1 text-xs text-red-600">
+        <p id={`${id}-hint`} className="mt-1 text-xs text-red-600 dark:text-red-400">
           {localError}
         </p>
       ) : compact ? null : (
-        <p id={`${id}-hint`} className="mt-1 text-xs text-gray-500">
+        <p id={`${id}-hint`} className="mt-1 text-xs text-gray-500 dark:text-slate-400">
           Type DD/MM/YYYY, or tap the calendar. Today or earlier.
         </p>
       )}
@@ -140,6 +140,7 @@ export default function ReportDateRange({
   onChange,
   onApply,
   showApply = false,
+  applyInline = false,
   applyLabel = 'Apply',
   fromLabel = 'From Date',
   toLabel = 'To Date',
@@ -158,7 +159,7 @@ export default function ReportDateRange({
   }, [dateTo]);
 
   const fieldClass = compact
-    ? 'w-full min-w-0 rounded-md border bg-white px-2 py-2 text-sm font-medium text-slate-800 shadow-sm focus:outline-none focus:ring-1 min-h-[44px]'
+    ? 'w-full min-w-0 rounded-md border bg-white dark:bg-slate-900 px-2 py-2 text-sm font-medium text-slate-800 dark:text-slate-200 shadow-sm focus:outline-none focus:ring-1 min-h-[44px]'
     : inputClass;
 
   const emit = (from, to) => {
@@ -177,9 +178,17 @@ export default function ReportDateRange({
 
   const orderError = rangeDateError(draftFrom, draftTo);
 
+  // applyInline turns Apply into a third column so it sits level with the
+  // fields; items-start stops it stretching past the hint text below them.
+  // Only worth it where the row has room, hence opt-in.
+  const gridClass =
+    showApply && applyInline
+      ? 'grid min-w-0 grid-cols-1 items-start gap-3 md:grid-cols-[minmax(0,1fr)_minmax(0,1fr)_auto]'
+      : 'grid min-w-0 grid-cols-1 gap-4 sm:grid-cols-2';
+
   return (
-    <div className={`flex min-w-0 flex-col gap-3 sm:flex-row sm:flex-wrap sm:items-end ${className}`}>
-      <div className="min-w-0 w-full sm:min-w-[168px] sm:flex-1">
+    <div className={`${gridClass} ${className}`}>
+      <div className="min-w-0 w-full">
         <DateField
           id={`${idPrefix}-from`}
           label={fromLabel}
@@ -192,7 +201,7 @@ export default function ReportDateRange({
           }}
         />
       </div>
-      <div className="min-w-0 w-full sm:min-w-[168px] sm:flex-1">
+      <div className="min-w-0 w-full">
         <DateField
           id={`${idPrefix}-to`}
           label={toLabel}
@@ -209,12 +218,16 @@ export default function ReportDateRange({
         <button
           type="button"
           onClick={commitToParent}
-          className="inline-flex min-h-[44px] w-full items-center justify-center rounded-lg bg-blue-600 px-4 py-2.5 text-sm font-semibold text-white shadow-sm hover:bg-blue-700 sm:w-auto"
+          className={`inline-flex min-h-[44px] w-full items-center justify-center rounded-lg bg-blue-600 px-4 py-2.5 text-sm font-semibold text-white shadow-sm transition-colors hover:bg-blue-700 ${
+            applyInline ? 'md:w-auto' : 'sm:w-auto'
+          }`}
         >
           {applyLabel}
         </button>
       ) : null}
-      {orderError ? <p className="w-full text-xs text-red-600">{orderError}</p> : null}
+      {orderError ? (
+        <p className="w-full text-xs text-red-600 dark:text-red-400 sm:col-span-full">{orderError}</p>
+      ) : null}
     </div>
   );
 }

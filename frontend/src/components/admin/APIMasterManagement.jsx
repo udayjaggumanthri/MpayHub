@@ -438,8 +438,8 @@ const APIMasterManagement = () => {
       />
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between">
         <div>
-          <h1 className="text-2xl sm:text-3xl font-bold text-gray-900">API Master Management</h1>
-          <p className="mt-1 sm:mt-2 text-sm sm:text-base text-gray-600">
+          <h1 className="text-2xl sm:text-3xl font-bold text-gray-900 dark:text-slate-100">API Master Management</h1>
+          <p className="mt-1 sm:mt-2 text-sm sm:text-base text-gray-600 dark:text-slate-400">
             KYC, Banking, and Payment Gateway APIs.
           </p>
         </div>
@@ -448,10 +448,10 @@ const APIMasterManagement = () => {
       <div className="flex justify-end">
         <Link
           to="/admin/gateways"
-          className="inline-flex items-center gap-2 rounded-lg border border-slate-200 bg-white px-4 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-50"
+          className="inline-flex items-center gap-2 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 px-4 py-2 text-sm font-semibold text-slate-700 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-800"
         >
           Next: Payment Gateways
-          <FaArrowRight size={12} className="text-slate-400" />
+          <FaArrowRight size={12} className="text-slate-400 dark:text-slate-500" />
         </Link>
       </div>
 
@@ -460,34 +460,34 @@ const APIMasterManagement = () => {
           type="button"
           onClick={() => setActiveModule('kyc')}
           className={`text-left p-4 rounded-xl border ${
-            activeModule === 'kyc' ? 'border-blue-500 bg-blue-50' : 'border-gray-200 bg-white'
+            activeModule === 'kyc' ? 'border-blue-500 bg-blue-50 dark:bg-blue-950/40' : 'border-gray-200 dark:border-slate-700 bg-white dark:bg-slate-900'
           }`}
         >
-          <p className="font-semibold text-gray-900">KYC APIs</p>
-          <p className="text-sm text-gray-600">Cashfree PAN + DigiLocker Aadhaar</p>
-          <p className="text-xs text-blue-700 mt-1">{kycCount} configured</p>
+          <p className="font-semibold text-gray-900 dark:text-slate-100">KYC APIs</p>
+          <p className="text-sm text-gray-600 dark:text-slate-400">Cashfree PAN + DigiLocker Aadhaar</p>
+          <p className="text-xs text-blue-700 dark:text-blue-300 mt-1">{kycCount} configured</p>
         </button>
         <button
           type="button"
           onClick={() => setActiveModule('banking')}
           className={`text-left p-4 rounded-xl border ${
-            activeModule === 'banking' ? 'border-blue-500 bg-blue-50' : 'border-gray-200 bg-white'
+            activeModule === 'banking' ? 'border-blue-500 bg-blue-50 dark:bg-blue-950/40' : 'border-gray-200 dark:border-slate-700 bg-white dark:bg-slate-900'
           }`}
         >
-          <p className="font-semibold text-gray-900">Banking APIs</p>
-          <p className="text-sm text-gray-600">Cashfree Bank Account Verification (BAV)</p>
-          <p className="text-xs text-blue-700 mt-1">{bankingCount} configured</p>
+          <p className="font-semibold text-gray-900 dark:text-slate-100">Banking APIs</p>
+          <p className="text-sm text-gray-600 dark:text-slate-400">Cashfree Bank Account Verification (BAV)</p>
+          <p className="text-xs text-blue-700 dark:text-blue-300 mt-1">{bankingCount} configured</p>
         </button>
         <button
           type="button"
           onClick={() => setActiveModule('payments')}
           className={`text-left p-4 rounded-xl border ${
-            activeModule === 'payments' ? 'border-blue-500 bg-blue-50' : 'border-gray-200 bg-white'
+            activeModule === 'payments' ? 'border-blue-500 bg-blue-50 dark:bg-blue-950/40' : 'border-gray-200 dark:border-slate-700 bg-white dark:bg-slate-900'
           }`}
         >
-          <p className="font-semibold text-gray-900">Payment Gateways</p>
-          <p className="text-sm text-gray-600">Razorpay / PayU / others</p>
-          <p className="text-xs text-blue-700 mt-1">{paymentCount} configured</p>
+          <p className="font-semibold text-gray-900 dark:text-slate-100">Payment Gateways</p>
+          <p className="text-sm text-gray-600 dark:text-slate-400">Razorpay / PayU / others</p>
+          <p className="text-xs text-blue-700 dark:text-blue-300 mt-1">{paymentCount} configured</p>
         </button>
       </div>
 
@@ -500,7 +500,7 @@ const APIMasterManagement = () => {
       {feedback && (
         <div
           className={`p-3 rounded-lg border ${
-            feedbackType === 'ok' ? 'bg-green-50 border-green-200 text-green-700' : 'bg-red-50 border-red-200 text-red-700'
+            feedbackType === 'ok' ? 'bg-green-50 dark:bg-green-950/40 border-green-200 dark:border-green-800 text-green-700 dark:text-green-300' : 'bg-red-50 dark:bg-red-950/40 border-red-200 dark:border-red-800 text-red-700 dark:text-red-300'
           }`}
         >
           {feedback}
@@ -511,38 +511,38 @@ const APIMasterManagement = () => {
         <div className="overflow-x-auto">
           <table className="w-full">
             <thead>
-              <tr className="border-b border-gray-200">
-                <th className="text-left py-3 px-4 font-semibold text-gray-700">Provider</th>
-                <th className="text-left py-3 px-4 font-semibold text-gray-700">Service</th>
-                <th className="text-left py-3 px-4 font-semibold text-gray-700">Auth</th>
-                <th className="text-left py-3 px-4 font-semibold text-gray-700">Status</th>
-                <th className="text-left py-3 px-4 font-semibold text-gray-700">Default</th>
-                <th className="text-left py-3 px-4 font-semibold text-gray-700">Priority</th>
-                <th className="text-right py-3 px-4 font-semibold text-gray-700">Actions</th>
+              <tr className="border-b border-gray-200 dark:border-slate-700">
+                <th className="text-left py-3 px-4 font-semibold text-gray-700 dark:text-slate-300">Provider</th>
+                <th className="text-left py-3 px-4 font-semibold text-gray-700 dark:text-slate-300">Service</th>
+                <th className="text-left py-3 px-4 font-semibold text-gray-700 dark:text-slate-300">Auth</th>
+                <th className="text-left py-3 px-4 font-semibold text-gray-700 dark:text-slate-300">Status</th>
+                <th className="text-left py-3 px-4 font-semibold text-gray-700 dark:text-slate-300">Default</th>
+                <th className="text-left py-3 px-4 font-semibold text-gray-700 dark:text-slate-300">Priority</th>
+                <th className="text-right py-3 px-4 font-semibold text-gray-700 dark:text-slate-300">Actions</th>
               </tr>
             </thead>
             <tbody>
               {moduleRows.length === 0 ? (
                 <tr>
-                  <td colSpan="7" className="text-center py-8 text-gray-500">
+                  <td colSpan="7" className="text-center py-8 text-gray-500 dark:text-slate-400">
                     {loading ? 'Loading...' : `No ${moduleApiLabel(activeModule).toLowerCase()}s configured yet.`}
                   </td>
                 </tr>
               ) : (
                 moduleRows.map((row) => (
-                  <tr key={row.id} className="border-b border-gray-100 hover:bg-gray-50">
+                  <tr key={row.id} className="border-b border-gray-100 dark:border-slate-800 hover:bg-gray-50 dark:hover:bg-slate-800">
                     <td className="py-4 px-4">
-                      <div className="font-semibold text-gray-900">{row.provider_name}</div>
-                      <div className="text-xs text-gray-500">{row.provider_code}</div>
+                      <div className="font-semibold text-gray-900 dark:text-slate-100">{row.provider_name}</div>
+                      <div className="text-xs text-gray-500 dark:text-slate-400">{row.provider_code}</div>
                     </td>
-                    <td className="py-4 px-4 text-sm text-gray-600">
+                    <td className="py-4 px-4 text-sm text-gray-600 dark:text-slate-400">
                       {activeModule === 'kyc' ? row.kyc_service || '—' : activeModule === 'banking' ? 'BAV' : '—'}
                     </td>
                     <td className="py-4 px-4">{row.auth_type}</td>
                     <td className="py-4 px-4">
                       <span
                         className={`px-2 py-1 text-xs rounded-full ${
-                          row.status === 'active' ? 'bg-green-100 text-green-700' : 'bg-gray-100 text-gray-700'
+                          row.status === 'active' ? 'bg-green-100 dark:bg-green-900/40 text-green-700 dark:text-green-300' : 'bg-gray-100 dark:bg-slate-800 text-gray-700 dark:text-slate-300'
                         }`}
                       >
                         {row.status}
@@ -552,7 +552,7 @@ const APIMasterManagement = () => {
                       {row.is_default ? (
                         'Yes'
                       ) : (
-                        <span className="text-amber-700" title="Edit and save to auto-set as default if none exists">
+                        <span className="text-amber-700 dark:text-amber-300" title="Edit and save to auto-set as default if none exists">
                           No
                         </span>
                       )}
@@ -562,28 +562,28 @@ const APIMasterManagement = () => {
                       <div className="flex items-center justify-end gap-2">
                         <button
                           onClick={() => testConnection(row.id)}
-                          className="p-2 rounded text-emerald-700 hover:bg-emerald-50"
+                          className="p-2 rounded text-emerald-700 dark:text-emerald-300 hover:bg-emerald-50 dark:hover:bg-emerald-950/60"
                           title="Test Connection"
                         >
                           <FaPlug size={16} />
                         </button>
                         <button
                           onClick={() => toggleStatus(row)}
-                          className="p-2 rounded text-amber-700 hover:bg-amber-50"
+                          className="p-2 rounded text-amber-700 dark:text-amber-300 hover:bg-amber-50 dark:hover:bg-amber-950/60"
                           title="Activate/Deactivate"
                         >
                           <FaPowerOff size={16} />
                         </button>
                         <button
                           onClick={() => openEdit(row)}
-                          className="p-2 rounded text-blue-700 hover:bg-blue-50"
+                          className="p-2 rounded text-blue-700 dark:text-blue-300 hover:bg-blue-50 dark:hover:bg-blue-950/60"
                           title="Edit"
                         >
                           <FaPenToSquare size={16} />
                         </button>
                         <button
                           onClick={() => deleteRow(row.id)}
-                          className="p-2 rounded text-red-700 hover:bg-red-50"
+                          className="p-2 rounded text-red-700 dark:text-red-300 hover:bg-red-50 dark:hover:bg-red-950/60"
                           title="Delete"
                         >
                           <FaTrash size={16} />
@@ -600,9 +600,9 @@ const APIMasterManagement = () => {
 
       {showModal && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black bg-opacity-50 overflow-y-auto">
-          <Card className="max-w-4xl w-full border-2 border-blue-200 my-auto" padding="lg" shadow="xl">
+          <Card className="max-w-4xl w-full border-2 border-blue-200 dark:border-blue-800 my-auto" padding="lg" shadow="xl">
             <div className="flex items-center justify-between mb-6">
-              <h2 className="text-xl sm:text-2xl font-bold text-gray-900">
+              <h2 className="text-xl sm:text-2xl font-bold text-gray-900 dark:text-slate-100">
                 {editing ? `Edit ${moduleApiLabel(activeModule)}` : `Add ${moduleApiLabel(activeModule)}`}
               </h2>
               <button
@@ -610,7 +610,7 @@ const APIMasterManagement = () => {
                   setShowModal(false);
                   setEditing(null);
                 }}
-                className="text-gray-400 hover:text-gray-600 transition-colors"
+                className="text-gray-400 dark:text-slate-500 hover:text-gray-600 dark:hover:text-slate-400 transition-colors"
               >
                 <FaXmark size={24} />
               </button>
@@ -620,12 +620,12 @@ const APIMasterManagement = () => {
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 {activeModule === 'kyc' ? (
                   <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-2">KYC Provider</label>
+                    <label className="block text-sm font-medium text-gray-700 dark:text-slate-300 mb-2">KYC Provider</label>
                     <select
                       value={form.provider_code}
                       onChange={(e) => onKycProviderChange(e.target.value)}
                       disabled={Boolean(editing)}
-                      className="w-full px-4 py-3 border border-gray-300 rounded-lg"
+                      className="w-full px-4 py-3 border border-gray-300 dark:border-slate-600 rounded-lg"
                     >
                       {kycProviderOptions.map((s) => (
                         <option key={s.code} value={s.code}>
@@ -633,18 +633,18 @@ const APIMasterManagement = () => {
                         </option>
                       ))}
                     </select>
-                    <p className="text-xs text-gray-500 mt-1">
+                    <p className="text-xs text-gray-500 dark:text-slate-400 mt-1">
                       Only one default per service (PAN / Aadhaar). Use sandbox status for Cashfree test credentials.
                     </p>
                   </div>
                 ) : activeModule === 'banking' ? (
                   <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-2">Banking Provider</label>
+                    <label className="block text-sm font-medium text-gray-700 dark:text-slate-300 mb-2">Banking Provider</label>
                     <select
                       value={form.provider_code}
                       onChange={(e) => onBankingProviderChange(e.target.value)}
                       disabled={Boolean(editing)}
-                      className="w-full px-4 py-3 border border-gray-300 rounded-lg"
+                      className="w-full px-4 py-3 border border-gray-300 dark:border-slate-600 rounded-lg"
                     >
                       {bankingProviderOptions.map((s) => (
                         <option key={s.code} value={s.code}>
@@ -652,7 +652,7 @@ const APIMasterManagement = () => {
                         </option>
                       ))}
                     </select>
-                    <p className="text-xs text-gray-500 mt-1">
+                    <p className="text-xs text-gray-500 dark:text-slate-400 mt-1">
                       Cashfree BAV Sync V2. Use sandbox status for test credentials; configure timeout in config JSON.
                     </p>
                   </div>
@@ -681,11 +681,11 @@ const APIMasterManagement = () => {
                   required
                 />
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-2">Auth Type</label>
+                  <label className="block text-sm font-medium text-gray-700 dark:text-slate-300 mb-2">Auth Type</label>
                   <select
                     value={form.auth_type}
                     onChange={(e) => setForm((p) => ({ ...p, auth_type: e.target.value }))}
-                    className="w-full px-4 py-3 border border-gray-300 rounded-lg"
+                    className="w-full px-4 py-3 border border-gray-300 dark:border-slate-600 rounded-lg"
                   >
                     {authTypes.map((t) => (
                       <option key={t} value={t}>
@@ -701,11 +701,11 @@ const APIMasterManagement = () => {
                   placeholder="https://sandbox.cashfree.com"
                 />
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-2">Status</label>
+                  <label className="block text-sm font-medium text-gray-700 dark:text-slate-300 mb-2">Status</label>
                   <select
                     value={form.status}
                     onChange={(e) => setForm((p) => ({ ...p, status: e.target.value }))}
-                    className="w-full px-4 py-3 border border-gray-300 rounded-lg"
+                    className="w-full px-4 py-3 border border-gray-300 dark:border-slate-600 rounded-lg"
                   >
                     {statusOptions.map((s) => (
                       <option key={s} value={s}>
@@ -732,11 +732,11 @@ const APIMasterManagement = () => {
 
               {activeModule === 'kyc' && form.provider_code === 'cashfree_pan' && (
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-2">PAN verification mode</label>
+                  <label className="block text-sm font-medium text-gray-700 dark:text-slate-300 mb-2">PAN verification mode</label>
                   <select
                     value={form.pan_mode}
                     onChange={(e) => setForm((p) => ({ ...p, pan_mode: e.target.value }))}
-                    className="w-full px-4 py-3 border border-gray-300 rounded-lg"
+                    className="w-full px-4 py-3 border border-gray-300 dark:border-slate-600 rounded-lg"
                   >
                     <option value="sync">Sync — POST /verification/pan</option>
                     <option value="advance">Advance (PAN 360) — POST /verification/pan/advance</option>
@@ -752,7 +752,7 @@ const APIMasterManagement = () => {
                     onChange={(e) => setForm((p) => ({ ...p, redirect_url: e.target.value }))}
                     placeholder="https://partner.mpayhub.in/onboarding/kyc/digilocker/callback"
                   />
-                  <p className="text-xs text-gray-500 mt-1">
+                  <p className="text-xs text-gray-500 dark:text-slate-400 mt-1">
                     Must match the callback route registered in Cashfree Merchant Dashboard. Webhook:
                     POST /api/integrations/cashfree/digilocker/webhook/
                   </p>
@@ -766,7 +766,7 @@ const APIMasterManagement = () => {
                     checked={form.is_default}
                     onChange={(e) => setForm((p) => ({ ...p, is_default: e.target.checked }))}
                   />
-                  <span className="text-sm text-gray-700">
+                  <span className="text-sm text-gray-700 dark:text-slate-300">
                     Default for{' '}
                     {activeModule === 'kyc'
                       ? `KYC service (${form.kyc_service || 'pan/aadhaar'})`
@@ -781,39 +781,39 @@ const APIMasterManagement = () => {
                     checked={form.supports_webhook}
                     onChange={(e) => setForm((p) => ({ ...p, supports_webhook: e.target.checked }))}
                   />
-                  <span className="text-sm text-gray-700">Supports webhook</span>
+                  <span className="text-sm text-gray-700 dark:text-slate-300">Supports webhook</span>
                 </label>
               </div>
 
               {activeModule === 'payments' && (
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-2">
+                  <label className="block text-sm font-medium text-gray-700 dark:text-slate-300 mb-2">
                     Config JSON (non-secret settings)
                   </label>
                   <textarea
                     value={form.config_json_text}
                     onChange={(e) => setForm((p) => ({ ...p, config_json_text: e.target.value }))}
-                    className="w-full min-h-[120px] px-4 py-3 border border-gray-300 rounded-lg"
+                    className="w-full min-h-[120px] px-4 py-3 border border-gray-300 dark:border-slate-600 rounded-lg"
                   />
                 </div>
               )}
 
               {activeModule === 'banking' && form.provider_code === 'cashfree_bav' && (
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-2">
+                  <label className="block text-sm font-medium text-gray-700 dark:text-slate-300 mb-2">
                     Config JSON (timeout)
                   </label>
                   <textarea
                     value={form.config_json_text}
                     onChange={(e) => setForm((p) => ({ ...p, config_json_text: e.target.value }))}
-                    className="w-full min-h-[120px] px-4 py-3 border border-gray-300 rounded-lg font-mono text-sm"
+                    className="w-full min-h-[120px] px-4 py-3 border border-gray-300 dark:border-slate-600 rounded-lg font-mono text-sm"
                   />
                 </div>
               )}
 
-              <div className="border border-gray-200 rounded-xl p-4">
+              <div className="border border-gray-200 dark:border-slate-700 rounded-xl p-4">
                 <div className="flex items-center justify-between mb-3">
-                  <h3 className="text-sm font-semibold text-gray-800">Secrets (encrypted at rest)</h3>
+                  <h3 className="text-sm font-semibold text-gray-800 dark:text-slate-200">Secrets (encrypted at rest)</h3>
                   <Button
                     type="button"
                     variant="outline"
@@ -830,19 +830,19 @@ const APIMasterManagement = () => {
                 </div>
                 <div className="space-y-3">
                   {activeModule === 'payments' && (
-                    <p className="text-xs text-amber-800 bg-amber-50 border border-amber-100 rounded-lg px-3 py-2 mb-2">
+                    <p className="text-xs text-amber-800 dark:text-amber-300 bg-amber-50 dark:bg-amber-950/40 border border-amber-100 dark:border-amber-900 rounded-lg px-3 py-2 mb-2">
                       <strong>Razorpay:</strong> In the <strong>Key</strong> column type the literal names{' '}
-                      <code className="bg-amber-100/80 px-1 rounded">key_id</code> and{' '}
-                      <code className="bg-amber-100/80 px-1 rounded">key_secret</code> — not your{' '}
-                      <code className="bg-amber-100/80 px-1 rounded">rzp_test_…</code> string. Put the Key ID and
+                      <code className="bg-amber-100/80 dark:bg-amber-900/40 px-1 rounded">key_id</code> and{' '}
+                      <code className="bg-amber-100/80 dark:bg-amber-900/40 px-1 rounded">key_secret</code> — not your{' '}
+                      <code className="bg-amber-100/80 dark:bg-amber-900/40 px-1 rounded">rzp_test_…</code> string. Put the Key ID and
                       secret in the <strong>Value</strong> column. Load Money reads live credentials from API Master
                       (and your payment gateway link / default Razorpay entry); .env is optional.
                     </p>
                   )}
                   {(activeModule === 'kyc' || activeModule === 'banking') && (
-                    <p className="text-xs text-blue-800 bg-blue-50 border border-blue-100 rounded-lg px-3 py-2 mb-2">
-                      <strong>Cashfree:</strong> Use keys <code className="bg-blue-100/80 px-1 rounded">client_id</code>{' '}
-                      and <code className="bg-blue-100/80 px-1 rounded">client_secret</code> from Cashfree Secure ID /
+                    <p className="text-xs text-blue-800 dark:text-blue-300 bg-blue-50 dark:bg-blue-950/40 border border-blue-100 dark:border-blue-900 rounded-lg px-3 py-2 mb-2">
+                      <strong>Cashfree:</strong> Use keys <code className="bg-blue-100/80 dark:bg-blue-900/40 px-1 rounded">client_id</code>{' '}
+                      and <code className="bg-blue-100/80 dark:bg-blue-900/40 px-1 rounded">client_secret</code> from Cashfree Secure ID /
                       VRS dashboard. Sandbox base URL: https://sandbox.cashfree.com
                     </p>
                   )}
@@ -878,16 +878,16 @@ const APIMasterManagement = () => {
                         </div>
                       </div>
                       {entry.maskedPreview ? (
-                        <p className="text-xs text-gray-600 md:pl-1">
+                        <p className="text-xs text-gray-600 dark:text-slate-400 md:pl-1">
                           Stored (masked):{' '}
-                          <span className="font-mono bg-gray-100 px-1.5 py-0.5 rounded">{entry.maskedPreview}</span>
+                          <span className="font-mono bg-gray-100 dark:bg-slate-800 px-1.5 py-0.5 rounded">{entry.maskedPreview}</span>
                         </p>
                       ) : null}
                     </div>
                   ))}
                 </div>
                 {editing && (
-                  <p className="text-xs text-gray-500 mt-2">
+                  <p className="text-xs text-gray-500 dark:text-slate-400 mt-2">
                     Plain secret values are never shown after save (only masked). Use the Key column to see what is
                     stored; type a new Value only to replace that entry.
                   </p>

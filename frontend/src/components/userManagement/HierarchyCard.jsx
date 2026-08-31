@@ -7,13 +7,13 @@ import { formatUserId } from '../../utils/formatters';
 const roleBadgeClass = (role) => {
   const r = role || '';
   const map = {
-    Admin: 'bg-violet-100 text-violet-900 ring-1 ring-violet-200',
-    'Super Distributor': 'bg-sky-100 text-sky-900 ring-1 ring-sky-200',
-    'Master Distributor': 'bg-cyan-100 text-cyan-900 ring-1 ring-cyan-200',
-    Distributor: 'bg-indigo-100 text-indigo-900 ring-1 ring-indigo-200',
-    Retailer: 'bg-slate-100 text-slate-800 ring-1 ring-slate-200',
+    Admin: 'bg-violet-100 dark:bg-violet-900/40 text-violet-900 dark:text-violet-300 ring-1 ring-violet-200 dark:ring-violet-800',
+    'Super Distributor': 'bg-sky-100 dark:bg-sky-900/40 text-sky-900 dark:text-sky-300 ring-1 ring-sky-200 dark:ring-sky-800',
+    'Master Distributor': 'bg-cyan-100 dark:bg-cyan-900/40 text-cyan-900 dark:text-cyan-300 ring-1 ring-cyan-200 dark:ring-cyan-800',
+    Distributor: 'bg-indigo-100 dark:bg-indigo-900/40 text-indigo-900 dark:text-indigo-300 ring-1 ring-indigo-200 dark:ring-indigo-800',
+    Retailer: 'bg-slate-100 dark:bg-slate-800 text-slate-800 dark:text-slate-200 ring-1 ring-slate-200 dark:ring-slate-700',
   };
-  return map[r] || 'bg-slate-100 text-slate-800 ring-1 ring-slate-200';
+  return map[r] || 'bg-slate-100 dark:bg-slate-800 text-slate-800 dark:text-slate-200 ring-1 ring-slate-200 dark:ring-slate-700';
 };
 
 const HierarchyCard = ({ lineage, user }) => {
@@ -21,15 +21,15 @@ const HierarchyCard = ({ lineage, user }) => {
 
   return (
     <Card>
-      <div className="px-6 py-4 border-b border-slate-100">
+      <div className="px-6 py-4 border-b border-slate-100 dark:border-slate-800">
         <div className="flex items-center gap-3">
-          <div className="h-10 w-10 rounded-xl bg-cyan-100 flex items-center justify-center">
-            <FaSitemap className="text-cyan-600" size={18} />
+          <div className="h-10 w-10 rounded-xl bg-cyan-100 dark:bg-cyan-900/40 flex items-center justify-center">
+            <FaSitemap className="text-cyan-600 dark:text-cyan-400" size={18} />
           </div>
           <div>
-            <h2 className="text-lg font-bold text-slate-900">Hierarchy</h2>
-            <p className="text-sm text-slate-500">
-              Path: <code className="font-mono text-indigo-600">{lineage.map_path || '—'}</code>
+            <h2 className="text-lg font-bold text-slate-900 dark:text-slate-100">Hierarchy</h2>
+            <p className="text-sm text-slate-500 dark:text-slate-400">
+              Path: <code className="font-mono text-indigo-600 dark:text-indigo-400">{lineage.map_path || '—'}</code>
             </p>
           </div>
         </div>
@@ -39,43 +39,43 @@ const HierarchyCard = ({ lineage, user }) => {
           {(lineage.upline || []).map((node, idx) => (
             <React.Fragment key={`${node.id || node.display_code || node.user_id}-${idx}`}>
               {idx > 0 && <FaChevronRight className="text-slate-300" size={12} />}
-              <div className="inline-flex flex-col items-center rounded-xl border border-slate-200 bg-slate-50 px-3 py-2">
-                <span className="font-mono text-sm font-bold text-indigo-700">{formatUserId(node)}</span>
-                <span className="text-[10px] uppercase text-slate-500 mt-0.5">{node.role}</span>
+              <div className="inline-flex flex-col items-center rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800/50 px-3 py-2">
+                <span className="font-mono text-sm font-bold text-indigo-700 dark:text-indigo-300">{formatUserId(node)}</span>
+                <span className="text-[10px] uppercase text-slate-500 dark:text-slate-400 mt-0.5">{node.role}</span>
               </div>
             </React.Fragment>
           ))}
           {(lineage.upline || []).length > 0 && (
             <FaChevronRight className="text-slate-300" size={12} />
           )}
-          <div className="inline-flex flex-col items-center rounded-xl border-2 border-indigo-400 bg-indigo-50 px-3 py-2">
-            <span className="font-mono text-sm font-bold text-indigo-800">
+          <div className="inline-flex flex-col items-center rounded-xl border-2 border-indigo-400 bg-indigo-50 dark:bg-indigo-950/40 px-3 py-2">
+            <span className="font-mono text-sm font-bold text-indigo-800 dark:text-indigo-300">
               {formatUserId(user)}
             </span>
-            <span className="text-[10px] uppercase text-indigo-600 mt-0.5">{user.role}</span>
+            <span className="text-[10px] uppercase text-indigo-600 dark:text-indigo-400 mt-0.5">{user.role}</span>
           </div>
         </div>
 
         {(lineage.direct_parents || []).length > 0 && (
           <div>
-            <p className="text-xs font-semibold uppercase tracking-wide text-slate-600 mb-3">Direct Parent</p>
-            <div className="overflow-hidden rounded-xl border border-slate-200">
+            <p className="text-xs font-semibold uppercase tracking-wide text-slate-600 dark:text-slate-400 mb-3">Direct Parent</p>
+            <div className="overflow-hidden rounded-xl border border-slate-200 dark:border-slate-700">
               <table className="w-full text-sm">
-                <thead className="bg-slate-50">
+                <thead className="bg-slate-50 dark:bg-slate-800/50">
                   <tr>
-                    <th className="px-4 py-2.5 text-left text-xs font-semibold uppercase text-slate-500">User ID</th>
-                    <th className="px-4 py-2.5 text-left text-xs font-semibold uppercase text-slate-500">Role</th>
-                    <th className="px-4 py-2.5 text-left text-xs font-semibold uppercase text-slate-500">Name</th>
-                    <th className="px-4 py-2.5 text-left text-xs font-semibold uppercase text-slate-500">Linked</th>
+                    <th className="px-4 py-2.5 text-left text-xs font-semibold uppercase text-slate-500 dark:text-slate-400">User ID</th>
+                    <th className="px-4 py-2.5 text-left text-xs font-semibold uppercase text-slate-500 dark:text-slate-400">Role</th>
+                    <th className="px-4 py-2.5 text-left text-xs font-semibold uppercase text-slate-500 dark:text-slate-400">Name</th>
+                    <th className="px-4 py-2.5 text-left text-xs font-semibold uppercase text-slate-500 dark:text-slate-400">Linked</th>
                   </tr>
                 </thead>
-                <tbody className="divide-y divide-slate-100">
+                <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
                   {lineage.direct_parents.map((p) => (
-                    <tr key={p.id || p.display_code || p.user_id} className="bg-white">
-                      <td className="px-4 py-3 font-mono text-indigo-700 font-medium">{formatUserId(p)}</td>
-                      <td className="px-4 py-3 text-slate-700">{p.role}</td>
-                      <td className="px-4 py-3 text-slate-900">{p.name}</td>
-                      <td className="px-4 py-3 text-slate-500 text-xs">
+                    <tr key={p.id || p.display_code || p.user_id} className="bg-white dark:bg-slate-900">
+                      <td className="px-4 py-3 font-mono text-indigo-700 dark:text-indigo-300 font-medium">{formatUserId(p)}</td>
+                      <td className="px-4 py-3 text-slate-700 dark:text-slate-300">{p.role}</td>
+                      <td className="px-4 py-3 text-slate-900 dark:text-slate-100">{p.name}</td>
+                      <td className="px-4 py-3 text-slate-500 dark:text-slate-400 text-xs">
                         {p.linked_at ? new Date(p.linked_at).toLocaleDateString() : '—'}
                       </td>
                     </tr>
@@ -88,20 +88,20 @@ const HierarchyCard = ({ lineage, user }) => {
 
         {lineage.direct_reports_total > 0 && (
           <div>
-            <p className="text-xs font-semibold uppercase tracking-wide text-slate-600 mb-3">
+            <p className="text-xs font-semibold uppercase tracking-wide text-slate-600 dark:text-slate-400 mb-3">
               Direct Reports ({lineage.direct_reports_total})
             </p>
-            <div className="max-h-48 overflow-y-auto rounded-xl border border-slate-200 bg-white">
-              <div className="divide-y divide-slate-100">
+            <div className="max-h-48 overflow-y-auto rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900">
+              <div className="divide-y divide-slate-100 dark:divide-slate-800">
                 {(lineage.direct_reports || []).map((c) => (
                   <Link
                     key={c.id || c.display_code || c.user_id}
                     to={`/user-management/users/${c.id}`}
-                    className="flex items-center gap-4 px-4 py-3 hover:bg-slate-50 transition-colors"
+                    className="flex items-center gap-4 px-4 py-3 hover:bg-slate-50 dark:hover:bg-slate-800 transition-colors"
                   >
-                    <span className="font-mono text-sm font-semibold text-indigo-700">{formatUserId(c)}</span>
+                    <span className="font-mono text-sm font-semibold text-indigo-700 dark:text-indigo-300">{formatUserId(c)}</span>
                     <span className={`text-xs font-medium px-2 py-0.5 rounded-md ${roleBadgeClass(c.role)}`}>{c.role}</span>
-                    <span className="text-slate-700 text-sm">{c.name}</span>
+                    <span className="text-slate-700 dark:text-slate-300 text-sm">{c.name}</span>
                   </Link>
                 ))}
               </div>

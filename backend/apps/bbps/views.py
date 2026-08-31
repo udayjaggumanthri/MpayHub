@@ -429,6 +429,8 @@ def biller_schema_view(request, biller_id):
                 'default_payment_channel': payment_ui.get('default_channel') or '',
                 'default_payment_mode': payment_ui.get('default_payment_mode') or 'Cash',
                 'payment_options_source': payment_ui.get('source') or '',
+                'hide_payment_method': bool(payment_ui.get('hide_payment_method')),
+                'payment_ui_mode': payment_ui.get('payment_ui_mode') or 'standard',
             },
             'message': 'Biller schema retrieved successfully',
             'errors': [],
@@ -3738,6 +3740,63 @@ def provider_float_settings_view(request):
             'success': True,
             'data': {'float': out},
             'message': 'Provider float settings updated',
+            'errors': [],
+        },
+        status=200,
+    )
+
+
+@api_view(['GET', 'PATCH'])
+@permission_classes([IsAuthenticated, IsAdmin])
+def catalog_ux_settings_view(request):
+    """GET/PATCH /api/bbps/admin/catalog-ux-settings/ — cash-only user catalog mode."""
+    if not getattr(settings, 'BBPS_PROVIDER_GOVERNANCE_ENABLED', True):
+        return Response(
+            {'success': False, 'data': None, 'message': 'Provider governance is disabled', 'errors': []},
+            status=503,
+        )
+    from apps.bbps.service_flow.catalog_ux_settings import (
+        get_catalog_ux_settings,
+        update_catalog_ux_settings,
+    )
+
+    env_param = str(request.query_params.get('environment') or request.data.get('environment') or '').strip().lower()
+    live_mode = active_bbps_environment()
+    env = normalize_billavenue_mode(env_param) if env_param in ('uat', 'prod') else live_mode
+
+    if request.method == 'GET':
+        return Response(
+            {
+                'success': True,
+                'data': get_catalog_ux_settings(env),
+                'message': 'Catalog UX settings',
+                'errors': [],
+            },
+            status=200,
+        )
+
+    data = request.data or {}
+    cash_only = data.get('cash_only_for_users')
+    if cash_only is None:
+        return Response(
+            {
+                'success': False,
+                'data': None,
+                'message': 'cash_only_for_users is required',
+                'errors': {'cash_only_for_users': ['This field is required.']},
+            },
+            status=400,
+        )
+    out = update_catalog_ux_settings(
+        environment=env,
+        cash_only_for_users=bool(cash_only),
+        admin_user=request.user,
+    )
+    return Response(
+        {
+            'success': True,
+            'data': out,
+            'message': 'Catalog UX settings updated',
             'errors': [],
         },
         status=200,

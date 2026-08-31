@@ -17,7 +17,7 @@ const LoadingSpinner = ({ size = 'md', fullScreen = false, text = 'Loading...', 
         `}
       ></div>
       {text && (
-        <p className={`mt-4 text-gray-600 ${size === 'sm' ? 'text-xs' : size === 'lg' || size === 'xl' ? 'text-base' : 'text-sm'}`}>
+        <p className={`mt-4 text-gray-600 dark:text-slate-400 ${size === 'sm' ? 'text-xs' : size === 'lg' || size === 'xl' ? 'text-base' : 'text-sm'}`}>
           {text}
         </p>
       )}
@@ -26,7 +26,7 @@ const LoadingSpinner = ({ size = 'md', fullScreen = false, text = 'Loading...', 
 
   if (fullScreen) {
     return (
-      <div className="fixed inset-0 z-50 flex items-center justify-center bg-white bg-opacity-75">
+      <div className="fixed inset-0 z-50 flex items-center justify-center bg-white/75 dark:bg-slate-950/75">
         {spinner}
       </div>
     );

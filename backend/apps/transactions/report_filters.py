@@ -120,6 +120,14 @@ def apply_operational_report_filters(
     if agent_role:
         qs = qs.filter(user__role__iexact=agent_role)
 
+    collection_rail = (request.query_params.get('collection_rail') or request.query_params.get('rail') or '').strip().lower()
+    if collection_rail and collection_rail not in ('all', 'any'):
+        qs = qs.filter(collection_rail=collection_rail)
+
+    utr = (request.query_params.get('utr') or '').strip()
+    if utr:
+        qs = qs.filter(utr__icontains=utr)
+
     return qs
 
 

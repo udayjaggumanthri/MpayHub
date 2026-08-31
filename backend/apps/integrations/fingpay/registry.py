@@ -4,7 +4,6 @@ from __future__ import annotations
 from apps.core.utils import decrypt_secret_payload
 from apps.integrations.fingpay.client import FingpayClient, FingpayClientError
 from apps.integrations.fingpay.crypto import load_bundled_fingpay_certificate
-from apps.integrations.fingpay.endpoints import DEFAULT_EGRESS_IP
 
 
 def get_active_provider():
@@ -132,11 +131,9 @@ def build_client_from_config(config) -> FingpayClient:
     elif getattr(config, 'endpoints_json', None):
         endpoints = config.endpoints_json
 
-    egress = ''
-    if hasattr(config, 'resolved_egress_ip'):
-        egress = config.resolved_egress_ip()
-    else:
-        egress = (getattr(config, 'egress_ip', '') or '').strip() or DEFAULT_EGRESS_IP
+    # Pass the configured override only. The client resolves the effective
+    # address (detection first) via `effective_egress_ip`.
+    egress = (getattr(config, 'egress_ip', '') or '').strip()
 
     return FingpayClient(
         super_merchant_id=config.super_merchant_id,

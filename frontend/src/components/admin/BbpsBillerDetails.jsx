@@ -3,23 +3,23 @@ import { Link, useNavigate, useParams } from 'react-router-dom';
 import { bbpsAPI, billAvenueAdminAPI } from '../../services/api';
 
 const Section = ({ title, children }) => (
-  <div className="bg-white rounded-xl border border-gray-200">
-    <div className="px-4 py-3 border-b border-gray-100 font-semibold text-gray-800">{title}</div>
+  <div className="bg-white dark:bg-slate-900 rounded-xl border border-gray-200 dark:border-slate-700">
+    <div className="px-4 py-3 border-b border-gray-100 dark:border-slate-800 font-semibold text-gray-800 dark:text-slate-200">{title}</div>
     <div className="p-4">{children}</div>
   </div>
 );
 
 const SimpleTable = ({ columns, rows, rowClassName = null }) => (
-  <div className="overflow-auto border border-gray-100 rounded-lg">
+  <div className="overflow-auto border border-gray-100 dark:border-slate-800 rounded-lg">
     <table className="w-full text-xs">
-      <thead className="bg-gray-50">
+      <thead className="bg-gray-50 dark:bg-slate-800/50">
         <tr>
           {columns.map((c) => <th key={c.key} className="text-left p-2">{c.label}</th>)}
         </tr>
       </thead>
       <tbody>
         {rows.length === 0 ? (
-          <tr><td className="p-3 text-gray-500" colSpan={columns.length}>No records</td></tr>
+          <tr><td className="p-3 text-gray-500 dark:text-slate-400" colSpan={columns.length}>No records</td></tr>
         ) : rows.map((r, idx) => (
           <tr key={idx} className={`border-t ${rowClassName ? rowClassName(r) : ''}`}>
             {columns.map((c) => (
@@ -293,9 +293,9 @@ const BbpsBillerDetails = () => {
     setInfo(`Payment mapping saved. Allowed channels: ${allowedChannels.join(', ')}`);
   };
 
-  if (loading) return <div className="max-w-7xl mx-auto text-sm text-gray-500">Loading biller details...</div>;
-  if (error) return <div className="max-w-7xl mx-auto text-sm text-red-700 bg-red-50 border border-red-200 rounded p-3">{error}</div>;
-  if (!biller) return <div className="max-w-7xl mx-auto text-sm text-gray-500">Biller not found.</div>;
+  if (loading) return <div className="max-w-7xl mx-auto text-sm text-gray-500 dark:text-slate-400">Loading biller details...</div>;
+  if (error) return <div className="max-w-7xl mx-auto text-sm text-red-700 dark:text-red-300 bg-red-50 dark:bg-red-950/40 border border-red-200 dark:border-red-800 rounded p-3">{error}</div>;
+  if (!biller) return <div className="max-w-7xl mx-auto text-sm text-gray-500 dark:text-slate-400">Biller not found.</div>;
   const rawPayload = biller.raw_payload || {};
   const flattened = flattenObject(rawPayload);
   const expectedInputRows = flattened.filter(
@@ -326,8 +326,8 @@ const BbpsBillerDetails = () => {
     <div className="max-w-7xl mx-auto space-y-4">
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-xl font-semibold text-gray-900">{biller.biller_name || 'Biller Details'}</h1>
-          <p className="text-sm text-gray-600">Biller ID: <span className="font-mono">{biller.biller_id}</span></p>
+          <h1 className="text-xl font-semibold text-gray-900 dark:text-slate-100">{biller.biller_name || 'Biller Details'}</h1>
+          <p className="text-sm text-gray-600 dark:text-slate-400">Biller ID: <span className="font-mono">{biller.biller_id}</span></p>
         </div>
         <div className="flex flex-wrap gap-2">
           <button
@@ -357,19 +357,19 @@ const BbpsBillerDetails = () => {
             {togglingLocal ? 'Updating...' : biller.is_active_local ? 'Disable locally' : 'Enable locally'}
           </button>
           <button type="button" onClick={() => navigate(-1)} className="px-3 py-2 border rounded text-sm">Back</button>
-          <Link to="/admin/bbps-governance" className="px-3 py-2 border rounded text-sm bg-slate-50">Governance</Link>
+          <Link to="/admin/bbps-governance" className="px-3 py-2 border rounded text-sm bg-slate-50 dark:bg-slate-800/50">Governance</Link>
           <button
             type="button"
             onClick={() => setShowFullResponse((v) => !v)}
-            className="px-3 py-2 border rounded text-sm bg-slate-50"
+            className="px-3 py-2 border rounded text-sm bg-slate-50 dark:bg-slate-800/50"
           >
             {showFullResponse ? 'Hide full response' : 'See full response'}
           </button>
-          <button type="button" onClick={() => downloadAudit('json')} className="px-3 py-2 border rounded text-sm bg-slate-50">Download JSON</button>
-          <button type="button" onClick={() => downloadAudit('xml')} className="px-3 py-2 border rounded text-sm bg-slate-50">Download XML</button>
+          <button type="button" onClick={() => downloadAudit('json')} className="px-3 py-2 border rounded text-sm bg-slate-50 dark:bg-slate-800/50">Download JSON</button>
+          <button type="button" onClick={() => downloadAudit('xml')} className="px-3 py-2 border rounded text-sm bg-slate-50 dark:bg-slate-800/50">Download XML</button>
         </div>
       </div>
-      {info ? <div className="text-sm text-green-700 bg-green-50 border border-green-200 rounded p-3">{info}</div> : null}
+      {info ? <div className="text-sm text-green-700 dark:text-green-300 bg-green-50 dark:bg-green-950/40 border border-green-200 dark:border-green-800 rounded p-3">{info}</div> : null}
 
       <Section title="Overview">
         <div className="grid grid-cols-1 md:grid-cols-3 gap-3 text-sm">
@@ -394,29 +394,29 @@ const BbpsBillerDetails = () => {
             <div className="border rounded p-3">Created at: <strong>{planPullView.created_at || '-'}</strong></div>
           </div>
         ) : (
-          <p className="text-sm text-gray-500">No plan pull run found yet for this biller.</p>
+          <p className="text-sm text-gray-500 dark:text-slate-400">No plan pull run found yet for this biller.</p>
         )}
       </Section>
 
       <Section title="Supported from biller response">
-        <p className="text-sm text-gray-600 mb-3">
+        <p className="text-sm text-gray-600 dark:text-slate-400 mb-3">
           This is taken directly from synced biller info for this biller ID, so admins can map only what the biller actually supports.
         </p>
         <div className="grid grid-cols-1 md:grid-cols-3 gap-3 text-sm mb-3">
           <div className="border rounded p-3">
-            <div className="text-gray-500 text-xs">Accepted payment channels</div>
+            <div className="text-gray-500 dark:text-slate-400 text-xs">Accepted payment channels</div>
             <div className="font-semibold text-lg">{supportedChannels.length}</div>
-            <div className="text-xs text-gray-700 mt-2">{supportedChannels.join(', ') || '-'}</div>
+            <div className="text-xs text-gray-700 dark:text-slate-300 mt-2">{supportedChannels.join(', ') || '-'}</div>
           </div>
           <div className="border rounded p-3">
-            <div className="text-gray-500 text-xs">Accepted payment modes</div>
+            <div className="text-gray-500 dark:text-slate-400 text-xs">Accepted payment modes</div>
             <div className="font-semibold text-lg">{supportedModes.length}</div>
-            <div className="text-xs text-gray-700 mt-2">{supportedModes.join(', ') || '-'}</div>
+            <div className="text-xs text-gray-700 dark:text-slate-300 mt-2">{supportedModes.join(', ') || '-'}</div>
           </div>
           <div className="border rounded p-3">
-            <div className="text-gray-500 text-xs">Plan support</div>
+            <div className="text-gray-500 dark:text-slate-400 text-xs">Plan support</div>
             <div className="font-semibold text-lg">{String(biller.plan_mdm_requirement || 'NOT_SUPPORTED')}</div>
-            <div className="text-xs text-gray-700 mt-2">
+            <div className="text-xs text-gray-700 dark:text-slate-300 mt-2">
               Plans synced: {supportedPlans.length}
               {catalogSummary?.pay_ui_projection?.plans_truncated ? ' (truncated)' : ''}
             </div>
@@ -446,7 +446,7 @@ const BbpsBillerDetails = () => {
             }))}
           />
         ) : (
-          <p className="text-xs text-gray-500">
+          <p className="text-xs text-gray-500 dark:text-slate-400">
             No plan entries available for this biller.
             {latestPlanPull ? ` Last pull: code=${latestPlanPull.response_code || '-'}, rows=${latestPlanPull.plan_count ?? 0}.` : ''}
           </p>
@@ -454,17 +454,17 @@ const BbpsBillerDetails = () => {
       </Section>
 
       <Section title="Catalog summary (projections & counts)">
-        <p className="text-xs text-gray-500 mb-3">
+        <p className="text-xs text-gray-500 dark:text-slate-400 mb-3">
           Aggregate view of persisted catalog rows and the same pay-UI projections used for customer flows (input schema, modes/channels, additional info, plans lite).
         </p>
         {catalogLoading ? (
-          <p className="text-sm text-gray-500">Loading catalog summary…</p>
+          <p className="text-sm text-gray-500 dark:text-slate-400">Loading catalog summary…</p>
         ) : catalogSummary ? (
           <div className="space-y-3 text-sm">
             <div className="grid grid-cols-2 md:grid-cols-5 gap-2">
               {Object.entries(catalogSummary.counts || {}).map(([k, v]) => (
                 <div key={k} className="border rounded p-2">
-                  <div className="text-[10px] uppercase text-gray-500">{k.replace(/_/g, ' ')}</div>
+                  <div className="text-[10px] uppercase text-gray-500 dark:text-slate-400">{k.replace(/_/g, ' ')}</div>
                   <div className="font-semibold">{String(v)}</div>
                 </div>
               ))}
@@ -472,7 +472,7 @@ const BbpsBillerDetails = () => {
             <div className="flex flex-wrap gap-3 text-xs">
               <span>
                 Raw MDM payload fingerprint (SHA-256):{' '}
-                <code className="bg-slate-100 px-1 rounded">{catalogSummary.raw_payload_fingerprint_sha256 || '—'}</code>
+                <code className="bg-slate-100 dark:bg-slate-800 px-1 rounded">{catalogSummary.raw_payload_fingerprint_sha256 || '—'}</code>
               </span>
               <span>Size: <strong>{catalogSummary.raw_payload_size_bytes ?? 0}</strong> bytes</span>
               <span>
@@ -482,16 +482,16 @@ const BbpsBillerDetails = () => {
             </div>
           </div>
         ) : (
-          <p className="text-sm text-gray-500">Catalog summary unavailable.</p>
+          <p className="text-sm text-gray-500 dark:text-slate-400">Catalog summary unavailable.</p>
         )}
       </Section>
 
       <Section title="Admin payment mapping (channel → mode)">
-        <p className="text-sm text-gray-600 mb-3">
+        <p className="text-sm text-gray-600 dark:text-slate-400 mb-3">
           Choose which payment channels are allowed for this biller. Users will only see methods that match these allowed channels.
         </p>
         {mappingLoading ? (
-          <p className="text-sm text-gray-500">Loading mapping…</p>
+          <p className="text-sm text-gray-500 dark:text-slate-400">Loading mapping…</p>
         ) : mappingData ? (
           <div className="space-y-3">
             <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
@@ -502,17 +502,17 @@ const BbpsBillerDetails = () => {
                     key={ch}
                     type="button"
                     onClick={() => toggleAllowedChannel(ch)}
-                    className={`px-3 py-2 text-sm rounded border text-left ${checked ? 'bg-blue-600 text-white border-blue-600' : 'bg-white text-gray-700 border-gray-300'}`}
+                    className={`px-3 py-2 text-sm rounded border text-left ${checked ? 'bg-blue-600 text-white border-blue-600' : 'bg-white dark:bg-slate-900 text-gray-700 dark:text-slate-300 border-gray-300 dark:border-slate-600'}`}
                   >
                     <span className="font-semibold">{ch}</span>{' '}
-                    <span className={`${checked ? 'text-blue-100' : 'text-gray-500'}`}>
+                    <span className={`${checked ? 'text-blue-100' : 'text-gray-500 dark:text-slate-400'}`}>
                       {checked ? 'Allowed' : 'Blocked'}
                     </span>
                   </button>
                 );
               })}
             </div>
-            <div className="text-xs text-gray-500">
+            <div className="text-xs text-gray-500 dark:text-slate-400">
               Allowed channels: {allowedChannels.length ? allowedChannels.join(', ') : 'None selected'}
             </div>
             <button
@@ -530,11 +530,11 @@ const BbpsBillerDetails = () => {
                   .map((r) => r.payment_mode);
                 return (
                   <div key={`summary-${ch}`} className="border rounded p-3 text-sm">
-                    <div className="font-semibold text-gray-800">{ch}</div>
-                    <div className="text-xs text-gray-500 mt-1">
+                    <div className="font-semibold text-gray-800 dark:text-slate-200">{ch}</div>
+                    <div className="text-xs text-gray-500 dark:text-slate-400 mt-1">
                       Supported modes: {allowedModes.length}
                     </div>
-                    <div className="mt-2 text-xs text-gray-700">
+                    <div className="mt-2 text-xs text-gray-700 dark:text-slate-300">
                       {allowedModes.length ? allowedModes.join(', ') : 'No valid modes by BBPS rules'}
                     </div>
                   </div>
@@ -543,22 +543,22 @@ const BbpsBillerDetails = () => {
             </div>
           </div>
         ) : (
-          <p className="text-sm text-gray-500">No mapping data available.</p>
+          <p className="text-sm text-gray-500 dark:text-slate-400">No mapping data available.</p>
         )}
       </Section>
 
       <Section title="Schema at a glance">
         <div className="grid grid-cols-1 md:grid-cols-3 gap-3 text-sm">
           <div className="border rounded p-3">
-            <div className="text-gray-500 text-xs">Input fields</div>
+            <div className="text-gray-500 dark:text-slate-400 text-xs">Input fields</div>
             <div className="font-semibold text-lg">{catalogSummary?.counts?.input_params ?? expectedInputRows.length}</div>
           </div>
           <div className="border rounded p-3">
-            <div className="text-gray-500 text-xs">Payment modes</div>
+            <div className="text-gray-500 dark:text-slate-400 text-xs">Payment modes</div>
             <div className="font-semibold text-lg">{catalogSummary?.counts?.payment_modes ?? 0}</div>
           </div>
           <div className="border rounded p-3">
-            <div className="text-gray-500 text-xs">Payment channels</div>
+            <div className="text-gray-500 dark:text-slate-400 text-xs">Payment channels</div>
             <div className="font-semibold text-lg">{catalogSummary?.counts?.payment_channels ?? 0}</div>
           </div>
         </div>
@@ -579,11 +579,11 @@ const BbpsBillerDetails = () => {
 
       <Section title="Raw payload details">
         {showFullResponse ? (
-          <pre className="text-xs bg-slate-50 border border-slate-200 rounded p-3 overflow-auto max-h-[420px]">
+          <pre className="text-xs bg-slate-50 dark:bg-slate-800/50 border border-slate-200 dark:border-slate-700 rounded p-3 overflow-auto max-h-[420px]">
             {JSON.stringify(rawPayload, null, 2)}
           </pre>
         ) : (
-          <p className="text-sm text-gray-600">
+          <p className="text-sm text-gray-600 dark:text-slate-400">
             Full response is hidden. Click <strong>See full response</strong> to inspect all biller info fields.
           </p>
         )}

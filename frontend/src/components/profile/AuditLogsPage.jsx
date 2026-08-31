@@ -17,9 +17,9 @@ const AuditLogsPage = () => {
   return (
     <div className="mx-auto max-w-6xl space-y-4">
       <div>
-        <p className="text-xs font-semibold uppercase tracking-widest text-indigo-600">Security</p>
-        <h1 className="mt-1 text-2xl font-bold tracking-tight text-slate-900">Audit logs</h1>
-        <p className="mt-1 text-sm text-slate-500">
+        <p className="text-xs font-semibold uppercase tracking-widest text-indigo-600 dark:text-indigo-400">Security</p>
+        <h1 className="mt-1 text-2xl font-bold tracking-tight text-slate-900 dark:text-slate-100">Audit logs</h1>
+        <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">
           {canViewAllUsers
             ? 'Login, money, contacts, reports, and admin events across all accounts. Filter by user, category, or date. Times are IST.'
             : 'Your own login, money, contacts, and report activity only. Other accounts are never shown. Times are IST.'}
@@ -27,7 +27,7 @@ const AuditLogsPage = () => {
         {!canViewAllUsers ? (
           <Link
             to="/profile/login-activity"
-            className="mt-2 inline-block text-sm font-semibold text-indigo-600 hover:text-indigo-800"
+            className="mt-2 inline-block text-sm font-semibold text-indigo-600 dark:text-indigo-400 hover:text-indigo-800 dark:hover:text-indigo-200"
           >
             Open login activity →
           </Link>

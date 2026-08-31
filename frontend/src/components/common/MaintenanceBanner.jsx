@@ -21,7 +21,7 @@ const MaintenanceBanner = ({ maintenance, moduleKey, variant = 'inline' }) => {
   if (variant === 'compact') {
     return (
       <div
-        className="flex items-start gap-3 rounded-lg border border-amber-300/80 bg-amber-50 px-3 py-2.5 text-sm text-amber-950"
+        className="flex items-start gap-3 rounded-lg border border-amber-300/80 dark:border-amber-800/80 bg-amber-50 dark:bg-amber-950/40 px-3 py-2.5 text-sm text-amber-950 dark:text-amber-200"
         role="alert"
         aria-live="polite"
       >
@@ -31,7 +31,7 @@ const MaintenanceBanner = ({ maintenance, moduleKey, variant = 'inline' }) => {
         </span>
         <div>
           <p className="font-semibold">{meta.title}</p>
-          <p className="mt-0.5 text-amber-900/90">{message}</p>
+          <p className="mt-0.5 text-amber-900/90 dark:text-amber-300/90">{message}</p>
         </div>
       </div>
     );
@@ -39,7 +39,7 @@ const MaintenanceBanner = ({ maintenance, moduleKey, variant = 'inline' }) => {
 
   return (
     <div
-      className="relative overflow-hidden rounded-2xl border-2 border-amber-300/90 bg-gradient-to-br from-amber-50 via-orange-50 to-amber-100/80 shadow-sm"
+      className="relative overflow-hidden rounded-2xl border-2 border-amber-300/90 dark:border-amber-800/90 bg-gradient-to-br from-amber-50 dark:from-amber-950/40 via-orange-50 dark:via-orange-950/40 to-amber-100/80 dark:to-amber-900/40 shadow-sm"
       role="alert"
       aria-live="polite"
     >
@@ -64,23 +64,23 @@ const MaintenanceBanner = ({ maintenance, moduleKey, variant = 'inline' }) => {
 
         <div className="min-w-0 flex-1 space-y-2">
           <div className="flex flex-wrap items-center gap-2">
-            <span className="inline-flex items-center gap-1.5 rounded-full border border-amber-400/60 bg-white/80 px-2.5 py-1 text-xs font-bold uppercase tracking-wide text-amber-900 shadow-sm">
+            <span className="inline-flex items-center gap-1.5 rounded-full border border-amber-400/60 bg-white/80 dark:bg-slate-900/80 px-2.5 py-1 text-xs font-bold uppercase tracking-wide text-amber-900 dark:text-amber-300 shadow-sm">
               <span className="relative flex h-2 w-2">
                 <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-amber-500 opacity-75" />
                 <span className="relative inline-flex h-2 w-2 rounded-full bg-amber-600" />
               </span>
               Maintenance in progress
             </span>
-            <span className="inline-flex items-center gap-1 rounded-full bg-amber-900/10 px-2 py-0.5 text-xs font-medium text-amber-950">
+            <span className="inline-flex items-center gap-1 rounded-full bg-amber-900/10 px-2 py-0.5 text-xs font-medium text-amber-950 dark:text-amber-200">
               <FaLock size={11} aria-hidden />
               {meta.label}
             </span>
           </div>
 
-          <h2 className="text-lg font-bold text-amber-950 sm:text-xl">{meta.title}</h2>
-          <p className="text-sm leading-relaxed text-amber-950/90">{message}</p>
+          <h2 className="text-lg font-bold text-amber-950 dark:text-amber-200 sm:text-xl">{meta.title}</h2>
+          <p className="text-sm leading-relaxed text-amber-950/90 dark:text-amber-200/90">{message}</p>
 
-          <div className="flex flex-wrap items-center gap-x-4 gap-y-1 pt-1 text-xs text-amber-900/80">
+          <div className="flex flex-wrap items-center gap-x-4 gap-y-1 pt-1 text-xs text-amber-900/80 dark:text-amber-300/80">
             <span className="inline-flex items-center gap-1.5">
               <FaClock size={12} aria-hidden />
               New transactions in this module are paused for all users.
@@ -88,7 +88,7 @@ const MaintenanceBanner = ({ maintenance, moduleKey, variant = 'inline' }) => {
             {meta.reportPath ? (
               <Link
                 to={meta.reportPath}
-                className="font-semibold text-amber-900 underline decoration-amber-400/80 underline-offset-2 hover:text-amber-950"
+                className="font-semibold text-amber-900 dark:text-amber-300 underline decoration-amber-400/80 underline-offset-2 hover:text-amber-950"
               >
                 View past {meta.reportLabel.toLowerCase()} →
               </Link>

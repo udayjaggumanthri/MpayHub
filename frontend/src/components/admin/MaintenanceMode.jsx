@@ -123,7 +123,7 @@ const MaintenanceMode = () => {
 
   if (loading) {
     return (
-      <div className="p-6 text-slate-600 text-sm">Loading maintenance settings…</div>
+      <div className="p-6 text-slate-600 dark:text-slate-400 text-sm">Loading maintenance settings…</div>
     );
   }
 
@@ -131,8 +131,8 @@ const MaintenanceMode = () => {
     <div className="max-w-4xl mx-auto p-4 sm:p-6 space-y-6">
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div>
-          <h1 className="text-2xl font-bold text-slate-900">Maintenance mode</h1>
-          <p className="text-sm text-slate-600 mt-1 max-w-2xl">
+          <h1 className="text-2xl font-bold text-slate-900 dark:text-slate-100">Maintenance mode</h1>
+          <p className="text-sm text-slate-600 dark:text-slate-400 mt-1 max-w-2xl">
             Turn off Pay-in, Payout, or BBPS for all users during maintenance or fraud response.
             Login, onboarding, KYC, and reports stay available.
           </p>
@@ -150,18 +150,18 @@ const MaintenanceMode = () => {
       </div>
 
       {error && (
-        <div className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-800">
+        <div className="rounded-xl border border-red-200 dark:border-red-800 bg-red-50 dark:bg-red-950/40 px-4 py-3 text-sm text-red-800 dark:text-red-300">
           {error}
         </div>
       )}
       {success && (
-        <div className="rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-900">
+        <div className="rounded-xl border border-emerald-200 dark:border-emerald-800 bg-emerald-50 dark:bg-emerald-950/40 px-4 py-3 text-sm text-emerald-900 dark:text-emerald-300">
           {success}
         </div>
       )}
 
       {meta.updated_at && (
-        <p className="text-xs text-slate-500">
+        <p className="text-xs text-slate-500 dark:text-slate-400">
           Last updated
           {meta.updated_by?.name ? ` by ${meta.updated_by.name}` : ''}
           {meta.updated_at ? ` at ${new Date(meta.updated_at).toLocaleString('en-IN')}` : ''}
@@ -172,12 +172,12 @@ const MaintenanceMode = () => {
         {MODULES.map((mod) => (
           <div
             key={mod.key}
-            className="border border-slate-200 rounded-xl p-4 space-y-3"
+            className="border border-slate-200 dark:border-slate-700 rounded-xl p-4 space-y-3"
           >
             <div className="flex flex-wrap items-center justify-between gap-3">
               <div>
-                <h2 className="font-semibold text-slate-900">{mod.label}</h2>
-                <p className="text-xs text-slate-500 mt-0.5">{mod.description}</p>
+                <h2 className="font-semibold text-slate-900 dark:text-slate-100">{mod.label}</h2>
+                <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">{mod.description}</p>
               </div>
               <div className="flex items-center">
               <button
@@ -186,26 +186,26 @@ const MaintenanceMode = () => {
                 aria-checked={Boolean(form[mod.enabledField])}
                 onClick={() => requestToggle(mod, !form[mod.enabledField])}
                 className={`relative inline-flex h-6 w-11 shrink-0 rounded-full transition-colors ${
-                  form[mod.enabledField] ? 'bg-emerald-500' : 'bg-slate-300'
+                  form[mod.enabledField] ? 'bg-emerald-500' : 'bg-slate-300 dark:bg-slate-600'
                 }`}
               >
                 <span
-                  className={`inline-block h-5 w-5 transform rounded-full bg-white shadow transition-transform mt-0.5 ${
+                  className={`inline-block h-5 w-5 transform rounded-full bg-white dark:bg-slate-900 shadow transition-transform mt-0.5 ${
                     form[mod.enabledField] ? 'translate-x-5' : 'translate-x-0.5'
                   }`}
                 />
               </button>
-              <span className="text-sm font-medium text-slate-700 ml-2">
+              <span className="text-sm font-medium text-slate-700 dark:text-slate-300 ml-2">
                 {form[mod.enabledField] ? 'Enabled' : 'Maintenance'}
               </span>
               </div>
             </div>
             <div>
-              <label className="block text-xs font-medium text-slate-600 mb-1">
+              <label className="block text-xs font-medium text-slate-600 dark:text-slate-400 mb-1">
                 Message for users (optional)
               </label>
               <textarea
-                className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm min-h-[72px]"
+                className="w-full rounded-lg border border-slate-300 dark:border-slate-600 px-3 py-2 text-sm min-h-[72px]"
                 placeholder="This service is temporarily unavailable due to maintenance."
                 value={form[mod.messageField]}
                 onChange={(e) =>
@@ -217,11 +217,11 @@ const MaintenanceMode = () => {
         ))}
 
         <div>
-          <label className="block text-xs font-medium text-slate-600 mb-1">
+          <label className="block text-xs font-medium text-slate-600 dark:text-slate-400 mb-1">
             Internal reason (admin only)
           </label>
           <textarea
-            className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm min-h-[80px]"
+            className="w-full rounded-lg border border-slate-300 dark:border-slate-600 px-3 py-2 text-sm min-h-[80px]"
             placeholder="e.g. Razorpay outage, fraud review, planned maintenance window"
             value={form.reason_internal}
             onChange={(e) => setForm((f) => ({ ...f, reason_internal: e.target.value }))}
@@ -237,12 +237,12 @@ const MaintenanceMode = () => {
 
       {confirmOff && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
-          <div className="bg-white rounded-xl shadow-xl max-w-md w-full p-6 space-y-4">
-            <div className="flex items-start gap-3 text-amber-700">
+          <div className="bg-white dark:bg-slate-900 rounded-xl shadow-xl max-w-md w-full p-6 space-y-4">
+            <div className="flex items-start gap-3 text-amber-700 dark:text-amber-300">
               <FaTriangleExclamation className="mt-0.5 shrink-0" size={22} />
               <div>
-                <h3 className="font-semibold text-slate-900">Turn off {confirmOff.label}?</h3>
-                <p className="text-sm text-slate-600 mt-1">
+                <h3 className="font-semibold text-slate-900 dark:text-slate-100">Turn off {confirmOff.label}?</h3>
+                <p className="text-sm text-slate-600 dark:text-slate-400 mt-1">
                   All users will be blocked from starting new activity in this module immediately.
                   Reports and login are not affected.
                 </p>

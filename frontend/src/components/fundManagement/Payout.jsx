@@ -9,6 +9,7 @@ import Input from '../common/Input';
 import Button from '../common/Button';
 import FeedbackModal from '../common/FeedbackModal';
 import ContactSearchTypeahead from './ContactSearchTypeahead';
+import SelectField from '../common/SelectField';
 import { formatCurrency } from '../../utils/formatters';
 import { validateAmount, validateAccountNumber, validateIFSC, validatePhone } from '../../utils/validators';
 import AccountAccessBanner from '../common/AccountAccessBanner';
@@ -387,10 +388,10 @@ const Payout = () => {
     <>
       {showSuccessNotification && (
         <div className="fixed top-4 right-4 z-50 animate-slide-in">
-          <div className="bg-green-50 border-2 border-green-200 rounded-lg p-4 shadow-lg flex items-center space-x-3 min-w-[300px]">
-            <FaCircleCheck className="text-green-600 flex-shrink-0" size={24} />
+          <div className="bg-green-50 dark:bg-green-950/40 border-2 border-green-200 dark:border-green-800 rounded-lg p-4 shadow-lg flex items-center space-x-3 min-w-[300px]">
+            <FaCircleCheck className="text-green-600 dark:text-green-400 flex-shrink-0" size={24} />
             <div>
-              <p className="font-semibold text-green-800">Bank account saved</p>
+              <p className="font-semibold text-green-800 dark:text-green-300">Bank account saved</p>
             </div>
           </div>
         </div>
@@ -400,8 +401,8 @@ const Payout = () => {
         <AccountAccessBanner user={user} mode="pay_out" />
         <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between">
           <div>
-            <h1 className="text-2xl sm:text-3xl font-bold text-gray-900">Payout (Withdraw Funds)</h1>
-            <p className="mt-1 sm:mt-2 text-sm sm:text-base text-gray-600">
+            <h1 className="text-2xl sm:text-3xl font-bold text-gray-900 dark:text-slate-100">Payout (Withdraw Funds)</h1>
+            <p className="mt-1 sm:mt-2 text-sm sm:text-base text-gray-600 dark:text-slate-400">
               Transfer from your main wallet via IMPS, NEFT, or RTGS. Slab charges: ₹{chargeLow} up to{' '}
               {formatCurrency(slabLowMax)}, ₹{chargeHigh} above.
             </p>
@@ -410,10 +411,10 @@ const Payout = () => {
 
         <MaintenanceModuleLock maintenance={maintenance} moduleKey="payout">
         <Card padding="lg">
-          <div className="p-4 sm:p-6 bg-gradient-to-r from-blue-50 to-indigo-50 border-2 border-blue-200 rounded-xl space-y-3">
-            <p className="text-sm font-medium text-gray-600">Maximum eligible payout (main wallet)</p>
-            <p className="text-3xl font-bold text-blue-600">{formatCurrency(maxEligibleAmount)}</p>
-            <p className="text-xs text-gray-600">
+          <div className="p-4 sm:p-6 bg-gradient-to-r from-blue-50 dark:from-blue-950/40 to-indigo-50 dark:to-indigo-950/40 border-2 border-blue-200 dark:border-blue-800 rounded-xl space-y-3">
+            <p className="text-sm font-medium text-gray-600 dark:text-slate-400">Maximum eligible payout (main wallet)</p>
+            <p className="text-3xl font-bold text-blue-600 dark:text-blue-400">{formatCurrency(maxEligibleAmount)}</p>
+            <p className="text-xs text-gray-600 dark:text-slate-400">
               Main balance: {formatCurrency(wallets.main)}
               {wallets.commission > 0 ? ` · Commission wallet: ${formatCurrency(wallets.commission)}` : ''}
             </p>
@@ -455,7 +456,7 @@ const Payout = () => {
             />
 
             {beneficiaryDetails && (
-              <div className="p-6 bg-gradient-to-r from-blue-50 to-indigo-50 border-2 border-blue-200 rounded-xl">
+              <div className="p-6 bg-gradient-to-r from-blue-50 dark:from-blue-950/40 to-indigo-50 dark:to-indigo-950/40 border-2 border-blue-200 dark:border-blue-800 rounded-xl">
                 <div className="flex items-start space-x-4">
                   <div className="flex-shrink-0">
                     <div className="w-14 h-14 bg-gradient-to-br from-blue-500 to-indigo-600 rounded-full flex items-center justify-center shadow-lg">
@@ -464,26 +465,26 @@ const Payout = () => {
                   </div>
                   <div className="flex-1">
                     <div className="flex items-center space-x-2 mb-3">
-                      <FaCircleCheck className="text-green-600" size={22} />
-                      <h3 className="text-lg font-bold text-gray-900">Contact Information</h3>
+                      <FaCircleCheck className="text-green-600 dark:text-green-400" size={22} />
+                      <h3 className="text-lg font-bold text-gray-900 dark:text-slate-100">Contact Information</h3>
                     </div>
-                    <p className="text-xs text-gray-600 mb-2">
+                    <p className="text-xs text-gray-600 dark:text-slate-400 mb-2">
                       Matched from your saved contacts — confirm identity before payout.
                     </p>
                     <div className="space-y-2">
                       <div className="flex items-center space-x-2">
-                        <FaUser className="text-blue-600" size={18} />
-                        <p className="font-semibold text-gray-900">{beneficiaryDetails.name}</p>
+                        <FaUser className="text-blue-600 dark:text-blue-400" size={18} />
+                        <p className="font-semibold text-gray-900 dark:text-slate-100">{beneficiaryDetails.name}</p>
                       </div>
                       <div className="flex items-center space-x-2">
-                        <FaEnvelope className="text-blue-600" size={18} />
-                        <p className="text-sm text-gray-600">
+                        <FaEnvelope className="text-blue-600 dark:text-blue-400" size={18} />
+                        <p className="text-sm text-gray-600 dark:text-slate-400">
                           <span className="font-medium">{beneficiaryDetails.email || '—'}</span>
                         </p>
                       </div>
                       <div className="flex items-center space-x-2">
-                        <FaPhone className="text-blue-600" size={18} />
-                        <p className="text-sm text-gray-600">
+                        <FaPhone className="text-blue-600 dark:text-blue-400" size={18} />
+                        <p className="text-sm text-gray-600 dark:text-slate-400">
                           <span className="font-medium">{beneficiaryDetails.phone}</span>
                         </p>
                       </div>
@@ -501,64 +502,61 @@ const Payout = () => {
               <div className="space-y-4">
                 {bankAccounts.length > 0 && (
                   <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-2">Beneficiary List</label>
-                    <select
+                    <SelectField
+                      label="Beneficiary List"
                       value={selectedAccount?.id ?? ''}
-                      onChange={(e) => {
-                        const account = bankAccounts.find((acc) => String(acc.id) === String(e.target.value));
+                      onChange={(val) => {
+                        const account = bankAccounts.find((acc) => String(acc.id) === String(val));
                         setSelectedAccount(account || null);
                         setShowAddBankAccount(false);
                       }}
-                      className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 text-gray-900 bg-white"
-                    >
-                      <option value="">-- Select Bank Account --</option>
-                      {bankAccounts.map((account) => (
-                        <option key={account.id} value={account.id}>
-                          {account.bankName} - A/C: {formatAccountNumber(account.accountNumber)} (
-                          {account.accountHolderName})
-                        </option>
-                      ))}
-                    </select>
+                      options={bankAccounts}
+                      getOptionLabel={(account) =>
+                        `${account.bankName} - A/C: ${formatAccountNumber(account.accountNumber)} (${account.accountHolderName})`
+                      }
+                      getOptionValue={(account) => account.id}
+                      placeholder="-- Select Bank Account --"
+                    />
                   </div>
                 )}
 
                 {bankAccounts.length === 0 && (
-                  <div className="p-3 bg-amber-50 border border-amber-200 rounded-lg flex gap-2 text-sm text-amber-900">
+                  <div className="p-3 bg-amber-50 dark:bg-amber-950/40 border border-amber-200 dark:border-amber-800 rounded-lg flex gap-2 text-sm text-amber-900 dark:text-amber-300">
                     <FaCircleExclamation className="flex-shrink-0 mt-0.5" />
                     <span>No saved bank accounts yet. Add one below (validation may charge your main wallet per backend rules).</span>
                   </div>
                 )}
 
                 {selectedAccount && (
-                  <div className="p-4 bg-gray-50 border border-gray-200 rounded-lg">
+                  <div className="p-4 bg-gray-50 dark:bg-slate-800/50 border border-gray-200 dark:border-slate-700 rounded-lg">
                     <div className="flex items-center justify-between">
                       <div>
-                        <p className="font-semibold text-gray-900">
+                        <p className="font-semibold text-gray-900 dark:text-slate-100">
                           {selectedAccount.bankName} - A/C: {formatAccountNumber(selectedAccount.accountNumber)}
                         </p>
-                        <p className="text-sm text-gray-600 mt-1">IFSC: {selectedAccount.ifsc}</p>
-                        <p className="text-sm text-gray-600">Account Holder: {selectedAccount.accountHolderName}</p>
+                        <p className="text-sm text-gray-600 dark:text-slate-400 mt-1">IFSC: {selectedAccount.ifsc}</p>
+                        <p className="text-sm text-gray-600 dark:text-slate-400">Account Holder: {selectedAccount.accountHolderName}</p>
                       </div>
-                      {selectedAccount.validated && <FaCircleCheck className="text-green-600" size={24} />}
+                      {selectedAccount.validated && <FaCircleCheck className="text-green-600 dark:text-green-400" size={24} />}
                     </div>
                   </div>
                 )}
 
                 {!selectedAccount && (
-                  <div className="border-t border-gray-200 pt-4">
+                  <div className="border-t border-gray-200 dark:border-slate-700 pt-4">
                     <button
                       type="button"
                       onClick={() => setShowAddBankAccount(!showAddBankAccount)}
-                      className="flex items-center space-x-2 text-blue-600 hover:text-blue-700 font-medium"
+                      className="flex items-center space-x-2 text-blue-600 dark:text-blue-400 hover:text-blue-700 dark:hover:text-blue-200 font-medium"
                     >
                       <FaPlus size={18} />
                       <span>Add Bank Account</span>
                     </button>
 
                     {showAddBankAccount && (
-                      <div className="mt-4 p-4 bg-gray-50 border border-gray-200 rounded-lg space-y-4">
+                      <div className="mt-4 p-4 bg-gray-50 dark:bg-slate-800/50 border border-gray-200 dark:border-slate-700 rounded-lg space-y-4">
                         <div>
-                          <label className="block text-sm font-medium text-gray-700 mb-2">
+                          <label className="block text-sm font-medium text-gray-700 dark:text-slate-300 mb-2">
                             Mobile Number <span className="text-red-500">*</span>
                           </label>
                           <Input
@@ -573,7 +571,7 @@ const Payout = () => {
                         </div>
 
                         <div>
-                          <label className="block text-sm font-medium text-gray-700 mb-2">
+                          <label className="block text-sm font-medium text-gray-700 dark:text-slate-300 mb-2">
                             IFSC Code <span className="text-red-500">*</span>
                           </label>
                           <Input
@@ -588,7 +586,7 @@ const Payout = () => {
                         </div>
 
                         <div>
-                          <label className="block text-sm font-medium text-gray-700 mb-2">
+                          <label className="block text-sm font-medium text-gray-700 dark:text-slate-300 mb-2">
                             Account Number <span className="text-red-500">*</span>
                           </label>
                           <Input
@@ -630,19 +628,15 @@ const Payout = () => {
                 padding="lg"
               >
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-2">Payout gateway</label>
-                  <select
+                  <SelectField
+                    label="Payout gateway"
                     value={payoutGateway}
-                    onChange={(e) => setPayoutGateway(e.target.value)}
-                    className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 text-gray-900 bg-white"
-                  >
-                    <option value="">-- Optional --</option>
-                    {payoutGateways.map((gw) => (
-                      <option key={gw.id} value={gw.id}>
-                        {gw.name}
-                      </option>
-                    ))}
-                  </select>
+                    onChange={(val) => setPayoutGateway(val)}
+                    options={payoutGateways}
+                    getOptionLabel={(gw) => gw.name}
+                    getOptionValue={(gw) => gw.id}
+                    placeholder="-- Optional --"
+                  />
                 </div>
               </Card>
             )}
@@ -657,13 +651,13 @@ const Payout = () => {
                       onClick={() => setTransferMethod(method)}
                       className={`p-4 sm:p-5 border-2 rounded-xl transition-all transform hover:scale-105 ${
                         transferMethod === method
-                          ? 'border-blue-500 bg-gradient-to-br from-blue-50 to-indigo-50 shadow-lg'
-                          : 'border-gray-300 hover:border-gray-400 bg-white'
+                          ? 'border-blue-500 bg-gradient-to-br from-blue-50 dark:from-blue-950/40 to-indigo-50 dark:to-indigo-950/40 shadow-lg'
+                          : 'border-gray-300 dark:border-slate-600 hover:border-gray-400 bg-white dark:bg-slate-900'
                       }`}
                     >
-                      <p className="font-bold text-gray-900 text-base sm:text-lg">{method}</p>
+                      <p className="font-bold text-gray-900 dark:text-slate-100 text-base sm:text-lg">{method}</p>
                       {transferMethod === method && (
-                        <FaCircleCheck className="text-blue-600 mt-2 mx-auto" size={20} />
+                        <FaCircleCheck className="text-blue-600 dark:text-blue-400 mt-2 mx-auto" size={20} />
                       )}
                     </button>
                   ))}
@@ -690,26 +684,26 @@ const Payout = () => {
                   </div>
 
                   {amount && parseFloat(amount) > 0 && (
-                    <div className="p-6 bg-gray-50 rounded-xl border border-gray-200">
-                      <h4 className="text-sm font-semibold text-gray-700 mb-4 uppercase tracking-wide">
+                    <div className="p-6 bg-gray-50 dark:bg-slate-800/50 rounded-xl border border-gray-200 dark:border-slate-700">
+                      <h4 className="text-sm font-semibold text-gray-700 dark:text-slate-300 mb-4 uppercase tracking-wide">
                         Transaction Summary
                       </h4>
                       <div className="space-y-3">
-                        <div className="flex justify-between items-center py-2 border-b border-gray-200">
-                          <span className="text-gray-600">Payout amount</span>
-                          <span className="font-semibold text-gray-900 text-lg">
+                        <div className="flex justify-between items-center py-2 border-b border-gray-200 dark:border-slate-700">
+                          <span className="text-gray-600 dark:text-slate-400">Payout amount</span>
+                          <span className="font-semibold text-gray-900 dark:text-slate-100 text-lg">
                             {formatCurrency(parseFloat(amount))}
                           </span>
                         </div>
-                        <div className="flex justify-between items-center py-2 border-b border-gray-200">
-                          <span className="text-gray-600">Transfer charge (slab)</span>
-                          <span className="font-semibold text-red-600">
+                        <div className="flex justify-between items-center py-2 border-b border-gray-200 dark:border-slate-700">
+                          <span className="text-gray-600 dark:text-slate-400">Transfer charge (slab)</span>
+                          <span className="font-semibold text-red-600 dark:text-red-400">
                             {previewCharge != null ? `-${formatCurrency(previewCharge)}` : '—'}
                           </span>
                         </div>
-                        <div className="flex justify-between items-center pt-3 bg-red-50 p-3 rounded-lg">
-                          <span className="text-lg font-bold text-gray-900">Total debited from main wallet</span>
-                          <span className="text-2xl font-bold text-red-600">
+                        <div className="flex justify-between items-center pt-3 bg-red-50 dark:bg-red-950/40 p-3 rounded-lg">
+                          <span className="text-lg font-bold text-gray-900 dark:text-slate-100">Total debited from main wallet</span>
+                          <span className="text-2xl font-bold text-red-600 dark:text-red-400">
                             {previewTotal != null ? formatCurrency(previewTotal) : '—'}
                           </span>
                         </div>
@@ -735,25 +729,25 @@ const Payout = () => {
 
         {showValidationModal && validatedBeneficiary && !payoutMaintenance && (
           <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black bg-opacity-50 overflow-y-auto">
-            <Card className="max-w-md w-full border-2 border-blue-200 my-auto" padding="lg" shadow="xl">
-              <h2 className="text-xl sm:text-2xl font-bold text-gray-900 mb-4 sm:mb-6">Confirm Beneficiary</h2>
+            <Card className="max-w-md w-full border-2 border-blue-200 dark:border-blue-800 my-auto" padding="lg" shadow="xl">
+              <h2 className="text-xl sm:text-2xl font-bold text-gray-900 dark:text-slate-100 mb-4 sm:mb-6">Confirm Beneficiary</h2>
 
-              <div className="p-4 bg-blue-50 border border-blue-200 rounded-lg mb-6">
-                <p className="text-sm text-gray-600 mb-2">Beneficiary Name:</p>
-                <p className="text-xl font-bold text-gray-900">{validatedBeneficiary}</p>
-                <p className="text-sm text-gray-600 mt-2">
+              <div className="p-4 bg-blue-50 dark:bg-blue-950/40 border border-blue-200 dark:border-blue-800 rounded-lg mb-6">
+                <p className="text-sm text-gray-600 dark:text-slate-400 mb-2">Beneficiary Name:</p>
+                <p className="text-xl font-bold text-gray-900 dark:text-slate-100">{validatedBeneficiary}</p>
+                <p className="text-sm text-gray-600 dark:text-slate-400 mt-2">
                   Account: {newBankAccount.accountNumber}
                 </p>
                 {newBankAccount.mobileNumber && (
-                  <p className="text-sm text-gray-600">Mobile: {newBankAccount.mobileNumber}</p>
+                  <p className="text-sm text-gray-600 dark:text-slate-400">Mobile: {newBankAccount.mobileNumber}</p>
                 )}
-                <p className="text-sm text-gray-600">
+                <p className="text-sm text-gray-600 dark:text-slate-400">
                   IFSC: {(validationData?.ifsc || newBankAccount.ifsc).toUpperCase()}
                 </p>
                 {(validationData?.bank_name ||
                   validationData?.verification_details?.bank_name ||
                   validationData?.verification_details?.ifsc_details?.bank) && (
-                  <p className="text-sm text-gray-600">
+                  <p className="text-sm text-gray-600 dark:text-slate-400">
                     Bank:{' '}
                     {validationData?.bank_name ||
                       validationData?.verification_details?.bank_name ||

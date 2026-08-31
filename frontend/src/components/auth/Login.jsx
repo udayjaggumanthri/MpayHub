@@ -10,8 +10,8 @@ import {
   startLoginContextCapture,
 } from '../../services/loginContext';
 import SessionPausedNotice from './SessionPausedNotice';
-
-const LOGO_SRC = `${process.env.PUBLIC_URL || ''}/images/logo.png`;
+import { useBranding } from '../../context/AppearanceContext';
+import BrandingLogo from '../common/BrandingLogo';
 
 const SESSION_NOTICE_CODES = new Set([
   'SESSION_IDLE',
@@ -23,6 +23,15 @@ const Login = () => {
   const navigate = useNavigate();
   const location = useLocation();
   const { login } = useAuth();
+  const {
+    siteTitle,
+    loginWelcomeHeading,
+    loginTagline,
+    loginFooterNote,
+    loginFooterPrivacyUrl,
+    loginFooterTermsUrl,
+    loginFooterRefundUrl,
+  } = useBranding();
   const [phone, setPhone] = useState('');
   const [password, setPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
@@ -178,25 +187,23 @@ const Login = () => {
           {/* Centered Content */}
           <div className="flex flex-col items-center justify-center space-y-6 w-full -mt-16 xl:-mt-20">
             <h1 className="text-white text-2xl xl:text-3xl font-semibold tracking-wide animate-fadeIn text-center">
-              WELCOME TO
+              {loginWelcomeHeading}
             </h1>
             
             {/* Logo/Graphic Area - Centered */}
             <div className="flex items-center justify-center">
               <div className="relative w-48 h-48 xl:w-56 xl:h-56">
                 {/* Outer Circuit Pattern */}
-                <div className="absolute inset-0 border-4 border-cyan-300 rounded-full opacity-40 animate-spin-slow"></div>
-                <div className="absolute inset-4 border-2 border-cyan-300 rounded-full opacity-60"></div>
+                <div className="absolute inset-0 border-4 border-cyan-300 dark:border-cyan-800 rounded-full opacity-40 animate-spin-slow"></div>
+                <div className="absolute inset-4 border-2 border-cyan-300 dark:border-cyan-800 rounded-full opacity-60"></div>
                 
                 {/* Center Logo */}
                 <div className="absolute inset-0 flex items-center justify-center">
                   <div
-                    className="w-36 h-36 xl:w-44 xl:h-44 bg-white rounded-3xl flex items-center justify-center p-3 xl:p-3.5 overflow-hidden shadow-2xl ring-1 ring-black/5 ring-inset transform hover:scale-105 transition-transform duration-300"
+                    className="w-36 h-36 xl:w-44 xl:h-44 bg-white dark:bg-slate-900 rounded-3xl flex items-center justify-center p-3 xl:p-3.5 overflow-hidden shadow-2xl ring-1 ring-black/5 ring-inset transform hover:scale-105 transition-transform duration-300"
                     aria-hidden
                   >
-                    <img
-                      src={LOGO_SRC}
-                      alt="mPayhub"
+                    <BrandingLogo
                       className="w-full h-full object-contain object-center select-none scale-[1.08] xl:scale-[1.1] origin-center"
                       draggable={false}
                     />
@@ -211,59 +218,81 @@ const Login = () => {
             {/* Tagline */}
             <div className="text-center">
               <p className="text-cyan-200 text-lg xl:text-xl font-medium tracking-normal">
-                Driven by trust, Built for Scale
+                {loginTagline}
               </p>
             </div>
 
-            {/* Footer Links */}
+            {(loginFooterNote ||
+              loginFooterPrivacyUrl ||
+              loginFooterTermsUrl ||
+              loginFooterRefundUrl) && (
             <div className="space-y-4">
+              {loginFooterNote ? (
+                <p className="text-center text-sm text-gray-300">{loginFooterNote}</p>
+              ) : null}
+              {(loginFooterPrivacyUrl || loginFooterTermsUrl || loginFooterRefundUrl) && (
+              <>
               <p className="text-gray-300 text-xs xl:text-sm font-normal text-center">Links:</p>
               <div className="flex flex-wrap justify-center gap-3">
-                <button
-                  type="button"
+                {loginFooterPrivacyUrl ? (
+                <a
+                  href={loginFooterPrivacyUrl}
+                  target="_blank"
+                  rel="noopener noreferrer"
                   className="px-4 py-2 bg-gray-800/50 hover:bg-gray-800/70 text-gray-300 hover:text-cyan-300 rounded-lg text-xs xl:text-sm font-normal transition-all duration-200 border border-gray-700/50 hover:border-cyan-400/50"
                 >
                   Privacy Policy
-                </button>
-                <button
-                  type="button"
+                </a>
+                ) : null}
+                {loginFooterTermsUrl ? (
+                <a
+                  href={loginFooterTermsUrl}
+                  target="_blank"
+                  rel="noopener noreferrer"
                   className="px-4 py-2 bg-gray-800/50 hover:bg-gray-800/70 text-gray-300 hover:text-cyan-300 rounded-lg text-xs xl:text-sm font-normal transition-all duration-200 border border-gray-700/50 hover:border-cyan-400/50"
                 >
-                  Terms & Conditions
-                </button>
-                <button
-                  type="button"
+                  Terms &amp; Conditions
+                </a>
+                ) : null}
+                {loginFooterRefundUrl ? (
+                <a
+                  href={loginFooterRefundUrl}
+                  target="_blank"
+                  rel="noopener noreferrer"
                   className="px-4 py-2 bg-gray-800/50 hover:bg-gray-800/70 text-gray-300 hover:text-cyan-300 rounded-lg text-xs xl:text-sm font-normal transition-all duration-200 border border-gray-700/50 hover:border-cyan-400/50"
                 >
-                  Refund & Cancellation
-                </button>
+                  Refund &amp; Cancellation
+                </a>
+                ) : null}
               </div>
+              </>
+              )}
             </div>
+            )}
           </div>
         </div>
       </div>
 
       {/* Right Panel - Login Form */}
-      <div className="flex-1 flex items-center justify-center bg-white p-6 sm:p-8 lg:p-12">
+      <div className="flex-1 flex items-center justify-center bg-white p-6 sm:p-8 lg:p-12 dark:bg-slate-950">
         <div className="w-full max-w-md">
           {/* Mobile: single brand + title block (tight vertical rhythm, separated from fields) */}
-          <div className="lg:hidden mb-6 sm:mb-7 rounded-xl bg-slate-50/80 px-4 pt-4 pb-5 ring-1 ring-gray-100">
+          <div className="lg:hidden mb-6 sm:mb-7 rounded-xl bg-slate-50/80 px-4 pt-4 pb-5 ring-1 ring-gray-100 dark:bg-slate-900/80 dark:ring-slate-700">
             <div className="flex flex-col items-center text-center gap-1.5 sm:gap-2">
-              <p className="text-2xl font-bold uppercase tracking-[0.22em] text-blue-600/85 leading-tight">
-                Welcome to
+              <p className="text-2xl font-bold uppercase tracking-[0.22em] text-blue-600/85 dark:text-blue-400/85 leading-tight">
+                {loginWelcomeHeading}
               </p>
               <div className="relative flex w-full max-w-[min(94vw,24rem)] justify-center py-1">
-                <img
-                  src={LOGO_SRC}
-                  alt="mPayhub"
+                <BrandingLogo
+                  alt={siteTitle}
                   className="h-auto w-full max-h-[12rem] sm:max-h-[14rem] object-contain object-center select-none drop-shadow-[0_6px_24px_rgba(30,58,138,0.18)] sm:drop-shadow-[0_8px_28px_rgba(30,58,138,0.2)]"
                   draggable={false}
                 />
               </div>
-              <h2 className="text-3xl sm:text-4xl font-bold text-gray-900 leading-tight">
+              <h2 className="text-3xl sm:text-4xl font-bold text-gray-900 leading-tight dark:text-slate-100">
                 LOGIN
               </h2>
-              <p className="text-gray-600 text-sm sm:text-base leading-snug max-w-xs">
+              <p className="text-gray-600 dark:text-slate-400 text-sm sm:text-base leading-snug max-w-xs">
                 Please Log into your account
               </p>
             </div>
@@ -272,9 +301,9 @@ const Login = () => {
           {/* Login Form */}
           <div className="space-y-8">
             <div className="hidden lg:block">
-              <h2 className="text-3xl sm:text-4xl font-bold text-gray-900 mb-2">LOGIN</h2>
-              <p className="text-gray-600 text-base sm:text-lg">Please Log into your account</p>
-              <p className="mt-2 text-xs text-gray-500">
+              <h2 className="text-3xl sm:text-4xl font-bold text-gray-900 dark:text-slate-100 mb-2">LOGIN</h2>
+              <p className="text-gray-600 dark:text-slate-400 text-base sm:text-lg">Please Log into your account</p>
+              <p className="mt-2 text-xs text-gray-500 dark:text-slate-400">
                 Location may be requested for account security. You can allow or deny — login still works either way.
               </p>
             </div>
@@ -292,14 +321,14 @@ const Login = () => {
                   role="alert"
                   className={`rounded-xl border p-4 shadow-sm animate-fadeIn ${
                     error.variant === 'disabled'
-                      ? 'border-amber-300 bg-amber-50 ring-1 ring-amber-200/80'
-                      : 'border-red-300 bg-red-50 ring-1 ring-red-200/80'
+                      ? 'border-amber-300 dark:border-amber-800 bg-amber-50 dark:bg-amber-950/40 ring-1 ring-amber-200/80 dark:ring-amber-800/80'
+                      : 'border-red-300 dark:border-red-800 bg-red-50 dark:bg-red-950/40 ring-1 ring-red-200/80 dark:ring-red-800/80'
                   }`}
                 >
                   <div className="flex gap-3">
                     <div
                       className={`flex h-11 w-11 shrink-0 items-center justify-center rounded-full ${
-                        error.variant === 'disabled' ? 'bg-amber-100 text-amber-800' : 'bg-red-100 text-red-700'
+                        error.variant === 'disabled' ? 'bg-amber-100 dark:bg-amber-900/40 text-amber-800 dark:text-amber-300' : 'bg-red-100 dark:bg-red-900/40 text-red-700 dark:text-red-300'
                       }`}
                     >
                       {error.variant === 'disabled' ? (
@@ -311,20 +340,20 @@ const Login = () => {
                     <div className="min-w-0 pt-0.5">
                       <p
                         className={`text-base font-semibold leading-snug ${
-                          error.variant === 'disabled' ? 'text-amber-950' : 'text-red-950'
+                          error.variant === 'disabled' ? 'text-amber-950 dark:text-amber-200' : 'text-red-950 dark:text-red-200'
                         }`}
                       >
                         {error.title}
                       </p>
                       <p
                         className={`mt-1.5 text-sm leading-relaxed ${
-                          error.variant === 'disabled' ? 'text-amber-900' : 'text-red-800'
+                          error.variant === 'disabled' ? 'text-amber-900 dark:text-amber-300' : 'text-red-800 dark:text-red-300'
                         }`}
                       >
                         {error.message}
                       </p>
                       {error.variant === 'disabled' ? (
-                        <p className="mt-2 text-xs font-medium text-amber-800/90">
+                        <p className="mt-2 text-xs font-medium text-amber-800/90 dark:text-amber-300/90">
                           Only your administrator can restore access to this account.
                         </p>
                       ) : null}
@@ -335,12 +364,12 @@ const Login = () => {
 
               {/* Phone Number Input */}
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">
+                <label className="block text-sm font-medium text-gray-700 dark:text-slate-300 mb-2">
                   Phone Number
                 </label>
                 <div className="relative">
                   <div className="absolute inset-y-0 left-0 pl-4 flex items-center pointer-events-none">
-                    <FaPhone className="text-gray-400" size={20} />
+                    <FaPhone className="text-gray-400 dark:text-slate-500" size={20} />
                   </div>
                   <input
                     type="tel"
@@ -352,7 +381,7 @@ const Login = () => {
                     placeholder="Enter 10-digit phone number"
                     maxLength={10}
                     required
-                    className="w-full pl-12 pr-4 py-3.5 border-2 border-gray-200 rounded-xl focus:border-blue-500 focus:ring-2 focus:ring-blue-200 transition-all duration-200 text-base bg-gray-50 focus:bg-white"
+                    className="w-full pl-12 pr-4 py-3.5 border-2 border-gray-200 dark:border-slate-700 rounded-xl focus:border-blue-500 focus:ring-2 focus:ring-blue-200 transition-all duration-200 text-base bg-gray-50 dark:bg-slate-800/50 focus:bg-white"
                   />
                   {/* Progress Bar */}
                   {phone.length > 0 && (
@@ -363,12 +392,12 @@ const Login = () => {
 
               {/* Password Input */}
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">
+                <label className="block text-sm font-medium text-gray-700 dark:text-slate-300 mb-2">
                   Password
                 </label>
                 <div className="relative">
                   <div className="absolute inset-y-0 left-0 pl-4 flex items-center pointer-events-none">
-                    <FaLock className="text-gray-400" size={20} />
+                    <FaLock className="text-gray-400 dark:text-slate-500" size={20} />
                   </div>
                   <input
                     type={showPassword ? 'text' : 'password'}
@@ -376,12 +405,12 @@ const Login = () => {
                     onChange={(e) => setPassword(e.target.value)}
                     placeholder="Enter your password"
                     required
-                    className="w-full pl-12 pr-12 py-3.5 border-2 border-gray-200 rounded-xl focus:border-blue-500 focus:ring-2 focus:ring-blue-200 transition-all duration-200 text-base bg-gray-50 focus:bg-white"
+                    className="w-full pl-12 pr-12 py-3.5 border-2 border-gray-200 dark:border-slate-700 rounded-xl focus:border-blue-500 focus:ring-2 focus:ring-blue-200 transition-all duration-200 text-base bg-gray-50 dark:bg-slate-800/50 focus:bg-white"
                   />
                   <button
                     type="button"
                     onClick={() => setShowPassword(!showPassword)}
-                    className="absolute inset-y-0 right-0 pr-4 flex items-center text-gray-400 hover:text-gray-600 transition-colors"
+                    className="absolute inset-y-0 right-0 pr-4 flex items-center text-gray-400 dark:text-slate-500 hover:text-gray-600 dark:hover:text-slate-400 transition-colors"
                   >
                     {showPassword ? <FaEyeSlash size={20} /> : <FaEye size={20} />}
                   </button>
@@ -395,9 +424,9 @@ const Login = () => {
                     type="checkbox"
                     checked={rememberMe}
                     onChange={(e) => setRememberMe(e.target.checked)}
-                    className="w-4 h-4 text-blue-600 border-gray-300 rounded focus:ring-blue-500 focus:ring-2 transition-colors group-hover:border-blue-400"
+                    className="w-4 h-4 text-blue-600 dark:text-blue-400 border-gray-300 dark:border-slate-600 rounded focus:ring-blue-500 focus:ring-2 transition-colors group-hover:border-blue-400"
                   />
-                  <span className="ml-2 text-sm text-gray-600 group-hover:text-gray-900 transition-colors">
+                  <span className="ml-2 text-sm text-gray-600 dark:text-slate-400 group-hover:text-gray-900 transition-colors">
                     Remember me
                   </span>
                 </label>
@@ -405,14 +434,14 @@ const Login = () => {
                   <button
                     type="button"
                     onClick={() => navigate('/forgot-password')}
-                    className="text-sm font-medium text-blue-600 hover:text-blue-700 transition-colors"
+                    className="text-sm font-medium text-blue-600 dark:text-blue-400 hover:text-blue-700 dark:hover:text-blue-200 transition-colors"
                   >
                     Forgot your Password?
                   </button>
                   <button
                     type="button"
                     onClick={() => navigate('/forgot-mpin')}
-                    className="text-sm font-medium text-indigo-600 hover:text-indigo-700 transition-colors"
+                    className="text-sm font-medium text-indigo-600 dark:text-indigo-400 hover:text-indigo-700 dark:hover:text-indigo-200 transition-colors"
                   >
                     Reset MPIN
                   </button>
@@ -440,21 +469,21 @@ const Login = () => {
             </form>
 
             {/* Mobile Footer Links */}
-            <div className="lg:hidden pt-6 border-t border-gray-200">
+            <div className="lg:hidden pt-6 border-t border-gray-200 dark:border-slate-700">
               <div className="flex flex-wrap justify-center gap-3 text-sm">
-                <button type="button" className="text-gray-600 hover:text-blue-600 transition-colors font-medium">
+                <button type="button" className="text-gray-600 dark:text-slate-400 hover:text-blue-600 transition-colors font-medium">
                   Privacy Policy
                 </button>
                 <span className="text-gray-300">|</span>
-                <button type="button" className="text-gray-600 hover:text-blue-600 transition-colors font-medium">
+                <button type="button" className="text-gray-600 dark:text-slate-400 hover:text-blue-600 transition-colors font-medium">
                   Terms & Conditions
                 </button>
                 <span className="text-gray-300">|</span>
-                <button type="button" className="text-gray-600 hover:text-blue-600 transition-colors font-medium">
+                <button type="button" className="text-gray-600 dark:text-slate-400 hover:text-blue-600 transition-colors font-medium">
                   Refund & Cancellation
                 </button>
               </div>
-              <p className="text-xs text-gray-500 mt-4 text-center">
+              <p className="text-xs text-gray-500 dark:text-slate-400 mt-4 text-center">
                 Driven by Trust, Built for Scale
               </p>
             </div>

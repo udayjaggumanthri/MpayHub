@@ -76,9 +76,9 @@ const KycProfileSyncAlert = ({ fetchOnMount = true, className = '' }) => {
     <>
       {profileSyncOffer?.sync_token ? (
         <div
-          className={`rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 ${className}`.trim()}
+          className={`rounded-xl border border-amber-200 dark:border-amber-800 bg-amber-50 dark:bg-amber-950/40 px-4 py-3 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 ${className}`.trim()}
         >
-          <p className="text-sm text-amber-900">
+          <p className="text-sm text-amber-900 dark:text-amber-300">
             Verified KYC records differ from your profile. Review and choose whether to update your profile.
           </p>
           <button
@@ -93,7 +93,7 @@ const KycProfileSyncAlert = ({ fetchOnMount = true, className = '' }) => {
 
       {statusMessage ? (
         <p
-          className={`text-sm text-slate-700 bg-slate-50 border border-slate-200 rounded-xl px-4 py-3 ${className}`.trim()}
+          className={`text-sm text-slate-700 dark:text-slate-300 bg-slate-50 dark:bg-slate-800/50 border border-slate-200 dark:border-slate-700 rounded-xl px-4 py-3 ${className}`.trim()}
         >
           {statusMessage}
         </p>

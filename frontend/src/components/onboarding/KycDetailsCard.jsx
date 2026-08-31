@@ -7,7 +7,7 @@ import KycVerificationPanel from './KycVerificationPanel';
 const KycDetailsCard = ({ details, title = 'Verified details', profileUpdated = false }) => {
   if (!details || (!details.pan && !details.aadhaar_masked && !details.name)) {
     return (
-      <div className="rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-600">
+      <div className="rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800/50 px-4 py-3 text-sm text-slate-600 dark:text-slate-400">
         Loading verified details…
       </div>
     );

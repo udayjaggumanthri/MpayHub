@@ -7,7 +7,7 @@ import {
   isAdminOperationalIsolationRole,
   isFinancialTxBlockedRole,
 } from '../../utils/rolePermissions';
-import { reportsAPI } from '../../services/api';
+import { reportsAPI, adminAPI } from '../../services/api';
 import { formatCurrency } from '../../utils/formatters';
 import WalletCard from './WalletCard';
 import AnnouncementBanner from './AnnouncementBanner';
@@ -27,6 +27,7 @@ import {
   FaBoxOpen,
   FaBullhorn,
   FaChartLine,
+  FaQrcode,
 } from 'react-icons/fa6';
 
 function periodDatesForInterval(interval) {
@@ -86,10 +87,35 @@ const Dashboard = () => {
     dateTo: todayIsoDate(),
     gateway: '',
   }));
+  const [qrStats, setQrStats] = useState(null);
+
+  useEffect(() => {
+    if (!adminOps) return undefined;
+    let mounted = true;
+    adminAPI.getQrOperationsStats().then((res) => {
+      if (mounted && res.success) setQrStats(res.data);
+    });
+    return () => {
+      mounted = false;
+    };
+  }, [adminOps]);
 
   const quickActions = useMemo(() => {
     if (adminOps) {
+      const pendingQr = qrStats?.pending_count ?? 0;
       return [
+        {
+          id: 'admin-qr-ops',
+          title: 'QR operations',
+          description:
+            pendingQr > 0
+              ? `${pendingQr} submission${pendingQr === 1 ? '' : 's'} awaiting review`
+              : 'Review manual QR pay-in submissions',
+          icon: FaQrcode,
+          gradient: 'from-amber-500 to-orange-600',
+          badge: pendingQr > 0 ? pendingQr : null,
+          onClick: () => navigate('/admin/pay-in-qr-operations?status=PENDING_REVIEW'),
+        },
         {
           id: 'admin-gateways',
           title: 'Payment gateways',
@@ -172,7 +198,7 @@ const Dashboard = () => {
       ];
     }
     return base;
-  }, [adminOps, txBlocked, navigate]);
+  }, [adminOps, txBlocked, navigate, qrStats]);
 
   useEffect(() => {
     if (!adminOps) return undefined;
@@ -218,12 +244,12 @@ const Dashboard = () => {
         <div className="flex min-h-[400px] items-center justify-center">
           <div className="text-center">
             <div className="mx-auto h-12 w-12 animate-spin rounded-full border-b-2 border-blue-600" />
-            <p className="mt-4 text-slate-600">Loading dashboard…</p>
+            <p className="mt-4 text-slate-600 dark:text-slate-400">Loading dashboard…</p>
           </div>
         </div>
       ) : (
         <div className="mx-auto max-w-7xl space-y-10 pb-10">
-          <Card className="border border-slate-200/90 shadow-sm" padding="lg">
+          <Card className="border border-slate-200/90 dark:border-slate-700/90 shadow-sm" padding="lg">
             <div
               className={
                 adminOps
@@ -232,20 +258,20 @@ const Dashboard = () => {
               }
             >
               <div className="min-w-0 shrink-0">
-                <h1 className="text-2xl font-bold tracking-tight text-slate-900 sm:text-3xl">
+                <h1 className="text-2xl font-bold tracking-tight text-slate-900 dark:text-slate-100 sm:text-3xl">
                   Welcome back, {user?.name || 'there'}!
                 </h1>
-                <div className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1 text-sm text-slate-600">
+                <div className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1 text-sm text-slate-600 dark:text-slate-400">
                   <span className="inline-flex items-center gap-1.5">
-                    <FiUser className="text-slate-400" size={15} aria-hidden />
-                    <span className="font-semibold text-slate-900">
+                    <FiUser className="text-slate-400 dark:text-slate-500" size={15} aria-hidden />
+                    <span className="font-semibold text-slate-900 dark:text-slate-100">
                       {user?.displayCode || user?.userId || user?.user_id || user?.memberId || '—'}
                     </span>
                   </span>
                   <span className="text-slate-300" aria-hidden>
                     ·
                   </span>
-                  <span className="text-slate-600">{user?.role}</span>
+                  <span className="text-slate-600 dark:text-slate-400">{user?.role}</span>
                 </div>
               </div>
               {adminOps ? (
@@ -260,7 +286,7 @@ const Dashboard = () => {
           <section aria-labelledby="dash-wallets-heading">
             <h2
               id="dash-wallets-heading"
-              className="mb-4 text-base font-semibold tracking-tight text-slate-900"
+              className="mb-4 text-base font-semibold tracking-tight text-slate-900 dark:text-slate-100"
             >
               Wallets
             </h2>
@@ -304,9 +330,29 @@ const Dashboard = () => {
 
           {/* 2 — Operational / admin quick actions */}
           <section aria-labelledby="dash-actions-heading">
+            {adminOps && (qrStats?.pending_count ?? 0) > 0 ? (
+              <div className="mb-4 flex flex-col gap-3 rounded-xl border border-amber-200 dark:border-amber-800 bg-amber-50 dark:bg-amber-950/40 px-4 py-4 sm:flex-row sm:items-center sm:justify-between">
+                <div>
+                  <p className="font-semibold text-amber-900 dark:text-amber-300">
+                    {qrStats.pending_count} manual QR pay-in
+                    {qrStats.pending_count === 1 ? '' : 's'} awaiting review
+                  </p>
+                  <p className="mt-1 text-sm text-amber-800 dark:text-amber-300">
+                    Retailers have submitted UTR proof. Approve or reject in the operations queue.
+                  </p>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => navigate('/admin/pay-in-qr-operations?status=PENDING_REVIEW')}
+                  className="shrink-0 rounded-lg bg-amber-600 px-4 py-2 text-sm font-semibold text-white hover:bg-amber-700"
+                >
+                  Open QR queue
+                </button>
+              </div>
+            ) : null}
             <h2
               id="dash-actions-heading"
-              className="mb-4 text-base font-semibold tracking-tight text-slate-900"
+              className="mb-4 text-base font-semibold tracking-tight text-slate-900 dark:text-slate-100"
             >
               {quickSectionTitle}
             </h2>
@@ -323,7 +369,7 @@ const Dashboard = () => {
                     key={action.id}
                     type="button"
                     onClick={action.onClick}
-                    className="group flex items-center gap-4 rounded-2xl border border-slate-200/90 bg-white p-5 text-left shadow-sm transition-all hover:-translate-y-0.5 hover:border-slate-300 hover:shadow-md"
+                    className="group flex items-center gap-4 rounded-2xl border border-slate-200/90 dark:border-slate-700/90 bg-white dark:bg-slate-900 p-5 text-left shadow-sm transition-all hover:-translate-y-0.5 hover:border-slate-300 dark:hover:border-slate-600 hover:shadow-md"
                   >
                     <div
                       className={`flex-shrink-0 rounded-2xl p-4 ${
@@ -341,8 +387,15 @@ const Dashboard = () => {
                       )}
                     </div>
                     <div className="min-w-0 flex-1">
-                      <p className="font-semibold text-slate-900">{action.title}</p>
-                      <p className="mt-0.5 text-sm text-slate-500">{action.description}</p>
+                      <div className="flex items-center gap-2">
+                        <p className="font-semibold text-slate-900 dark:text-slate-100">{action.title}</p>
+                        {action.badge ? (
+                          <span className="inline-flex min-w-[1.25rem] items-center justify-center rounded-full bg-amber-500 px-1.5 py-0.5 text-xs font-bold text-white">
+                            {action.badge}
+                          </span>
+                        ) : null}
+                      </div>
+                      <p className="mt-0.5 text-sm text-slate-500 dark:text-slate-400">{action.description}</p>
                     </div>
                     <FiChevronRight
                       className="flex-shrink-0 text-slate-300 transition group-hover:translate-x-0.5 group-hover:text-slate-500"
@@ -359,40 +412,41 @@ const Dashboard = () => {
           <section aria-labelledby="dash-analytics-heading" className="space-y-4">
             <h2
               id="dash-analytics-heading"
-              className="text-base font-semibold tracking-tight text-slate-900"
+              className="text-base font-semibold tracking-tight text-slate-900 dark:text-slate-100"
             >
               Gateway sales &amp; profit
             </h2>
 
-            <Card className="border border-slate-200/90 shadow-sm" padding="lg">
+            <Card className="border border-slate-200/90 dark:border-slate-700/90 shadow-sm" padding="lg">
               <div className="mb-6 grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4">
-                <div className="rounded-xl border border-slate-100 bg-white p-4 shadow-sm">
-                  <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Sales (period)</p>
-                  <p className="mt-1 text-xl font-bold tabular-nums text-slate-900">
+                <div className="rounded-xl border border-slate-100 dark:border-slate-700 bg-white dark:bg-slate-800/60 p-4 shadow-sm">
+                  <p className="text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">Sales (period)</p>
+                  <p className="mt-1 text-xl font-bold tabular-nums text-slate-900 dark:text-slate-100">
                     {formatCurrency(parseFloat(analyticsTotals.payin_sales || 0))}
                   </p>
                 </div>
-                <div className="rounded-xl border border-slate-100 bg-white p-4 shadow-sm">
-                  <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Charges (period)</p>
-                  <p className="mt-1 text-xl font-bold tabular-nums text-amber-900">
+                <div className="rounded-xl border border-slate-100 dark:border-slate-700 bg-white dark:bg-slate-800/60 p-4 shadow-sm">
+                  <p className="text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">Charges (period)</p>
+                  <p className="mt-1 text-xl font-bold tabular-nums text-amber-900 dark:text-amber-300">
                     {formatCurrency(parseFloat(analyticsTotals.payin_charges || 0))}
                   </p>
                 </div>
-                <div className="rounded-xl border border-emerald-100 bg-emerald-50/50 p-4 shadow-sm">
-                  <p className="text-xs font-semibold uppercase tracking-wide text-emerald-800">Platform profit</p>
-                  <p className="mt-1 text-xl font-bold tabular-nums text-emerald-900">
+                <div className="rounded-xl border border-emerald-100 dark:border-emerald-800/70 bg-emerald-50/50 dark:bg-emerald-950/50 p-4 shadow-sm">
+                  <p className="text-xs font-semibold uppercase tracking-wide text-emerald-800 dark:text-emerald-300">Platform profit</p>
+                  <p className="mt-1 text-xl font-bold tabular-nums text-emerald-900 dark:text-emerald-300">
                     {formatCurrency(parseFloat(analyticsTotals.platform_profit || 0))}
                   </p>
                 </div>
-                <div className="rounded-xl border border-slate-100 bg-white p-4 shadow-sm">
-                  <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Transactions</p>
-                  <p className="mt-1 text-xl font-bold tabular-nums text-slate-900">
+                <div className="rounded-xl border border-slate-100 dark:border-slate-700 bg-white dark:bg-slate-800/60 p-4 shadow-sm">
+                  <p className="text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">Transactions</p>
+                  <p className="mt-1 text-xl font-bold tabular-nums text-slate-900 dark:text-slate-100">
                     {analyticsTotals.transactions_count ?? 0}
                   </p>
                 </div>
               </div>
 
-              <div className="mb-8 flex flex-wrap gap-3 rounded-xl border border-slate-100 bg-slate-50/50 p-4">
+              {/* items-start stops the selects stretching to the tallest cell */}
+              <div className="mb-8 flex flex-wrap items-start gap-3 rounded-xl border border-slate-100 dark:border-slate-700/70 bg-slate-50/50 dark:bg-slate-800/40 p-4">
                 <select
                   value={analyticsFilters.interval}
                   onChange={(e) => {
@@ -401,15 +455,16 @@ const Dashboard = () => {
                     setAnalyticsFilters((f) => ({ ...f, interval, dateFrom, dateTo }));
                     setAppliedAnalytics((f) => ({ ...f, interval, dateFrom, dateTo }));
                   }}
-                  className="min-w-[140px] rounded-lg border border-slate-200 bg-white px-3 py-2.5 text-sm font-medium text-slate-800 shadow-sm"
+                  className="min-h-[44px] w-full min-w-[140px] rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 px-3 py-2.5 text-sm font-medium text-slate-800 dark:text-slate-200 shadow-sm sm:w-auto"
                 >
                   <option value="daily">Daily buckets</option>
                   <option value="monthly">Monthly buckets</option>
                 </select>
-                <div className="min-w-0 w-full sm:w-auto sm:min-w-[280px]">
+                <div className="min-w-0 w-full flex-1 md:min-w-[26rem]">
                   <ReportDateRange
                     idPrefix="dash-analytics"
                     showApply
+                    applyInline
                     applyLabel="Apply"
                     dateFrom={analyticsFilters.dateFrom}
                     dateTo={analyticsFilters.dateTo}
@@ -430,7 +485,7 @@ const Dashboard = () => {
                     setAnalyticsFilters((f) => ({ ...f, gateway }));
                     setAppliedAnalytics((f) => ({ ...f, gateway }));
                   }}
-                  className="min-w-[180px] flex-1 rounded-lg border border-slate-200 bg-white px-3 py-2.5 text-sm font-medium text-slate-800 shadow-sm"
+                  className="min-h-[44px] w-full min-w-[180px] rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 px-3 py-2.5 text-sm font-medium text-slate-800 dark:text-slate-200 shadow-sm sm:w-auto sm:flex-1"
                 >
                   <option value="">All gateways</option>
                   {analyticsGateways.map((g) => (
@@ -447,42 +502,42 @@ const Dashboard = () => {
                 gatewayNames={analyticsGateways}
               />
 
-              <div className="mt-8 border-t border-slate-100 pt-6">
-                <h3 className="mb-3 text-sm font-semibold text-slate-800">Detailed breakdown</h3>
+              <div className="mt-8 border-t border-slate-100 dark:border-slate-800 pt-6">
+                <h3 className="mb-3 text-sm font-semibold text-slate-800 dark:text-slate-200">Detailed breakdown</h3>
                 {analyticsLoading ? (
-                  <div className="py-10 text-center text-sm text-slate-500">Loading table…</div>
+                  <div className="py-10 text-center text-sm text-slate-500 dark:text-slate-400">Loading table…</div>
                 ) : analyticsRows.length === 0 ? (
-                  <div className="py-10 text-center text-sm text-slate-500">
+                  <div className="py-10 text-center text-sm text-slate-500 dark:text-slate-400">
                     No rows for the selected filters. Adjust dates or gateway.
                   </div>
                 ) : (
-                  <div className="overflow-x-auto rounded-xl border border-slate-100">
+                  <div className="overflow-x-auto rounded-xl border border-slate-100 dark:border-slate-700">
                     <table className="min-w-full border-collapse text-sm">
                       <thead>
-                        <tr className="border-b border-slate-200 bg-slate-50/90">
-                          <th className="px-4 py-3 text-left font-semibold text-slate-600">Period</th>
-                          <th className="px-4 py-3 text-left font-semibold text-slate-600">Gateway</th>
-                          <th className="px-4 py-3 text-right font-semibold text-slate-600">Sales</th>
-                          <th className="px-4 py-3 text-right font-semibold text-slate-600">Charges</th>
-                          <th className="px-4 py-3 text-right font-semibold text-slate-600">Profit</th>
-                          <th className="px-4 py-3 text-right font-semibold text-slate-600">Count</th>
+                        <tr className="border-b border-slate-200 dark:border-slate-700 bg-slate-50/90 dark:bg-slate-800/50">
+                          <th className="px-4 py-3 text-left font-semibold text-slate-600 dark:text-slate-400">Period</th>
+                          <th className="px-4 py-3 text-left font-semibold text-slate-600 dark:text-slate-400">Gateway</th>
+                          <th className="px-4 py-3 text-right font-semibold text-slate-600 dark:text-slate-400">Sales</th>
+                          <th className="px-4 py-3 text-right font-semibold text-slate-600 dark:text-slate-400">Charges</th>
+                          <th className="px-4 py-3 text-right font-semibold text-slate-600 dark:text-slate-400">Profit</th>
+                          <th className="px-4 py-3 text-right font-semibold text-slate-600 dark:text-slate-400">Count</th>
                         </tr>
                       </thead>
                       <tbody>
                         {analyticsRows.map((r, i) => (
-                          <tr key={`${r.period}-${r.gateway}-${i}`} className="border-b border-slate-100/90 hover:bg-slate-50/50">
-                            <td className="px-4 py-3 text-slate-700">{r.period}</td>
-                            <td className="px-4 py-3 text-slate-800">{r.gateway}</td>
-                            <td className="px-4 py-3 text-right tabular-nums text-slate-900">
+                          <tr key={`${r.period}-${r.gateway}-${i}`} className="border-b border-slate-100/90 dark:border-slate-800/90 hover:bg-slate-50/50 dark:hover:bg-slate-800/50">
+                            <td className="px-4 py-3 text-slate-700 dark:text-slate-300">{r.period}</td>
+                            <td className="px-4 py-3 text-slate-800 dark:text-slate-200">{r.gateway}</td>
+                            <td className="px-4 py-3 text-right tabular-nums text-slate-900 dark:text-slate-100">
                               {formatCurrency(parseFloat(r.payin_sales || 0))}
                             </td>
-                            <td className="px-4 py-3 text-right tabular-nums text-amber-900">
+                            <td className="px-4 py-3 text-right tabular-nums text-amber-900 dark:text-amber-300">
                               {formatCurrency(parseFloat(r.payin_charges || 0))}
                             </td>
-                            <td className="px-4 py-3 text-right font-medium tabular-nums text-emerald-800">
+                            <td className="px-4 py-3 text-right font-medium tabular-nums text-emerald-800 dark:text-emerald-300">
                               {formatCurrency(parseFloat(r.platform_profit || 0))}
                             </td>
-                            <td className="px-4 py-3 text-right text-slate-700">{r.transactions_count || 0}</td>
+                            <td className="px-4 py-3 text-right text-slate-700 dark:text-slate-300">{r.transactions_count || 0}</td>
                           </tr>
                         ))}
                       </tbody>

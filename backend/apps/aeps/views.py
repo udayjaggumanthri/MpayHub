@@ -18,12 +18,12 @@ from apps.aeps.services import reports as reports_svc
 from apps.aeps.services.gates import me_status_payload
 from apps.core.utils import decrypt_secret_payload, encrypt_secret_payload
 from apps.integrations.fingpay.endpoints import (
-    DEFAULT_EGRESS_IP,
     ENDPOINT_FIELD_META,
     URL_PRESETS,
     default_endpoints_for,
     expand_endpoints_to_full_urls,
 )
+from apps.integrations.fingpay.netinfo import detect_outbound_ipv4
 from apps.session_security.services.ip import get_client_ip
 
 
@@ -126,7 +126,7 @@ def access_request_create(request):
 
 # ----- Admin provider / entitlements -----
 
-SERVER_EGRESS_IP = DEFAULT_EGRESS_IP
+SERVER_EGRESS_IP = ''  # kept for import compatibility; use detect_outbound_ipv4()
 
 ENV_PRESETS = {
     'uat': {
@@ -221,7 +221,9 @@ def _serialize_provider_row(row, *, bundled_cert: str = '') -> dict:
     secrets = decrypt_secret_payload(row.secrets_encrypted or '') or {} if row else {}
     style = row.resolved_onboarding_api_style if row else 'java'
     api_mode = row.resolved_api_mode if row else 'encrypted'
-    egress = row.resolved_egress_ip() if row else DEFAULT_EGRESS_IP
+    egress = row.resolved_egress_ip() if row else detect_outbound_ipv4()
+    capture_ftype_aeps = getattr(row, 'capture_ftype_aeps', '') or '2'
+    capture_ftype_ekyc = getattr(row, 'capture_ftype_ekyc', '') or '2'
     endpoints = row.resolved_endpoints() if row else default_endpoints_for(environment='prod')
     password_mode = str(secrets.get('password_mode') or 'plain').lower()
     if password_mode not in ('plain', 'md5'):
@@ -242,6 +244,10 @@ def _serialize_provider_row(row, *, bundled_cert: str = '') -> dict:
         'api_mode': api_mode,
         'debug_mode': bool(row and row.debug_mode),
         'egress_ip': egress,
+        'egress_ip_override': (row.egress_ip or '') if row else '',
+        'egress_ip_detected': detect_outbound_ipv4(),
+        'capture_ftype_aeps': capture_ftype_aeps,
+        'capture_ftype_ekyc': capture_ftype_ekyc,
         'endpoints_json': endpoints,
         'full_endpoints': full_endpoints,
         'endpoint_fields': ENDPOINT_FIELD_META,
@@ -317,7 +323,7 @@ def _get_or_create_env_row(environment: str) -> AepsProviderConfig:
         recon_base_url=preset.get('recon_base_url') or '',
         bank_list_url=preset['bank_list_url'],
         aadhaar_pay_bank_list_url=preset['aadhaar_pay_bank_list_url'],
-        egress_ip=DEFAULT_EGRESS_IP,
+        egress_ip='',
         endpoints_json=default_endpoints_for(
             environment=env,
             onboarding_api_style='php' if env != 'simple' else 'php',
@@ -363,7 +369,7 @@ def admin_provider_config(request):
                     'onboarding_create_url': r.onboarding_create_url() if r else '',
                     'super_merchant_id': r.super_merchant_id if r else '',
                     'super_merchant_login_id': r.super_merchant_login_id if r else '',
-                    'egress_ip': r.resolved_egress_ip() if r else DEFAULT_EGRESS_IP,
+                    'egress_ip': r.resolved_egress_ip() if r else detect_outbound_ipv4(),
                 }
             )
         payload = _serialize_provider_row(row, bundled_cert=bundled_cert)
@@ -407,6 +413,12 @@ def admin_provider_config(request):
     ):
         if field in data:
             setattr(row, field, data.get(field) or '')
+    for field in ('capture_ftype_aeps', 'capture_ftype_ekyc'):
+        if field in data:
+            value = str(data.get(field) or '').strip()
+            if value not in ('0', '1', '2'):
+                return _err(f'{field} must be 0, 1 or 2', http_status=400)
+            setattr(row, field, value)
     if env == 'simple':
         row.api_mode = 'simple'
         row.onboarding_api_style = 'java'  # unused for simple; create path uses simple key
@@ -451,7 +463,7 @@ def admin_provider_config(request):
         if not getattr(row, url_field):
             setattr(row, url_field, preset.get(url_field) or '')
     if not row.egress_ip:
-        row.egress_ip = DEFAULT_EGRESS_IP
+        row.egress_ip = ''
     if 'request_timeout_seconds' in data:
         row.request_timeout_seconds = int(data.get('request_timeout_seconds') or 180)
     activate = bool(data.get('is_active')) if 'is_active' in data else bool(data.get('activate'))
@@ -515,7 +527,7 @@ def admin_provider_test(request):
 
         config = get_active_provider()
         client = build_client_from_config(config)
-        egress = getattr(client, 'egress_ip', None) or DEFAULT_EGRESS_IP
+        egress = getattr(client, 'effective_egress_ip', '') or detect_outbound_ipv4()
         probe_merchant = {
             'merchantLoginId': 'CREDTEST01',
             'merchantLoginPin': '81dc9bdb52d04dc20036dbd8313ed055',

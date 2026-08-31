@@ -1,3 +1,5 @@
+from pathlib import Path
+
 from django.test import SimpleTestCase
 
 from apps.aeps.services.products import (
@@ -183,3 +185,350 @@ class SimpleApiMerchantFieldsTests(SimpleTestCase):
         self.assertEqual(card['adhaarNumber'], '287663698750')
         self.assertEqual(card['nationalBankIdentificationNumber'], '607094')
         self.assertEqual(card['indicatorforUID'], 0)
+
+
+class ProviderFailureMessageTests(SimpleTestCase):
+    """The outer envelope says "Transaction failed."; the cause lives in `data`."""
+
+    def test_uidai_missing_biometric_is_explained(self):
+        from apps.aeps.services.products import explain_provider_failure
+
+        resp = {'status': False, 'message': 'Transaction failed.', 'statusCode': 10016}
+        data = {
+            'responseCode': '3552-E',
+            'responseMessage': 'Missing biometric data as specified in Uses',
+        }
+        msg = explain_provider_failure(resp, data)
+        self.assertIn('3552-E', msg)
+        self.assertIn('Missing biometric data', msg)
+        self.assertNotEqual(msg, 'Transaction failed.')
+
+    def test_inner_message_preferred_over_generic_envelope(self):
+        from apps.aeps.services.products import explain_provider_failure
+
+        resp = {'status': False, 'message': 'Transaction failed.', 'statusCode': 10016}
+        data = {'responseCode': '91', 'responseMessage': 'Issuer or switch inoperative'}
+        self.assertEqual(
+            explain_provider_failure(resp, data), 'Issuer or switch inoperative (91)'
+        )
+
+    def test_falls_back_to_envelope_when_data_empty(self):
+        from apps.aeps.services.products import explain_provider_failure
+
+        resp = {'status': False, 'message': 'Transaction failed.', 'statusCode': 10016}
+        self.assertEqual(explain_provider_failure(resp, {}), 'Transaction failed.')
+
+    def test_10027_daily_be_limit_is_not_aeps_disabled(self):
+        from apps.aeps.services.products import explain_provider_failure
+
+        resp = {
+            'status': False,
+            'statusCode': 10027,
+            'message': 'You have exceeded daily limit of Balance Inquiry transactions',
+        }
+        msg = explain_provider_failure(resp, {})
+        self.assertIn('daily limit', msg.lower())
+        self.assertIn('Balance enquiry has a per-day cap', msg)
+        self.assertNotIn('disabled AEPS', msg)
+        self.assertNotIn('Tapits must enable', msg)
+
+    def test_10027_temporarily_disabled_still_asks_tapits(self):
+        from apps.aeps.services.products import explain_provider_failure
+
+        resp = {
+            'status': False,
+            'statusCode': 10027,
+            'message': 'AEPS services is temporarily disabled for this merchant',
+        }
+        msg = explain_provider_failure(resp, {})
+        self.assertIn('disabled AEPS', msg)
+        self.assertIn('Tapits must enable', msg)
+
+
+class _FakeTxn:
+    def __init__(self):
+        self.merchant = None
+        self.response_code = ''
+        self.response_message = ''
+        self.fp_transaction_id = ''
+        self.bank_rrn = ''
+        self.bank_name = ''
+        self.balance_amount = None
+        self.mini_statement = []
+        self.provider_meta = {}
+        self.status = 'initiated'
+
+    def save(self, **kwargs):
+        pass
+
+
+class ApplyProviderResultTests(SimpleTestCase):
+    def test_success_be_stores_balance_and_skips_sentinel(self):
+        from decimal import Decimal
+
+        from apps.aeps.services.products import apply_provider_result, _parse_balance_amount
+
+        self.assertIsNone(_parse_balance_amount({'balanceAmount': -1}))
+        self.assertEqual(_parse_balance_amount({'balanceAmount': 0}), Decimal('0'))
+
+        txn = _FakeTxn()
+        resp = {'status': True, 'statusCode': 10000, 'message': 'Success'}
+        data = {
+            'responseCode': '00',
+            'responseMessage': 'Request Completed',
+            'bankRRN': '624313221111',
+            'balanceAmount': 65.02,
+        }
+        apply_provider_result(txn, resp, data)
+        self.assertEqual(txn.status, 'success')
+        self.assertEqual(txn.balance_amount, Decimal('65.02'))
+
+    def test_success_ms_empty_lines_still_keeps_balance(self):
+        from decimal import Decimal
+
+        from apps.aeps.services.products import apply_provider_result
+
+        txn = _FakeTxn()
+        resp = {'status': True, 'statusCode': 10000}
+        data = {
+            'responseCode': '00',
+            'responseMessage': 'Request Completed',
+            'bankRRN': '624313229891',
+            'balanceAmount': 65.02,
+            'miniStatementBalance': '65.02',
+            'miniOffusFlag': False,
+            'miniStatementStructureModel': [],
+            'miniOffusStatementStructureModel': [],
+        }
+        apply_provider_result(txn, resp, data)
+        self.assertEqual(txn.status, 'success')
+        self.assertEqual(txn.balance_amount, Decimal('65.02'))
+        self.assertEqual(txn.mini_statement, [])
+
+    def test_ms_falls_back_to_offus_lines(self):
+        from apps.aeps.services.products import apply_provider_result
+
+        txn = _FakeTxn()
+        line = {'date': '31-08-2026', 'narration': 'ATM WDL', 'amount': '100.00', 'txnType': 'Dr'}
+        resp = {'status': True, 'statusCode': 10000}
+        data = {
+            'responseCode': '00',
+            'bankRRN': '624313229900',
+            'balanceAmount': '10.00',
+            'miniStatementStructureModel': [],
+            'miniOffusStatementStructureModel': [line],
+        }
+        apply_provider_result(txn, resp, data)
+        self.assertEqual(txn.mini_statement, [line])
+
+    def test_mini_statement_balance_used_when_balance_amount_missing(self):
+        from decimal import Decimal
+
+        from apps.aeps.services.products import _parse_balance_amount
+
+        self.assertEqual(
+            _parse_balance_amount({'miniStatementBalance': '65.02'}),
+            Decimal('65.02'),
+        )
+
+
+class CaptureGuardTests(SimpleTestCase):
+    def test_capture_without_pid_block_is_rejected(self):
+        from rest_framework.exceptions import ValidationError
+
+        from apps.aeps.services.products import assert_capture_has_biometric
+
+        for bad in ({}, {'Piddata': ''}, {'errCode': '0'}, None, 'x'):
+            with self.assertRaises(ValidationError):
+                assert_capture_has_biometric(bad)
+
+    def test_capture_with_pid_block_passes(self):
+        from apps.aeps.services.products import assert_capture_has_biometric, normalize_capture_response
+
+        assert_capture_has_biometric({'Piddata': 'BASE64=='})
+        assert_capture_has_biometric({'PidData': 'BASE64=='})
+        out = normalize_capture_response({'Piddata': 'BASE64==', 'extra': 'drop', 'iType': ''})
+        self.assertEqual(out['Piddata'], 'BASE64==')
+        self.assertEqual(out['iType'], '0')
+        self.assertEqual(out['pType'], '0')
+        self.assertEqual(out['fType'], '2')
+        self.assertNotIn('extra', out)
+        from apps.aeps.services.products import CAPTURE_RESPONSE_KEYS
+
+        self.assertEqual(list(out.keys()), list(CAPTURE_RESPONSE_KEYS))
+
+    def test_raw_xml_as_piddata_is_rejected(self):
+        from rest_framework.exceptions import ValidationError
+
+        from apps.aeps.services.products import normalize_capture_response
+
+        with self.assertRaises(ValidationError):
+            normalize_capture_response({'Piddata': '<PidData><Data>x</Data></PidData>'})
+
+
+class TwoFARequestBodyTests(SimpleTestCase):
+    def test_sample_key_order_and_no_timestamp(self):
+        from types import SimpleNamespace
+        from unittest.mock import patch
+
+        from apps.aeps.services.products import twofa_request_body
+
+        merchant = SimpleNamespace(merchant_login_id='9550221153')
+        client = SimpleNamespace(super_merchant_id='1501', api_mode='simple', onboarding_api_style='simple')
+        with patch('apps.aeps.services.products._txn_merchant_pin', return_value='ABCD'):
+            body = twofa_request_body(
+                merchant=merchant,
+                client=client,
+                capture_response={'PidDatatype': 'X', 'Piddata': 'abc'},
+                latitude=17.79,
+                longitude=82.80,
+                payload={
+                    'aadhaarNumber': '287663698750',
+                    'mobileNumber': '9550221153',
+                    'nationalBankIdentificationNumber': '607094',
+                },
+                merchant_tran_id='2FA20260831120000000000',
+                service_type='AEPS',
+            )
+
+        self.assertEqual(
+            list(body.keys()),
+            [
+                'captureResponse',
+                'cardnumberORUID',
+                'latitude',
+                'longitude',
+                'requestRemarks',
+                'transactionType',
+                'merchantUserName',
+                'merchantPin',
+                'superMerchantId',
+                'merchantTranId',
+                'mobileNumber',
+                'serviceType',
+            ],
+        )
+        self.assertNotIn('timestamp', body)
+        self.assertEqual(body['transactionType'], 'AUO')
+        self.assertEqual(body['serviceType'], 'AEPS')
+        self.assertEqual(body['merchantUserName'], '9550221153')
+
+    def test_success_requires_inner_00(self):
+        from apps.aeps.services.products import twofa_is_success
+
+        self.assertTrue(twofa_is_success({'responseCode': '00'}))
+        self.assertFalse(twofa_is_success({'responseCode': '3552-F'}))
+        self.assertFalse(twofa_is_success({}))
+        # Envelope 10000 without inner 00 is not success
+        self.assertFalse(twofa_is_success({'responseCode': '10000'}))
+
+
+class MantraRdContractTests(SimpleTestCase):
+    JS = (
+        Path(__file__).resolve().parents[4]
+        / 'frontend'
+        / 'src'
+        / 'modules'
+        / 'aeps'
+        / 'services'
+        / 'mantraRd.js'
+    )
+
+    def test_aeps_pidoptions_omit_empty_wadh_and_otp(self):
+        src = self.JS.read_text(encoding='utf-8')
+        self.assertTrue(self.JS.exists(), str(self.JS))
+        self.assertIn("aeps: '2'", src)
+        self.assertIn('wadh="${EKYC_WADH}"', src)
+        self.assertNotIn('otp=""', src)
+        self.assertNotIn("wadh=\"\"", src)
+
+    def test_xml_mapper_extracts_documented_keys(self):
+        import json
+        import subprocess
+
+        xml = (
+            '<?xml version="1.0"?>'
+            '<PidData>'
+            '<Resp errCode="0" errInfo="Capture Success" fCount="1" fType="2" '
+            'iCount="0" iType="0" pCount="0" pType="0" nmPoints="26" qScore="80"/>'
+            '<DeviceInfo dpId="MANTRA.L1" rdsId="MANTRA.AND.001" rdsVer="1.0.1" '
+            'dc="DC1" mi="L1AVDM" mc="MCERT"/>'
+            '<Skey ci="20150822">SESSIONKEY</Skey>'
+            '<Hmac>HMACVALUE</Hmac>'
+            '<Data type="X">PIDBASE64</Data>'
+            '</PidData>'
+        )
+        script = (
+            "import { xmlToCaptureResponse, buildPidOptions } from %s;\n"
+            "const mapped = xmlToCaptureResponse(%s);\n"
+            "const aeps = buildPidOptions({ purpose: 'aeps' });\n"
+            "const ekyc = buildPidOptions({ purpose: 'ekyc' });\n"
+            "console.log(JSON.stringify({ mapped, aeps, ekyc }));\n"
+            % (json.dumps(self.JS.resolve().as_uri()), json.dumps(xml))
+        )
+        proc = subprocess.run(
+            ['node', '--input-type=module', '-e', script],
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        payload = json.loads(proc.stdout)
+        cap = payload['mapped']['captureResponse']
+        self.assertEqual(cap['Piddata'], 'PIDBASE64')
+        self.assertEqual(cap['PidDatatype'], 'X')
+        self.assertEqual(cap['ci'], '20150822')
+        self.assertEqual(cap['dpID'], 'MANTRA.L1')
+        self.assertEqual(cap['fType'], '2')
+        self.assertEqual(cap['iType'], '0')
+        self.assertEqual(cap['sessionKey'], 'SESSIONKEY')
+        self.assertEqual(
+            list(cap.keys()),
+            [
+                'PidDatatype',
+                'Piddata',
+                'ci',
+                'dc',
+                'dpID',
+                'errCode',
+                'errInfo',
+                'fCount',
+                'fType',
+                'hmac',
+                'iCount',
+                'iType',
+                'mc',
+                'mi',
+                'nmPoints',
+                'pCount',
+                'pType',
+                'qScore',
+                'rdsID',
+                'rdsVer',
+                'sessionKey',
+            ],
+        )
+        self.assertNotIn('wadh=', payload['aeps'])
+        self.assertNotIn('otp=', payload['aeps'])
+        self.assertIn('wadh=', payload['ekyc'])
+
+    def test_xml_mapper_fails_when_data_missing(self):
+        import json
+        import subprocess
+
+        xml = '<PidData><Resp errCode="0" errInfo="ok"/></PidData>'
+        script = (
+            "import { xmlToCaptureResponse } from %s;\n"
+            "console.log(JSON.stringify(xmlToCaptureResponse(%s)));\n"
+            % (json.dumps(self.JS.resolve().as_uri()), json.dumps(xml))
+        )
+        proc = subprocess.run(
+            ['node', '--input-type=module', '-e', script],
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        payload = json.loads(proc.stdout)
+        self.assertIn('error', payload)
+        self.assertNotIn('captureResponse', payload)

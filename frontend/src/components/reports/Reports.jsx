@@ -47,9 +47,9 @@ function DashboardDrillDownHub({ drillDown }) {
       : [filters.dateFrom, filters.dateTo].filter(Boolean).join(' – ');
 
   return (
-    <div className="mb-6 rounded-xl border border-blue-200 bg-blue-50/80 p-4 sm:p-5">
-      <h3 className="text-sm font-semibold text-slate-900">Dashboard drill-down</h3>
-      <p className="mt-1 text-sm text-slate-600">
+    <div className="mb-6 rounded-xl border border-blue-200 dark:border-blue-800 bg-blue-50/80 dark:bg-blue-950/40 p-4 sm:p-5">
+      <h3 className="text-sm font-semibold text-slate-900 dark:text-slate-100">Dashboard drill-down</h3>
+      <p className="mt-1 text-sm text-slate-600 dark:text-slate-400">
         {statusLabel}
         {period ? ` · ${period}` : ''} — choose a module to view matching transactions.
       </p>
@@ -63,10 +63,10 @@ function DashboardDrillDownHub({ drillDown }) {
               dateFrom: filters.dateFrom,
               dateTo: filters.dateTo,
             })}
-            className="block rounded-lg border border-white bg-white px-4 py-3 shadow-sm transition hover:border-blue-300 hover:shadow-md focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500"
+            className="block rounded-lg border border-white bg-white dark:bg-slate-900 px-4 py-3 shadow-sm transition hover:border-blue-300 dark:hover:border-blue-700 hover:shadow-md focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500"
           >
-            <span className="font-semibold text-slate-900">{mod.name}</span>
-            <span className="mt-1 block text-xs text-slate-500">{mod.description}</span>
+            <span className="font-semibold text-slate-900 dark:text-slate-100">{mod.name}</span>
+            <span className="mt-1 block text-xs text-slate-500 dark:text-slate-400">{mod.description}</span>
           </Link>
         ))}
       </div>
@@ -118,8 +118,8 @@ const Reports = () => {
 
   return (
     <div className="space-y-6">
-      <div className="bg-white rounded-xl shadow-sm border border-gray-200">
-        <div className="border-b border-gray-200">
+      <div className="bg-white dark:bg-slate-900 rounded-xl shadow-sm border border-gray-200 dark:border-slate-700">
+        <div className="border-b border-gray-200 dark:border-slate-700">
           <nav className="flex flex-wrap -mb-px px-6">
             {tabs.map((tab) => (
               <button
@@ -128,8 +128,8 @@ const Reports = () => {
                 onClick={() => selectTab(tab.id)}
                 className={`px-6 py-4 text-sm font-medium border-b-2 transition-colors ${
                   activeTab === tab.id
-                    ? 'border-blue-600 text-blue-600'
-                    : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
+                    ? 'border-blue-600 text-blue-600 dark:text-blue-400'
+                    : 'border-transparent text-gray-500 dark:text-slate-400 hover:text-gray-700 dark:hover:text-slate-300 hover:border-gray-300 dark:hover:border-slate-600'
                 }`}
               >
                 {tab.name}

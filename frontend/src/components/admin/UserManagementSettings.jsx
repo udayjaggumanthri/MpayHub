@@ -147,7 +147,7 @@ const UserManagementSettings = () => {
 
   if (loading) {
     return (
-      <div className="flex min-h-[40vh] items-center justify-center text-sm text-slate-500">
+      <div className="flex min-h-[40vh] items-center justify-center text-sm text-slate-500 dark:text-slate-400">
         Loading session security settings…
       </div>
     );
@@ -159,15 +159,15 @@ const UserManagementSettings = () => {
         <div>
           <Link
             to="/user-management/users"
-            className="inline-flex items-center gap-2 text-sm font-medium text-indigo-600 hover:text-indigo-800"
+            className="inline-flex items-center gap-2 text-sm font-medium text-indigo-600 dark:text-indigo-400 hover:text-indigo-800 dark:hover:text-indigo-200"
           >
             <FaArrowLeft size={12} />
             Back to users
           </Link>
-          <h1 className="mt-2 text-2xl font-bold tracking-tight text-slate-900">
+          <h1 className="mt-2 text-2xl font-bold tracking-tight text-slate-900 dark:text-slate-100">
             User management settings
           </h1>
-          <p className="mt-1 text-sm text-slate-600">
+          <p className="mt-1 text-sm text-slate-600 dark:text-slate-400">
             IP/location login enforcement, single-session policy, idle timeout, and audit logging.
           </p>
         </div>
@@ -178,33 +178,33 @@ const UserManagementSettings = () => {
       </div>
 
       {error ? (
-        <div className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-800">
+        <div className="rounded-xl border border-red-200 dark:border-red-800 bg-red-50 dark:bg-red-950/40 px-4 py-3 text-sm text-red-800 dark:text-red-300">
           {error}
         </div>
       ) : null}
       {success ? (
-        <div className="rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-800">
+        <div className="rounded-xl border border-emerald-200 dark:border-emerald-800 bg-emerald-50 dark:bg-emerald-950/40 px-4 py-3 text-sm text-emerald-800 dark:text-emerald-300">
           {success}
         </div>
       ) : null}
 
       <Card>
-        <div className="border-b border-slate-100 px-6 py-4">
-          <h2 className="text-lg font-semibold text-slate-900">Security controls</h2>
+        <div className="border-b border-slate-100 dark:border-slate-800 px-6 py-4">
+          <h2 className="text-lg font-semibold text-slate-900 dark:text-slate-100">Security controls</h2>
         </div>
         <div className="space-y-6 p-6">
           <label className="flex items-start gap-3">
             <input
               type="checkbox"
-              className="mt-1 h-4 w-4 rounded border-slate-300 text-indigo-600 focus:ring-indigo-500"
+              className="mt-1 h-4 w-4 rounded border-slate-300 dark:border-slate-600 text-indigo-600 dark:text-indigo-400 focus:ring-indigo-500"
               checked={form.ip_location_enforcement_enabled}
               onChange={(e) => setField('ip_location_enforcement_enabled', e.target.checked)}
             />
             <span>
-              <span className="block text-sm font-semibold text-slate-900">
+              <span className="block text-sm font-semibold text-slate-900 dark:text-slate-100">
                 Require IP &amp; location on login
               </span>
-              <span className="mt-0.5 block text-sm text-slate-600">
+              <span className="mt-0.5 block text-sm text-slate-600 dark:text-slate-400">
                 Login and token refresh fail if client IP or geolocation cannot be captured.
               </span>
             </span>
@@ -213,13 +213,13 @@ const UserManagementSettings = () => {
           <label className="flex items-start gap-3">
             <input
               type="checkbox"
-              className="mt-1 h-4 w-4 rounded border-slate-300 text-indigo-600 focus:ring-indigo-500"
+              className="mt-1 h-4 w-4 rounded border-slate-300 dark:border-slate-600 text-indigo-600 dark:text-indigo-400 focus:ring-indigo-500"
               checked={form.audit_logging_enabled}
               onChange={(e) => setField('audit_logging_enabled', e.target.checked)}
             />
             <span>
-              <span className="block text-sm font-semibold text-slate-900">Audit logging</span>
-              <span className="mt-0.5 block text-sm text-slate-600">
+              <span className="block text-sm font-semibold text-slate-900 dark:text-slate-100">Audit logging</span>
+              <span className="mt-0.5 block text-sm text-slate-600 dark:text-slate-400">
                 Record login attempts, session replacements, logout, and idle timeouts per user.
               </span>
             </span>
@@ -228,25 +228,25 @@ const UserManagementSettings = () => {
           <label className="flex items-start gap-3">
             <input
               type="checkbox"
-              className="mt-1 h-4 w-4 rounded border-slate-300 text-indigo-600 focus:ring-indigo-500"
+              className="mt-1 h-4 w-4 rounded border-slate-300 dark:border-slate-600 text-indigo-600 dark:text-indigo-400 focus:ring-indigo-500"
               checked={form.single_session_enforcement_enabled}
               onChange={(e) => setField('single_session_enforcement_enabled', e.target.checked)}
             />
             <span>
-              <span className="block text-sm font-semibold text-slate-900">
+              <span className="block text-sm font-semibold text-slate-900 dark:text-slate-100">
                 Single active session
               </span>
-              <span className="mt-0.5 block text-sm text-slate-600">
+              <span className="mt-0.5 block text-sm text-slate-600 dark:text-slate-400">
                 A new login terminates previous sessions (unless the user is on the exception list).
               </span>
             </span>
           </label>
 
           <div>
-            <label className="block text-sm font-semibold text-slate-900" htmlFor="idle-timeout">
+            <label className="block text-sm font-semibold text-slate-900 dark:text-slate-100" htmlFor="idle-timeout">
               Idle session timeout (minutes)
             </label>
-            <p className="mt-0.5 text-sm text-slate-600">
+            <p className="mt-0.5 text-sm text-slate-600 dark:text-slate-400">
               Automatically expire sessions after this many minutes without activity (
               {meta.idle_min}–{meta.idle_max}).
             </p>
@@ -257,12 +257,12 @@ const UserManagementSettings = () => {
               max={meta.idle_max}
               value={form.idle_timeout_minutes}
               onChange={(e) => setField('idle_timeout_minutes', Number(e.target.value))}
-              className="mt-2 w-32 rounded-lg border border-slate-300 px-3 py-2 text-sm shadow-sm focus:border-indigo-500 focus:outline-none focus:ring-1 focus:ring-indigo-500"
+              className="mt-2 w-32 rounded-lg border border-slate-300 dark:border-slate-600 px-3 py-2 text-sm shadow-sm focus:border-indigo-500 focus:outline-none focus:ring-1 focus:ring-indigo-500"
             />
           </div>
 
           {meta.updated_at ? (
-            <p className="text-xs text-slate-500">
+            <p className="text-xs text-slate-500 dark:text-slate-400">
               Last updated {new Date(meta.updated_at).toLocaleString()}
               {meta.updated_by?.full_name || meta.updated_by?.display_code
                 ? ` by ${meta.updated_by.full_name || meta.updated_by.display_code}`
@@ -273,18 +273,18 @@ const UserManagementSettings = () => {
       </Card>
 
       <Card>
-        <div className="border-b border-slate-100 px-6 py-4">
-          <h2 className="text-lg font-semibold text-slate-900">
+        <div className="border-b border-slate-100 dark:border-slate-800 px-6 py-4">
+          <h2 className="text-lg font-semibold text-slate-900 dark:text-slate-100">
             Multi-session exception users
           </h2>
-          <p className="mt-1 text-sm text-slate-600">
+          <p className="mt-1 text-sm text-slate-600 dark:text-slate-400">
             These users may stay signed in on multiple devices at once.
           </p>
         </div>
         <div className="space-y-4 p-6">
           <div className="flex flex-col gap-2 sm:flex-row">
             <div className="relative flex-1">
-              <FaMagnifyingGlass className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" size={13} />
+              <FaMagnifyingGlass className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 dark:text-slate-500" size={13} />
               <input
                 type="search"
                 value={searchQ}
@@ -296,7 +296,7 @@ const UserManagementSettings = () => {
                   }
                 }}
                 placeholder="Search by phone, code, or name"
-                className="w-full rounded-lg border border-slate-300 py-2 pl-9 pr-3 text-sm shadow-sm focus:border-indigo-500 focus:outline-none focus:ring-1 focus:ring-indigo-500"
+                className="w-full rounded-lg border border-slate-300 dark:border-slate-600 py-2 pl-9 pr-3 text-sm shadow-sm focus:border-indigo-500 focus:outline-none focus:ring-1 focus:ring-indigo-500"
               />
             </div>
             <Button type="button" variant="outline" onClick={runSearch} disabled={searching}>
@@ -305,14 +305,14 @@ const UserManagementSettings = () => {
           </div>
 
           {searchResults.length > 0 ? (
-            <ul className="divide-y divide-slate-100 rounded-xl border border-slate-200">
+            <ul className="divide-y divide-slate-100 dark:divide-slate-800 rounded-xl border border-slate-200 dark:border-slate-700">
               {searchResults.map((u) => (
                 <li key={u.id} className="flex items-center justify-between gap-3 px-4 py-3 text-sm">
                   <div>
-                    <p className="font-medium text-slate-900">
+                    <p className="font-medium text-slate-900 dark:text-slate-100">
                       {u.full_name || formatUserId(u) || u.phone}
                     </p>
-                    <p className="text-xs text-slate-500">
+                    <p className="text-xs text-slate-500 dark:text-slate-400">
                       {formatUserId(u)} · {u.phone} · {u.role}
                     </p>
                   </div>
@@ -320,7 +320,7 @@ const UserManagementSettings = () => {
                     type="button"
                     onClick={() => addException(u.id)}
                     disabled={u.allow_concurrent_sessions}
-                    className="inline-flex items-center gap-1.5 rounded-lg bg-indigo-50 px-3 py-1.5 text-xs font-semibold text-indigo-700 hover:bg-indigo-100 disabled:opacity-50"
+                    className="inline-flex items-center gap-1.5 rounded-lg bg-indigo-50 dark:bg-indigo-950/40 px-3 py-1.5 text-xs font-semibold text-indigo-700 dark:text-indigo-300 hover:bg-indigo-100 dark:hover:bg-indigo-900/60 disabled:opacity-50"
                   >
                     <FaUserPlus size={12} />
                     {u.allow_concurrent_sessions ? 'Already allowed' : 'Allow'}
@@ -331,23 +331,23 @@ const UserManagementSettings = () => {
           ) : null}
 
           {exceptions.length === 0 ? (
-            <p className="text-sm text-slate-500">No exception users configured.</p>
+            <p className="text-sm text-slate-500 dark:text-slate-400">No exception users configured.</p>
           ) : (
-            <ul className="divide-y divide-slate-100 rounded-xl border border-slate-200">
+            <ul className="divide-y divide-slate-100 dark:divide-slate-800 rounded-xl border border-slate-200 dark:border-slate-700">
               {exceptions.map((u) => (
                 <li key={u.id} className="flex items-center justify-between gap-3 px-4 py-3 text-sm">
                   <div>
-                    <p className="font-medium text-slate-900">
+                    <p className="font-medium text-slate-900 dark:text-slate-100">
                       {u.full_name || formatUserId(u) || u.phone}
                     </p>
-                    <p className="text-xs text-slate-500">
+                    <p className="text-xs text-slate-500 dark:text-slate-400">
                       {formatUserId(u)} · {u.phone} · {u.role}
                     </p>
                   </div>
                   <button
                     type="button"
                     onClick={() => removeException(u.id)}
-                    className="inline-flex items-center gap-1.5 rounded-lg bg-red-50 px-3 py-1.5 text-xs font-semibold text-red-700 hover:bg-red-100"
+                    className="inline-flex items-center gap-1.5 rounded-lg bg-red-50 dark:bg-red-950/40 px-3 py-1.5 text-xs font-semibold text-red-700 dark:text-red-300 hover:bg-red-100 dark:hover:bg-red-900/60"
                   >
                     <FaTrash size={11} />
                     Remove
@@ -360,10 +360,10 @@ const UserManagementSettings = () => {
       </Card>
 
       <Card>
-        <div className="flex items-center justify-between border-b border-slate-100 px-6 py-4">
+        <div className="flex items-center justify-between border-b border-slate-100 dark:border-slate-800 px-6 py-4">
           <div>
-            <h2 className="text-lg font-semibold text-slate-900">Recent audit events</h2>
-            <p className="mt-1 text-sm text-slate-600">Latest login and session events across users.</p>
+            <h2 className="text-lg font-semibold text-slate-900 dark:text-slate-100">Recent audit events</h2>
+            <p className="mt-1 text-sm text-slate-600 dark:text-slate-400">Latest login and session events across users.</p>
           </div>
           <Button type="button" variant="outline" size="sm" onClick={loadAudit} disabled={auditLoading}>
             Refresh
@@ -371,14 +371,14 @@ const UserManagementSettings = () => {
         </div>
         <div className="p-6">
           {auditLoading ? (
-            <p className="text-sm text-slate-500">Loading…</p>
+            <p className="text-sm text-slate-500 dark:text-slate-400">Loading…</p>
           ) : auditRows.length === 0 ? (
-            <p className="text-sm text-slate-500">No audit events yet.</p>
+            <p className="text-sm text-slate-500 dark:text-slate-400">No audit events yet.</p>
           ) : (
             <div className="overflow-x-auto">
               <table className="min-w-full text-left text-sm">
                 <thead>
-                  <tr className="border-b border-slate-200 text-xs uppercase tracking-wide text-slate-500">
+                  <tr className="border-b border-slate-200 dark:border-slate-700 text-xs uppercase tracking-wide text-slate-500 dark:text-slate-400">
                     <th className="px-2 py-2 font-semibold">When</th>
                     <th className="px-2 py-2 font-semibold">Event</th>
                     <th className="px-2 py-2 font-semibold">User</th>
@@ -386,9 +386,9 @@ const UserManagementSettings = () => {
                     <th className="px-2 py-2 font-semibold">Location</th>
                   </tr>
                 </thead>
-                <tbody className="divide-y divide-slate-100">
+                <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
                   {auditRows.map((row) => (
-                    <tr key={row.id} className="text-slate-700">
+                    <tr key={row.id} className="text-slate-700 dark:text-slate-300">
                       <td className="whitespace-nowrap px-2 py-2 text-xs">
                         {row.created_at ? new Date(row.created_at).toLocaleString() : '—'}
                       </td>
@@ -408,7 +408,7 @@ const UserManagementSettings = () => {
                             {' · '}
                             <Link
                               to={`/user-management/users/${row.user_id}`}
-                              className="font-semibold text-indigo-600 hover:text-indigo-800"
+                              className="font-semibold text-indigo-600 dark:text-indigo-400 hover:text-indigo-800 dark:hover:text-indigo-200"
                             >
                               View profile
                             </Link>

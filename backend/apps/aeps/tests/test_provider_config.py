@@ -1,3 +1,5 @@
+from unittest import mock
+
 from django.test import SimpleTestCase, TestCase
 
 from apps.aeps.models import AepsApiAuditLog, AepsProviderConfig
@@ -122,6 +124,27 @@ class RegistryModeTests(TestCase):
         self.assertEqual(client.egress_ip, '139.99.47.143')
         self.assertEqual(client.secret_key, 'sek')
 
+    def test_configured_egress_is_override_only_when_detection_fails(self):
+        row = AepsProviderConfig.objects.create(
+            name='fingpay-simple-egress',
+            environment='simple',
+            api_mode='simple',
+            super_merchant_id='1501',
+            super_merchant_login_id='MpLogin',
+            onboarding_base_url='https://fingpayap.tapits.in/fpaepsweb',
+            aeps_base_url='https://fingpayap.tapits.in',
+            secrets_encrypted=encrypt_secret_payload({'password': 'pass', 'secret_key': 'sek'}),
+            egress_ip='10.0.0.9',
+        )
+        with mock.patch(
+            'apps.integrations.fingpay.netinfo.detect_outbound_ipv4', return_value='203.0.113.7'
+        ):
+            self.assertEqual(row.resolved_egress_ip(), '203.0.113.7')
+        with mock.patch(
+            'apps.integrations.fingpay.netinfo.detect_outbound_ipv4', return_value=''
+        ):
+            self.assertEqual(row.resolved_egress_ip(), '10.0.0.9')
+
     def test_encrypted_requires_rsa_or_bundled(self):
         row = AepsProviderConfig.objects.create(
             name='fingpay-enc-reg',
@@ -195,6 +218,9 @@ class TwoFAPayloadContractTests(SimpleTestCase):
         import inspect
 
         src = inspect.getsource(products_svc.complete_daily_2fa)
-        self.assertIn("'transactionType': 'AUO'", src)
-        self.assertIn("'serviceType':", src)
         self.assertIn('twofa_validate', src)
+        self.assertIn('include_body_timestamp=False', src)
+        body_src = inspect.getsource(products_svc.twofa_request_body)
+        self.assertIn("'transactionType': 'AUO'", body_src)
+        self.assertIn("'serviceType':", body_src)
+        self.assertNotIn("'timestamp'", body_src)

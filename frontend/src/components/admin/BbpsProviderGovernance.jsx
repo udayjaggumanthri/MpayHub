@@ -1,6 +1,8 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { bbpsAPI, billAvenueAdminAPI } from '../../services/api';
+import SelectField from '../common/SelectField';
+import BbpsCashOnlyToggle from './bbps/BbpsCashOnlyToggle';
 
 const TABS = [
   { id: 'readiness', label: 'Setup & Sync' },
@@ -583,20 +585,20 @@ const BbpsProviderGovernance = () => {
 
   return (
     <div className="max-w-7xl mx-auto space-y-4">
-      <div className="bg-white rounded-xl border border-gray-200 p-5 space-y-4">
+      <div className="bg-white dark:bg-slate-900 rounded-xl border border-gray-200 dark:border-slate-700 p-5 space-y-4">
         <div className="flex flex-wrap items-center justify-between gap-3">
           <div>
-            <h1 className="text-xl font-semibold text-gray-900">Provider Governance</h1>
-            <p className="text-sm text-gray-500 mt-0.5">Manage UAT and Production biller catalogs separately.</p>
+            <h1 className="text-xl font-semibold text-gray-900 dark:text-slate-100">Provider Governance</h1>
+            <p className="text-sm text-gray-500 dark:text-slate-400 mt-0.5">Manage UAT and Production biller catalogs separately.</p>
           </div>
-          <Link className="text-sm text-blue-700 underline" to="/admin/billavenue-settings">
+          <Link className="text-sm text-blue-700 dark:text-blue-300 underline" to="/admin/billavenue-settings">
             BillAvenue credentials
           </Link>
         </div>
 
-        <div className="rounded-lg border border-slate-200 bg-slate-50 p-3 flex flex-wrap items-center gap-3">
-          <span className="text-sm font-medium text-slate-800">Partners use</span>
-          <div className="inline-flex rounded-lg border border-slate-300 overflow-hidden bg-white">
+        <div className="rounded-lg border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800/50 p-3 flex flex-wrap items-center gap-3">
+          <span className="text-sm font-medium text-slate-800 dark:text-slate-200">Partners use</span>
+          <div className="inline-flex rounded-lg border border-slate-300 dark:border-slate-600 overflow-hidden bg-white dark:bg-slate-900">
             {['uat', 'prod'].map((mode) => (
               <button
                 key={mode}
@@ -604,7 +606,7 @@ const BbpsProviderGovernance = () => {
                 disabled={switchingLive}
                 onClick={() => setPartnerLive(mode)}
                 className={`px-4 py-2 text-sm font-medium disabled:opacity-50 ${
-                  liveMode === mode ? 'bg-emerald-700 text-white' : 'text-slate-700 hover:bg-slate-100'
+                  liveMode === mode ? 'bg-emerald-700 text-white' : 'text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-700'
                 }`}
               >
                 {mode === 'uat' ? 'UAT' : 'Production'}
@@ -612,11 +614,11 @@ const BbpsProviderGovernance = () => {
               </button>
             ))}
           </div>
-          {switchingLive ? <span className="text-xs text-slate-500">Switching…</span> : null}
+          {switchingLive ? <span className="text-xs text-slate-500 dark:text-slate-400">Switching…</span> : null}
         </div>
 
         <div className="flex flex-wrap items-center gap-2">
-          <span className="text-sm font-medium text-slate-800 mr-1">Biller catalog</span>
+          <span className="text-sm font-medium text-slate-800 dark:text-slate-200 mr-1">Biller catalog</span>
           {['uat', 'prod'].map((env) => {
             const active = catalogEnv === env;
             return (
@@ -625,7 +627,7 @@ const BbpsProviderGovernance = () => {
                 type="button"
                 onClick={() => selectCatalogEnv(env)}
                 className={`px-4 py-2 text-sm rounded-lg border ${
-                  active ? 'bg-blue-600 text-white border-blue-600' : 'bg-white text-gray-700 border-gray-300 hover:bg-gray-50'
+                  active ? 'bg-blue-600 text-white border-blue-600' : 'bg-white dark:bg-slate-900 text-gray-700 dark:text-slate-300 border-gray-300 dark:border-slate-600 hover:bg-gray-50 dark:hover:bg-slate-800'
                 }`}
               >
                 {env === 'uat' ? 'UAT' : 'Production'}
@@ -634,35 +636,37 @@ const BbpsProviderGovernance = () => {
               </button>
             );
           })}
-          <span className="text-xs text-slate-500 ml-2">
+          <span className="text-xs text-slate-500 dark:text-slate-400 ml-2">
             Sync and directory apply to <strong>{catalogEnv.toUpperCase()}</strong> only
           </span>
         </div>
 
+        <BbpsCashOnlyToggle environment={catalogEnv} />
+
         <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
-          <div className="rounded-lg border border-blue-100 bg-blue-50 p-3">
-            <p className="text-xs text-blue-700">{catalogEnv.toUpperCase()} billers</p>
-            <p className="text-lg font-semibold text-blue-900">{directoryPagination.total || billerMaster.length}</p>
+          <div className="rounded-lg border border-blue-100 dark:border-blue-900 bg-blue-50 dark:bg-blue-950/40 p-3">
+            <p className="text-xs text-blue-700 dark:text-blue-300">{catalogEnv.toUpperCase()} billers</p>
+            <p className="text-lg font-semibold text-blue-900 dark:text-blue-300">{directoryPagination.total || billerMaster.length}</p>
           </div>
-          <div className="rounded-lg border border-green-100 bg-green-50 p-3">
-            <p className="text-xs text-green-700">Visible on this page</p>
-            <p className="text-lg font-semibold text-green-900">{visibleServicesCount}</p>
+          <div className="rounded-lg border border-green-100 dark:border-green-900 bg-green-50 dark:bg-green-950/40 p-3">
+            <p className="text-xs text-green-700 dark:text-green-300">Visible on this page</p>
+            <p className="text-lg font-semibold text-green-900 dark:text-green-300">{visibleServicesCount}</p>
           </div>
-          <div className="rounded-lg border border-amber-100 bg-amber-50 p-3">
-            <p className="text-xs text-amber-700">Hidden on this page</p>
-            <p className="text-lg font-semibold text-amber-900">{hiddenServicesCount}</p>
+          <div className="rounded-lg border border-amber-100 dark:border-amber-900 bg-amber-50 dark:bg-amber-950/40 p-3">
+            <p className="text-xs text-amber-700 dark:text-amber-300">Hidden on this page</p>
+            <p className="text-lg font-semibold text-amber-900 dark:text-amber-300">{hiddenServicesCount}</p>
           </div>
         </div>
       </div>
 
-      <div className="bg-white rounded-xl border border-gray-200 p-2 flex flex-wrap gap-2">
+      <div className="bg-white dark:bg-slate-900 rounded-xl border border-gray-200 dark:border-slate-700 p-2 flex flex-wrap gap-2">
         {TABS.map((tab) => (
           <button
             type="button"
             key={tab.id}
             onClick={() => setActiveTab(tab.id)}
             className={`px-3 py-1.5 text-sm rounded border ${
-              activeTab === tab.id ? 'bg-blue-600 text-white border-blue-600' : 'bg-white text-gray-700 border-gray-300'
+              activeTab === tab.id ? 'bg-blue-600 text-white border-blue-600' : 'bg-white dark:bg-slate-900 text-gray-700 dark:text-slate-300 border-gray-300 dark:border-slate-600'
             }`}
           >
             {tab.label}
@@ -670,21 +674,21 @@ const BbpsProviderGovernance = () => {
         ))}
       </div>
 
-      {error && <div className="bg-red-50 border border-red-200 text-red-700 rounded-lg p-3 text-sm">{error}</div>}
-      {info && <div className="bg-green-50 border border-green-200 text-green-700 rounded-lg p-3 text-sm">{info}</div>}
+      {error && <div className="bg-red-50 dark:bg-red-950/40 border border-red-200 dark:border-red-800 text-red-700 dark:text-red-300 rounded-lg p-3 text-sm">{error}</div>}
+      {info && <div className="bg-green-50 dark:bg-green-950/40 border border-green-200 dark:border-green-800 text-green-700 dark:text-green-300 rounded-lg p-3 text-sm">{info}</div>}
 
       {activeTab === 'readiness' && (
         <div className="space-y-4">
-        <div className="bg-white rounded-xl border border-gray-200 p-5 space-y-4">
+        <div className="bg-white dark:bg-slate-900 rounded-xl border border-gray-200 dark:border-slate-700 p-5 space-y-4">
           <div className="flex flex-wrap items-start justify-between gap-3">
             <div>
-              <h2 className="font-semibold text-gray-900">Sync {catalogEnv.toUpperCase()} billers</h2>
-              <p className="text-xs text-gray-500 mt-1">
+              <h2 className="font-semibold text-gray-900 dark:text-slate-100">Sync {catalogEnv.toUpperCase()} billers</h2>
+              <p className="text-xs text-gray-500 dark:text-slate-400 mt-1">
                 Uses {catalogEnv.toUpperCase()} credentials and writes only to the {catalogEnv.toUpperCase()} catalog.
               </p>
             </div>
             {syncUsage ? (
-              <div className="text-right text-xs text-gray-600">
+              <div className="text-right text-xs text-gray-600 dark:text-slate-400">
                 <div><strong>{syncUsage.used_calls_today}/{syncUsage.max_calls_per_day}</strong> calls used today ({catalogEnv.toUpperCase()})</div>
                 <div>{syncUsage.remaining_calls_today} remaining</div>
               </div>
@@ -709,40 +713,40 @@ const BbpsProviderGovernance = () => {
           <button
             type="button"
             onClick={refreshCache}
-            className="px-4 py-2 bg-slate-100 text-slate-800 text-sm rounded border border-slate-300"
+            className="px-4 py-2 bg-slate-100 dark:bg-slate-800 text-slate-800 dark:text-slate-200 text-sm rounded border border-slate-300 dark:border-slate-600"
           >
               Refresh Cache
             </button>
             <button
               type="button"
               onClick={clearAllBillers}
-              className="px-4 py-2 bg-red-50 text-red-700 text-sm rounded border border-red-200"
+              className="px-4 py-2 bg-red-50 dark:bg-red-950/40 text-red-700 dark:text-red-300 text-sm rounded border border-red-200 dark:border-red-800"
             >
               Clear {catalogEnv.toUpperCase()}
           </button>
         </div>
           {syncInputIds.trim() ? (
-            <div className="text-xs border rounded p-3 bg-slate-50 space-y-1">
+            <div className="text-xs border rounded p-3 bg-slate-50 dark:bg-slate-800/50 space-y-1">
               <div>
                 Parsed IDs: <strong>{[...new Set(syncInputIds.split(/[\s,\n]+/).map((x) => x.trim()).filter(Boolean))].length}</strong>
               </div>
               {syncInvalidIds.length ? (
-                <div className="text-red-700">
+                <div className="text-red-700 dark:text-red-300">
                   Invalid IDs ({syncInvalidIds.length} shown): {syncInvalidIds.join(', ')}
                 </div>
               ) : (
-                <div className="text-emerald-700">Input format looks valid.</div>
+                <div className="text-emerald-700 dark:text-emerald-300">Input format looks valid.</div>
               )}
             </div>
           ) : null}
 
           {syncUsage && (
-            <div className="text-xs border rounded p-3 bg-slate-50 space-y-2">
+            <div className="text-xs border rounded p-3 bg-slate-50 dark:bg-slate-800/50 space-y-2">
               <div className="flex items-center justify-between">
                 <span>Calls used today</span>
                 <strong>{syncUsage.used_calls_today}/{syncUsage.max_calls_per_day}</strong>
               </div>
-              <div className="w-full bg-slate-200 rounded-full h-2">
+              <div className="w-full bg-slate-200 dark:bg-slate-700 rounded-full h-2">
                 <div className="h-2 rounded-full bg-blue-600" style={{ width: `${syncUsagePercent}%` }} />
               </div>
               <div>Remaining calls today: <strong>{syncUsage.remaining_calls_today}</strong></div>
@@ -750,26 +754,26 @@ const BbpsProviderGovernance = () => {
           )}
 
         {syncDiagnostics && (
-            <div className="rounded-lg border border-slate-200 bg-slate-50 p-3 text-xs grid grid-cols-2 md:grid-cols-4 gap-2">
+            <div className="rounded-lg border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800/50 p-3 text-xs grid grid-cols-2 md:grid-cols-4 gap-2">
               <div><strong>Updated:</strong> {syncDiagnostics.updated_count || 0}</div>
               <div><strong>Source Rows:</strong> {syncDiagnostics.biller_count || 0}</div>
               <div><strong>Status Code:</strong> {syncDiagnostics.upstream_status_code || 'n/a'}</div>
               <div><strong>Retry Used:</strong> {syncDiagnostics.retry_without_agent_used ? 'Yes' : 'No'}</div>
-              {syncDiagnostics.warning ? <div className="col-span-2 md:col-span-4 text-amber-700"><strong>Warning:</strong> {syncDiagnostics.warning}</div> : null}
+              {syncDiagnostics.warning ? <div className="col-span-2 md:col-span-4 text-amber-700 dark:text-amber-300"><strong>Warning:</strong> {syncDiagnostics.warning}</div> : null}
             </div>
         )}
       </div>
 
-        <div className="bg-white rounded-xl border border-gray-200 p-5 space-y-4">
+        <div className="bg-white dark:bg-slate-900 rounded-xl border border-gray-200 dark:border-slate-700 p-5 space-y-4">
           <div className="flex flex-wrap items-start justify-between gap-3">
             <div>
-              <h2 className="font-semibold text-gray-900">Excel MDM import</h2>
-              <p className="text-xs text-gray-500 mt-1">
+              <h2 className="font-semibold text-gray-900 dark:text-slate-100">Excel MDM import</h2>
+              <p className="text-xs text-gray-500 dark:text-slate-400 mt-1">
                 Upload BillAvenue MDM sheet into the {catalogEnv.toUpperCase()} catalog.
                 Up to 2000 IDs per BillAvenue call · 15 calls/day · remainder stays queued.
               </p>
             </div>
-            <span className="text-[11px] px-2 py-1 rounded border border-slate-200 bg-slate-50 text-slate-700">
+            <span className="text-[11px] px-2 py-1 rounded border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800/50 text-slate-700 dark:text-slate-300">
               {catalogEnv.toUpperCase()}
             </span>
           </div>
@@ -786,13 +790,13 @@ const BbpsProviderGovernance = () => {
               {mdmImportUploading ? 'Uploading…' : 'Choose Excel file'}
             </label>
             {mdmImportFileName ? (
-              <span className="text-xs text-gray-600 truncate max-w-[240px]">{mdmImportFileName}</span>
+              <span className="text-xs text-gray-600 dark:text-slate-400 truncate max-w-[240px]">{mdmImportFileName}</span>
             ) : null}
             <button
               type="button"
               onClick={processMdmImportRemaining}
               disabled={mdmImportProcessing || mdmImportDestroying || !mdmImportJob?.id || !(Number(mdmImportJob?.pending_ids || 0) > 0)}
-              className="px-4 py-2 bg-slate-100 text-slate-800 text-sm rounded border border-slate-300 disabled:opacity-50"
+              className="px-4 py-2 bg-slate-100 dark:bg-slate-800 text-slate-800 dark:text-slate-200 text-sm rounded border border-slate-300 dark:border-slate-600 disabled:opacity-50"
             >
               {mdmImportProcessing ? 'Processing…' : 'Process remaining today'}
             </button>
@@ -800,7 +804,7 @@ const BbpsProviderGovernance = () => {
               type="button"
               onClick={destroyMdmImportJob}
               disabled={mdmImportDestroying || mdmImportProcessing || !mdmImportJob?.id}
-              className="px-4 py-2 bg-red-50 text-red-700 text-sm rounded border border-red-300 disabled:opacity-50"
+              className="px-4 py-2 bg-red-50 dark:bg-red-950/40 text-red-700 dark:text-red-300 text-sm rounded border border-red-300 dark:border-red-800 disabled:opacity-50"
               title="Stop this job and remove it from the queue"
             >
               {mdmImportDestroying ? 'Destroying…' : 'Destroy job'}
@@ -808,13 +812,13 @@ const BbpsProviderGovernance = () => {
           </div>
 
           {mdmImportJob ? (
-            <div className="text-xs border rounded p-3 bg-slate-50 space-y-2">
+            <div className="text-xs border rounded p-3 bg-slate-50 dark:bg-slate-800/50 space-y-2">
               <div className="flex flex-wrap items-center justify-between gap-2">
                 <div>
                   Job #{mdmImportJob.id} · <strong>{mdmImportJob.status}</strong>
                   {mdmImportJob.original_filename ? ` · ${mdmImportJob.original_filename}` : ''}
                 </div>
-                <div className="flex flex-wrap items-center gap-3 text-gray-600">
+                <div className="flex flex-wrap items-center gap-3 text-gray-600 dark:text-slate-400">
                   <span>
                     Synced {mdmImportJob.synced_ids || 0} / {mdmImportJob.total_ids || 0}
                     {' · '}Pending {mdmImportJob.pending_ids || 0}
@@ -824,13 +828,13 @@ const BbpsProviderGovernance = () => {
                     type="button"
                     onClick={destroyMdmImportJob}
                     disabled={mdmImportDestroying || mdmImportProcessing}
-                    className="text-red-700 hover:underline font-semibold disabled:opacity-50"
+                    className="text-red-700 dark:text-red-300 hover:underline font-semibold disabled:opacity-50"
                   >
                     {mdmImportDestroying ? 'Destroying…' : 'Destroy'}
                   </button>
                 </div>
               </div>
-              <div className="w-full bg-slate-200 rounded-full h-2">
+              <div className="w-full bg-slate-200 dark:bg-slate-700 rounded-full h-2">
                 <div
                   className="h-2 rounded-full bg-indigo-600"
                   style={{
@@ -845,24 +849,24 @@ const BbpsProviderGovernance = () => {
                 <div>Quota remaining today ({catalogEnv.toUpperCase()}): <strong>{syncUsage.remaining_calls_today}</strong></div>
               ) : null}
               {mdmImportJob.error_summary ? (
-                <div className="text-amber-700">{mdmImportJob.error_summary}</div>
+                <div className="text-amber-700 dark:text-amber-300">{mdmImportJob.error_summary}</div>
               ) : null}
             </div>
           ) : (
-            <p className="text-xs text-gray-500">No import jobs yet for {catalogEnv.toUpperCase()}.</p>
+            <p className="text-xs text-gray-500 dark:text-slate-400">No import jobs yet for {catalogEnv.toUpperCase()}.</p>
           )}
         </div>
         </div>
       )}
 
       {activeTab === 'directory' && (
-        <div className="bg-white rounded-xl border border-gray-200 p-5 space-y-4">
+        <div className="bg-white dark:bg-slate-900 rounded-xl border border-gray-200 dark:border-slate-700 p-5 space-y-4">
           <div className="flex flex-wrap items-center justify-between gap-3">
             <div>
               <h2 className="font-semibold">BillAvenue Biller Directory</h2>
-              <p className="text-xs text-gray-500">Enterprise directory view with searchable pagination and detailed drill-down.</p>
+              <p className="text-xs text-gray-500 dark:text-slate-400">Enterprise directory view with searchable pagination and detailed drill-down.</p>
             </div>
-            <span className="text-xs text-gray-500">
+            <span className="text-xs text-gray-500 dark:text-slate-400">
               {catalogEnv.toUpperCase()} total: {directoryPagination.total}
             </span>
           </div>
@@ -877,20 +881,23 @@ const BbpsProviderGovernance = () => {
             <button
               type="button"
               onClick={() => { setDirectoryPage(1); loadAll(); }}
-              className="px-3 py-2 border rounded text-sm bg-slate-50"
+              className="px-3 py-2 border rounded text-sm bg-slate-50 dark:bg-slate-800/50"
             >
               Search
             </button>
-            <select
+            <SelectField
               value={directoryCategory}
-              onChange={(e) => { setDirectoryCategory(e.target.value); setDirectoryPage(1); }}
-              className="px-3 py-2 border rounded text-sm"
-            >
-              <option value="all">All categories</option>
-              {directoryCategories.map((c) => (
-                <option key={c} value={c}>{c}</option>
-              ))}
-            </select>
+              onChange={(val) => {
+                setDirectoryCategory(val);
+                setDirectoryPage(1);
+              }}
+              options={[{ value: 'all', label: 'All categories' }, ...directoryCategories.map((c) => ({ value: c, label: c }))]}
+              getOptionValue={(o) => o.value}
+              getOptionLabel={(o) => o.label}
+              includeEmptyOption={false}
+              searchable={directoryCategories.length >= 7}
+              className="min-w-[160px]"
+            />
             <select
               value={directoryPageSize}
               onChange={(e) => { setDirectoryPageSize(Number(e.target.value)); setDirectoryPage(1); }}
@@ -904,7 +911,7 @@ const BbpsProviderGovernance = () => {
             </select>
           </div>
 
-          <div className="flex flex-wrap items-center justify-between gap-2 border rounded p-2 bg-slate-50 text-xs">
+          <div className="flex flex-wrap items-center justify-between gap-2 border rounded p-2 bg-slate-50 dark:bg-slate-800/50 text-xs">
             <div>
               Selected billers: <strong>{selectedDirectoryBillerIds.length}</strong>
               {selectedDirectoryBillerIds.length ? ` (${selectedDirectoryBillerIds.slice(0, 5).join(', ')}${selectedDirectoryBillerIds.length > 5 ? ', ...' : ''})` : ''}
@@ -931,7 +938,7 @@ const BbpsProviderGovernance = () => {
 
           <div className="overflow-auto border rounded-lg">
             <table className="w-full text-sm">
-              <thead className="bg-gray-50">
+              <thead className="bg-gray-50 dark:bg-slate-800/50">
                 <tr>
                   <th className="text-left p-2">
                     <input
@@ -964,8 +971,8 @@ const BbpsProviderGovernance = () => {
                       <span
                         className={`text-[10px] px-1.5 py-0.5 rounded border ${
                           (b.environment || catalogEnv) === 'prod'
-                            ? 'bg-violet-50 border-violet-200 text-violet-900'
-                            : 'bg-sky-50 border-sky-200 text-sky-900'
+                            ? 'bg-violet-50 dark:bg-violet-950/40 border-violet-200 dark:border-violet-800 text-violet-900 dark:text-violet-300'
+                            : 'bg-sky-50 dark:bg-sky-950/40 border-sky-200 dark:border-sky-800 text-sky-900 dark:text-sky-300'
                         }`}
                       >
                         {(b.environment || catalogEnv || '').toUpperCase()}
@@ -994,7 +1001,7 @@ const BbpsProviderGovernance = () => {
                       </button>
                       <button
                         type="button"
-                        className="px-2 py-1 text-xs border rounded ml-1 text-red-700"
+                        className="px-2 py-1 text-xs border rounded ml-1 text-red-700 dark:text-red-300"
                         onClick={() => softDeleteBiller(b)}
                       >
                         Delete
@@ -1004,14 +1011,14 @@ const BbpsProviderGovernance = () => {
                 ))}
                 {filteredDirectoryBillers.length === 0 ? (
                   <tr>
-                    <td colSpan={8} className="p-4 text-center text-sm text-gray-500">No billers found for this filter.</td>
+                    <td colSpan={8} className="p-4 text-center text-sm text-gray-500 dark:text-slate-400">No billers found for this filter.</td>
                   </tr>
                 ) : null}
               </tbody>
             </table>
           </div>
 
-          <div className="flex items-center justify-between text-xs text-gray-600">
+          <div className="flex items-center justify-between text-xs text-gray-600 dark:text-slate-400">
             <span>
               Page {directoryPagination.page} / {directoryPagination.total_pages} · Showing {filteredDirectoryBillers.length} · Total {directoryPagination.total}
             </span>
@@ -1039,7 +1046,7 @@ const BbpsProviderGovernance = () => {
 
       {activeTab === 'operations' && (
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-          <div className="bg-white rounded-xl border border-gray-200 p-5 space-y-4">
+          <div className="bg-white dark:bg-slate-900 rounded-xl border border-gray-200 dark:border-slate-700 p-5 space-y-4">
             <h2 className="font-semibold">Master Setup</h2>
             <form onSubmit={saveCategory} className="space-y-2">
               <p className="text-sm font-medium">Create Category</p>
@@ -1050,10 +1057,15 @@ const BbpsProviderGovernance = () => {
 
             <form onSubmit={saveProvider} className="space-y-2">
               <p className="text-sm font-medium">Create Provider</p>
-          <select className="w-full border rounded px-3 py-2 text-sm" value={providerForm.category} onChange={(e) => setProviderForm((s) => ({ ...s, category: e.target.value }))} required>
-            <option value="">Select category</option>
-            {categories.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
-          </select>
+          <SelectField
+            value={providerForm.category}
+            onChange={(val) => setProviderForm((s) => ({ ...s, category: val }))}
+            options={categories}
+            getOptionLabel={(c) => c.name}
+            getOptionValue={(c) => c.id}
+            placeholder="Select category"
+            required
+          />
           <input className="w-full border rounded px-3 py-2 text-sm" placeholder="provider code" value={providerForm.code} onChange={(e) => setProviderForm((s) => ({ ...s, code: e.target.value }))} required />
           <input className="w-full border rounded px-3 py-2 text-sm" placeholder="provider name" value={providerForm.name} onChange={(e) => setProviderForm((s) => ({ ...s, name: e.target.value }))} required />
               <button type="submit" className="px-3 py-1.5 bg-blue-600 text-white text-sm rounded">Save provider</button>
@@ -1061,14 +1073,24 @@ const BbpsProviderGovernance = () => {
 
             <form onSubmit={saveMap} className="space-y-2">
               <p className="text-sm font-medium">{mapForm.id ? 'Update Provider-Biller Map' : 'Create Provider-Biller Map'}</p>
-          <select className="w-full border rounded px-3 py-2 text-sm" value={mapForm.provider} onChange={(e) => setMapForm((s) => ({ ...s, provider: e.target.value }))} required>
-            <option value="">Select provider</option>
-                {providers.map((p) => <option key={p.id} value={p.id}>{p.name} ({p.category_code})</option>)}
-          </select>
-          <select className="w-full border rounded px-3 py-2 text-sm" value={mapForm.biller_master} onChange={(e) => setMapForm((s) => ({ ...s, biller_master: e.target.value }))} required>
-            <option value="">Select biller</option>
-                {providerScopedBillers.map((b) => <option key={b.id} value={b.id}>{b.biller_name} ({b.biller_id}) - {b.biller_category}</option>)}
-          </select>
+          <SelectField
+            value={mapForm.provider}
+            onChange={(val) => setMapForm((s) => ({ ...s, provider: val }))}
+            options={providers}
+            getOptionLabel={(p) => `${p.name} (${p.category_code})`}
+            getOptionValue={(p) => p.id}
+            placeholder="Select provider"
+            required
+          />
+          <SelectField
+            value={mapForm.biller_master}
+            onChange={(val) => setMapForm((s) => ({ ...s, biller_master: val }))}
+            options={providerScopedBillers}
+            getOptionLabel={(b) => `${b.biller_name} (${b.biller_id}) - ${b.biller_category}`}
+            getOptionValue={(b) => b.id}
+            placeholder="Select biller"
+            required
+          />
               <button type="submit" className="px-3 py-1.5 bg-blue-600 text-white text-sm rounded">
                 {mapForm.id ? 'Update map' : 'Save map'}
               </button>
@@ -1080,7 +1102,7 @@ const BbpsProviderGovernance = () => {
         </form>
       </div>
 
-          <div className="bg-white rounded-xl border border-gray-200 p-5 space-y-3">
+          <div className="bg-white dark:bg-slate-900 rounded-xl border border-gray-200 dark:border-slate-700 p-5 space-y-3">
             <h2 className="font-semibold">Ops Summary & Existing Mappings</h2>
             {opsSummary && (
               <div className="grid grid-cols-2 gap-2 text-sm">
@@ -1101,7 +1123,7 @@ const BbpsProviderGovernance = () => {
         </div>
             <div className="max-h-72 overflow-auto border rounded">
               <table className="w-full text-xs">
-            <thead className="bg-gray-50">
+            <thead className="bg-gray-50 dark:bg-slate-800/50">
               <tr>
                     <th className="text-left p-2">Category</th>
                 <th className="text-left p-2">Provider</th>
@@ -1125,53 +1147,53 @@ const BbpsProviderGovernance = () => {
             </tbody>
           </table>
         </div>
-            <p className="text-[11px] text-gray-500">Showing {Math.min(filteredOpsMaps.length, 100)} of {filteredOpsMaps.length} mappings.</p>
+            <p className="text-[11px] text-gray-500 dark:text-slate-400">Showing {Math.min(filteredOpsMaps.length, 100)} of {filteredOpsMaps.length} mappings.</p>
           </div>
         </div>
       )}
 
-      <div className="text-xs text-gray-400">
+      <div className="text-xs text-gray-400 dark:text-slate-500">
         {loading
           ? 'Loading governance data...'
           : `Billers: ${billerMaster.length}, Visible: ${visibleServicesCount}, Hidden: ${hiddenServicesCount}, Categories: ${categories.length}`}
       </div>
 
       {audits.length > 0 || observability ? (
-        <div className="bg-white rounded-xl border border-gray-200 p-5 space-y-3">
+        <div className="bg-white dark:bg-slate-900 rounded-xl border border-gray-200 dark:border-slate-700 p-5 space-y-3">
           <h2 className="font-semibold">Audit & Observability</h2>
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-3">
-            <div className="rounded-lg border border-slate-200">
-              <div className="px-3 py-2 bg-slate-100 text-xs font-medium text-slate-700">Recent changes</div>
+            <div className="rounded-lg border border-slate-200 dark:border-slate-700">
+              <div className="px-3 py-2 bg-slate-100 dark:bg-slate-800 text-xs font-medium text-slate-700 dark:text-slate-300">Recent changes</div>
               <div className="max-h-56 overflow-auto text-xs">
                 {audits.slice(0, 10).map((a) => (
                   <div key={a.id} className="px-3 py-2 border-t first:border-t-0">
                     <p><strong>{a.action || 'update'}</strong> · Rule: {a.rule_code || 'n/a'}</p>
-                    <p className="text-slate-500">{a.reason || 'No reason provided'}</p>
+                    <p className="text-slate-500 dark:text-slate-400">{a.reason || 'No reason provided'}</p>
                   </div>
                 ))}
               </div>
             </div>
-            <div className="rounded-lg border border-slate-200">
-              <div className="px-3 py-2 bg-slate-100 text-xs font-medium text-slate-700">API health</div>
+            <div className="rounded-lg border border-slate-200 dark:border-slate-700">
+              <div className="px-3 py-2 bg-slate-100 dark:bg-slate-800 text-xs font-medium text-slate-700 dark:text-slate-300">API health</div>
               <div className="max-h-56 overflow-auto text-xs">
                 {Object.entries(observability?.endpoint_counts || {}).map(([k, v]) => (
                   <div key={k} className="px-3 py-2 border-t first:border-t-0 flex items-center justify-between">
                     <span>{toTitle(k)}</span>
-                    <span className="text-slate-600">Total {v.total || 0} · Failed {v.failed || 0}</span>
+                    <span className="text-slate-600 dark:text-slate-400">Total {v.total || 0} · Failed {v.failed || 0}</span>
                   </div>
                 ))}
                 {Object.keys(observability?.endpoint_counts || {}).length === 0 ? (
-                  <div className="px-3 py-3 text-slate-500">No endpoint telemetry available.</div>
+                  <div className="px-3 py-3 text-slate-500 dark:text-slate-400">No endpoint telemetry available.</div>
                 ) : null}
               </div>
             </div>
           </div>
           {syncUsageHistory.length > 0 ? (
-            <div className="rounded-lg border border-slate-200">
-              <div className="px-3 py-2 bg-slate-100 text-xs font-medium text-slate-700">Sync usage history</div>
+            <div className="rounded-lg border border-slate-200 dark:border-slate-700">
+              <div className="px-3 py-2 bg-slate-100 dark:bg-slate-800 text-xs font-medium text-slate-700 dark:text-slate-300">Sync usage history</div>
               <div className="max-h-56 overflow-auto">
                 <table className="w-full text-xs">
-                  <thead className="bg-white">
+                  <thead className="bg-white dark:bg-slate-900">
                     <tr>
                       <th className="text-left p-2">Date</th>
                       <th className="text-left p-2">Calls</th>

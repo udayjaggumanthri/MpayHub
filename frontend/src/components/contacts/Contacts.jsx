@@ -209,8 +209,8 @@ const Contacts = () => {
     <div className="max-w-7xl mx-auto space-y-6 px-4 sm:px-0">
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
         <div>
-          <h1 className="text-2xl sm:text-3xl font-bold text-gray-900">Contacts</h1>
-          <p className="mt-1 text-sm sm:text-base text-gray-600">
+          <h1 className="text-2xl sm:text-3xl font-bold text-gray-900 dark:text-slate-100">Contacts</h1>
+          <p className="mt-1 text-sm sm:text-base text-gray-600 dark:text-slate-400">
             Directory for pay-in and payout verification (phone is the unique key per account)
           </p>
         </div>
@@ -225,41 +225,41 @@ const Contacts = () => {
       </div>
 
       <Card padding="lg">
-        <h3 className="text-lg font-semibold text-gray-900 mb-4">Filter</h3>
-        <p className="text-sm text-gray-500 mb-4">
+        <h3 className="text-lg font-semibold text-gray-900 dark:text-slate-100 mb-4">Filter</h3>
+        <p className="text-sm text-gray-500 dark:text-slate-400 mb-4">
           Enter criteria and click <strong>Filter</strong> to run a server-side search.
         </p>
         <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-2">Name</label>
+            <label className="block text-sm font-medium text-gray-700 dark:text-slate-300 mb-2">Name</label>
             <div className="relative">
-              <FaMagnifyingGlass className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400" size={18} />
+              <FaMagnifyingGlass className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400 dark:text-slate-500" size={18} />
               <input
                 type="text"
                 value={filterDraft.name}
                 onChange={(e) => setFilterDraft({ ...filterDraft, name: e.target.value })}
                 placeholder="Name"
-                className="w-full pl-10 pr-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                className="w-full pl-10 pr-4 py-2 border border-gray-300 dark:border-slate-600 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
               />
             </div>
           </div>
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-2">Email</label>
+            <label className="block text-sm font-medium text-gray-700 dark:text-slate-300 mb-2">Email</label>
             <div className="relative">
-              <FaMagnifyingGlass className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400" size={18} />
+              <FaMagnifyingGlass className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400 dark:text-slate-500" size={18} />
               <input
                 type="text"
                 value={filterDraft.email}
                 onChange={(e) => setFilterDraft({ ...filterDraft, email: e.target.value })}
                 placeholder="Email"
-                className="w-full pl-10 pr-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                className="w-full pl-10 pr-4 py-2 border border-gray-300 dark:border-slate-600 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
               />
             </div>
           </div>
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-2">Phone</label>
+            <label className="block text-sm font-medium text-gray-700 dark:text-slate-300 mb-2">Phone</label>
             <div className="relative">
-              <FaMagnifyingGlass className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400" size={18} />
+              <FaMagnifyingGlass className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400 dark:text-slate-500" size={18} />
               <input
                 type="tel"
                 value={filterDraft.phone}
@@ -269,7 +269,7 @@ const Contacts = () => {
                 }}
                 placeholder="10-digit phone"
                 maxLength={10}
-                className="w-full pl-10 pr-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                className="w-full pl-10 pr-4 py-2 border border-gray-300 dark:border-slate-600 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
               />
             </div>
           </div>
@@ -286,9 +286,9 @@ const Contacts = () => {
 
       <Card padding="lg">
         <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2 mb-4">
-          <h3 className="text-lg font-semibold text-gray-900">Contact list</h3>
+          <h3 className="text-lg font-semibold text-gray-900 dark:text-slate-100">Contact list</h3>
           {totalCount != null && !loading && (
-            <p className="text-sm text-gray-500">
+            <p className="text-sm text-gray-500 dark:text-slate-400">
               {contacts.length} shown
               {typeof totalCount === 'number' && totalCount > contacts.length
                 ? ` of ${totalCount} total`
@@ -299,17 +299,17 @@ const Contacts = () => {
           )}
         </div>
         {loadError && (
-          <div className="mb-4 rounded-lg bg-red-50 border border-red-100 text-red-700 text-sm px-4 py-2">
+          <div className="mb-4 rounded-lg bg-red-50 dark:bg-red-950/40 border border-red-100 dark:border-red-900 text-red-700 dark:text-red-300 text-sm px-4 py-2">
             {loadError}
           </div>
         )}
         {loading ? (
           <div className="text-center py-12">
             <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600 mx-auto" />
-            <p className="mt-4 text-gray-600">Loading contacts...</p>
+            <p className="mt-4 text-gray-600 dark:text-slate-400">Loading contacts...</p>
           </div>
         ) : contacts.length === 0 ? (
-          <div className="text-center py-12 text-gray-500">
+          <div className="text-center py-12 text-gray-500 dark:text-slate-400">
             <p className="text-lg">No contacts found</p>
             <p className="text-sm mt-2">Use &quot;Add New Contact&quot; or adjust filters.</p>
           </div>
@@ -317,36 +317,36 @@ const Contacts = () => {
           <div className="overflow-x-auto -mx-4 sm:mx-0">
             <table className="w-full min-w-[640px] border-collapse">
               <thead>
-                <tr className="bg-gray-50 border-b border-gray-200">
-                  <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider w-16">
+                <tr className="bg-gray-50 dark:bg-slate-800/50 border-b border-gray-200 dark:border-slate-700">
+                  <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 dark:text-slate-400 uppercase tracking-wider w-16">
                     S.NO
                   </th>
-                  <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                  <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 dark:text-slate-400 uppercase tracking-wider">
                     NAME
                   </th>
-                  <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                  <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 dark:text-slate-400 uppercase tracking-wider">
                     EMAIL
                   </th>
-                  <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                  <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 dark:text-slate-400 uppercase tracking-wider">
                     PHONE
                   </th>
-                  <th className="px-4 py-3 text-center text-xs font-medium text-gray-500 uppercase tracking-wider w-28">
+                  <th className="px-4 py-3 text-center text-xs font-medium text-gray-500 dark:text-slate-400 uppercase tracking-wider w-28">
                     ACTION
                   </th>
                 </tr>
               </thead>
               <tbody>
                 {contacts.map((contact, index) => (
-                  <tr key={contact.id} className="border-b border-gray-200 hover:bg-gray-50 transition-colors">
-                    <td className="px-4 py-4 text-sm text-gray-900 tabular-nums">{index + 1}</td>
-                    <td className="px-4 py-4 text-sm font-medium text-gray-900">{contact.name}</td>
-                    <td className="px-4 py-4 text-sm text-gray-700 break-all max-w-[220px]">{contact.email}</td>
-                    <td className="px-4 py-4 text-sm text-gray-700 tabular-nums">{contact.phone}</td>
+                  <tr key={contact.id} className="border-b border-gray-200 dark:border-slate-700 hover:bg-gray-50 dark:hover:bg-slate-800 transition-colors">
+                    <td className="px-4 py-4 text-sm text-gray-900 dark:text-slate-100 tabular-nums">{index + 1}</td>
+                    <td className="px-4 py-4 text-sm font-medium text-gray-900 dark:text-slate-100">{contact.name}</td>
+                    <td className="px-4 py-4 text-sm text-gray-700 dark:text-slate-300 break-all max-w-[220px]">{contact.email}</td>
+                    <td className="px-4 py-4 text-sm text-gray-700 dark:text-slate-300 tabular-nums">{contact.phone}</td>
                     <td className="px-4 py-4 text-center">
                       <button
                         type="button"
                         onClick={() => handleEdit(contact)}
-                        className="inline-flex items-center justify-center text-blue-600 hover:text-blue-800 transition-colors p-2 rounded-lg hover:bg-blue-50"
+                        className="inline-flex items-center justify-center text-blue-600 dark:text-blue-400 hover:text-blue-800 dark:hover:text-blue-200 transition-colors p-2 rounded-lg hover:bg-blue-50 dark:hover:bg-blue-950/60"
                         title="Edit contact"
                         aria-label="Edit contact"
                       >
@@ -363,10 +363,10 @@ const Contacts = () => {
 
       {showAddModal && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 overflow-y-auto">
-          <div className="bg-white rounded-xl shadow-2xl max-w-md w-full p-6 my-auto max-h-[90vh] overflow-y-auto">
+          <div className="bg-white dark:bg-slate-900 rounded-xl shadow-2xl max-w-md w-full p-6 my-auto max-h-[90vh] overflow-y-auto">
             <div className="flex items-center justify-between mb-6">
-              <h2 className="text-2xl font-bold text-gray-900">Add New Contact</h2>
-              <button type="button" onClick={closeAddModal} className="text-gray-400 hover:text-gray-600 transition-colors">
+              <h2 className="text-2xl font-bold text-gray-900 dark:text-slate-100">Add New Contact</h2>
+              <button type="button" onClick={closeAddModal} className="text-gray-400 dark:text-slate-500 hover:text-gray-600 dark:hover:text-slate-400 transition-colors">
                 <FaX size={24} />
               </button>
             </div>
@@ -421,14 +421,14 @@ const Contacts = () => {
 
       {showEditModal && selectedContact && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 overflow-y-auto">
-          <div className="bg-white rounded-xl shadow-2xl max-w-md w-full p-6 my-auto max-h-[90vh] overflow-y-auto">
+          <div className="bg-white dark:bg-slate-900 rounded-xl shadow-2xl max-w-md w-full p-6 my-auto max-h-[90vh] overflow-y-auto">
             <div className="flex items-center justify-between mb-6">
-              <h2 className="text-2xl font-bold text-gray-900">Edit contact</h2>
-              <button type="button" onClick={closeEditModal} className="text-gray-400 hover:text-gray-600 transition-colors">
+              <h2 className="text-2xl font-bold text-gray-900 dark:text-slate-100">Edit contact</h2>
+              <button type="button" onClick={closeEditModal} className="text-gray-400 dark:text-slate-500 hover:text-gray-600 dark:hover:text-slate-400 transition-colors">
                 <FaX size={24} />
               </button>
             </div>
-            <p className="text-sm text-gray-500 mb-4">
+            <p className="text-sm text-gray-500 dark:text-slate-400 mb-4">
               Update contact details. Phone must stay unique in your directory.
             </p>
 

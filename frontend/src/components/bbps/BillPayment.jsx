@@ -74,8 +74,8 @@ const BillPayment = () => {
   const categoryPickerShell = (selector) => (
     <div className="mx-auto flex w-full max-w-7xl min-h-0 flex-col gap-3">
       <MaintenanceBanner maintenance={maintenance} moduleKey="bbps" />
-      <div className="flex max-h-[calc(100dvh-8.25rem)] min-h-[min(24rem,calc(100dvh-10rem))] flex-col overflow-hidden rounded-xl border border-gray-200 bg-white shadow-sm sm:max-h-[calc(100dvh-7.75rem)]">
-        <div className="shrink-0 border-b border-gray-100 bg-slate-50/60 px-3 py-3 sm:px-5 sm:py-3.5">
+      <div className="flex max-h-[calc(100dvh-8.25rem)] min-h-[min(24rem,calc(100dvh-10rem))] flex-col overflow-hidden rounded-xl border border-gray-200 dark:border-slate-700 bg-white dark:bg-slate-900 shadow-sm sm:max-h-[calc(100dvh-7.75rem)]">
+        <div className="shrink-0 border-b border-gray-100 dark:border-slate-800 bg-slate-50/60 dark:bg-slate-800/50 px-3 py-3 sm:px-5 sm:py-3.5">
           <BharatConnectBranding
             stage="stage1"
             title="Bill Payment"
@@ -84,7 +84,9 @@ const BillPayment = () => {
             logoSize="md"
             variant="compact"
           />
-          <p className="mt-1.5 text-sm text-slate-600 sm:mt-2">Select a category to continue</p>
+          <p className="mt-1.5 text-sm text-slate-600 dark:text-slate-400 sm:mt-2">
+            Choose a category from the dropdown or pick a tile below
+          </p>
         </div>
         <div className="flex min-h-0 flex-1 flex-col px-3 pb-3 pt-3 sm:px-5 sm:pb-4 sm:pt-3.5">{selector}</div>
       </div>
@@ -104,12 +106,12 @@ const BillPayment = () => {
         <button
           type="button"
           onClick={() => navigate('/bill-payments/pay')}
-          className="flex shrink-0 items-center space-x-2 text-gray-600 transition-colors hover:text-blue-600"
+          className="flex shrink-0 items-center space-x-2 text-gray-600 dark:text-slate-400 transition-colors hover:text-blue-600"
         >
           <FaArrowLeft size={18} />
           <span className="font-medium">Back to Categories</span>
         </button>
-        <div className="shrink-0 rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900">
+        <div className="shrink-0 rounded-lg border border-amber-200 dark:border-amber-800 bg-amber-50 dark:bg-amber-950/40 px-4 py-3 text-sm text-amber-900 dark:text-amber-300">
           We could not match &quot;{category}&quot; to a bill category. Select one below from all available
           categories.
         </div>
@@ -141,7 +143,7 @@ const BillPayment = () => {
       <button
         type="button"
         onClick={() => navigate('/bill-payments/pay')}
-        className="flex shrink-0 items-center space-x-2 text-gray-600 transition-colors hover:text-blue-600"
+        className="flex shrink-0 items-center space-x-2 text-gray-600 dark:text-slate-400 transition-colors hover:text-blue-600"
       >
         <FaArrowLeft size={18} />
         <span className="font-medium">Back to Categories</span>
@@ -151,6 +153,7 @@ const BillPayment = () => {
         category={resolvedCategory || category}
         categoryLabel={displayTitle}
         onPaymentSuccess={handlePaymentSuccess}
+        onBack={() => navigate('/bill-payments/pay')}
       />
     </div>
   );

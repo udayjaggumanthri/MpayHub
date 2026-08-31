@@ -19,6 +19,8 @@ import {
 } from 'recharts';
 import { bbpsAPI, billAvenueAdminAPI } from '../../../services/api';
 import { formatCurrency } from '../../../utils/formatters';
+import { useTheme } from '../../../context/ThemeContext';
+import { getChartTheme } from '../../../utils/chartTheme';
 import Badge from '../../common/Badge';
 import Card from '../../common/Card';
 import LoadingSpinner from '../../common/LoadingSpinner';
@@ -45,6 +47,8 @@ function formatWhen(iso) {
 
 const BbpsOverview = () => {
   const navigate = useNavigate();
+  const { isDark } = useTheme();
+  const chart = getChartTheme(isDark);
   const [loading, setLoading] = useState(true);
   const [catData, setCatData] = useState(null);
   const [quota, setQuota] = useState(null);
@@ -175,7 +179,7 @@ const BbpsOverview = () => {
         {/* Category donut */}
         <Card title="Billers by category" subtitle="Click a category in the Directory to drill in" padding="md">
           {donutData.length === 0 ? (
-            <p className="py-10 text-center text-sm text-slate-500">No billers in this catalog yet.</p>
+            <p className="py-10 text-center text-sm text-slate-500 dark:text-slate-400">No billers in this catalog yet.</p>
           ) : (
             <div className="flex flex-col items-center gap-3">
               <div className="h-52 w-full">
@@ -193,7 +197,12 @@ const BbpsOverview = () => {
                         <Cell key={entry.name} fill={DONUT_COLORS[idx % DONUT_COLORS.length]} />
                       ))}
                     </Pie>
-                    <Tooltip formatter={(v, n) => [`${v} billers`, n]} />
+                    <Tooltip
+                      formatter={(v, n) => [`${v} billers`, n]}
+                      contentStyle={chart.tooltip}
+                      itemStyle={{ color: chart.tooltip.color }}
+                      labelStyle={{ color: chart.tooltip.color }}
+                    />
                   </PieChart>
                 </ResponsiveContainer>
               </div>
@@ -206,7 +215,7 @@ const BbpsOverview = () => {
                       entry.name !== 'Other' &&
                       navigate(`/admin/bbps/directory?category=${encodeURIComponent(entry.name)}`)
                     }
-                    className="flex items-center gap-1.5 truncate text-left text-xs text-slate-600 hover:text-blue-700"
+                    className="flex items-center gap-1.5 truncate text-left text-xs text-slate-600 dark:text-slate-400 hover:text-blue-700 dark:hover:text-blue-200"
                     title={entry.name}
                   >
                     <span
@@ -214,7 +223,7 @@ const BbpsOverview = () => {
                       style={{ backgroundColor: DONUT_COLORS[idx % DONUT_COLORS.length] }}
                     />
                     <span className="truncate">{entry.name}</span>
-                    <span className="ml-auto font-semibold text-slate-800">{entry.value}</span>
+                    <span className="ml-auto font-semibold text-slate-800 dark:text-slate-200">{entry.value}</span>
                   </button>
                 ))}
               </div>
@@ -229,7 +238,7 @@ const BbpsOverview = () => {
           padding="md"
         >
           {apiHealth.length === 0 ? (
-            <p className="py-10 text-center text-sm text-slate-500">No recent API activity.</p>
+            <p className="py-10 text-center text-sm text-slate-500 dark:text-slate-400">No recent API activity.</p>
           ) : (
             <div className="space-y-2.5">
               {apiHealth.slice(0, 8).map((row) => {
@@ -238,15 +247,15 @@ const BbpsOverview = () => {
                 return (
                   <div key={row.name}>
                     <div className="flex items-center justify-between text-xs">
-                      <span className="font-medium capitalize text-slate-700">
+                      <span className="font-medium capitalize text-slate-700 dark:text-slate-300">
                         {row.name.replace(/_/g, ' ')}
                       </span>
-                      <span className="text-slate-500">
+                      <span className="text-slate-500 dark:text-slate-400">
                         {row.failed > 0 ? `${row.failed} failed / ` : ''}
                         {row.total} calls
                       </span>
                     </div>
-                    <div className="mt-1 h-2 w-full overflow-hidden rounded-full bg-slate-100">
+                    <div className="mt-1 h-2 w-full overflow-hidden rounded-full bg-slate-100 dark:bg-slate-800">
                       <div
                         className={`h-full rounded-full ${tone}`}
                         style={{ width: `${Math.max(4, 100 - row.rate)}%` }}
@@ -262,7 +271,7 @@ const BbpsOverview = () => {
         {/* Sync usage sparkline */}
         <Card title="MDM sync usage" subtitle="Daily sync calls (latest 14 entries)" padding="md">
           {sparkData.length === 0 ? (
-            <p className="py-10 text-center text-sm text-slate-500">No sync history yet.</p>
+            <p className="py-10 text-center text-sm text-slate-500 dark:text-slate-400">No sync history yet.</p>
           ) : (
             <div className="h-40 w-full">
               <ResponsiveContainer>
@@ -276,6 +285,10 @@ const BbpsOverview = () => {
                   <Tooltip
                     formatter={(v) => [`${v} calls`, 'Sync']}
                     labelFormatter={(l) => `Date ${l}`}
+                    contentStyle={chart.tooltip}
+                    itemStyle={{ color: chart.tooltip.color }}
+                    labelStyle={{ color: chart.tooltip.color }}
+                    cursor={{ stroke: chart.axisLine }}
                   />
                   <Area
                     type="monotone"
@@ -288,7 +301,7 @@ const BbpsOverview = () => {
               </ResponsiveContainer>
             </div>
           )}
-          <div className="mt-3 flex items-center justify-between border-t border-slate-100 pt-3 text-xs text-slate-500">
+          <div className="mt-3 flex items-center justify-between border-t border-slate-100 dark:border-slate-800 pt-3 text-xs text-slate-500 dark:text-slate-400">
             <span>
               Last sync: {quota?.last_sync_at ? formatWhen(quota.last_sync_at) : '—'}
             </span>
@@ -303,16 +316,16 @@ const BbpsOverview = () => {
       <div className="grid gap-5 xl:grid-cols-3">
         <Card title="Recent MDM imports" padding="md">
           {mdmJobs.length === 0 ? (
-            <p className="py-6 text-center text-sm text-slate-500">No import jobs.</p>
+            <p className="py-6 text-center text-sm text-slate-500 dark:text-slate-400">No import jobs.</p>
           ) : (
-            <ul className="divide-y divide-slate-100">
+            <ul className="divide-y divide-slate-100 dark:divide-slate-800">
               {mdmJobs.map((j) => (
                 <li key={j.id} className="flex items-center justify-between gap-2 py-2 text-sm">
                   <div className="min-w-0">
-                    <div className="truncate font-medium text-slate-800">
+                    <div className="truncate font-medium text-slate-800 dark:text-slate-200">
                       #{j.id} {j.original_filename || 'Import'}
                     </div>
-                    <div className="text-xs text-slate-500">
+                    <div className="text-xs text-slate-500 dark:text-slate-400">
                       {(j.environment || '').toUpperCase()} · {j.synced_ids ?? 0}/{j.total_ids ?? 0} synced
                     </div>
                   </div>
@@ -336,14 +349,14 @@ const BbpsOverview = () => {
 
         <Card title="Recent deposit enquiries" padding="md">
           {deposits.length === 0 ? (
-            <p className="py-6 text-center text-sm text-slate-500">No enquiries yet.</p>
+            <p className="py-6 text-center text-sm text-slate-500 dark:text-slate-400">No enquiries yet.</p>
           ) : (
-            <ul className="divide-y divide-slate-100">
+            <ul className="divide-y divide-slate-100 dark:divide-slate-800">
               {deposits.map((d) => (
                 <li key={d.id} className="flex items-center justify-between gap-2 py-2 text-sm">
                   <div className="min-w-0">
-                    <div className="font-medium text-slate-800">{formatCurrency(d.current_balance)}</div>
-                    <div className="text-xs text-slate-500">
+                    <div className="font-medium text-slate-800 dark:text-slate-200">{formatCurrency(d.current_balance)}</div>
+                    <div className="text-xs text-slate-500 dark:text-slate-400">
                       {d.from_date} → {d.to_date} · {d.transaction_count} txns
                     </div>
                   </div>
@@ -358,14 +371,14 @@ const BbpsOverview = () => {
 
         <Card title="Recent float activity" padding="md">
           {ledger.length === 0 ? (
-            <p className="py-6 text-center text-sm text-slate-500">No float ledger entries.</p>
+            <p className="py-6 text-center text-sm text-slate-500 dark:text-slate-400">No float ledger entries.</p>
           ) : (
-            <ul className="divide-y divide-slate-100">
+            <ul className="divide-y divide-slate-100 dark:divide-slate-800">
               {ledger.map((e) => (
                 <li key={e.id} className="flex items-center justify-between gap-2 py-2 text-sm">
                   <div className="min-w-0">
-                    <div className="font-medium text-slate-800">{formatCurrency(e.amount)}</div>
-                    <div className="truncate text-xs text-slate-500">
+                    <div className="font-medium text-slate-800 dark:text-slate-200">{formatCurrency(e.amount)}</div>
+                    <div className="truncate text-xs text-slate-500 dark:text-slate-400">
                       {formatWhen(e.created_at)} · {e.remarks || e.service_id || '—'}
                     </div>
                   </div>
@@ -392,7 +405,7 @@ const BbpsOverview = () => {
         </Card>
       </div>
 
-      <div className="flex items-center gap-2 text-xs text-slate-400">
+      <div className="flex items-center gap-2 text-xs text-slate-400 dark:text-slate-500">
         <FaHeartPulse />
         Data refreshes on page load. Open individual modules from the left navigation for live operations.
       </div>

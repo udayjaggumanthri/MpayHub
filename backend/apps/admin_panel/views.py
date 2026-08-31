@@ -4,7 +4,7 @@ Admin panel views for the mPayhub platform.
 from django.db.models import Q
 from django.utils.dateparse import parse_date
 from rest_framework import status, viewsets
-from rest_framework.decorators import action, api_view, permission_classes
+from rest_framework.decorators import action, api_view, parser_classes, permission_classes
 from rest_framework.parsers import FormParser, JSONParser, MultiPartParser
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
@@ -150,18 +150,48 @@ class PayInPackageViewSet(viewsets.ModelViewSet):
         .prefetch_related(
             'payout_slabs',
             'package_gateways__payment_gateway',
+            'package_qr_links',
         )
         .order_by('sort_order', 'display_name')
     )
     serializer_class = PayInPackageAdminSerializer
     permission_classes = [IsAuthenticated, IsAdmin]
 
+    def get_serializer_class(self):
+        from apps.admin_panel.serializers import PayInPackageListSerializer
+
+        if self.action == 'list':
+            return PayInPackageListSerializer
+        return PayInPackageAdminSerializer
+
+    def get_queryset(self):
+        qs = super().get_queryset()
+        search = (self.request.query_params.get('search') or '').strip()
+        if search:
+            from django.db.models import Q
+
+            qs = qs.filter(
+                Q(display_name__icontains=search)
+                | Q(code__icontains=search)
+                | Q(provider__icontains=search)
+            )
+        return qs
+
     @action(detail=True, methods=['post'])
     def preview(self, request, pk=None):
         """
         POST /api/admin/pay-in-packages/{id}/preview/
-        Body: {"amount": "100000"}
+        Body: {"amount": "100000", "payer_user_id": 1, "gateway_id": 2, "qr_account_id": null}
         """
+        from apps.authentication.models import User
+        from apps.fund_management.payin_hierarchy import upline_chain
+        from apps.fund_management.rail_fees import (
+            effective_link_fee,
+            gateway_floor_pct,
+            qr_floor_pct,
+            resolve_rail_gateway_fee_pct,
+        )
+
         package = self.get_object()
         amount = request.data.get('amount')
         if amount is None:
@@ -174,13 +204,164 @@ class PayInPackageViewSet(viewsets.ModelViewSet):
                 },
                 status=status.HTTP_400_BAD_REQUEST,
             )
+
+        gateway_id = request.data.get('gateway_id')
+        qr_account_id = request.data.get('qr_account_id')
+        payer_user_id = request.data.get('payer_user_id')
+        payer_user = None
+        if payer_user_id:
+            payer_user = User.objects.filter(pk=payer_user_id, is_deleted=False).first()
+            if not payer_user:
+                return Response(
+                    {
+                        'success': False,
+                        'data': None,
+                        'message': 'payer_user_id not found',
+                        'errors': {'payer_user_id': ['User not found.']},
+                    },
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+
         try:
-            q = quote_payin(package, amount)
+            q = quote_payin(
+                package,
+                amount,
+                payer_user,
+                gateway_id=int(gateway_id) if gateway_id else None,
+                qr_account_id=int(qr_account_id) if qr_account_id else None,
+            )
         except ValueError as e:
             return Response(
                 {'success': False, 'data': None, 'message': str(e), 'errors': []},
                 status=status.HTTP_400_BAD_REQUEST,
             )
+
+        rail_fee = resolve_rail_gateway_fee_pct(
+            package,
+            gateway_id=int(gateway_id) if gateway_id else None,
+            qr_account_id=int(qr_account_id) if qr_account_id else None,
+        )
+        selected_rail = {'rail_type': 'package_default', 'name': 'Package default', 'min_fee_pct': None}
+        if qr_account_id:
+            from apps.fund_management.package_qr_accounts import resolve_qr_account_for_package
+
+            try:
+                qr = resolve_qr_account_for_package(package, int(qr_account_id))
+                selected_rail = {
+                    'rail_type': 'qr',
+                    'name': qr.display_name,
+                    'qr_account_id': qr.pk,
+                    'effective_fee_pct': str(rail_fee),
+                    'min_fee_pct': str(qr_floor_pct(qr)),
+                    'package_default_fee_pct': str(package.gateway_fee_pct),
+                }
+            except ValueError:
+                pass
+        elif gateway_id:
+            from apps.fund_management.package_gateways import resolve_payment_gateway_for_order
+
+            try:
+                gw = resolve_payment_gateway_for_order(package, int(gateway_id))
+                selected_rail = {
+                    'rail_type': 'gateway',
+                    'name': gw.name,
+                    'gateway_id': gw.pk,
+                    'effective_fee_pct': str(rail_fee),
+                    'min_fee_pct': str(gateway_floor_pct(gw)),
+                    'package_default_fee_pct': str(package.gateway_fee_pct),
+                }
+            except ValueError:
+                pass
+        else:
+            selected_rail['effective_fee_pct'] = str(rail_fee)
+            selected_rail['package_default_fee_pct'] = str(package.gateway_fee_pct)
+
+        hierarchy = {'payer': None, 'upline_chain': [], 'assignments': {}, 'absorbed_to_admin': '0.00'}
+        if payer_user:
+            prof = getattr(payer_user, 'profile', None)
+            hierarchy['payer'] = {
+                'id': payer_user.pk,
+                'role': getattr(payer_user, 'role', ''),
+                'name': (getattr(prof, 'full_name', None) or payer_user.email or str(payer_user.pk)),
+            }
+            chain = upline_chain(payer_user)
+            hierarchy['upline_chain'] = [
+                {
+                    'id': u.pk,
+                    'role': getattr(u, 'role', ''),
+                    'name': getattr(getattr(u, 'profile', None), 'full_name', None) or u.email or str(u.pk),
+                }
+                for u in chain
+            ]
+            dist_inner = q.get('snapshot') or {}
+            hierarchy['absorbed_to_admin'] = dist_inner.get('absorbed_to_admin_amount', '0.00')
+            hierarchy['hierarchy_adjusted'] = dist_inner.get('hierarchy_adjusted', False)
+
+        from apps.fund_management.payin_distribution import _compute_payin_distribution
+
+        dist_full = _compute_payin_distribution(
+            package,
+            amount,
+            payer_user,
+            gateway_fee_pct=rail_fee,
+        )
+        for role_key, user_key in (
+            ('Super Distributor', 'sd_user'),
+            ('Master Distributor', 'md_user'),
+            ('Distributor', 'dt_user'),
+        ):
+            u = dist_full.get(user_key)
+            hierarchy['assignments'][role_key] = (
+                {
+                    'id': u.pk,
+                    'name': getattr(getattr(u, 'profile', None), 'full_name', None) or u.email,
+                    'amount': str(
+                        dist_full.get(
+                            {'Super Distributor': 'sd_payout', 'Master Distributor': 'md_payout', 'Distributor': 'dt_payout'}[role_key]
+                        )
+                    ),
+                }
+                if u
+                else None
+            )
+
+        rail_comparison = []
+        from apps.fund_management.package_gateways import package_gateway_links_queryset
+        from apps.fund_management.package_qr_accounts import package_qr_links_queryset
+
+        for link in package_gateway_links_queryset(package):
+            gw = link.payment_gateway
+            if not gw:
+                continue
+            fee = effective_link_fee(package, link.gateway_fee_pct)
+            rq = quote_payin(package, amount, payer_user, gateway_id=gw.pk)
+            rail_comparison.append(
+                {
+                    'rail_type': 'gateway',
+                    'id': gw.pk,
+                    'name': gw.name,
+                    'gateway_fee_pct': str(fee),
+                    'net_credit': str(rq['net_credit']),
+                    'total_deduction': str(rq['total_deduction']),
+                }
+            )
+        for link in package_qr_links_queryset(package):
+            qr = link.qr_account
+            if not qr:
+                continue
+            fee = effective_link_fee(package, link.gateway_fee_pct)
+            rq = quote_payin(package, amount, payer_user, qr_account_id=qr.pk)
+            rail_comparison.append(
+                {
+                    'rail_type': 'qr',
+                    'id': qr.pk,
+                    'name': qr.display_name,
+                    'gateway_fee_pct': str(fee),
+                    'net_credit': str(rq['net_credit']),
+                    'total_deduction': str(rq['total_deduction']),
+                }
+            )
+
         return Response(
             {
                 'success': True,
@@ -191,12 +372,70 @@ class PayInPackageViewSet(viewsets.ModelViewSet):
                     'total_deduction': str(q['total_deduction']),
                     'retailer_commission': str(q['retailer_commission']),
                     'retailer_share_absorbed_to_admin': str(q['retailer_share_absorbed_to_admin']),
+                    'selected_rail': selected_rail,
+                    'hierarchy': hierarchy,
+                    'rail_comparison': rail_comparison,
+                    'scenarios': self._build_preview_scenarios(
+                        package,
+                        amount,
+                        rail_fee,
+                        payer_user,
+                        hierarchy=hierarchy,
+                        lines=q['lines'],
+                        total_deduction=str(q['total_deduction']),
+                        net_credit=str(q['net_credit']),
+                    ),
                 },
                 'message': 'Preview generated',
                 'errors': [],
             },
             status=status.HTTP_200_OK,
         )
+
+    def _build_preview_scenarios(
+        self, package, amount, rail_fee, payer_user, *, hierarchy, lines, total_deduction, net_credit
+    ):
+        from apps.fund_management.payin_distribution import build_preview_hierarchy_scenarios
+
+        scenarios = build_preview_hierarchy_scenarios(
+            package, amount, gateway_fee_pct=rail_fee
+        )
+        if payer_user and hierarchy:
+            live_assignments = {}
+            for role in ('Super Distributor', 'Master Distributor', 'Distributor'):
+                a = hierarchy.get('assignments', {}).get(role)
+                if a:
+                    live_assignments[role] = {
+                        'name': a.get('name'),
+                        'amount': a.get('amount', '0.00'),
+                        'status': 'paid',
+                    }
+                else:
+                    live_assignments[role] = {
+                        'name': None,
+                        'amount': '0.00',
+                        'status': 'rolls_up',
+                    }
+            scenarios.insert(
+                0,
+                {
+                    'id': 'live_payer',
+                    'title': 'Live payer',
+                    'description': (
+                        f"Actual calculation for {hierarchy.get('payer', {}).get('name', 'selected payer')} "
+                        f"({hierarchy.get('payer', {}).get('role', '')})."
+                    ),
+                    'lines': lines,
+                    'total_deduction': total_deduction,
+                    'net_credit': net_credit,
+                    'hierarchy': {
+                        **hierarchy,
+                        'assignments': live_assignments,
+                        'rollup_steps': hierarchy.get('rollup_steps') or [],
+                    },
+                },
+            )
+        return scenarios
 
 
 @api_view(['GET', 'PUT'])
@@ -1481,6 +1720,51 @@ def maintenance_config_view(request):
             'success': True,
             'data': {'maintenance': maintenance},
             'message': 'Maintenance settings updated',
+            'errors': [],
+        },
+        status=status.HTTP_200_OK,
+    )
+
+
+@api_view(['GET', 'PATCH'])
+@permission_classes([IsAuthenticated, IsAdmin])
+@parser_classes([JSONParser, MultiPartParser, FormParser])
+def appearance_config_view(request):
+    """
+    Admin platform appearance configuration.
+    GET/PATCH /api/admin/appearance/
+    """
+    from apps.core.appearance import get_status as get_appearance_status, update_config
+    from apps.core.serializers import PlatformAppearanceUpdateSerializer
+
+    if request.method == 'GET':
+        return Response(
+            {
+                'success': True,
+                'data': {'appearance': get_appearance_status(include_internal=True, request=request)},
+                'message': 'OK',
+                'errors': [],
+            },
+            status=status.HTTP_200_OK,
+        )
+
+    ser = PlatformAppearanceUpdateSerializer(data=request.data, partial=True)
+    if not ser.is_valid():
+        return Response(
+            {
+                'success': False,
+                'data': None,
+                'message': 'Invalid input',
+                'errors': ser.errors,
+            },
+            status=status.HTTP_400_BAD_REQUEST,
+        )
+    appearance = update_config(changed_by=request.user, patch=ser.validated_data, request=request)
+    return Response(
+        {
+            'success': True,
+            'data': {'appearance': appearance},
+            'message': 'Appearance settings updated',
             'errors': [],
         },
         status=status.HTTP_200_OK,

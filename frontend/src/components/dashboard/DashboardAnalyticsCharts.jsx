@@ -13,15 +13,17 @@ import {
   Area,
 } from 'recharts';
 import { formatCurrency } from '../../utils/formatters';
+import { useTheme } from '../../context/ThemeContext';
+import { getChartTheme } from '../../utils/chartTheme';
 
 const RupeeTooltip = ({ active, payload, label }) => {
   if (!active || !payload?.length) return null;
   return (
-    <div className="rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm shadow-lg">
-      <p className="font-semibold text-slate-800">{label}</p>
+    <div className="rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 px-3 py-2 text-sm shadow-lg">
+      <p className="font-semibold text-slate-800 dark:text-slate-200">{label}</p>
       <ul className="mt-1 space-y-0.5">
         {payload.map((p) => (
-          <li key={p.name} className="text-slate-600">
+          <li key={p.name} className="text-slate-600 dark:text-slate-400">
             <span style={{ color: p.color }}>{p.name}: </span>
             {formatCurrency(Number(p.value) || 0)}
           </li>
@@ -35,6 +37,9 @@ const RupeeTooltip = ({ active, payload, label }) => {
  * Aggregate analytics API rows into chart-friendly series.
  */
 export function DashboardAnalyticsCharts({ rows, loading = false, gatewayNames = [] }) {
+  const { isDark } = useTheme();
+  const chart = getChartTheme(isDark);
+
   const byGateway = useMemo(() => {
     const m = {};
     (gatewayNames || []).forEach((g) => {
@@ -75,7 +80,7 @@ export function DashboardAnalyticsCharts({ rows, loading = false, gatewayNames =
         {[1, 2].map((k) => (
           <div
             key={k}
-            className="h-[340px] animate-pulse rounded-2xl border border-slate-100 bg-gradient-to-br from-slate-50 to-slate-100/80"
+            className="h-[340px] animate-pulse rounded-2xl border border-slate-100 dark:border-slate-800 bg-gradient-to-br from-slate-50 dark:from-slate-900 to-slate-100/80 dark:to-slate-800/80"
           />
         ))}
       </div>
@@ -84,19 +89,19 @@ export function DashboardAnalyticsCharts({ rows, loading = false, gatewayNames =
 
   if (!rows.length) {
     return (
-      <div className="rounded-2xl border border-dashed border-slate-200 bg-slate-50/80 py-16 text-center">
-        <p className="text-sm font-medium text-slate-600">No chart data for the selected filters.</p>
-        <p className="mt-1 text-xs text-slate-500">Try widening the date range or clearing the gateway filter.</p>
+      <div className="rounded-2xl border border-dashed border-slate-200 dark:border-slate-700 bg-slate-50/80 dark:bg-slate-800/50 py-16 text-center">
+        <p className="text-sm font-medium text-slate-600 dark:text-slate-400">No chart data for the selected filters.</p>
+        <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">Try widening the date range or clearing the gateway filter.</p>
       </div>
     );
   }
 
   return (
     <div className="grid grid-cols-1 gap-8 xl:grid-cols-2">
-      <div className="rounded-2xl border border-slate-200/90 bg-white p-4 shadow-sm">
+      <div className="rounded-2xl border border-slate-200/90 dark:border-slate-700 bg-white dark:bg-slate-800/60 p-4 shadow-sm">
         <div className="mb-4 px-1">
-          <h3 className="text-base font-semibold text-slate-900">Sales by gateway</h3>
-          <p className="text-xs text-slate-500">Pay-in volume aggregated per payment gateway</p>
+          <h3 className="text-base font-semibold text-slate-900 dark:text-slate-100">Sales by gateway</h3>
+          <p className="text-xs text-slate-500 dark:text-slate-400">Pay-in volume aggregated per payment gateway</p>
         </div>
         <div className="h-[300px] w-full min-h-[280px]">
           <ResponsiveContainer width="100%" height="100%">
@@ -105,7 +110,7 @@ export function DashboardAnalyticsCharts({ rows, loading = false, gatewayNames =
               layout="vertical"
               margin={{ top: 8, right: 16, left: 4, bottom: 8 }}
             >
-              <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" horizontal={false} />
+              <CartesianGrid strokeDasharray="3 3" stroke={chart.grid} horizontal={false} />
               <XAxis
                 type="number"
                 tickFormatter={(v) => {
@@ -114,22 +119,23 @@ export function DashboardAnalyticsCharts({ rows, loading = false, gatewayNames =
                   if (v >= 1e3) return `${(v / 1e3).toFixed(0)}k`;
                   return `${Math.round(v)}`;
                 }}
-                tick={{ fontSize: 11, fill: '#64748b' }}
+                tick={{ fontSize: 11, fill: chart.axis }}
               />
               <YAxis
                 type="category"
                 dataKey="name"
                 width={108}
-                tick={{ fontSize: 11, fill: '#475569' }}
+                tick={{ fontSize: 11, fill: chart.axisStrong }}
               />
               <Tooltip
+                cursor={{ fill: chart.cursor }}
                 content={({ active, payload }) => {
                   if (!active || !payload?.length) return null;
                   const row = payload[0]?.payload;
                   return (
-                    <div className="rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm shadow-lg">
-                      <p className="font-medium text-slate-800">{row?.fullName}</p>
-                      <p className="text-slate-600">Sales: {formatCurrency(row?.sales || 0)}</p>
+                    <div className="rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 px-3 py-2 text-sm shadow-lg">
+                      <p className="font-medium text-slate-800 dark:text-slate-200">{row?.fullName}</p>
+                      <p className="text-slate-600 dark:text-slate-400">Sales: {formatCurrency(row?.sales || 0)}</p>
                     </div>
                   );
                 }}
@@ -140,10 +146,10 @@ export function DashboardAnalyticsCharts({ rows, loading = false, gatewayNames =
         </div>
       </div>
 
-      <div className="rounded-2xl border border-slate-200/90 bg-white p-4 shadow-sm">
+      <div className="rounded-2xl border border-slate-200/90 dark:border-slate-700 bg-white dark:bg-slate-800/60 p-4 shadow-sm">
         <div className="mb-4 px-1">
-          <h3 className="text-base font-semibold text-slate-900">Trend: sales &amp; platform profit</h3>
-          <p className="text-xs text-slate-500">By period ({trendData.length} data point{trendData.length === 1 ? '' : 's'})</p>
+          <h3 className="text-base font-semibold text-slate-900 dark:text-slate-100">Trend: sales &amp; platform profit</h3>
+          <p className="text-xs text-slate-500 dark:text-slate-400">By period ({trendData.length} data point{trendData.length === 1 ? '' : 's'})</p>
         </div>
         <div className="h-[300px] w-full min-h-[280px]">
           <ResponsiveContainer width="100%" height="100%">
@@ -154,10 +160,10 @@ export function DashboardAnalyticsCharts({ rows, loading = false, gatewayNames =
                   <stop offset="100%" stopColor="#3b82f6" stopOpacity={0} />
                 </linearGradient>
               </defs>
-              <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" vertical={false} />
+              <CartesianGrid strokeDasharray="3 3" stroke={chart.grid} vertical={false} />
               <XAxis
                 dataKey="period"
-                tick={{ fontSize: 11, fill: '#64748b' }}
+                tick={{ fontSize: 11, fill: chart.axis }}
                 angle={trendData.length > 8 ? -35 : 0}
                 textAnchor={trendData.length > 8 ? 'end' : 'middle'}
                 height={trendData.length > 8 ? 56 : 32}
@@ -169,12 +175,12 @@ export function DashboardAnalyticsCharts({ rows, loading = false, gatewayNames =
                   if (v >= 1e3) return `${(v / 1e3).toFixed(0)}k`;
                   return `${Math.round(v)}`;
                 }}
-                tick={{ fontSize: 11, fill: '#64748b' }}
+                tick={{ fontSize: 11, fill: chart.axis }}
               />
-              <Tooltip content={<RupeeTooltip />} />
+              <Tooltip cursor={{ stroke: chart.axisLine }} content={<RupeeTooltip />} />
               <Legend
                 wrapperStyle={{ fontSize: 12 }}
-                formatter={(value) => <span className="text-slate-700">{value}</span>}
+                formatter={(value) => <span className="text-slate-700 dark:text-slate-300">{value}</span>}
               />
               <Area
                 type="monotone"

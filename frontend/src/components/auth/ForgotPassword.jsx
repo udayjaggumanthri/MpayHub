@@ -3,8 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import { authAPI } from '../../services/api';
 import { validatePhone } from '../../utils/validators';
 import { FaPhone, FaLock, FaCircleCheck, FaArrowLeft, FaEnvelope } from 'react-icons/fa6';
-
-const LOGO_SRC = `${process.env.PUBLIC_URL || ''}/images/logo.png`;
+import BrandingLogo from '../common/BrandingLogo';
 
 const ForgotPassword = () => {
   const navigate = useNavigate();
@@ -151,17 +150,15 @@ const ForgotPassword = () => {
 
             <div className="flex items-center justify-center">
               <div className="relative w-48 h-48 xl:w-56 xl:h-56">
-                <div className="absolute inset-0 border-4 border-cyan-300 rounded-full opacity-40 animate-spin-slow" />
-                <div className="absolute inset-4 border-2 border-cyan-300 rounded-full opacity-60" />
+                <div className="absolute inset-0 border-4 border-cyan-300 dark:border-cyan-800 rounded-full opacity-40 animate-spin-slow" />
+                <div className="absolute inset-4 border-2 border-cyan-300 dark:border-cyan-800 rounded-full opacity-60" />
 
                 <div className="absolute inset-0 flex items-center justify-center">
                   <div
-                    className="w-36 h-36 xl:w-44 xl:h-44 bg-white rounded-3xl flex items-center justify-center p-3 xl:p-3.5 overflow-hidden shadow-2xl ring-1 ring-black/5 ring-inset transform hover:scale-105 transition-transform duration-300"
+                    className="w-36 h-36 xl:w-44 xl:h-44 bg-white dark:bg-slate-900 rounded-3xl flex items-center justify-center p-3 xl:p-3.5 overflow-hidden shadow-2xl ring-1 ring-black/5 ring-inset transform hover:scale-105 transition-transform duration-300"
                     aria-hidden
                   >
-                    <img
-                      src={LOGO_SRC}
-                      alt="mPayhub"
+                    <BrandingLogo
                       className="w-full h-full object-contain object-center select-none scale-[1.08] xl:scale-[1.1] origin-center"
                       draggable={false}
                     />
@@ -206,36 +203,34 @@ const ForgotPassword = () => {
       </div>
 
       {/* Right Panel - Form */}
-      <div className="flex-1 flex items-center justify-center bg-white p-6 sm:p-8 lg:p-12">
+      <div className="flex-1 flex items-center justify-center bg-white p-6 sm:p-8 lg:p-12 dark:bg-slate-950">
         <div className="w-full max-w-md">
           {/* Mobile — same visual system as Login (lg:hidden) */}
-          <div className="lg:hidden mb-6 sm:mb-7 rounded-xl bg-slate-50/80 px-4 pt-4 pb-5 ring-1 ring-gray-100">
+          <div className="lg:hidden mb-6 sm:mb-7 rounded-xl bg-slate-50/80 px-4 pt-4 pb-5 ring-1 ring-gray-100 dark:bg-slate-900/80 dark:ring-slate-700">
             <div className="flex flex-col items-center text-center gap-1.5 sm:gap-2">
-              <p className="text-2xl font-bold uppercase tracking-[0.22em] text-blue-600/85 leading-tight">
+              <p className="text-2xl font-bold uppercase tracking-[0.22em] text-blue-600/85 dark:text-blue-400/85 leading-tight">
                 Reset password
               </p>
               <div className="relative flex w-full max-w-[min(94vw,24rem)] justify-center py-1">
-                <img
-                  src={LOGO_SRC}
-                  alt="mPayhub"
+                <BrandingLogo
                   className="h-auto w-full max-h-[12rem] sm:max-h-[14rem] object-contain object-center select-none drop-shadow-[0_6px_24px_rgba(30,58,138,0.18)] sm:drop-shadow-[0_8px_28px_rgba(30,58,138,0.2)]"
                   draggable={false}
                 />
               </div>
-              <h2 className="text-3xl sm:text-4xl font-bold text-gray-900 leading-tight">{stepTitle}</h2>
-              <p className="text-gray-600 text-sm sm:text-base leading-snug max-w-xs">{stepSubtitle}</p>
+              <h2 className="text-3xl sm:text-4xl font-bold text-gray-900 leading-tight dark:text-slate-100">{stepTitle}</h2>
+              <p className="text-gray-600 text-sm sm:text-base leading-snug max-w-xs dark:text-slate-400">{stepSubtitle}</p>
             </div>
           </div>
 
           <div className="space-y-8">
             <div className="hidden lg:block">
-              <h2 className="text-3xl sm:text-4xl font-bold text-gray-900 mb-2">{stepTitle}</h2>
-              <p className="text-gray-600 text-base sm:text-lg">{stepSubtitle}</p>
+              <h2 className="text-3xl sm:text-4xl font-bold text-gray-900 mb-2 dark:text-slate-100">{stepTitle}</h2>
+              <p className="text-gray-600 text-base sm:text-lg dark:text-slate-400">{stepSubtitle}</p>
             </div>
 
             {/* Success Message */}
             {success && (
-              <div className="bg-green-50 border-l-4 border-green-500 text-green-700 p-4 rounded-lg flex items-start animate-fadeIn">
+              <div className="bg-green-50 dark:bg-green-950/40 border-l-4 border-green-500 text-green-700 dark:text-green-300 p-4 rounded-lg flex items-start animate-fadeIn">
                 <FaCircleCheck className="h-5 w-5 text-green-400 flex-shrink-0 mt-0.5" />
                 <div className="ml-3">
                   <p className="font-semibold">Password reset successful!</p>
@@ -246,7 +241,7 @@ const ForgotPassword = () => {
 
             {/* Error Message */}
             {error && !success && (
-              <div className="bg-red-50 border-l-4 border-red-500 text-red-700 p-4 rounded-lg flex items-start animate-fadeIn">
+              <div className="bg-red-50 dark:bg-red-950/40 border-l-4 border-red-500 text-red-700 dark:text-red-300 p-4 rounded-lg flex items-start animate-fadeIn">
                 <div className="flex-shrink-0">
                   <svg className="h-5 w-5 text-red-400" viewBox="0 0 20 20" fill="currentColor">
                     <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zM8.707 7.293a1 1 0 00-1.414 1.414L8.586 10l-1.293 1.293a1 1 0 101.414 1.414L10 11.414l1.293 1.293a1 1 0 001.414-1.414L11.414 10l1.293-1.293a1 1 0 00-1.414-1.414L10 8.586 8.707 7.293z" clipRule="evenodd" />
@@ -260,12 +255,12 @@ const ForgotPassword = () => {
             {step === 1 && (
               <form onSubmit={handlePhoneSubmit} className="space-y-6">
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-2">
+                  <label className="block text-sm font-medium text-gray-700 dark:text-slate-300 mb-2">
                     Phone Number
                   </label>
                   <div className="relative">
                     <div className="absolute inset-y-0 left-0 pl-4 flex items-center pointer-events-none">
-                      <FaPhone className="text-gray-400" size={20} />
+                      <FaPhone className="text-gray-400 dark:text-slate-500" size={20} />
                     </div>
                     <input
                       type="tel"
@@ -277,13 +272,13 @@ const ForgotPassword = () => {
                       placeholder="Enter 10-digit phone number"
                       maxLength={10}
                       required
-                      className="w-full pl-12 pr-4 py-3.5 border-2 border-gray-200 rounded-xl focus:border-blue-500 focus:ring-2 focus:ring-blue-200 transition-all duration-200 text-base bg-gray-50 focus:bg-white"
+                      className="w-full pl-12 pr-4 py-3.5 border-2 border-gray-200 dark:border-slate-700 rounded-xl focus:border-blue-500 focus:ring-2 focus:ring-blue-200 transition-all duration-200 text-base bg-gray-50 dark:bg-slate-800/50 focus:bg-white"
                     />
                   </div>
                 </div>
 
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-2">
+                  <label className="block text-sm font-medium text-gray-700 dark:text-slate-300 mb-2">
                     Receive code via
                   </label>
                   <div className="grid grid-cols-2 gap-3">
@@ -292,8 +287,8 @@ const ForgotPassword = () => {
                       onClick={() => setChannel('sms')}
                       className={`flex items-center justify-center gap-2 px-4 py-3 rounded-xl border-2 transition-all ${
                         channel === 'sms'
-                          ? 'border-blue-500 bg-blue-50 text-blue-700'
-                          : 'border-gray-200 bg-gray-50 text-gray-600 hover:border-gray-300'
+                          ? 'border-blue-500 bg-blue-50 dark:bg-blue-950/40 text-blue-700 dark:text-blue-300'
+                          : 'border-gray-200 dark:border-slate-700 bg-gray-50 dark:bg-slate-800/50 text-gray-600 dark:text-slate-400 hover:border-gray-300 dark:hover:border-slate-600'
                       }`}
                     >
                       <FaPhone size={18} />
@@ -304,15 +299,15 @@ const ForgotPassword = () => {
                       onClick={() => setChannel('email')}
                       className={`flex items-center justify-center gap-2 px-4 py-3 rounded-xl border-2 transition-all ${
                         channel === 'email'
-                          ? 'border-blue-500 bg-blue-50 text-blue-700'
-                          : 'border-gray-200 bg-gray-50 text-gray-600 hover:border-gray-300'
+                          ? 'border-blue-500 bg-blue-50 dark:bg-blue-950/40 text-blue-700 dark:text-blue-300'
+                          : 'border-gray-200 dark:border-slate-700 bg-gray-50 dark:bg-slate-800/50 text-gray-600 dark:text-slate-400 hover:border-gray-300 dark:hover:border-slate-600'
                       }`}
                     >
                       <FaEnvelope size={18} />
                       <span className="font-medium">Email</span>
                     </button>
                   </div>
-                  <p className="mt-2 text-xs text-gray-500">
+                  <p className="mt-2 text-xs text-gray-500 dark:text-slate-400">
                     {channel === 'email'
                       ? 'We will send a code to the email registered on your account.'
                       : 'We will send a code to this mobile number.'}
@@ -323,7 +318,7 @@ const ForgotPassword = () => {
                   <button
                     type="button"
                     onClick={() => navigate('/login')}
-                    className="flex-1 px-4 py-3 border-2 border-gray-300 rounded-xl text-gray-700 font-medium hover:bg-gray-50 transition-colors flex items-center justify-center space-x-2"
+                    className="flex-1 px-4 py-3 border-2 border-gray-300 dark:border-slate-600 rounded-xl text-gray-700 dark:text-slate-300 font-medium hover:bg-gray-50 dark:hover:bg-slate-800 transition-colors flex items-center justify-center space-x-2"
                   >
                     <FaArrowLeft size={16} />
                     <span>Back to Login</span>
@@ -343,7 +338,7 @@ const ForgotPassword = () => {
             {step === 2 && (
               <form onSubmit={handleOTPSubmit} className="space-y-6">
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-2">
+                  <label className="block text-sm font-medium text-gray-700 dark:text-slate-300 mb-2">
                     Enter OTP
                   </label>
                   <input
@@ -356,9 +351,9 @@ const ForgotPassword = () => {
                     placeholder="Enter 6-digit OTP"
                     maxLength={6}
                     required
-                    className="w-full px-4 py-3.5 border-2 border-gray-200 rounded-xl focus:border-blue-500 focus:ring-2 focus:ring-blue-200 transition-all duration-200 text-base bg-gray-50 focus:bg-white text-center text-2xl font-bold tracking-widest"
+                    className="w-full px-4 py-3.5 border-2 border-gray-200 dark:border-slate-700 rounded-xl focus:border-blue-500 focus:ring-2 focus:ring-blue-200 transition-all duration-200 text-base bg-gray-50 dark:bg-slate-800/50 focus:bg-white text-center text-2xl font-bold tracking-widest"
                   />
-                  <p className="mt-2 text-sm text-gray-500">
+                  <p className="mt-2 text-sm text-gray-500 dark:text-slate-400">
                     {channel === 'email'
                       ? 'Check your registered email for the 6-digit code.'
                       : `Code sent to ${phone.substring(0, 2)}****${phone.substring(6)}.`}
@@ -369,7 +364,7 @@ const ForgotPassword = () => {
                   <button
                     type="button"
                     onClick={() => setStep(1)}
-                    className="flex-1 px-4 py-3 border-2 border-gray-300 rounded-xl text-gray-700 font-medium hover:bg-gray-50 transition-colors"
+                    className="flex-1 px-4 py-3 border-2 border-gray-300 dark:border-slate-600 rounded-xl text-gray-700 dark:text-slate-300 font-medium hover:bg-gray-50 dark:hover:bg-slate-800 transition-colors"
                   >
                     Back
                   </button>
@@ -388,12 +383,12 @@ const ForgotPassword = () => {
             {step === 3 && (
               <form onSubmit={handlePasswordReset} className="space-y-6">
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-2">
+                  <label className="block text-sm font-medium text-gray-700 dark:text-slate-300 mb-2">
                     New Password
                   </label>
                   <div className="relative">
                     <div className="absolute inset-y-0 left-0 pl-4 flex items-center pointer-events-none">
-                      <FaLock className="text-gray-400" size={20} />
+                      <FaLock className="text-gray-400 dark:text-slate-500" size={20} />
                     </div>
                     <input
                       type="password"
@@ -402,18 +397,18 @@ const ForgotPassword = () => {
                       placeholder="Enter new password (min 8 characters)"
                       required
                       minLength={8}
-                      className="w-full pl-12 pr-4 py-3.5 border-2 border-gray-200 rounded-xl focus:border-blue-500 focus:ring-2 focus:ring-blue-200 transition-all duration-200 text-base bg-gray-50 focus:bg-white"
+                      className="w-full pl-12 pr-4 py-3.5 border-2 border-gray-200 dark:border-slate-700 rounded-xl focus:border-blue-500 focus:ring-2 focus:ring-blue-200 transition-all duration-200 text-base bg-gray-50 dark:bg-slate-800/50 focus:bg-white"
                     />
                   </div>
                 </div>
 
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-2">
+                  <label className="block text-sm font-medium text-gray-700 dark:text-slate-300 mb-2">
                     Confirm New Password
                   </label>
                   <div className="relative">
                     <div className="absolute inset-y-0 left-0 pl-4 flex items-center pointer-events-none">
-                      <FaLock className="text-gray-400" size={20} />
+                      <FaLock className="text-gray-400 dark:text-slate-500" size={20} />
                     </div>
                     <input
                       type="password"
@@ -422,7 +417,7 @@ const ForgotPassword = () => {
                       placeholder="Re-enter new password"
                       required
                       minLength={8}
-                      className="w-full pl-12 pr-4 py-3.5 border-2 border-gray-200 rounded-xl focus:border-blue-500 focus:ring-2 focus:ring-blue-200 transition-all duration-200 text-base bg-gray-50 focus:bg-white"
+                      className="w-full pl-12 pr-4 py-3.5 border-2 border-gray-200 dark:border-slate-700 rounded-xl focus:border-blue-500 focus:ring-2 focus:ring-blue-200 transition-all duration-200 text-base bg-gray-50 dark:bg-slate-800/50 focus:bg-white"
                     />
                   </div>
                 </div>
@@ -431,7 +426,7 @@ const ForgotPassword = () => {
                   <button
                     type="button"
                     onClick={() => setStep(2)}
-                    className="flex-1 px-4 py-3 border-2 border-gray-300 rounded-xl text-gray-700 font-medium hover:bg-gray-50 transition-colors"
+                    className="flex-1 px-4 py-3 border-2 border-gray-300 dark:border-slate-600 rounded-xl text-gray-700 dark:text-slate-300 font-medium hover:bg-gray-50 dark:hover:bg-slate-800 transition-colors"
                   >
                     Back
                   </button>
@@ -451,7 +446,7 @@ const ForgotPassword = () => {
               <button
                 type="button"
                 onClick={() => navigate('/login')}
-                className="text-sm font-medium text-blue-600 hover:text-blue-700 transition-colors flex items-center justify-center space-x-2"
+                className="text-sm font-medium text-blue-600 dark:text-blue-400 hover:text-blue-700 dark:hover:text-blue-200 transition-colors flex items-center justify-center space-x-2"
               >
                 <FaArrowLeft size={14} />
                 <span>Back to Login</span>

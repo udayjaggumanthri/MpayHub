@@ -13,13 +13,13 @@ const LoginActivityPage = () => {
         <div>
           <Link
             to="/profile"
-            className="mb-2 inline-flex items-center gap-1.5 text-sm font-medium text-slate-600 hover:text-slate-900"
+            className="mb-2 inline-flex items-center gap-1.5 text-sm font-medium text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-100"
           >
             <FaArrowLeft size={12} />
             Back to profile
           </Link>
-          <h1 className="text-2xl font-bold tracking-tight text-slate-900">Login activity</h1>
-          <p className="mt-1 text-sm text-slate-500">
+          <h1 className="text-2xl font-bold tracking-tight text-slate-900 dark:text-slate-100">Login activity</h1>
+          <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">
             Every sign-in, sign-out, and session event for your account — with IP, location, and device.
           </p>
         </div>

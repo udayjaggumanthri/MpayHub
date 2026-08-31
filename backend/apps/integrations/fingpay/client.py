@@ -26,6 +26,7 @@ from apps.integrations.fingpay.crypto import (
     trn_timestamp_now,
     trn_timestamp_simple,
 )
+from apps.integrations.fingpay.netinfo import resolve_egress_ip
 from apps.integrations.fingpay.endpoints import (
     DEFAULT_EGRESS_IP,
     PRODUCT_PATH_KEYS,
@@ -119,53 +120,30 @@ class FingpayClient:
             environment=self.environment or ('simple' if self.api_mode == 'simple' else 'prod'),
             onboarding_api_style=self.onboarding_api_style if self.onboarding_api_style != 'simple' else 'php',
         )
-        self.egress_ip = (egress_ip or '').strip() or DEFAULT_EGRESS_IP
+        self.egress_ip = (egress_ip or '').strip()
         self.debug_mode = bool(debug_mode)
         self.audit_callback = audit_callback
         self._detected_outbound_ipv4: str | None = None
 
-    def _detect_outbound_ipv4(self, *, hostname: str, port: int = 443) -> str | None:
-        """
-        Detect the real outbound IPv4 source address without sending traffic.
-
-        We use a UDP "connect" trick: no packets are sent, but the kernel picks
-        the route and therefore the local source IP.
-        """
-        try:
-            import socket
-
-            sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-            try:
-                sock.connect((hostname, port))
-                ip = (sock.getsockname()[0] or '').strip()
-            finally:
-                sock.close()
-            if ip:
-                return ip
-        except Exception:
-            return None
-        return None
-
     def _egress_ip_for_onboarding_payload(self) -> str:
         """
-        Fingpay onboarding create expects `ipAddress` (and allowlists may depend on it).
-        Prefer detected outbound IPv4 over DB-stored egress_ip (which can become stale).
+        Fingpay onboarding create expects `ipAddress` (and allowlists depend on it).
+        Prefer the detected outbound IPv4 over the stored egress_ip, which goes
+        stale whenever the host moves.
         """
         if self._detected_outbound_ipv4:
             return self._detected_outbound_ipv4
 
-        hostname = ''
-        try:
-            hostname = urlparse(self.onboarding_base_url).hostname or ''
-        except Exception:
-            hostname = ''
-
-        detected = None
-        if hostname:
-            detected = self._detect_outbound_ipv4(hostname=hostname, port=443)
-
-        self._detected_outbound_ipv4 = detected or self.egress_ip or DEFAULT_EGRESS_IP
+        self._detected_outbound_ipv4 = resolve_egress_ip(
+            self.egress_ip,
+            url=self.onboarding_base_url or self.aeps_base_url or '',
+        )
         return self._detected_outbound_ipv4
+
+    @property
+    def effective_egress_ip(self) -> str:
+        """Best known outbound IP for support context and whitelist diagnosis."""
+        return self._egress_ip_for_onboarding_payload() or self.egress_ip
 
     def endpoint(self, key: str, default: str = '') -> str:
         return str(self.endpoints.get(key) or default or '')
@@ -251,7 +229,7 @@ class FingpayClient:
             )
         diagnosis = ''
         http_status = response_block.get('http_status')
-        egress = self.egress_ip or DEFAULT_EGRESS_IP
+        egress = self.effective_egress_ip
         if http_status == 403 and str(response_block.get('headers', {}).get('server') or '').lower().startswith(
             'awselb'
         ):
@@ -473,7 +451,7 @@ class FingpayClient:
             if resp.status_code == 403:
                 hint = (
                     f' Host blocked this server IP (AWS ELB 403). '
-                    f'Ask Tapits to whitelist IP {self.egress_ip}.'
+                    f'Ask Tapits to whitelist IP {self.effective_egress_ip}.'
                 )
             raise FingpayClientError(
                 f'Fingpay HTTP {resp.status_code}{hint}',
@@ -600,6 +578,7 @@ class FingpayClient:
         aes_mode: str | None = None,
         content_type: str | None = None,
         timestamp_style: str = 'simple',
+        include_body_timestamp: bool = True,
     ) -> dict:
         """
         Unified POST: encrypted or simple based on api_mode.
@@ -612,12 +591,16 @@ class FingpayClient:
         timestamp_style:
           - 'simple': YYYY-MM-DD HH:MM:SS (eKYC / onboarding)
           - 'aeps': dd/MM/yyyy HH:mm:ss (Mini Statement / 2FA / product sample headers)
+
+        include_body_timestamp:
+          Mini Statement / product samples put timestamp in the JSON body.
+          The 2FA 2.1 sample does not — header trnTimestamp is still sent.
         """
         if self.api_mode == 'simple':
             ts = trn_timestamp_now() if timestamp_style == 'aeps' else trn_timestamp_simple()
             # Keep body.timestamp identical to header trnTimestamp (Mini Statement / product docs).
             # Assign in place so documented JSON key order is preserved for the hash.
-            if isinstance(payload, dict) and timestamp_style == 'aeps':
+            if isinstance(payload, dict) and timestamp_style == 'aeps' and include_body_timestamp:
                 payload = dict(payload)
                 payload['timestamp'] = ts
             plain = json.dumps(payload, separators=(',', ':'), ensure_ascii=False)
@@ -729,7 +712,15 @@ class FingpayClient:
         url = self._join(self.ekyc_base_url, resolved)
         return self.post(url, payload, device_imei=device_imei, endpoint_label=endpoint_key or path)
 
-    def aeps_post(self, path: str, payload: dict, *, device_imei: str, endpoint_key: str = '') -> dict:
+    def aeps_post(
+        self,
+        path: str,
+        payload: dict,
+        *,
+        device_imei: str,
+        endpoint_key: str = '',
+        include_body_timestamp: bool = True,
+    ) -> dict:
         resolved = self.endpoint(endpoint_key, path) if endpoint_key else path
         url = self._join(self.aeps_base_url, resolved)
         return self.post(
@@ -739,6 +730,7 @@ class FingpayClient:
             endpoint_label=endpoint_key or path,
             merchant_tran_id=str((payload or {}).get('merchantTranId') or ''),
             timestamp_style='aeps',
+            include_body_timestamp=include_body_timestamp,
         )
 
     def onboarding_post(self, path: str, payload: dict, *, device_imei: str | None = None, endpoint_key: str = '') -> dict:

@@ -1,38 +1,15 @@
-import React, { useState, useRef, useEffect } from 'react';
+import React, { useState, useEffect } from 'react';
 import { FiX } from 'react-icons/fi';
+import MpinInput from './MpinInput';
 
 const MPINModal = ({ isOpen, onClose, onVerify, title = 'Enter MPIN', error = '', loading = false }) => {
   const [mpin, setMpin] = useState(['', '', '', '', '', '']);
-  const inputRefs = useRef([]);
 
   useEffect(() => {
     if (isOpen) {
       setMpin(['', '', '', '', '', '']);
-      setTimeout(() => inputRefs.current[0]?.focus(), 100);
     }
   }, [isOpen]);
-
-  const handleChange = (index, value) => {
-    if (value && !/^\d$/.test(value)) return;
-
-    const newMpin = [...mpin];
-    newMpin[index] = value;
-    setMpin(newMpin);
-
-    if (value && index < 5) {
-      inputRefs.current[index + 1]?.focus();
-    }
-
-    if (index === 5 && value && newMpin.every((digit) => digit !== '') && !loading) {
-      handleSubmit(newMpin.join(''));
-    }
-  };
-
-  const handleKeyDown = (index, e) => {
-    if (e.key === 'Backspace' && !mpin[index] && index > 0) {
-      inputRefs.current[index - 1]?.focus();
-    }
-  };
 
   const handleSubmit = (mpinValue = mpin.join('')) => {
     if (loading) return;
@@ -45,44 +22,36 @@ const MPINModal = ({ isOpen, onClose, onVerify, title = 'Enter MPIN', error = ''
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black bg-opacity-50 overflow-y-auto">
-      <div className="bg-white rounded-xl sm:rounded-2xl shadow-xl max-w-md w-full p-4 sm:p-6 my-auto">
+      <div className="bg-white dark:bg-slate-800 rounded-xl sm:rounded-2xl shadow-xl max-w-md w-full p-4 sm:p-6 my-auto">
         <div className="flex items-center justify-between mb-4 sm:mb-6">
-          <h2 className="text-xl sm:text-2xl font-bold text-gray-800">{title}</h2>
+          <h2 className="text-xl sm:text-2xl font-bold text-gray-800 dark:text-slate-200">{title}</h2>
           <button
             onClick={onClose}
-            className="text-gray-400 hover:text-gray-600 transition-colors"
+            className="text-gray-400 dark:text-slate-500 hover:text-gray-600 dark:hover:text-slate-400 transition-colors"
           >
             <FiX size={24} />
           </button>
         </div>
 
         {error && (
-          <div className="bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded-lg mb-6">
+          <div className="bg-red-50 dark:bg-red-950/40 border border-red-200 dark:border-red-800 text-red-700 dark:text-red-300 px-4 py-3 rounded-lg mb-6">
             {error}
           </div>
         )}
 
-        <div className="flex justify-center space-x-3 mb-6">
-          {[0, 1, 2, 3, 4, 5].map((index) => (
-            <input
-              key={index}
-              ref={(el) => (inputRefs.current[index] = el)}
-              type="text"
-              inputMode="numeric"
-              maxLength={1}
-              value={mpin[index]}
-              onChange={(e) => handleChange(index, e.target.value)}
-              onKeyDown={(e) => handleKeyDown(index, e)}
-              disabled={loading}
-              className="w-12 h-14 text-center text-2xl font-bold border-2 border-gray-300 rounded-lg focus:border-blue-500 focus:ring-2 focus:ring-blue-200 disabled:opacity-50"
-            />
-          ))}
-        </div>
+        <MpinInput
+          variant="boxes"
+          value={mpin}
+          onChange={setMpin}
+          onComplete={handleSubmit}
+          disabled={loading}
+          className="mb-6"
+        />
 
         <div className="flex space-x-3">
           <button
             onClick={onClose}
-            className="flex-1 px-4 py-3 border border-gray-300 rounded-lg text-gray-700 hover:bg-gray-50 transition-colors"
+            className="flex-1 px-4 py-3 border border-gray-300 dark:border-slate-600 rounded-lg text-gray-700 dark:text-slate-300 hover:bg-gray-50 dark:hover:bg-slate-800 transition-colors"
           >
             Cancel
           </button>

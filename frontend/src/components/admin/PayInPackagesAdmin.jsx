@@ -1,362 +1,89 @@
-import React, { useState, useEffect } from 'react';
-import { Link } from 'react-router-dom';
+import React, { useCallback, useEffect, useState } from 'react';
+import { Link, useNavigate } from 'react-router-dom';
 import { adminAPI } from '../../services/api';
-import Card from '../common/Card';
 import Input from '../common/Input';
 import Button from '../common/Button';
+import LoadingSpinner from '../common/LoadingSpinner';
+import GatewayFlowStepper from './GatewayFlowStepper';
+import { firstErrorMessage, packageTotalDeductionDisplay, pct } from './gatewayAdminShared';
 import {
   FaPlus,
   FaPenToSquare,
   FaTrash,
-  FaXmark,
   FaCalculator,
   FaChartPie,
   FaCreditCard,
   FaArrowRight,
   FaStar,
+  FaXmark,
 } from 'react-icons/fa6';
-import {
-  parseList,
-  roleFields,
-  firstErrorMessage,
-  pct,
-  packageCommissionStrip,
-  packageTotalDeductionDisplay,
-} from './gatewayAdminShared';
-import GatewayFlowStepper from './GatewayFlowStepper';
-
-/** API may return payment_gateway as nested object or bare id. */
-const normalizeGatewayId = (value) => {
-  if (value == null || value === '') return null;
-  if (typeof value === 'object' && value.id != null) return String(value.id);
-  return String(value);
-};
-
-const linkedGatewaysFromPackage = (pkg, allGateways = []) => {
-  if (!pkg) return [];
-  if (Array.isArray(pkg.package_gateways) && pkg.package_gateways.length > 0) {
-    return pkg.package_gateways.map((g) => ({
-      id: String(g.id),
-      name: g.name || allGateways.find((x) => String(x.id) === String(g.id))?.name || `Gateway #${g.id}`,
-      is_default: Boolean(g.is_default),
-      status: g.status || 'active',
-    }));
-  }
-  const legacyId = normalizeGatewayId(pkg.payment_gateway) || normalizeGatewayId(pkg.payment_gateway_id);
-  if (legacyId) {
-    const fromObj = typeof pkg.payment_gateway === 'object' ? pkg.payment_gateway : null;
-    const name =
-      fromObj?.name || allGateways.find((x) => String(x.id) === legacyId)?.name || `Gateway #${legacyId}`;
-    return [{ id: legacyId, name, is_default: true, status: fromObj?.status || 'active' }];
-  }
-  return [];
-};
 
 const PayInPackagesAdmin = () => {
-  const [gateways, setGateways] = useState([]);
+  const navigate = useNavigate();
   const [packages, setPackages] = useState([]);
+  const [total, setTotal] = useState(0);
+  const [page, setPage] = useState(1);
+  const [search, setSearch] = useState('');
   const [loading, setLoading] = useState(false);
-  const [packageDetailLoading, setPackageDetailLoading] = useState(false);
-  const [gatewayPickerId, setGatewayPickerId] = useState('');
-  const [showPackageModal, setShowPackageModal] = useState(false);
-  const [editingPackage, setEditingPackage] = useState(null);
-  const [showPreviewModal, setShowPreviewModal] = useState(false);
-  const [previewPackage, setPreviewPackage] = useState(null);
-  const [previewAmount, setPreviewAmount] = useState('100000');
-  const [previewResult, setPreviewResult] = useState(null);
-  const [previewLoading, setPreviewLoading] = useState(false);
-  const [slabLoading, setSlabLoading] = useState(false);
+  const [loadError, setLoadError] = useState('');
   const [defaultLoading, setDefaultLoading] = useState(null);
+  const [slabLoading, setSlabLoading] = useState(false);
   const [payoutSlabForm, setPayoutSlabForm] = useState({
     low_max_amount: '24999',
     low_charge: '7',
     high_charge: '15',
   });
-  /** Per-package payout tiers in the add/edit modal: max_amount '' = open-ended (last row only). */
-  const [packagePayoutSlabs, setPackagePayoutSlabs] = useState([]);
-  const [packageForm, setPackageForm] = useState({
-    code: '',
-    display_name: '',
-    provider: 'razorpay',
-    payment_gateway_ids: [],
-    default_payment_gateway_id: '',
-    min_amount: '1',
-    max_amount_per_txn: '200000',
-    gateway_fee_pct: '1',
-    admin_pct: '0.24',
-    retailer_commission_pct: '0',
-    super_distributor_pct: '0.01',
-    master_distributor_pct: '0.02',
-    distributor_pct: '0.03',
-    is_active: true,
-    sort_order: '0',
-  });
+
+  const loadPackages = useCallback(async () => {
+    setLoading(true);
+    setLoadError('');
+    const res = await adminAPI.listPayInPackages({
+      page,
+      page_size: 20,
+      search: search.trim() || undefined,
+    });
+    setLoading(false);
+    if (res.success) {
+      setPackages(res.data?.results || []);
+      setTotal(res.data?.total || 0);
+    } else {
+      setPackages([]);
+      setTotal(0);
+      setLoadError(res.message || 'Could not load packages.');
+    }
+  }, [page, search]);
 
   useEffect(() => {
-    loadData();
+    loadPackages();
+  }, [loadPackages]);
+
+  useEffect(() => {
+    adminAPI.getPayoutSlabConfig().then((sRes) => {
+      if (sRes.success && sRes.data?.config) {
+        const cfg = sRes.data.config;
+        setPayoutSlabForm({
+          low_max_amount: String(cfg.low_max_amount ?? '24999'),
+          low_charge: String(cfg.low_charge ?? '7'),
+          high_charge: String(cfg.high_charge ?? '15'),
+        });
+      }
+    });
   }, []);
-
-  const loadData = async () => {
-    const [gRes, pRes, sRes] = await Promise.all([
-      adminAPI.listPaymentGateways(),
-      adminAPI.listPayInPackages(),
-      adminAPI.getPayoutSlabConfig(),
-    ]);
-    if (gRes.success) setGateways(parseList(gRes));
-    if (pRes.success) setPackages(parseList(pRes));
-    if (sRes.success && sRes.data?.config) {
-      const cfg = sRes.data.config;
-      setPayoutSlabForm({
-        low_max_amount: String(cfg.low_max_amount ?? '24999'),
-        low_charge: String(cfg.low_charge ?? '7'),
-        high_charge: String(cfg.high_charge ?? '15'),
-      });
-    }
-  };
-
-  const buildDefaultPayoutSlabsFromGlobal = () => {
-    const lowMax = payoutSlabForm.low_max_amount || '24999';
-    const lowC = payoutSlabForm.low_charge || '7';
-    const highC = payoutSlabForm.high_charge || '15';
-    const nextMin = (parseFloat(lowMax, 10) + 0.0001).toFixed(4);
-    return [
-      { sort_order: 0, min_amount: '0', max_amount: String(lowMax), flat_charge: String(lowC) },
-      { sort_order: 1, min_amount: nextMin, max_amount: '', flat_charge: String(highC) },
-    ];
-  };
-
-  const slabsFromPackage = (pkg) => {
-    const tiers = pkg?.payout_slabs;
-    if (!tiers || tiers.length === 0) return null;
-    return tiers.map((t, i) => ({
-      sort_order: t.sort_order ?? i,
-      min_amount: t.min_amount != null ? String(t.min_amount) : '0',
-      max_amount: t.max_amount == null || t.max_amount === '' ? '' : String(t.max_amount),
-      flat_charge: t.flat_charge != null ? String(t.flat_charge) : '0',
-    }));
-  };
 
   const savePayoutSlab = async (e) => {
     e.preventDefault();
     setSlabLoading(true);
-    const payload = {
+    const res = await adminAPI.updatePayoutSlabConfig({
       low_max_amount: payoutSlabForm.low_max_amount,
       low_charge: payoutSlabForm.low_charge,
       high_charge: payoutSlabForm.high_charge,
-    };
-    const res = await adminAPI.updatePayoutSlabConfig(payload);
+    });
     setSlabLoading(false);
     if (!res.success) {
       alert(firstErrorMessage(res, 'Could not update payout slab config'));
       return;
     }
     alert('Payout slab updated');
-    await loadData();
-  };
-
-  const gatewayIdsFromPackage = (pkg) => linkedGatewaysFromPackage(pkg, gateways).map((g) => g.id);
-
-  const defaultGatewayIdFromPackage = (pkg, ids) => {
-    const linked = linkedGatewaysFromPackage(pkg, gateways);
-    const def = linked.find((g) => g.is_default);
-    if (def) return def.id;
-    return ids[0] || '';
-  };
-
-  const applyPackageFormFromPkg = (pkg) => {
-    const gwIds = gatewayIdsFromPackage(pkg);
-    setPackageForm({
-      code: pkg.code || '',
-      display_name: pkg.display_name || '',
-      provider: pkg.provider || 'razorpay',
-      payment_gateway_ids: gwIds,
-      default_payment_gateway_id: defaultGatewayIdFromPackage(pkg, gwIds),
-      min_amount: pkg.min_amount?.toString?.() || '1',
-      max_amount_per_txn: pkg.max_amount_per_txn?.toString?.() || '200000',
-      gateway_fee_pct: pkg.gateway_fee_pct?.toString?.() || '0',
-      admin_pct: pkg.admin_pct?.toString?.() || '0',
-      retailer_commission_pct: '0',
-      super_distributor_pct: pkg.super_distributor_pct?.toString?.() || '0',
-      master_distributor_pct: pkg.master_distributor_pct?.toString?.() || '0',
-      distributor_pct: pkg.distributor_pct?.toString?.() || '0',
-      is_active: Boolean(pkg.is_active),
-      sort_order: pkg.sort_order?.toString?.() || '0',
-    });
-    setPackagePayoutSlabs(slabsFromPackage(pkg) || buildDefaultPayoutSlabsFromGlobal());
-    setGatewayPickerId('');
-  };
-
-  const selectedGatewayRows = packageForm.payment_gateway_ids.map((id) => {
-    const fromCatalog = gateways.find((g) => String(g.id) === String(id));
-    const fromPkg = editingPackage ? linkedGatewaysFromPackage(editingPackage, gateways) : [];
-    const fromPkgRow = fromPkg.find((g) => g.id === String(id));
-    return {
-      id: String(id),
-      name: fromCatalog?.name || fromPkgRow?.name || `Gateway #${id}`,
-      status: fromCatalog?.status || fromPkgRow?.status || 'active',
-    };
-  });
-
-  const availableGatewaysToAdd = gateways.filter(
-    (g) => !packageForm.payment_gateway_ids.includes(String(g.id))
-  );
-
-  const addGatewayFromPicker = () => {
-    if (!gatewayPickerId) return;
-    const gid = String(gatewayPickerId);
-    setPackageForm((prev) => {
-      if (prev.payment_gateway_ids.includes(gid)) return prev;
-      const nextIds = [...prev.payment_gateway_ids, gid];
-      return {
-        ...prev,
-        payment_gateway_ids: nextIds,
-        default_payment_gateway_id: prev.default_payment_gateway_id || gid,
-      };
-    });
-    setGatewayPickerId('');
-  };
-
-  const removePackageGateway = (gatewayId) => {
-    const gid = String(gatewayId);
-    setPackageForm((prev) => {
-      const nextIds = prev.payment_gateway_ids.filter((id) => id !== gid);
-      let nextDefault = prev.default_payment_gateway_id;
-      if (nextDefault === gid) {
-        nextDefault = nextIds[0] || '';
-      }
-      return {
-        ...prev,
-        payment_gateway_ids: nextIds,
-        default_payment_gateway_id: nextDefault,
-      };
-    });
-  };
-
-  const openAddPackage = () => {
-    const defaultGatewayId = gateways.length > 0 ? String(gateways[0].id) : '';
-    setEditingPackage(null);
-    setPackageForm({
-      code: '',
-      display_name: '',
-      provider: 'razorpay',
-      payment_gateway_ids: defaultGatewayId ? [defaultGatewayId] : [],
-      default_payment_gateway_id: defaultGatewayId,
-      min_amount: '1',
-      max_amount_per_txn: '200000',
-      gateway_fee_pct: '1',
-      admin_pct: '0.24',
-      retailer_commission_pct: '0',
-      super_distributor_pct: '0.01',
-      master_distributor_pct: '0.02',
-      distributor_pct: '0.03',
-      is_active: true,
-      sort_order: '0',
-    });
-    setPackagePayoutSlabs(buildDefaultPayoutSlabsFromGlobal());
-    setGatewayPickerId('');
-    setShowPackageModal(true);
-  };
-
-  const openEditPackage = async (pkg) => {
-    setEditingPackage(pkg);
-    applyPackageFormFromPkg(pkg);
-    setShowPackageModal(true);
-    setPackageDetailLoading(true);
-    try {
-      const res = await adminAPI.getPayInPackage(pkg.id);
-      if (res.success && res.data && res.data.id) {
-        setEditingPackage(res.data);
-        applyPackageFormFromPkg(res.data);
-      }
-    } finally {
-      setPackageDetailLoading(false);
-    }
-  };
-
-  const addPayoutSlabRow = () => {
-    setPackagePayoutSlabs((rows) => {
-      const next = [...rows];
-      const lastMax = next.length ? next[next.length - 1].max_amount : '0';
-      const minStart =
-        lastMax === '' || lastMax == null
-          ? '0'
-          : (parseFloat(lastMax, 10) + 0.0001).toFixed(4);
-      next.push({
-        sort_order: next.length,
-        min_amount: minStart,
-        max_amount: '',
-        flat_charge: '7',
-      });
-      return next;
-    });
-  };
-
-  const removePayoutSlabRow = (index) => {
-    setPackagePayoutSlabs((rows) => rows.filter((_, i) => i !== index));
-  };
-
-  const updatePayoutSlabRow = (index, field, value) => {
-    setPackagePayoutSlabs((rows) => {
-      const next = [...rows];
-      next[index] = { ...next[index], [field]: value };
-      return next;
-    });
-  };
-
-  const handleSavePackage = async (e) => {
-    e.preventDefault();
-    if (!packageForm.code || !packageForm.display_name) {
-      alert('Code and Display Name are required');
-      return;
-    }
-    if (!packageForm.payment_gateway_ids?.length) {
-      alert('Select at least one payment gateway for this package.');
-      return;
-    }
-    const defaultGw =
-      packageForm.default_payment_gateway_id || packageForm.payment_gateway_ids[0];
-    setLoading(true);
-    const payout_slabs = packagePayoutSlabs.map((row, i) => ({
-      sort_order: i,
-      min_amount: row.min_amount,
-      max_amount: row.max_amount === '' || row.max_amount == null ? null : row.max_amount,
-      flat_charge: row.flat_charge,
-    }));
-
-    const payload = {
-      code: packageForm.code.trim(),
-      display_name: packageForm.display_name.trim(),
-      provider: packageForm.provider,
-      payment_gateway_ids: packageForm.payment_gateway_ids.map((id) => Number(id)),
-      default_payment_gateway_id: Number(defaultGw),
-      payment_gateway_id: Number(defaultGw),
-      min_amount: packageForm.min_amount,
-      max_amount_per_txn: packageForm.max_amount_per_txn,
-      gateway_fee_pct: packageForm.gateway_fee_pct,
-      admin_pct: packageForm.admin_pct,
-      retailer_commission_pct: '0',
-      super_distributor_pct: packageForm.super_distributor_pct,
-      master_distributor_pct: packageForm.master_distributor_pct,
-      distributor_pct: packageForm.distributor_pct,
-      is_active: packageForm.is_active,
-      sort_order: Number(packageForm.sort_order || 0),
-      is_default: editingPackage ? !!editingPackage.is_default : false,
-      payout_slabs,
-    };
-    let result;
-    if (editingPackage) {
-      result = await adminAPI.updatePayInPackage(editingPackage.id, payload);
-    } else {
-      result = await adminAPI.createPayInPackage(payload);
-    }
-    setLoading(false);
-    if (!result.success) {
-      alert(firstErrorMessage(result, 'Could not save pay-in package'));
-      return;
-    }
-    setShowPackageModal(false);
-    setEditingPackage(null);
-    await loadData();
   };
 
   const handleDeletePackage = async (pkgId) => {
@@ -366,7 +93,7 @@ const PayInPackagesAdmin = () => {
       alert(result.message || 'Delete failed');
       return;
     }
-    await loadData();
+    await loadPackages();
   };
 
   const handleSetDefaultPackage = async (pkgId) => {
@@ -377,11 +104,11 @@ const PayInPackagesAdmin = () => {
       alert(firstErrorMessage(result, 'Could not set default package'));
       return;
     }
-    await loadData();
+    await loadPackages();
   };
 
   const handleClearDefaultPackage = async () => {
-    if (!window.confirm('Clear default package? New users will not have any package auto-assigned.')) return;
+    if (!window.confirm('Clear default package?')) return;
     setDefaultLoading('clear');
     const result = await adminAPI.clearDefaultPackage();
     setDefaultLoading(null);
@@ -389,83 +116,50 @@ const PayInPackagesAdmin = () => {
       alert(firstErrorMessage(result, 'Could not clear default package'));
       return;
     }
-    await loadData();
+    await loadPackages();
   };
 
-  const openPreview = (pkg) => {
-    setPreviewPackage(pkg);
-    setPreviewAmount('100000');
-    setPreviewResult(null);
-    setShowPreviewModal(true);
-  };
-
-  const runPreview = async () => {
-    if (!previewPackage?.id || !previewAmount) return;
-    setPreviewLoading(true);
-    const result = await adminAPI.previewPayInPackage(previewPackage.id, previewAmount);
-    setPreviewLoading(false);
-    if (result.success) {
-      setPreviewResult(result.data);
-      return;
-    }
-    alert(result.message || 'Could not generate preview');
-  };
-
-  const totalDeductionPct = (
-    parseFloat(packageForm.gateway_fee_pct || 0) +
-    parseFloat(packageForm.admin_pct || 0) +
-    parseFloat(packageForm.super_distributor_pct || 0) +
-    parseFloat(packageForm.master_distributor_pct || 0) +
-    parseFloat(packageForm.distributor_pct || 0)
-  ).toFixed(4);
+  const totalPages = Math.max(1, Math.ceil(total / 20));
 
   return (
-    <div className="min-h-[calc(100vh-6rem)] bg-gradient-to-b from-slate-50 via-white to-slate-50/80">
+    <div className="min-h-[calc(100vh-6rem)] bg-gradient-to-b from-slate-50 dark:from-slate-900 via-white dark:via-slate-900 to-slate-50/80 dark:to-slate-900/80">
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8 space-y-8">
         <GatewayFlowStepper
           currentStep="payin-packages"
           subtitle="Step 3/3: Attach multiple gateways per package and set a default execution rail."
         />
-        <header className="relative overflow-hidden rounded-2xl border border-slate-200/80 bg-white shadow-sm">
-          <div className="absolute inset-0 bg-gradient-to-br from-violet-500/[0.07] via-transparent to-indigo-500/[0.06] pointer-events-none" />
-          <div className="relative px-6 py-8 sm:px-8 sm:py-9 flex flex-col lg:flex-row lg:items-center lg:justify-between gap-6">
+
+        <header className="relative overflow-hidden rounded-2xl border border-slate-200/80 dark:border-slate-700/80 bg-white dark:bg-slate-900 shadow-sm">
+          <div className="relative px-6 py-8 sm:px-8 flex flex-col lg:flex-row lg:items-center lg:justify-between gap-6">
             <div>
-              <p className="text-xs font-semibold uppercase tracking-widest text-violet-600 mb-2">
-                Admin · Pay-in
-              </p>
-              <h1 className="text-2xl sm:text-3xl font-bold text-slate-900 tracking-tight">Pay-in packages</h1>
-              <p className="mt-2 text-sm sm:text-base text-slate-600 max-w-xl leading-relaxed">
-                Fee split for load money: gateway, platform admin, and upline commissions (SD / MD / D). Use
-                Preview to sanity-check amounts.
+              <h1 className="text-2xl sm:text-3xl font-bold text-slate-900 dark:text-slate-100">Pay-in packages</h1>
+              <p className="mt-2 text-sm text-slate-600 dark:text-slate-400 max-w-xl">
+                Fee split for load money: gateway, platform admin, and upline commissions.
               </p>
             </div>
             <div className="flex flex-wrap gap-2">
               <Link
                 to="/admin/gateways"
-                className="inline-flex items-center gap-2 self-start rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm font-semibold text-slate-700 shadow-sm hover:border-indigo-200 hover:bg-indigo-50/50 hover:text-indigo-800 transition-colors"
+                className="inline-flex items-center gap-2 rounded-xl border px-4 py-3 text-sm font-semibold text-slate-700 dark:text-slate-300"
               >
-                <FaCreditCard className="text-indigo-600" size={18} />
+                <FaCreditCard size={18} />
                 Payment gateways
-                <FaArrowRight size={14} className="text-slate-400" />
+                <FaArrowRight size={14} />
               </Link>
               <Link
-                to="/admin/api-master"
-                className="inline-flex items-center gap-2 self-start rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm font-semibold text-slate-700 shadow-sm hover:border-indigo-200 hover:bg-indigo-50/50 hover:text-indigo-800 transition-colors"
+                to="/admin/pay-in-qr-accounts"
+                className="inline-flex items-center gap-2 rounded-xl border px-4 py-3 text-sm font-semibold text-emerald-800"
               >
-                API Master
-                <FaArrowRight size={14} className="text-slate-400" />
+                QR accounts
+                <FaArrowRight size={14} />
               </Link>
             </div>
           </div>
         </header>
 
-        <section className="rounded-2xl border border-slate-200/90 bg-white shadow-sm overflow-hidden">
-          <div className="border-b border-slate-100 bg-slate-50/80 px-5 py-4 sm:px-6">
-            <h3 className="text-lg font-semibold text-slate-900">System fallback: payout slab (two-tier)</h3>
-            <p className="text-sm text-slate-600 mt-1">
-              Used when a package has no payout tiers or as a template for new packages. Prefer defining multiple
-              payout slabs on each package below. Wallet debit = transfer amount + flat charge for the amount band.
-            </p>
+        <section className="rounded-2xl border bg-white dark:bg-slate-900 shadow-sm overflow-hidden">
+          <div className="border-b bg-slate-50/80 dark:bg-slate-800/50 px-5 py-4 sm:px-6">
+            <h3 className="text-lg font-semibold">System fallback: payout slab (two-tier)</h3>
           </div>
           <form onSubmit={savePayoutSlab} className="px-5 py-4 sm:px-6 grid grid-cols-1 md:grid-cols-4 gap-3 items-end">
             <Input
@@ -489,610 +183,204 @@ const PayInPackagesAdmin = () => {
           </form>
         </section>
 
-        <section className="rounded-2xl border border-slate-200/90 bg-white shadow-sm overflow-hidden">
-          <div className="flex flex-col gap-4 border-b border-slate-100 bg-slate-50/80 px-5 py-4 sm:flex-row sm:items-center sm:justify-between sm:px-6">
-            <div className="flex items-start gap-3">
-              <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-violet-600 text-white shadow-md shadow-violet-600/20">
+        <section className="rounded-2xl border bg-white dark:bg-slate-900 shadow-sm overflow-hidden">
+          <div className="flex flex-col gap-4 border-b bg-slate-50/80 dark:bg-slate-800/50 px-5 py-4 sm:flex-row sm:items-center sm:justify-between sm:px-6">
+            <div className="flex items-center gap-3">
+              <span className="flex h-11 w-11 items-center justify-center rounded-xl bg-violet-600 text-white">
                 <FaChartPie size={20} />
               </span>
               <div>
-                <h2 className="text-lg font-bold text-slate-900">Commercial packages</h2>
-                <p className="text-sm text-slate-600 mt-0.5">
-                  Each package defines pay-in commission splits and payout withdrawal slabs for assigned users.
-                </p>
+                <h2 className="text-lg font-bold">Commercial packages</h2>
+                <p className="text-sm text-slate-600 dark:text-slate-400">{total} total</p>
               </div>
             </div>
-            <div className="flex items-center gap-3 shrink-0">
-              <span className="rounded-full bg-white px-3 py-1 text-xs font-semibold text-slate-600 ring-1 ring-slate-200">
-                {packages.length} {packages.length === 1 ? 'package' : 'packages'}
-              </span>
-              <Button onClick={openAddPackage} variant="primary" size="md" icon={FaPlus} iconPosition="left">
+            <div className="flex flex-wrap items-center gap-2">
+              <Input
+                placeholder="Search name or code…"
+                value={search}
+                onChange={(e) => {
+                  setSearch(e.target.value);
+                  setPage(1);
+                }}
+                className="w-48"
+              />
+              <Button
+                onClick={() => navigate('/admin/pay-in-packages/new')}
+                variant="primary"
+                icon={FaPlus}
+                iconPosition="left"
+              >
                 Add package
               </Button>
             </div>
           </div>
 
           <div className="p-5 sm:p-6">
-            {packages.length === 0 ? (
-              <div className="rounded-2xl border border-dashed border-slate-200 bg-slate-50/50 px-6 py-14 text-center">
+            {loading ? (
+              <div className="flex justify-center py-12">
+                <LoadingSpinner />
+              </div>
+            ) : loadError ? (
+              <p className="text-red-600 text-sm">{loadError}</p>
+            ) : packages.length === 0 ? (
+              <div className="text-center py-14">
                 <FaChartPie className="mx-auto text-slate-300 mb-3" size={36} />
-                <p className="text-slate-700 font-medium">No pay-in packages</p>
-                <p className="text-sm text-slate-500 mt-1 max-w-md mx-auto">
-                  Add a package after you have at least one payment gateway for live providers.
-                </p>
-                <Button onClick={openAddPackage} variant="primary" size="md" icon={FaPlus} iconPosition="left" className="mt-5">
+                <p className="font-medium">No pay-in packages</p>
+                <Button
+                  onClick={() => navigate('/admin/pay-in-packages/new')}
+                  variant="primary"
+                  className="mt-5"
+                  icon={FaPlus}
+                >
                   Create package
                 </Button>
               </div>
             ) : (
-              <ul className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
-                {packages.map((pkg) => {
-                  const strip = packageCommissionStrip(pkg);
-                  const stripSum = strip.reduce((s, x) => s + parseFloat(x.v || 0), 0) || 1;
-                  return (
-                    <li
-                      key={pkg.id}
-                      className="group flex flex-col rounded-2xl border border-slate-200/90 bg-white p-5 shadow-sm ring-1 ring-transparent hover:ring-indigo-200/60 hover:shadow-md transition-all"
-                    >
-                      <div className="flex items-start justify-between gap-2">
-                        <div className="min-w-0 flex-1">
-                          <div className="flex items-center gap-2">
-                            <h3 className="font-bold text-slate-900 truncate text-base leading-snug">{pkg.display_name}</h3>
-                            {pkg.is_default && (
-                              <span className="shrink-0 inline-flex items-center gap-1 rounded-full bg-amber-50 px-2 py-0.5 text-xs font-semibold text-amber-700 ring-1 ring-amber-200">
-                                <FaStar size={10} />
-                                Default
-                              </span>
-                            )}
-                          </div>
-                          <code className="mt-1 inline-block text-xs text-slate-600 bg-slate-100 px-2 py-0.5 rounded-md font-mono">
-                            {pkg.code}
-                          </code>
-                        </div>
-                        <span
-                          className={`shrink-0 rounded-full px-2.5 py-1 text-xs font-semibold ${
-                            pkg.is_active
-                              ? 'bg-emerald-50 text-emerald-800 ring-1 ring-emerald-100'
-                              : 'bg-slate-100 text-slate-600 ring-1 ring-slate-200'
-                          }`}
-                        >
-                          {pkg.is_active ? 'Active' : 'Off'}
-                        </span>
-                      </div>
-
-                      <div className="mt-4 flex flex-wrap items-center gap-2 text-xs">
-                        <span className="rounded-md bg-violet-50 text-violet-800 px-2 py-1 font-semibold capitalize ring-1 ring-violet-100">
-                          {pkg.provider}
-                        </span>
-                        <span className="text-slate-500">
-                          ₹{pkg.min_amount} – ₹{pkg.max_amount_per_txn}
-                        </span>
-                      </div>
-
-                      {linkedGatewaysFromPackage(pkg, gateways).length > 0 ? (
-                        <div className="mt-3">
-                          <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-500 mb-1.5">
-                            Payment gateways
-                          </p>
-                          <div className="flex flex-wrap gap-1.5">
-                            {linkedGatewaysFromPackage(pkg, gateways).map((g) => (
-                              <span
-                                key={g.id}
-                                className={`inline-flex items-center gap-1 rounded-full px-2.5 py-1 text-xs font-medium ring-1 ${
-                                  g.is_default
-                                    ? 'bg-indigo-50 text-indigo-800 ring-indigo-200'
-                                    : 'bg-slate-100 text-slate-700 ring-slate-200'
-                                }`}
-                                title={g.status !== 'active' ? `Status: ${g.status}` : undefined}
-                              >
-                                {g.is_default ? <FaStar size={10} className="text-amber-500" /> : null}
-                                {g.name}
-                                {g.status && g.status !== 'active' ? (
-                                  <span className="text-amber-700">({g.status})</span>
-                                ) : null}
-                              </span>
-                            ))}
-                          </div>
-                        </div>
-                      ) : null}
-
-                      <div className="mt-4">
-                        <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-500 mb-2">
-                          Split (%) · Gw / Adm / SD / MD / D
-                        </p>
-                        <div className="flex h-2 w-full overflow-hidden rounded-full bg-slate-100 ring-1 ring-slate-200/80">
-                          {strip.map((seg) => {
-                            const w = Math.max(2, (parseFloat(seg.v || 0) / stripSum) * 100);
-                            return (
-                              <div
-                                key={seg.k}
-                                title={`${seg.k}: ${pct(seg.v)}%`}
-                                className={`${seg.c} first:rounded-l-full last:rounded-r-full opacity-90 hover:opacity-100 transition-opacity`}
-                                style={{ width: `${w}%` }}
-                              />
-                            );
-                          })}
-                        </div>
-                        <div className="mt-2 grid grid-cols-3 sm:grid-cols-6 gap-2 text-[11px] leading-tight">
-                          {strip.map((seg) => (
-                            <div key={seg.k} className="text-slate-600">
-                              <span className="text-slate-400">{seg.k}</span>
-                              <div className="font-semibold tabular-nums text-slate-800">{pct(seg.v)}%</div>
-                            </div>
-                          ))}
-                        </div>
-                      </div>
-
-                      <div className="mt-4 flex items-baseline justify-between border-t border-slate-100 pt-4">
-                        <div>
-                          <p className="text-xs text-slate-500">Total fee % (from gross)</p>
-                          <p className="text-lg font-bold tabular-nums text-slate-900">
-                            {packageTotalDeductionDisplay(pkg)}%
-                          </p>
-                          <p className="text-xs text-slate-500 mt-1">
-                            Payout tiers: {pkg.payout_slabs?.length ?? 0}
-                          </p>
-                        </div>
-                      </div>
-
-                      <div className="mt-4 flex items-center justify-end gap-1 border-t border-slate-50 pt-3 flex-wrap">
-                        {!pkg.is_default && pkg.is_active && (
-                          <button
-                            type="button"
-                            onClick={() => handleSetDefaultPackage(pkg.id)}
-                            disabled={defaultLoading === pkg.id}
-                            className="inline-flex items-center gap-1.5 rounded-lg px-3 py-2 text-xs font-semibold text-amber-700 hover:bg-amber-50 transition-colors disabled:opacity-50"
-                          >
-                            <FaStar size={14} />
-                            {defaultLoading === pkg.id ? 'Setting...' : 'Set Default'}
-                          </button>
-                        )}
-                        {pkg.is_default && (
-                          <button
-                            type="button"
-                            onClick={handleClearDefaultPackage}
-                            disabled={defaultLoading === 'clear'}
-                            className="inline-flex items-center gap-1.5 rounded-lg px-3 py-2 text-xs font-semibold text-slate-600 hover:bg-slate-100 transition-colors disabled:opacity-50"
-                          >
-                            <FaXmark size={14} />
-                            {defaultLoading === 'clear' ? 'Clearing...' : 'Clear Default'}
-                          </button>
-                        )}
-                        <button
-                          type="button"
-                          onClick={() => openPreview(pkg)}
-                          className="inline-flex items-center gap-1.5 rounded-lg px-3 py-2 text-xs font-semibold text-emerald-700 hover:bg-emerald-50 transition-colors"
-                        >
-                          <FaCalculator size={14} />
-                          Preview
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => openEditPackage(pkg)}
-                          className="inline-flex items-center gap-1.5 rounded-lg px-3 py-2 text-xs font-semibold text-indigo-700 hover:bg-indigo-50 transition-colors"
-                        >
-                          <FaPenToSquare size={14} />
-                          Edit
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => handleDeletePackage(pkg.id)}
-                          className="inline-flex items-center gap-1.5 rounded-lg px-3 py-2 text-xs font-semibold text-red-600 hover:bg-red-50 transition-colors"
-                        >
-                          <FaTrash size={14} />
-                          Delete
-                        </button>
-                      </div>
-                    </li>
-                  );
-                })}
-              </ul>
-            )}
-          </div>
-        </section>
-      </div>
-
-      {showPackageModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black bg-opacity-50 overflow-y-auto">
-          <Card className="max-w-4xl w-full border-2 border-blue-200 my-auto" padding="lg" shadow="xl">
-            <div className="flex items-center justify-between mb-4">
-              <h2 className="text-xl sm:text-2xl font-bold text-gray-900">
-                {editingPackage ? 'Edit commercial package' : 'Add commercial package'}
-              </h2>
-              <button
-                type="button"
-                onClick={() => {
-                  setShowPackageModal(false);
-                  setEditingPackage(null);
-                }}
-                className="text-gray-400 hover:text-gray-600 transition-colors"
-              >
-                <FaXmark size={24} />
-              </button>
-            </div>
-
-            <form onSubmit={handleSavePackage} className="space-y-4">
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                <div className="md:col-span-1">
-                  <Input
-                    label="Package Code *"
-                    value={packageForm.code}
-                    onChange={(e) => setPackageForm((p) => ({ ...p, code: e.target.value }))}
-                    placeholder="slpe_gold_travel_lite"
-                    required
-                  />
-                  <p className="text-xs text-gray-500 mt-1">Lowercase, underscores or hyphens.</p>
-                </div>
-                <Input
-                  label="Display Name *"
-                  value={packageForm.display_name}
-                  onChange={(e) => setPackageForm((p) => ({ ...p, display_name: e.target.value }))}
-                  placeholder="SLPE Gold Travel - Lite"
-                  required
-                />
-              </div>
-
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-2">Provider</label>
-                  <select
-                    value={packageForm.provider}
-                    onChange={(e) => setPackageForm((p) => ({ ...p, provider: e.target.value }))}
-                    className="w-full px-4 py-3 border border-gray-300 rounded-lg"
-                  >
-                    <option value="razorpay">Razorpay</option>
-                    <option value="payu">PayU</option>
-                  </select>
-                </div>
-                <div className="flex items-end">
-                  <label className="inline-flex items-center gap-2 cursor-pointer">
-                    <input
-                      type="checkbox"
-                      checked={packageForm.is_active}
-                      onChange={(e) => setPackageForm((p) => ({ ...p, is_active: e.target.checked }))}
-                    />
-                    <span className="text-sm text-gray-700">Active package</span>
-                  </label>
-                </div>
-              </div>
-
-              <div className="rounded-xl border border-indigo-200 bg-indigo-50/40 p-4 space-y-4">
-                <div className="flex flex-wrap items-start justify-between gap-2">
-                  <div>
-                    <h4 className="text-sm font-semibold text-gray-900 flex items-center gap-2">
-                      <FaCreditCard className="text-indigo-600" size={16} />
-                      Payment gateways for this package
-                      <span className="text-red-500">*</span>
-                    </h4>
-                    <p className="text-xs text-gray-600 mt-1 max-w-xl">
-                      Checkout users pick one of these rails. Fees stay on this package — gateways only control
-                      which provider credentials are used. You can add more gateways anytime without removing
-                      existing ones.
-                    </p>
-                  </div>
-                  {packageDetailLoading ? (
-                    <span className="text-xs font-medium text-indigo-700 bg-white px-2 py-1 rounded-md ring-1 ring-indigo-200">
-                      Refreshing linked gateways…
-                    </span>
-                  ) : null}
-                </div>
-
-                <div>
-                  <p className="text-xs font-semibold uppercase tracking-wide text-gray-600 mb-2">
-                    Linked gateways ({selectedGatewayRows.length})
-                  </p>
-                  {selectedGatewayRows.length === 0 ? (
-                    <p className="text-sm text-amber-800 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2">
-                      No gateway linked yet. Add at least one below — users cannot pay in without a gateway.
-                    </p>
-                  ) : (
-                    <ul className="space-y-2">
-                      {selectedGatewayRows.map((g) => {
-                        const isDefault = packageForm.default_payment_gateway_id === g.id;
-                        return (
-                          <li
-                            key={g.id}
-                            className="flex flex-wrap items-center gap-2 sm:gap-3 rounded-lg border border-white bg-white px-3 py-2.5 shadow-sm ring-1 ring-slate-200/80"
-                          >
-                            <span className="font-medium text-gray-900 text-sm flex-1 min-w-[120px]">{g.name}</span>
-                            {g.status && g.status !== 'active' ? (
-                              <span className="text-xs rounded-full bg-amber-100 text-amber-800 px-2 py-0.5 font-medium">
-                                {g.status}
-                              </span>
-                            ) : (
-                              <span className="text-xs rounded-full bg-emerald-100 text-emerald-800 px-2 py-0.5 font-medium">
-                                active
-                              </span>
-                            )}
-                            <label className="inline-flex items-center gap-1.5 text-xs text-gray-700 cursor-pointer shrink-0">
-                              <input
-                                type="radio"
-                                name="default_payin_gateway"
-                                checked={isDefault}
-                                onChange={() =>
-                                  setPackageForm((p) => ({
-                                    ...p,
-                                    default_payment_gateway_id: g.id,
-                                  }))
-                                }
-                              />
-                              <FaStar className={isDefault ? 'text-amber-500' : 'text-gray-300'} size={12} />
-                              {isDefault ? 'Default' : 'Set default'}
-                            </label>
-                            <button
-                              type="button"
-                              onClick={() => removePackageGateway(g.id)}
-                              disabled={selectedGatewayRows.length <= 1}
-                              className="inline-flex items-center gap-1 rounded-md px-2 py-1 text-xs font-semibold text-red-700 hover:bg-red-50 disabled:opacity-40 disabled:cursor-not-allowed"
-                              title={
-                                selectedGatewayRows.length <= 1
-                                  ? 'At least one gateway is required'
-                                  : 'Remove from package'
-                              }
-                            >
-                              <FaXmark size={12} />
-                              Remove
-                            </button>
-                          </li>
-                        );
-                      })}
-                    </ul>
-                  )}
-                </div>
-
-                <div className="border-t border-indigo-200/80 pt-4">
-                  <p className="text-xs font-semibold uppercase tracking-wide text-gray-600 mb-2">
-                    Add another gateway
-                  </p>
-                  {gateways.length === 0 ? (
-                    <p className="text-sm text-gray-600">
-                      Create payment gateways under{' '}
-                      <Link to="/admin/gateways" className="text-indigo-700 font-medium hover:underline">
-                        Payment gateways
-                      </Link>{' '}
-                      first.
-                    </p>
-                  ) : availableGatewaysToAdd.length === 0 ? (
-                    <p className="text-sm text-gray-600">
-                      All configured gateways are already linked to this package.
-                    </p>
-                  ) : (
-                    <div className="flex flex-col sm:flex-row gap-2">
-                      <select
-                        value={gatewayPickerId}
-                        onChange={(e) => setGatewayPickerId(e.target.value)}
-                        className="flex-1 px-4 py-2.5 border border-gray-300 rounded-lg bg-white text-sm"
-                      >
-                        <option value="">Choose gateway to add…</option>
-                        {availableGatewaysToAdd.map((g) => (
-                          <option key={g.id} value={g.id}>
-                            {g.name}
-                            {g.status && g.status !== 'active' ? ` (${g.status})` : ''}
-                          </option>
-                        ))}
-                      </select>
-                      <Button
-                        type="button"
-                        variant="primary"
-                        size="md"
-                        icon={FaPlus}
-                        iconPosition="left"
-                        onClick={addGatewayFromPicker}
-                        disabled={!gatewayPickerId}
-                        className="sm:shrink-0"
-                      >
-                        Add gateway
-                      </Button>
-                    </div>
-                  )}
-                </div>
-
-                {!packageForm.payment_gateway_ids?.length && (
-                  <p className="text-xs text-red-600">Select at least one payment gateway before saving.</p>
-                )}
-              </div>
-
-              <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                <Input
-                  type="number"
-                  step="0.01"
-                  min="0"
-                  label="Min Amount"
-                  value={packageForm.min_amount}
-                  onChange={(e) => setPackageForm((p) => ({ ...p, min_amount: e.target.value }))}
-                />
-                <Input
-                  type="number"
-                  step="0.01"
-                  min="0"
-                  label="Max Amount / Txn"
-                  value={packageForm.max_amount_per_txn}
-                  onChange={(e) => setPackageForm((p) => ({ ...p, max_amount_per_txn: e.target.value }))}
-                />
-                <Input
-                  type="number"
-                  step="1"
-                  min="0"
-                  label="Sort Order"
-                  value={packageForm.sort_order}
-                  onChange={(e) => setPackageForm((p) => ({ ...p, sort_order: e.target.value }))}
-                />
-              </div>
-
-              <div className="border border-gray-200 rounded-xl p-4">
-                <h3 className="font-semibold text-gray-900 mb-3">Role-wise commission percentages</h3>
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-                  {roleFields.map((f) => (
-                    <div key={f.key}>
-                      <Input
-                        type="number"
-                        step="0.0001"
-                        min="0"
-                        label={f.label}
-                        value={packageForm[f.key]}
-                        onChange={(e) => setPackageForm((p) => ({ ...p, [f.key]: e.target.value }))}
-                      />
-                      <p className="text-xs text-gray-500 mt-1">{f.help}</p>
-                    </div>
-                  ))}
-                </div>
-                <div className="mt-3 p-3 bg-slate-50 border border-slate-200 rounded-xl text-sm">
-                  <span className="font-semibold text-slate-900">
-                    Sum (gateway + admin + SD + MD + D): {totalDeductionPct}%
-                  </span>
-                  <p className="text-slate-600 mt-1 text-xs leading-relaxed">
-                    Total deduction includes gateway fee, admin share, and upline commissions (SD, MD, D).
-                    The remainder is credited to the user's main wallet.
-                  </p>
-                </div>
-              </div>
-
-              <div className="border border-indigo-200 rounded-xl p-4 bg-indigo-50/40">
-                <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2 mb-3">
-                  <div>
-                    <h3 className="font-semibold text-slate-900">Payout slabs (this package)</h3>
-                    <p className="text-xs text-slate-600 mt-0.5">
-                      Bands must start at 0, be contiguous (step ₹0.0001), and only the last row may leave max empty
-                      (unlimited).
-                    </p>
-                  </div>
-                  <Button type="button" variant="outline" size="sm" icon={FaPlus} iconPosition="left" onClick={addPayoutSlabRow}>
-                    Add tier
-                  </Button>
-                </div>
-                <div className="space-y-2">
-                  {packagePayoutSlabs.map((row, idx) => (
-                    <div
-                      key={`slab-${idx}-${row.sort_order}`}
-                      className="grid grid-cols-1 sm:grid-cols-12 gap-2 items-end bg-white rounded-lg border border-indigo-100 p-3"
-                    >
-                      <div className="sm:col-span-3">
-                        <label className="block text-xs font-medium text-slate-600 mb-1">Min amount</label>
-                        <input
-                          type="text"
-                          inputMode="decimal"
-                          className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm"
-                          value={row.min_amount}
-                          onChange={(e) => updatePayoutSlabRow(idx, 'min_amount', e.target.value)}
-                        />
-                      </div>
-                      <div className="sm:col-span-3">
-                        <label className="block text-xs font-medium text-slate-600 mb-1">Max amount (blank = ∞)</label>
-                        <input
-                          type="text"
-                          inputMode="decimal"
-                          className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm"
-                          value={row.max_amount}
-                          onChange={(e) => updatePayoutSlabRow(idx, 'max_amount', e.target.value)}
-                          placeholder="optional"
-                        />
-                      </div>
-                      <div className="sm:col-span-3">
-                        <label className="block text-xs font-medium text-slate-600 mb-1">Flat charge (₹)</label>
-                        <input
-                          type="text"
-                          inputMode="decimal"
-                          className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm"
-                          value={row.flat_charge}
-                          onChange={(e) => updatePayoutSlabRow(idx, 'flat_charge', e.target.value)}
-                        />
-                      </div>
-                      <div className="sm:col-span-3 flex justify-end pb-1">
-                        {packagePayoutSlabs.length > 1 && (
-                          <button
-                            type="button"
-                            onClick={() => removePayoutSlabRow(idx)}
-                            className="text-sm font-semibold text-red-600 hover:text-red-800"
-                          >
-                            Remove
-                          </button>
-                        )}
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              </div>
-
-              <div className="flex gap-3 pt-2">
-                <Button
-                  type="button"
-                  onClick={() => {
-                    setShowPackageModal(false);
-                    setEditingPackage(null);
-                  }}
-                  variant="outline"
-                  fullWidth
-                >
-                  Cancel
-                </Button>
-                <Button type="submit" variant="primary" fullWidth loading={loading}>
-                  {editingPackage ? 'Update Package' : 'Add Package'}
-                </Button>
-              </div>
-            </form>
-          </Card>
-        </div>
-      )}
-
-      {showPreviewModal && previewPackage && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black bg-opacity-50 overflow-y-auto">
-          <Card className="max-w-2xl w-full border-2 border-emerald-200 my-auto" padding="lg" shadow="xl">
-            <div className="flex items-center justify-between mb-4">
-              <h2 className="text-xl font-bold text-gray-900">
-                Calculation Preview: {previewPackage.display_name}
-              </h2>
-              <button type="button" onClick={() => setShowPreviewModal(false)} className="text-gray-400 hover:text-gray-700">
-                <FaXmark size={24} />
-              </button>
-            </div>
-            <div className="space-y-4">
-              <Input
-                label="Test Amount (INR)"
-                type="number"
-                step="0.01"
-                min="0.01"
-                value={previewAmount}
-                onChange={(e) => setPreviewAmount(e.target.value)}
-              />
-              <Button onClick={runPreview} loading={previewLoading} icon={FaCalculator} iconPosition="left">
-                Run Preview
-              </Button>
-              {previewResult && (
-                <div className="border border-gray-200 rounded-lg overflow-hidden">
+              <>
+                <div className="overflow-x-auto rounded-xl border border-slate-200 dark:border-slate-700">
                   <table className="w-full text-sm">
-                    <thead className="bg-gray-100">
+                    <thead className="bg-slate-50 dark:bg-slate-800 text-xs uppercase text-slate-500">
                       <tr>
-                        <th className="p-2 text-left">Line</th>
-                        <th className="p-2 text-right">%</th>
-                        <th className="p-2 text-right">Amount</th>
+                        <th className="p-3 text-left">Package</th>
+                        <th className="p-3 text-left">Provider</th>
+                        <th className="p-3 text-center">Rails</th>
+                        <th className="p-3 text-right">Max rail %</th>
+                        <th className="p-3 text-right">Commission %</th>
+                        <th className="p-3 text-right">Total %</th>
+                        <th className="p-3 text-left">Limits</th>
+                        <th className="p-3 text-center">Status</th>
+                        <th className="p-3 text-right">Actions</th>
                       </tr>
                     </thead>
                     <tbody>
-                      {(previewResult.lines || []).map((line) => (
-                        <tr key={line.key} className="border-t">
-                          <td className="p-2">{line.label}</td>
-                          <td className="p-2 text-right">{line.pct}</td>
-                          <td className="p-2 text-right">₹{line.amount}</td>
+                      {packages.map((pkg) => (
+                        <tr
+                          key={pkg.id}
+                          className="border-t border-slate-100 dark:border-slate-800 hover:bg-slate-50/50 dark:hover:bg-slate-800/30"
+                        >
+                          <td className="p-3">
+                            <div className="font-semibold text-slate-900 dark:text-slate-100">{pkg.display_name}</div>
+                            <code className="text-xs text-slate-500">{pkg.code}</code>
+                          </td>
+                          <td className="p-3 capitalize">{pkg.default_gateway_name || pkg.provider || '—'}</td>
+                          <td className="p-3 text-center tabular-nums">
+                            {pkg.gateway_count ?? 0}g / {pkg.qr_count ?? 0}qr
+                          </td>
+                          <td className="p-3 text-right tabular-nums">{pct(pkg.max_rail_gateway_fee_pct)}%</td>
+                          <td className="p-3 text-right text-xs tabular-nums">
+                            {pct(pkg.admin_pct)} / {pct(pkg.super_distributor_pct)} / {pct(pkg.master_distributor_pct)} /{' '}
+                            {pct(pkg.distributor_pct)}
+                          </td>
+                          <td className="p-3 text-right font-semibold tabular-nums">
+                            {packageTotalDeductionDisplay(pkg)}%
+                          </td>
+                          <td className="p-3 text-xs whitespace-nowrap">
+                            ₹{pkg.min_amount} – ₹{pkg.max_amount_per_txn}
+                          </td>
+                          <td className="p-3 text-center">
+                            <div className="flex flex-col items-center gap-1">
+                              <span
+                                className={`rounded-full px-2 py-0.5 text-xs font-semibold ${
+                                  pkg.is_active
+                                    ? 'bg-emerald-50 text-emerald-800'
+                                    : 'bg-slate-100 text-slate-600'
+                                }`}
+                              >
+                                {pkg.is_active ? 'Active' : 'Off'}
+                              </span>
+                              {pkg.is_default && (
+                                <span className="inline-flex items-center gap-1 text-xs text-amber-700">
+                                  <FaStar size={10} />
+                                  Default
+                                </span>
+                              )}
+                            </div>
+                          </td>
+                          <td className="p-3">
+                            <div className="flex items-center justify-end gap-1 flex-wrap">
+                              <Link
+                                to={`/admin/pay-in-packages/${pkg.id}/calculation-preview`}
+                                className="p-2 text-emerald-700 hover:bg-emerald-50 rounded-lg"
+                                title="Calculator"
+                              >
+                                <FaCalculator size={14} />
+                              </Link>
+                              <button
+                                type="button"
+                                onClick={() => navigate(`/admin/pay-in-packages/${pkg.id}/edit`)}
+                                className="p-2 text-indigo-700 hover:bg-indigo-50 rounded-lg"
+                                title="Edit"
+                              >
+                                <FaPenToSquare size={14} />
+                              </button>
+                              {!pkg.is_default && pkg.is_active && (
+                                <button
+                                  type="button"
+                                  onClick={() => handleSetDefaultPackage(pkg.id)}
+                                  disabled={defaultLoading === pkg.id}
+                                  className="p-2 text-amber-700 hover:bg-amber-50 rounded-lg disabled:opacity-50"
+                                  title="Set default"
+                                >
+                                  <FaStar size={14} />
+                                </button>
+                              )}
+                              {pkg.is_default && (
+                                <button
+                                  type="button"
+                                  onClick={handleClearDefaultPackage}
+                                  disabled={defaultLoading === 'clear'}
+                                  className="p-2 text-slate-600 hover:bg-slate-100 rounded-lg"
+                                  title="Clear default"
+                                >
+                                  <FaXmark size={14} />
+                                </button>
+                              )}
+                              <button
+                                type="button"
+                                onClick={() => handleDeletePackage(pkg.id)}
+                                className="p-2 text-red-600 hover:bg-red-50 rounded-lg"
+                                title="Delete"
+                              >
+                                <FaTrash size={14} />
+                              </button>
+                            </div>
+                          </td>
                         </tr>
                       ))}
                     </tbody>
                   </table>
-                  <div className="p-3 bg-blue-50 border-t border-blue-100 text-sm space-y-1">
-                    <div className="flex justify-between">
-                      <span>Total Deduction</span>
-                      <span className="font-semibold">₹{previewResult.total_deduction}</span>
-                    </div>
-                    <div className="flex justify-between">
-                      <span>Net Credit</span>
-                      <span className="font-bold text-blue-700">₹{previewResult.net_credit}</span>
-                    </div>
+                </div>
+
+                <div className="flex items-center justify-between mt-4 text-sm">
+                  <span className="text-slate-600 dark:text-slate-400">
+                    Page {page} of {totalPages} ({total} packages)
+                  </span>
+                  <div className="flex gap-2">
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      disabled={page <= 1}
+                      onClick={() => setPage((p) => Math.max(1, p - 1))}
+                    >
+                      Previous
+                    </Button>
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      disabled={page >= totalPages}
+                      onClick={() => setPage((p) => p + 1)}
+                    >
+                      Next
+                    </Button>
                   </div>
                 </div>
-              )}
-            </div>
-          </Card>
-        </div>
-      )}
+              </>
+            )}
+          </div>
+        </section>
+      </div>
     </div>
   );
 };

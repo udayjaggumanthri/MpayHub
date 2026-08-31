@@ -35,16 +35,16 @@ const AccessBlockedAlert = () => {
 
   return (
     <div
-      className="mb-4 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-950"
+      className="mb-4 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-950 dark:border-amber-900 dark:bg-amber-950/40 dark:text-amber-100"
       role="alert"
     >
       <div className="flex gap-3">
-        <FaCircleExclamation className="mt-0.5 shrink-0 text-amber-700" size={18} aria-hidden />
+        <FaCircleExclamation className="mt-0.5 shrink-0 text-amber-700 dark:text-amber-300" size={18} aria-hidden />
         <div className="min-w-0 flex-1">
           <p className="font-semibold leading-relaxed">{alert.message}</p>
           <button
             type="button"
-            className="mt-2 text-[12px] font-semibold text-amber-900 underline underline-offset-2"
+            className="mt-2 text-[12px] font-semibold text-amber-900 dark:text-amber-300 underline underline-offset-2"
             onClick={() => setAlert(null)}
           >
             Dismiss

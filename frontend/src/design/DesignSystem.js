@@ -164,16 +164,16 @@ export const iconMap = {
 // Component variants
 export const buttonVariants = {
   primary: 'bg-blue-600 text-white hover:bg-blue-700 focus:ring-blue-500',
-  secondary: 'bg-gray-200 text-gray-900 hover:bg-gray-300 focus:ring-gray-500',
+  secondary: 'bg-gray-200 dark:bg-slate-700 text-gray-900 dark:text-slate-100 hover:bg-gray-300 dark:hover:bg-slate-600 focus:ring-gray-500',
   success: 'bg-green-600 text-white hover:bg-green-700 focus:ring-green-500',
   danger: 'bg-red-600 text-white hover:bg-red-700 focus:ring-red-500',
-  outline: 'border-2 border-blue-600 text-blue-600 hover:bg-blue-50 focus:ring-blue-500',
-  ghost: 'text-gray-700 hover:bg-gray-100 focus:ring-gray-500',
+  outline: 'border-2 border-blue-600 text-blue-600 dark:text-blue-400 hover:bg-blue-50 dark:hover:bg-blue-950/60 focus:ring-blue-500',
+  ghost: 'text-gray-700 dark:text-slate-300 hover:bg-gray-100 dark:hover:bg-slate-700 focus:ring-gray-500',
 };
 
 // Input variants
 export const inputVariants = {
-  default: 'border-gray-300 focus:border-blue-500 focus:ring-blue-500',
-  error: 'border-red-300 focus:border-red-500 focus:ring-red-500',
-  success: 'border-green-300 focus:border-green-500 focus:ring-green-500',
+  default: 'border-gray-300 dark:border-slate-600 focus:border-blue-500 focus:ring-blue-500',
+  error: 'border-red-300 dark:border-red-800 focus:border-red-500 focus:ring-red-500',
+  success: 'border-green-300 dark:border-green-800 focus:border-green-500 focus:ring-green-500',
 };

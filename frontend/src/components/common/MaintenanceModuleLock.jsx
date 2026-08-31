@@ -20,16 +20,16 @@ const MaintenanceModuleLock = ({ maintenance, moduleKey, children, className = '
       <div className="relative overflow-visible">
         {locked ? (
           <div
-            className="pointer-events-none absolute inset-0 z-20 flex items-start justify-center rounded-xl bg-slate-900/[0.04] backdrop-blur-[1px] sm:items-center sm:min-h-[12rem]"
+            className="pointer-events-none absolute inset-0 z-20 flex items-start justify-center rounded-xl bg-slate-900/[0.04] dark:bg-slate-950/50 backdrop-blur-[1px] sm:items-center sm:min-h-[12rem]"
             aria-hidden
           >
-            <div className="sticky top-4 mx-4 mt-6 flex max-w-sm items-center gap-3 rounded-xl border border-slate-200/90 bg-white/95 px-4 py-3 shadow-lg ring-1 ring-slate-900/5 sm:mt-0">
-              <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-amber-100 text-amber-800">
+            <div className="sticky top-4 mx-4 mt-6 flex max-w-sm items-center gap-3 rounded-xl border border-slate-200/90 dark:border-slate-700/90 bg-white/95 dark:bg-slate-900/95 px-4 py-3 shadow-lg ring-1 ring-slate-900/5 sm:mt-0">
+              <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-amber-100 dark:bg-amber-900/40 text-amber-800 dark:text-amber-300">
                 <FaLock size={18} />
               </div>
               <div>
-                <p className="text-sm font-semibold text-slate-900">{meta.label} actions locked</p>
-                <p className="text-xs text-slate-600 mt-0.5">
+                <p className="text-sm font-semibold text-slate-900 dark:text-slate-100">{meta.label} actions locked</p>
+                <p className="text-xs text-slate-600 dark:text-slate-400 mt-0.5">
                   Forms below are disabled until maintenance ends.
                 </p>
               </div>

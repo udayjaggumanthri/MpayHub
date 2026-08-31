@@ -1,6 +1,6 @@
 import { bbpsLogoAssets } from './bbpsLogoAssets';
 import { BBPS_B_ASSURED_LOGO } from './bbpsLogoSizes';
-import { MPAYHUB_LOGO_SRC, buildBbpsReceiptPrintContext } from './bbpsReceiptFields';
+import { getMpayhubLogoSrc, buildBbpsReceiptPrintContext } from './bbpsReceiptFields';
 
 const escapeHtml = (value) =>
   String(value ?? '')
@@ -235,7 +235,7 @@ export const buildBbpsReceiptPrintHtml = (txn, identity, { mobile = false } = {}
       <body>
         <div class="receipt">
           <div class="brand-row">
-            <img class="logo-mpay" src="${origin}${MPAYHUB_LOGO_SRC}" alt="mPayHub" />
+            <img class="logo-mpay" src="${origin}${getMpayhubLogoSrc()}" alt="mPayHub" />
             <span class="logo-frame-b-assured">
               <img class="logo-b-assured" src="${origin}${bbpsLogoAssets.bAssuredPrimary}" alt="B Assured" width="${BBPS_B_ASSURED_LOGO.width}" height="${BBPS_B_ASSURED_LOGO.height}" />
             </span>

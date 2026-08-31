@@ -39,15 +39,15 @@ const ComplaintsTrack = () => {
   };
 
   return (
-    <div className="max-w-3xl mx-auto bg-white rounded-xl border border-violet-100 shadow-sm p-6 md:p-8">
+    <div className="max-w-3xl mx-auto bg-white dark:bg-slate-900 rounded-xl border border-violet-100 dark:border-violet-900 shadow-sm p-6 md:p-8">
       <BharatConnectBranding stage="stage2" title="TRACK COMPLAINT" />
-      <Link to="/bill-payments/complaints" className="text-sm text-blue-700 hover:underline mb-6 inline-block">
+      <Link to="/bill-payments/complaints" className="text-sm text-blue-700 dark:text-blue-300 hover:underline mb-6 inline-block">
         ← Back to Complaint Management
       </Link>
 
       <div className="grid gap-4 max-w-xl">
         <div>
-          <label className="block text-xs uppercase tracking-wide text-gray-500 mb-1">Complaint ID</label>
+          <label className="block text-xs uppercase tracking-wide text-gray-500 dark:text-slate-400 mb-1">Complaint ID</label>
           <input
             className="w-full border rounded-lg px-3 py-2"
             value={complaintId}
@@ -56,9 +56,9 @@ const ComplaintsTrack = () => {
           />
         </div>
         <div>
-          <label className="block text-xs uppercase tracking-wide text-gray-500 mb-1">Type of Complaint</label>
+          <label className="block text-xs uppercase tracking-wide text-gray-500 dark:text-slate-400 mb-1">Type of Complaint</label>
           <select
-            className="w-full border rounded-lg px-3 py-2 bg-white"
+            className="w-full border rounded-lg px-3 py-2 bg-white dark:bg-slate-900"
             value={complaintType}
             onChange={(e) => setComplaintType(e.target.value)}
           >
@@ -71,7 +71,7 @@ const ComplaintsTrack = () => {
               Service (coming soon)
             </option>
           </select>
-          <p className="text-xs text-gray-500 mt-1">Tracking uses your complaint ID; type is for your records.</p>
+          <p className="text-xs text-gray-500 dark:text-slate-400 mt-1">Tracking uses your complaint ID; type is for your records.</p>
         </div>
         <div className="flex justify-end pt-2">
           <button
@@ -91,7 +91,7 @@ const ComplaintsTrack = () => {
       {tracking && (
         <div className="mt-6 space-y-2">
           {trackMeta?.manual_escalation_required && (
-            <p className="text-sm text-amber-900 bg-amber-50 border border-amber-200 rounded p-2">
+            <p className="text-sm text-amber-900 dark:text-amber-300 bg-amber-50 dark:bg-amber-950/40 border border-amber-200 dark:border-amber-800 rounded p-2">
               This case needs manual escalation from our support side. Keep your complaint reference safe and contact
               support for next steps.
             </p>
@@ -100,22 +100,22 @@ const ComplaintsTrack = () => {
             const tr = tracking.complaintTrackingResp || tracking;
             if (tr && typeof tr === 'object') {
               return (
-                <dl className="text-sm grid grid-cols-1 sm:grid-cols-2 gap-x-4 gap-y-1 border rounded-lg p-4 bg-gray-50/80">
+                <dl className="text-sm grid grid-cols-1 sm:grid-cols-2 gap-x-4 gap-y-1 border rounded-lg p-4 bg-gray-50/80 dark:bg-slate-800/50">
                   {tr.complaintId != null && (
                     <>
-                      <dt className="text-gray-500">Complaint ID</dt>
+                      <dt className="text-gray-500 dark:text-slate-400">Complaint ID</dt>
                       <dd className="font-medium">{String(tr.complaintId)}</dd>
                     </>
                   )}
                   {tr.complaintStatus != null && (
                     <>
-                      <dt className="text-gray-500">Status</dt>
+                      <dt className="text-gray-500 dark:text-slate-400">Status</dt>
                       <dd className="font-medium">{statusLabel(tr.complaintStatus)}</dd>
                     </>
                   )}
                   {(tr.complaintRemarks != null || tr.remarks != null) && (
                     <>
-                      <dt className="text-gray-500">Update</dt>
+                      <dt className="text-gray-500 dark:text-slate-400">Update</dt>
                       <dd className="sm:col-span-2">{String(tr.complaintRemarks ?? tr.remarks ?? '')}</dd>
                     </>
                   )}

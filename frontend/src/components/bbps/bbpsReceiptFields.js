@@ -2,8 +2,13 @@ import { format } from 'date-fns';
 
 import { formatCurrency } from '../../utils/formatters';
 import { normalizeCategorySlug } from '../../constants/bbpsCanonicalCategories';
+import { getBrandingLogoUrl } from '../../utils/brandingLogo';
 
 export const MPAYHUB_LOGO_SRC = `${process.env.PUBLIC_URL || ''}/images/logo.png`;
+
+export function getMpayhubLogoSrc() {
+  return getBrandingLogoUrl();
+}
 
 const toInputParamRows = (row) =>
   Array.isArray(row?.inputParams)

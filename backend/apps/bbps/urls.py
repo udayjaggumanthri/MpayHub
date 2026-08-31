@@ -65,6 +65,7 @@ urlpatterns = [
     path('admin/provider-float/', views.provider_float_view, name='provider-float'),
     path('admin/provider-float/set/', views.provider_float_set_view, name='provider-float-set'),
     path('admin/provider-float/settings/', views.provider_float_settings_view, name='provider-float-settings'),
+    path('admin/catalog-ux-settings/', views.catalog_ux_settings_view, name='catalog-ux-settings'),
     path('transactions/query/', views.transaction_query_view, name='transaction-query'),
     path('complaints/register/', views.complaint_register_view, name='complaint-register'),
     path('complaints/history/', views.complaint_history_view, name='complaint-history'),

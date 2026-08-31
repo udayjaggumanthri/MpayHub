@@ -54,13 +54,13 @@ const BankAccountViewModal = ({ account, onClose }) => {
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black bg-opacity-50 overflow-y-auto">
-      <Card className="max-w-2xl w-full border-2 border-blue-200 my-auto" padding="lg" shadow="xl">
+      <Card className="max-w-2xl w-full border-2 border-blue-200 dark:border-blue-800 my-auto" padding="lg" shadow="xl">
         <div className="flex items-center justify-between mb-4">
-          <h2 className="text-xl sm:text-2xl font-bold text-gray-900">Bank Account Details</h2>
+          <h2 className="text-xl sm:text-2xl font-bold text-gray-900 dark:text-slate-100">Bank Account Details</h2>
           <button
             type="button"
             onClick={onClose}
-            className="text-gray-400 hover:text-gray-600 transition-colors"
+            className="text-gray-400 dark:text-slate-500 hover:text-gray-600 dark:hover:text-slate-400 transition-colors"
           >
             <FaXmark size={22} />
           </button>
@@ -68,12 +68,12 @@ const BankAccountViewModal = ({ account, onClose }) => {
 
         <div className="space-y-6 max-h-[70vh] overflow-y-auto pr-1">
           <div>
-            <h3 className="text-sm font-semibold text-gray-700 mb-3 uppercase tracking-wide">Account Summary</h3>
+            <h3 className="text-sm font-semibold text-gray-700 dark:text-slate-300 mb-3 uppercase tracking-wide">Account Summary</h3>
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
               {rows.map(([label, value]) => (
-                <div key={label} className="rounded-lg border border-gray-200 p-3 bg-gray-50">
-                  <p className="text-xs text-gray-500">{label}</p>
-                  <p className="text-sm font-medium text-gray-900 mt-1 break-words">{formatDetailValue(value)}</p>
+                <div key={label} className="rounded-lg border border-gray-200 dark:border-slate-700 p-3 bg-gray-50 dark:bg-slate-800/50">
+                  <p className="text-xs text-gray-500 dark:text-slate-400">{label}</p>
+                  <p className="text-sm font-medium text-gray-900 dark:text-slate-100 mt-1 break-words">{formatDetailValue(value)}</p>
                 </div>
               ))}
             </div>
@@ -81,12 +81,12 @@ const BankAccountViewModal = ({ account, onClose }) => {
 
           {ifscRows.length > 0 && (
             <div>
-              <h3 className="text-sm font-semibold text-gray-700 mb-3 uppercase tracking-wide">IFSC Details</h3>
+              <h3 className="text-sm font-semibold text-gray-700 dark:text-slate-300 mb-3 uppercase tracking-wide">IFSC Details</h3>
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                 {ifscRows.map(([label, value]) => (
-                  <div key={label} className="rounded-lg border border-gray-200 p-3 bg-gray-50">
-                    <p className="text-xs text-gray-500">{label}</p>
-                    <p className="text-sm font-medium text-gray-900 mt-1 break-words whitespace-pre-wrap">{value}</p>
+                  <div key={label} className="rounded-lg border border-gray-200 dark:border-slate-700 p-3 bg-gray-50 dark:bg-slate-800/50">
+                    <p className="text-xs text-gray-500 dark:text-slate-400">{label}</p>
+                    <p className="text-sm font-medium text-gray-900 dark:text-slate-100 mt-1 break-words whitespace-pre-wrap">{value}</p>
                   </div>
                 ))}
               </div>
@@ -116,24 +116,24 @@ const BankAccountDeleteModal = ({ account, loading, onCancel, onConfirm }) => {
       onClick={() => !loading && onCancel()}
     >
       <div
-        className="w-full max-w-md rounded-2xl bg-white p-6 shadow-2xl"
+        className="w-full max-w-md rounded-2xl bg-white dark:bg-slate-900 p-6 shadow-2xl"
         onClick={(e) => e.stopPropagation()}
       >
         <div className="flex items-start gap-4">
-          <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-xl bg-red-50 text-red-700">
+          <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-xl bg-red-50 dark:bg-red-950/40 text-red-700 dark:text-red-300">
             <FaTriangleExclamation size={22} aria-hidden />
           </div>
           <div className="min-w-0 flex-1">
-            <h3 id="delete-bank-account-title" className="text-lg font-bold text-slate-900">
+            <h3 id="delete-bank-account-title" className="text-lg font-bold text-slate-900 dark:text-slate-100">
               Delete bank account?
             </h3>
-            <p className="mt-1 text-sm text-slate-600">
+            <p className="mt-1 text-sm text-slate-600 dark:text-slate-400">
               This action cannot be undone. The account will be removed from your profile.
             </p>
           </div>
         </div>
 
-        <div className="mt-4 rounded-xl border border-slate-100 bg-slate-50 px-4 py-3 text-sm text-slate-700 space-y-1">
+        <div className="mt-4 rounded-xl border border-slate-100 dark:border-slate-800 bg-slate-50 dark:bg-slate-800/50 px-4 py-3 text-sm text-slate-700 dark:text-slate-300 space-y-1">
           <p>
             <span className="font-medium">Account holder:</span>{' '}
             {account.account_holder_name || account.beneficiary_name || '—'}
@@ -283,8 +283,8 @@ const BankAccounts = () => {
     <div className="max-w-7xl mx-auto space-y-6 px-4 sm:px-0">
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between">
         <div>
-          <h1 className="text-2xl sm:text-3xl font-bold text-gray-900">All Bank Accounts</h1>
-          <p className="mt-1 sm:mt-2 text-sm sm:text-base text-gray-600">
+          <h1 className="text-2xl sm:text-3xl font-bold text-gray-900 dark:text-slate-100">All Bank Accounts</h1>
+          <p className="mt-1 sm:mt-2 text-sm sm:text-base text-gray-600 dark:text-slate-400">
             Manage verified bank accounts for payouts
           </p>
         </div>
@@ -300,40 +300,40 @@ const BankAccounts = () => {
       </div>
 
       <Card padding="lg">
-        <h3 className="text-lg font-semibold text-gray-900 mb-4">Filter</h3>
+        <h3 className="text-lg font-semibold text-gray-900 dark:text-slate-100 mb-4">Filter</h3>
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-2">Name</label>
+            <label className="block text-sm font-medium text-gray-700 dark:text-slate-300 mb-2">Name</label>
             <div className="relative">
-              <FaMagnifyingGlass className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400" size={18} />
+              <FaMagnifyingGlass className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400 dark:text-slate-500" size={18} />
               <input
                 type="text"
                 value={filters.name}
                 onChange={(e) => setFilters({ ...filters, name: e.target.value })}
                 placeholder="Enter Name"
-                className="w-full pl-10 pr-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                className="w-full pl-10 pr-4 py-2 border border-gray-300 dark:border-slate-600 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
               />
             </div>
           </div>
 
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-2">Bank Name</label>
+            <label className="block text-sm font-medium text-gray-700 dark:text-slate-300 mb-2">Bank Name</label>
             <div className="relative">
-              <FaMagnifyingGlass className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400" size={18} />
+              <FaMagnifyingGlass className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400 dark:text-slate-500" size={18} />
               <input
                 type="text"
                 value={filters.bankName}
                 onChange={(e) => setFilters({ ...filters, bankName: e.target.value })}
                 placeholder="Enter Bank name"
-                className="w-full pl-10 pr-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                className="w-full pl-10 pr-4 py-2 border border-gray-300 dark:border-slate-600 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
               />
             </div>
           </div>
 
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-2">Account Number</label>
+            <label className="block text-sm font-medium text-gray-700 dark:text-slate-300 mb-2">Account Number</label>
             <div className="relative">
-              <FaMagnifyingGlass className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400" size={18} />
+              <FaMagnifyingGlass className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400 dark:text-slate-500" size={18} />
               <input
                 type="text"
                 value={filters.accountNumber}
@@ -342,15 +342,15 @@ const BankAccounts = () => {
                   setFilters({ ...filters, accountNumber: value });
                 }}
                 placeholder="Enter Account Number"
-                className="w-full pl-10 pr-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                className="w-full pl-10 pr-4 py-2 border border-gray-300 dark:border-slate-600 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
               />
             </div>
           </div>
 
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-2">IFSC CODE</label>
+            <label className="block text-sm font-medium text-gray-700 dark:text-slate-300 mb-2">IFSC CODE</label>
             <div className="relative">
-              <FaMagnifyingGlass className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400" size={18} />
+              <FaMagnifyingGlass className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400 dark:text-slate-500" size={18} />
               <input
                 type="text"
                 value={filters.ifsc}
@@ -360,7 +360,7 @@ const BankAccounts = () => {
                 }}
                 placeholder="Enter IFSC Code"
                 maxLength={11}
-                className="w-full pl-10 pr-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent uppercase"
+                className="w-full pl-10 pr-4 py-2 border border-gray-300 dark:border-slate-600 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent uppercase"
               />
             </div>
           </div>
@@ -376,14 +376,14 @@ const BankAccounts = () => {
       </Card>
 
       <Card padding="lg">
-        <h3 className="text-lg font-semibold text-gray-900 mb-4">All Links</h3>
+        <h3 className="text-lg font-semibold text-gray-900 dark:text-slate-100 mb-4">All Links</h3>
         {loading ? (
           <div className="text-center py-12">
             <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600 mx-auto"></div>
-            <p className="mt-4 text-gray-600">Loading bank accounts...</p>
+            <p className="mt-4 text-gray-600 dark:text-slate-400">Loading bank accounts...</p>
           </div>
         ) : accounts.length === 0 ? (
-          <div className="text-center py-12 text-gray-500">
+          <div className="text-center py-12 text-gray-500 dark:text-slate-400">
             <p className="text-lg">No bank accounts found</p>
             <p className="text-sm mt-2">Click "Create Account" to add a new bank account</p>
           </div>
@@ -391,24 +391,24 @@ const BankAccounts = () => {
           <div className="overflow-x-auto">
             <table className="w-full border-collapse">
               <thead>
-                <tr className="bg-gray-50 border-b border-gray-200">
-                  <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">#</th>
-                  <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                <tr className="bg-gray-50 dark:bg-slate-800/50 border-b border-gray-200 dark:border-slate-700">
+                  <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 dark:text-slate-400 uppercase tracking-wider">#</th>
+                  <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 dark:text-slate-400 uppercase tracking-wider">
                     ACCOUNT HOLDER NAME
                   </th>
-                  <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                  <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 dark:text-slate-400 uppercase tracking-wider">
                     ACCOUNT NUMBER
                   </th>
-                  <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                  <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 dark:text-slate-400 uppercase tracking-wider">
                     BANK NAME
                   </th>
-                  <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                  <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 dark:text-slate-400 uppercase tracking-wider">
                     MOBILE
                   </th>
-                  <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                  <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 dark:text-slate-400 uppercase tracking-wider">
                     IFSC
                   </th>
-                  <th className="px-4 py-3 text-center text-xs font-medium text-gray-500 uppercase tracking-wider">
+                  <th className="px-4 py-3 text-center text-xs font-medium text-gray-500 dark:text-slate-400 uppercase tracking-wider">
                     ACTIONS
                   </th>
                 </tr>
@@ -422,30 +422,30 @@ const BankAccounts = () => {
                   const mobile = account.mobile_number || '—';
 
                   return (
-                    <tr key={account.id} className="border-b border-gray-200 hover:bg-gray-50 transition-colors">
-                      <td className="px-4 py-4 whitespace-nowrap text-sm text-gray-900">{index + 1}</td>
-                      <td className="px-4 py-4 whitespace-nowrap text-sm font-medium text-gray-900">
+                    <tr key={account.id} className="border-b border-gray-200 dark:border-slate-700 hover:bg-gray-50 dark:hover:bg-slate-800 transition-colors">
+                      <td className="px-4 py-4 whitespace-nowrap text-sm text-gray-900 dark:text-slate-100">{index + 1}</td>
+                      <td className="px-4 py-4 whitespace-nowrap text-sm font-medium text-gray-900 dark:text-slate-100">
                         {accountHolderName}
                       </td>
-                      <td className="px-4 py-4 whitespace-nowrap text-sm text-gray-700 font-mono">
+                      <td className="px-4 py-4 whitespace-nowrap text-sm text-gray-700 dark:text-slate-300 font-mono">
                         {accountNumber}
                       </td>
-                      <td className="px-4 py-4 whitespace-nowrap text-sm text-gray-700">
+                      <td className="px-4 py-4 whitespace-nowrap text-sm text-gray-700 dark:text-slate-300">
                         <div className="flex items-center space-x-2">
-                          <FaBuilding size={14} className="text-gray-400" />
+                          <FaBuilding size={14} className="text-gray-400 dark:text-slate-500" />
                           <span>{bankName}</span>
                         </div>
                       </td>
-                      <td className="px-4 py-4 whitespace-nowrap text-sm text-gray-700">
+                      <td className="px-4 py-4 whitespace-nowrap text-sm text-gray-700 dark:text-slate-300">
                         {mobile !== '—' ? formatPhone(mobile) : mobile}
                       </td>
-                      <td className="px-4 py-4 whitespace-nowrap text-sm text-gray-700 font-mono">{ifsc}</td>
+                      <td className="px-4 py-4 whitespace-nowrap text-sm text-gray-700 dark:text-slate-300 font-mono">{ifsc}</td>
                       <td className="px-4 py-4 whitespace-nowrap text-center">
                         <div className="inline-flex items-center gap-2">
                           <button
                             type="button"
                             onClick={() => setViewAccount(account)}
-                            className="text-blue-600 hover:text-blue-800 transition-colors p-1 rounded hover:bg-blue-50"
+                            className="text-blue-600 dark:text-blue-400 hover:text-blue-800 dark:hover:text-blue-200 transition-colors p-1 rounded hover:bg-blue-50 dark:hover:bg-blue-950/60"
                             title="View Details"
                           >
                             <FaEye size={18} />
@@ -453,7 +453,7 @@ const BankAccounts = () => {
                           <button
                             type="button"
                             onClick={() => handleDelete(account)}
-                            className="text-red-600 hover:text-red-800 transition-colors p-1 rounded hover:bg-red-50"
+                            className="text-red-600 dark:text-red-400 hover:text-red-800 dark:hover:text-red-200 transition-colors p-1 rounded hover:bg-red-50 dark:hover:bg-red-950/60"
                             title="Delete Account"
                           >
                             <FaTrash size={18} />

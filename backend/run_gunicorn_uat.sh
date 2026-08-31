@@ -1,4 +1,5 @@
 #!/bin/bash
+# @deprecated Use run_gunicorn.sh (127.0.0.1:8000) — UAT now matches production via nginx + PM2.
 # UAT: public bind on :8001 (direct access, no nginx required)
 set -e
 cd "$(dirname "$0")"

@@ -1,9 +1,7 @@
 #!/usr/bin/env node
 /**
- * UAT edge proxy for Cloudflare tunnel → partner-uat.mpayhub.in
- * Listens on :3001 (tunnel target):
- *   /api/ /admin/ /backstatic/ /media/  → backend :8001
- *   everything else                    → frontend static :3002
+ * @deprecated Removed — UAT uses nginx (partner-uat.mpayhub.in) like production.
+ * See scripts/setup-uat-pm2-and-domain.sh and deploy/nginx/partner-uat.mpayhub.in.conf
  */
 const http = require('http');
 const httpProxy = require('http-proxy');

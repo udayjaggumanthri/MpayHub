@@ -139,22 +139,22 @@ const AddBankAccount = ({ onCancel, onSuccess }) => {
     <>
       {showSuccessNotification && (
         <div className="fixed top-4 right-4 z-50 animate-slide-in">
-          <div className="bg-green-50 border-2 border-green-200 rounded-lg p-4 shadow-lg flex items-center space-x-3 min-w-[300px]">
-            <FaCircleCheck className="text-green-600 flex-shrink-0" size={24} />
+          <div className="bg-green-50 dark:bg-green-950/40 border-2 border-green-200 dark:border-green-800 rounded-lg p-4 shadow-lg flex items-center space-x-3 min-w-[300px]">
+            <FaCircleCheck className="text-green-600 dark:text-green-400 flex-shrink-0" size={24} />
             <div>
-              <p className="font-semibold text-green-800">Bank account verified successfully!</p>
-              <p className="text-sm text-green-700 mt-1">Bank account saved to your profile</p>
+              <p className="font-semibold text-green-800 dark:text-green-300">Bank account verified successfully!</p>
+              <p className="text-sm text-green-700 dark:text-green-300 mt-1">Bank account saved to your profile</p>
             </div>
           </div>
         </div>
       )}
 
-      <div className="max-w-2xl mx-auto bg-white rounded-xl shadow-sm p-6 border border-gray-200">
-        <h2 className="text-2xl font-bold text-gray-900 mb-6">Add Bank Account</h2>
+      <div className="max-w-2xl mx-auto bg-white dark:bg-slate-900 rounded-xl shadow-sm p-6 border border-gray-200 dark:border-slate-700">
+        <h2 className="text-2xl font-bold text-gray-900 dark:text-slate-100 mb-6">Add Bank Account</h2>
 
         <div className="space-y-6">
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-2">
+            <label className="block text-sm font-medium text-gray-700 dark:text-slate-300 mb-2">
               Mobile Number <span className="text-red-500">*</span>
             </label>
             <input
@@ -166,15 +166,15 @@ const AddBankAccount = ({ onCancel, onSuccess }) => {
               }}
               placeholder="Enter 10-digit mobile number"
               maxLength={10}
-              className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+              className="w-full px-4 py-3 border border-gray-300 dark:border-slate-600 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
             />
             {errors.mobileNumber && (
-              <p className="mt-1 text-sm text-red-600">{errors.mobileNumber}</p>
+              <p className="mt-1 text-sm text-red-600 dark:text-red-400">{errors.mobileNumber}</p>
             )}
           </div>
 
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-2">
+            <label className="block text-sm font-medium text-gray-700 dark:text-slate-300 mb-2">
               Account Number <span className="text-red-500">*</span>
             </label>
             <input
@@ -185,15 +185,15 @@ const AddBankAccount = ({ onCancel, onSuccess }) => {
                 handleInputChange('accountNumber', value);
               }}
               placeholder="Enter account number"
-              className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+              className="w-full px-4 py-3 border border-gray-300 dark:border-slate-600 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
             />
             {errors.accountNumber && (
-              <p className="mt-1 text-sm text-red-600">{errors.accountNumber}</p>
+              <p className="mt-1 text-sm text-red-600 dark:text-red-400">{errors.accountNumber}</p>
             )}
           </div>
 
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-2">
+            <label className="block text-sm font-medium text-gray-700 dark:text-slate-300 mb-2">
               IFSC Code <span className="text-red-500">*</span>
             </label>
             <input
@@ -205,24 +205,24 @@ const AddBankAccount = ({ onCancel, onSuccess }) => {
               }}
               placeholder="Enter IFSC code (e.g., SBIN0018704)"
               maxLength={11}
-              className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent uppercase"
+              className="w-full px-4 py-3 border border-gray-300 dark:border-slate-600 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent uppercase"
             />
-            {errors.ifsc && <p className="mt-1 text-sm text-red-600">{errors.ifsc}</p>}
-            <p className="mt-1 text-xs text-gray-500">
+            {errors.ifsc && <p className="mt-1 text-sm text-red-600 dark:text-red-400">{errors.ifsc}</p>}
+            <p className="mt-1 text-xs text-gray-500 dark:text-slate-400">
               Bank name and beneficiary details are fetched automatically after validation.
             </p>
           </div>
 
           {validatedBeneficiary && (
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-2">Beneficiary Name</label>
+              <label className="block text-sm font-medium text-gray-700 dark:text-slate-300 mb-2">Beneficiary Name</label>
               <input
                 type="text"
                 value={validatedBeneficiary}
                 disabled
-                className="w-full px-4 py-3 border border-green-500 bg-green-50 text-gray-900 font-semibold rounded-lg"
+                className="w-full px-4 py-3 border border-green-500 bg-green-50 dark:bg-green-950/40 text-gray-900 dark:text-slate-100 font-semibold rounded-lg"
               />
-              <p className="mt-1 text-sm text-green-600 flex items-center space-x-1">
+              <p className="mt-1 text-sm text-green-600 dark:text-green-400 flex items-center space-x-1">
                 <FaCircleCheck size={14} />
                 <span>Beneficiary name fetched from bank</span>
               </p>
@@ -232,7 +232,7 @@ const AddBankAccount = ({ onCancel, onSuccess }) => {
           <div className="flex space-x-3">
             <button
               onClick={onCancel}
-              className="flex-1 px-4 py-3 border border-gray-300 rounded-lg text-gray-700 hover:bg-gray-50 transition-colors"
+              className="flex-1 px-4 py-3 border border-gray-300 dark:border-slate-600 rounded-lg text-gray-700 dark:text-slate-300 hover:bg-gray-50 dark:hover:bg-slate-800 transition-colors"
             >
               Cancel
             </button>
@@ -244,25 +244,25 @@ const AddBankAccount = ({ onCancel, onSuccess }) => {
               {loading ? 'Validating...' : 'Validate Account'}
             </button>
           </div>
-          <p className="text-xs text-gray-500 text-center">
+          <p className="text-xs text-gray-500 dark:text-slate-400 text-center">
             ₹3 verification fee (deducted only on successful validation)
           </p>
         </div>
 
         {showConfirmModal && validatedBeneficiary && (
           <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black bg-opacity-50">
-            <div className="bg-white rounded-2xl shadow-2xl max-w-md w-full p-6">
-              <h3 className="text-xl font-bold text-gray-900 mb-4">Confirm Beneficiary</h3>
-              <div className="mb-6 p-4 bg-blue-50 border border-blue-200 rounded-lg">
-                <p className="text-sm text-gray-600 mb-2">Beneficiary Name:</p>
-                <p className="text-xl font-bold text-gray-900">{validatedBeneficiary}</p>
-                <p className="text-sm text-gray-600 mt-2">Mobile: {formData.mobileNumber}</p>
-                <p className="text-sm text-gray-600 mt-2">Account: {formData.accountNumber}</p>
-                <p className="text-sm text-gray-600">
+            <div className="bg-white dark:bg-slate-900 rounded-2xl shadow-2xl max-w-md w-full p-6">
+              <h3 className="text-xl font-bold text-gray-900 dark:text-slate-100 mb-4">Confirm Beneficiary</h3>
+              <div className="mb-6 p-4 bg-blue-50 dark:bg-blue-950/40 border border-blue-200 dark:border-blue-800 rounded-lg">
+                <p className="text-sm text-gray-600 dark:text-slate-400 mb-2">Beneficiary Name:</p>
+                <p className="text-xl font-bold text-gray-900 dark:text-slate-100">{validatedBeneficiary}</p>
+                <p className="text-sm text-gray-600 dark:text-slate-400 mt-2">Mobile: {formData.mobileNumber}</p>
+                <p className="text-sm text-gray-600 dark:text-slate-400 mt-2">Account: {formData.accountNumber}</p>
+                <p className="text-sm text-gray-600 dark:text-slate-400">
                   IFSC: {(validationData?.ifsc || formData.ifsc).toUpperCase()}
                 </p>
                 {resolvedBankName && (
-                  <p className="text-sm text-gray-600">Bank: {resolvedBankName}</p>
+                  <p className="text-sm text-gray-600 dark:text-slate-400">Bank: {resolvedBankName}</p>
                 )}
               </div>
               <div className="flex space-x-3">
@@ -271,7 +271,7 @@ const AddBankAccount = ({ onCancel, onSuccess }) => {
                     setShowConfirmModal(false);
                     setValidationData(null);
                   }}
-                  className="flex-1 px-4 py-3 border border-gray-300 rounded-lg text-gray-700 hover:bg-gray-50 transition-colors"
+                  className="flex-1 px-4 py-3 border border-gray-300 dark:border-slate-600 rounded-lg text-gray-700 dark:text-slate-300 hover:bg-gray-50 dark:hover:bg-slate-800 transition-colors"
                 >
                   Cancel
                 </button>

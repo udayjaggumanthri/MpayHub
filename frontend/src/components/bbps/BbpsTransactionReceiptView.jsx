@@ -3,7 +3,7 @@ import { FaCircleCheck } from 'react-icons/fa6';
 
 import { BAssuredLogo } from './BbpsPartnerLogos';
 import { bAssuredLogoSlotStyle } from './bbpsLogoSizes';
-import { MPAYHUB_LOGO_SRC, buildBbpsReceiptRows, buildBbpsReceiptSummary } from './bbpsReceiptFields';
+import { buildBbpsReceiptRows, buildBbpsReceiptSummary, getMpayhubLogoSrc } from './bbpsReceiptFields';
 
 const ReceiptCell = ({ label, value, highlight, mono }) => {
   let valueClass = 'text-gray-900 font-medium';
@@ -42,11 +42,11 @@ const BbpsTransactionReceiptView = ({
   const rightCells = rows.filter((_, i) => i % 2 === 1);
 
   return (
-    <div className={`space-y-4 ${className}`}>
+    <div className={`mpay-paper space-y-4 rounded-xl p-4 ${className}`}>
       <div className="space-y-4 border-b border-gray-200 pb-4">
         <div className="flex flex-wrap items-start justify-between gap-x-4 gap-y-3">
           <img
-            src={MPAYHUB_LOGO_SRC}
+            src={getMpayhubLogoSrc()}
             alt="mPayHub"
             className="h-10 w-auto max-w-[min(160px,40%)] shrink-0 object-contain object-left"
           />

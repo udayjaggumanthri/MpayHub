@@ -340,7 +340,14 @@ def _distribute_payin_commissions(load_money: LoadMoney, package: PayInPackage, 
     Missing chain roles roll up to the nearest present upline; remainder goes to platform (Admin) settlement.
     """
     gross = money_q(gross)
-    dist = _compute_payin_distribution(package, gross, load_money.user)
+    from apps.fund_management.rail_fees import resolve_rail_gateway_fee_pct
+
+    rail_fee = resolve_rail_gateway_fee_pct(
+        package,
+        gateway_id=load_money.payment_gateway_id,
+        qr_account_id=load_money.pay_in_qr_account_id,
+    )
+    dist = _compute_payin_distribution(package, gross, load_money.user, gateway_fee_pct=rail_fee)
 
     _pay_chain_commission_slice(
         load_money,
@@ -441,7 +448,14 @@ def finalize_payin_success(
     package = lm.package
     gross = money_q(lm.amount)
     if package:
-        dist_settle = _compute_payin_distribution(package, gross, lm.user)
+        from apps.fund_management.rail_fees import resolve_rail_gateway_fee_pct
+
+        rail_fee = resolve_rail_gateway_fee_pct(
+            package,
+            gateway_id=lm.payment_gateway_id,
+            qr_account_id=lm.pay_in_qr_account_id,
+        )
+        dist_settle = _compute_payin_distribution(package, gross, lm.user, gateway_fee_pct=rail_fee)
         net_credit = dist_settle['net_credit']
         total_charge = dist_settle['total_deduction']
         lm.net_credit = net_credit

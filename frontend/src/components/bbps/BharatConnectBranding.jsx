@@ -94,7 +94,7 @@ const BharatConnectBranding = ({
         <div className="min-w-0 flex-1">
           {title ? (
             <h1
-              className={`font-semibold text-gray-900 leading-tight ${
+              className={`font-semibold text-gray-900 dark:text-slate-100 leading-tight ${
                 isCompact ? 'text-lg sm:text-xl' : 'text-xl'
               }`}
             >
@@ -104,7 +104,7 @@ const BharatConnectBranding = ({
           {subtitleText ? (
             <p
               className={`mt-1 text-xs sm:text-sm ${
-                isStage1 ? 'font-medium tracking-wide text-slate-600' : 'text-gray-500'
+                isStage1 ? 'font-medium tracking-wide text-slate-600 dark:text-slate-400' : 'text-gray-500 dark:text-slate-400'
               }`}
             >
               {subtitleText}

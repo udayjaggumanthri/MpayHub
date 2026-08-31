@@ -877,7 +877,7 @@ def submit_onboarding(*, user, latitude, longitude, ip_address: str, merchant_bo
         exchange = getattr(exc, 'exchange', None) if isinstance(exc, FingpayClientError) else None
         if not exchange and isinstance(exc, FingpayClientError) and isinstance(exc.payload, dict):
             exchange = exc.payload.get('exchange')
-        egress = getattr(client, 'egress_ip', '') or '139.99.47.143'
+        egress = getattr(client, 'effective_egress_ip', '') or 'unknown'
         if isinstance(exc, FingpayClientError) and exc.status_code == 403:
             err_msg = (
                 'Fingpay blocked our server (HTTP 403). '

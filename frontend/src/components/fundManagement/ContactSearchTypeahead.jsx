@@ -147,27 +147,27 @@ const ContactSearchTypeahead = ({
           />
           {showList && (
             <ul
-              className="absolute left-0 right-0 top-full z-30 mt-1 max-h-60 w-full overflow-auto rounded-lg border border-gray-200 bg-white py-1 shadow-lg"
+              className="absolute left-0 right-0 top-full z-30 mt-1 max-h-60 w-full overflow-auto rounded-lg border border-gray-200 dark:border-slate-700 bg-white dark:bg-slate-900 py-1 shadow-lg"
               role="listbox"
             >
               {loading && suggestions.length === 0 ? (
-                <li className="px-4 py-3 text-sm text-gray-500">Searching…</li>
+                <li className="px-4 py-3 text-sm text-gray-500 dark:text-slate-400">Searching…</li>
               ) : null}
               {!loading && suggestions.length === 0 && qLen >= MIN_QUERY ? (
-                <li className="px-4 py-3 text-sm text-gray-500">No matching contacts</li>
+                <li className="px-4 py-3 text-sm text-gray-500 dark:text-slate-400">No matching contacts</li>
               ) : null}
               {suggestions.map((row) => (
                   <li key={row.id} role="option" aria-selected="false">
                     <button
                       type="button"
-                      className="flex w-full flex-col items-start gap-0.5 px-4 py-2.5 text-left hover:bg-blue-50"
+                      className="flex w-full flex-col items-start gap-0.5 px-4 py-2.5 text-left hover:bg-blue-50 dark:hover:bg-blue-950/60"
                       onMouseDown={(e) => e.preventDefault()}
                       onClick={() => handleSelectRow(row)}
                     >
-                      <span className="font-medium text-gray-900">{row.name}</span>
-                      <span className="text-sm text-gray-600 tabular-nums">{row.phone}</span>
+                      <span className="font-medium text-gray-900 dark:text-slate-100">{row.name}</span>
+                      <span className="text-sm text-gray-600 dark:text-slate-400 tabular-nums">{row.phone}</span>
                       {row.email ? (
-                        <span className="text-xs text-gray-500 truncate max-w-full">{row.email}</span>
+                        <span className="text-xs text-gray-500 dark:text-slate-400 truncate max-w-full">{row.email}</span>
                       ) : null}
                     </button>
                   </li>
@@ -179,7 +179,7 @@ const ContactSearchTypeahead = ({
           <div className="flex w-full shrink-0 sm:w-auto sm:items-end">{trailingAction}</div>
         ) : null}
       </div>
-      {helperText ? <p className="mt-2 text-xs text-gray-500">{helperText}</p> : null}
+      {helperText ? <p className="mt-2 text-xs text-gray-500 dark:text-slate-400">{helperText}</p> : null}
     </div>
   );
 };

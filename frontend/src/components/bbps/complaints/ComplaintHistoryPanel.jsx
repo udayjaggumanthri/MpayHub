@@ -52,13 +52,13 @@ function CopyableIdCell({ value, emptyLabel = '—', emptyHint = '', mono = true
   return (
     <td className={`px-3 py-2 align-top ${className}`}>
       {empty ? (
-        <span className="text-gray-400 text-xs" title={emptyHint || undefined}>
+        <span className="text-gray-400 dark:text-slate-500 text-xs" title={emptyHint || undefined}>
           {emptyLabel}
         </span>
       ) : (
         <button
           type="button"
-          className={`w-full max-w-md text-left rounded px-1 py-0.5 -mx-1 hover:bg-violet-50 focus:outline-none focus-visible:ring-2 focus-visible:ring-violet-400 ${
+          className={`w-full max-w-md text-left rounded px-1 py-0.5 -mx-1 hover:bg-violet-50 dark:hover:bg-violet-950/60 focus:outline-none focus-visible:ring-2 focus-visible:ring-violet-400 ${
             mono ? 'font-mono text-xs' : 'text-sm font-medium'
           }`}
           onClick={handleCopy}
@@ -66,7 +66,7 @@ function CopyableIdCell({ value, emptyLabel = '—', emptyHint = '', mono = true
         >
           <span className="block break-all whitespace-normal">{raw}</span>
           {copied ? (
-            <span className="mt-1 block text-[11px] font-sans font-medium text-emerald-700">Copied to clipboard</span>
+            <span className="mt-1 block text-[11px] font-sans font-medium text-emerald-700 dark:text-emerald-300">Copied to clipboard</span>
           ) : null}
         </button>
       )}
@@ -158,9 +158,9 @@ const ComplaintHistoryPanel = () => {
   };
 
   return (
-    <div className="max-w-6xl mx-auto bg-white rounded-xl border border-violet-100 shadow-sm p-6">
+    <div className="max-w-6xl mx-auto bg-white dark:bg-slate-900 rounded-xl border border-violet-100 dark:border-violet-900 shadow-sm p-6">
       <BharatConnectBranding stage="stage2" title="Complaint History" />
-      <Link to="/bill-payments/complaints" className="text-sm text-blue-700 hover:underline mb-4 inline-block">
+      <Link to="/bill-payments/complaints" className="text-sm text-blue-700 dark:text-blue-300 hover:underline mb-4 inline-block">
         ← Back to Complaint Management
       </Link>
 
@@ -182,7 +182,7 @@ const ComplaintHistoryPanel = () => {
       {tracking && (
         <div className="mb-6 space-y-2">
           {trackMeta?.manual_escalation_required && (
-            <p className="text-sm text-amber-900 bg-amber-50 border border-amber-200 rounded p-2">
+            <p className="text-sm text-amber-900 dark:text-amber-300 bg-amber-50 dark:bg-amber-950/40 border border-amber-200 dark:border-amber-800 rounded p-2">
               This case needs manual escalation from our support side. Keep your complaint reference safe and contact
               support for next steps.
             </p>
@@ -191,22 +191,22 @@ const ComplaintHistoryPanel = () => {
             const tr = tracking.complaintTrackingResp || tracking;
             if (tr && typeof tr === 'object') {
               return (
-                <dl className="text-sm grid grid-cols-1 sm:grid-cols-2 gap-x-4 gap-y-1 border rounded p-3 bg-white">
+                <dl className="text-sm grid grid-cols-1 sm:grid-cols-2 gap-x-4 gap-y-1 border rounded p-3 bg-white dark:bg-slate-900">
                   {tr.complaintId != null && (
                     <>
-                      <dt className="text-gray-500">Complaint ID</dt>
+                      <dt className="text-gray-500 dark:text-slate-400">Complaint ID</dt>
                       <dd className="font-medium">{String(tr.complaintId)}</dd>
                     </>
                   )}
                   {tr.complaintStatus != null && (
                     <>
-                      <dt className="text-gray-500">Status</dt>
+                      <dt className="text-gray-500 dark:text-slate-400">Status</dt>
                       <dd className="font-medium">{statusLabel(tr.complaintStatus)}</dd>
                     </>
                   )}
                   {(tr.complaintRemarks != null || tr.remarks != null) && (
                     <>
-                      <dt className="text-gray-500">Update</dt>
+                      <dt className="text-gray-500 dark:text-slate-400">Update</dt>
                       <dd className="sm:col-span-2">{String(tr.complaintRemarks ?? tr.remarks ?? '')}</dd>
                     </>
                   )}
@@ -219,9 +219,9 @@ const ComplaintHistoryPanel = () => {
       )}
 
       <div className="flex flex-wrap items-center justify-between gap-3 mb-4">
-        <h3 className="text-lg font-semibold text-gray-900">Previously Submitted Complaints</h3>
+        <h3 className="text-lg font-semibold text-gray-900 dark:text-slate-100">Previously Submitted Complaints</h3>
         <button
-          className="text-sm border rounded px-3 py-1.5 hover:bg-gray-50"
+          className="text-sm border rounded px-3 py-1.5 hover:bg-gray-50 dark:hover:bg-slate-800"
           onClick={() => loadHistory(historyMeta.page || 1)}
           disabled={historyLoading}
         >
@@ -248,7 +248,7 @@ const ComplaintHistoryPanel = () => {
         </button>
       </div>
 
-      <p className="text-xs text-gray-600 mb-3 max-w-4xl">
+      <p className="text-xs text-gray-600 dark:text-slate-400 mb-3 max-w-4xl">
         <strong>Note:</strong> “Complaint register request ID” is the 35-character ID sent when opening the complaint with
         BillAvenue (for support). “Payment request ID” is from the original bill payment (same as <strong>My Bills → Request ID</strong>).
         “Txn ref” is the B-Connect reference (CC…); “Service ID” matches <strong>My Bills → Transaction ID</strong> (PMBBPS…).{' '}
@@ -257,8 +257,8 @@ const ComplaintHistoryPanel = () => {
 
       <div className="mt-4 overflow-auto border rounded">
         <table className="min-w-full text-sm">
-          <thead className="bg-gray-50">
-            <tr className="text-left text-gray-600">
+          <thead className="bg-gray-50 dark:bg-slate-800/50">
+            <tr className="text-left text-gray-600 dark:text-slate-400">
               <th className="px-3 py-2 whitespace-nowrap min-w-[9rem]">Complaint ID</th>
               <th className="px-3 py-2 min-w-[14rem]">Complaint register req. ID</th>
               <th className="px-3 py-2 min-w-[14rem]">Payment req. ID</th>
@@ -273,7 +273,7 @@ const ComplaintHistoryPanel = () => {
           <tbody>
             {history.length === 0 && (
               <tr>
-                <td className="px-3 py-4 text-gray-500" colSpan={9}>
+                <td className="px-3 py-4 text-gray-500 dark:text-slate-400" colSpan={9}>
                   {historyLoading ? 'Loading complaint history...' : 'No complaints found.'}
                 </td>
               </tr>
@@ -301,7 +301,7 @@ const ComplaintHistoryPanel = () => {
                 <td className="px-3 py-2">
                   <div className="flex flex-wrap gap-2">
                     <button
-                      className="text-xs border rounded px-2 py-1 hover:bg-gray-50"
+                      className="text-xs border rounded px-2 py-1 hover:bg-gray-50 dark:hover:bg-slate-800"
                       type="button"
                       onClick={() => {
                         setComplaintId(row.complaint_id || '');
@@ -326,7 +326,7 @@ const ComplaintHistoryPanel = () => {
           </tbody>
         </table>
       </div>
-      <div className="mt-3 flex items-center justify-between text-xs text-gray-600">
+      <div className="mt-3 flex items-center justify-between text-xs text-gray-600 dark:text-slate-400">
         <span>Total complaints: {historyMeta.total}</span>
         <div className="flex gap-2">
           <button

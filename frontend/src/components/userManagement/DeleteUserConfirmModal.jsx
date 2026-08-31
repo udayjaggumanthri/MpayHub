@@ -46,7 +46,7 @@ const DeleteUserConfirmModal = ({
       onClick={() => !loading && onCancel?.()}
     >
       <div
-        className="relative w-full max-w-lg rounded-2xl bg-white p-6 shadow-2xl ring-1 ring-black/5"
+        className="relative w-full max-w-lg rounded-2xl bg-white dark:bg-slate-900 p-6 shadow-2xl ring-1 ring-black/5"
         role="alertdialog"
         aria-modal="true"
         aria-labelledby="delete-user-modal-title"
@@ -55,7 +55,7 @@ const DeleteUserConfirmModal = ({
         <button
           type="button"
           onClick={() => !loading && onCancel?.()}
-          className="absolute right-4 top-4 rounded-lg p-1 text-slate-400 transition-colors hover:bg-slate-100 hover:text-slate-600"
+          className="absolute right-4 top-4 rounded-lg p-1 text-slate-400 dark:text-slate-500 transition-colors hover:bg-slate-100 dark:hover:bg-slate-700 hover:text-slate-600 dark:hover:text-slate-400"
           aria-label="Close"
           disabled={loading}
         >
@@ -63,30 +63,30 @@ const DeleteUserConfirmModal = ({
         </button>
 
         <div className="flex items-start gap-3 pr-8">
-          <div className="h-10 w-10 shrink-0 rounded-xl bg-red-100 flex items-center justify-center">
-            <FaTriangleExclamation className="text-red-600" size={18} />
+          <div className="h-10 w-10 shrink-0 rounded-xl bg-red-100 dark:bg-red-900/40 flex items-center justify-center">
+            <FaTriangleExclamation className="text-red-600 dark:text-red-400" size={18} />
           </div>
           <div>
-            <h2 id="delete-user-modal-title" className="text-xl font-bold text-slate-900">
+            <h2 id="delete-user-modal-title" className="text-xl font-bold text-slate-900 dark:text-slate-100">
               Delete user permanently?
             </h2>
-            <p className="mt-2 text-sm text-slate-600">
-              This will permanently remove <span className="font-semibold text-slate-900">{displayName}</span>{' '}
+            <p className="mt-2 text-sm text-slate-600 dark:text-slate-400">
+              This will permanently remove <span className="font-semibold text-slate-900 dark:text-slate-100">{displayName}</span>{' '}
               (<span className="font-mono">{userCode}</span>) and all related data from the database.
             </p>
           </div>
         </div>
 
-        <ul className="mt-4 ml-1 space-y-1 text-sm text-slate-600 list-disc list-inside">
+        <ul className="mt-4 ml-1 space-y-1 text-sm text-slate-600 dark:text-slate-400 list-disc list-inside">
           <li>Profile, KYC, and verification records</li>
           <li>Wallets, transactions, and passbook history</li>
           <li>Bank accounts, contacts, and package assignments</li>
           <li>BBPS and payment activity linked to this user</li>
         </ul>
 
-        <p className="mt-4 text-sm font-medium text-red-700">This action cannot be undone.</p>
+        <p className="mt-4 text-sm font-medium text-red-700 dark:text-red-300">This action cannot be undone.</p>
 
-        <label htmlFor="delete-user-confirm" className="mt-4 block text-sm font-medium text-slate-700">
+        <label htmlFor="delete-user-confirm" className="mt-4 block text-sm font-medium text-slate-700 dark:text-slate-300">
           Type <span className="font-mono font-semibold">{requiredToken}</span> to confirm
         </label>
         <input
@@ -95,7 +95,7 @@ const DeleteUserConfirmModal = ({
           value={confirmText}
           onChange={(e) => setConfirmText(e.target.value)}
           disabled={loading}
-          className="mt-1.5 w-full rounded-xl border border-slate-200 px-4 py-2.5 text-sm font-mono focus:border-red-300 focus:ring-2 focus:ring-red-500/20 outline-none"
+          className="mt-1.5 w-full rounded-xl border border-slate-200 dark:border-slate-700 px-4 py-2.5 text-sm font-mono focus:border-red-300 focus:ring-2 focus:ring-red-500/20 outline-none"
           placeholder={requiredToken}
           autoComplete="off"
         />

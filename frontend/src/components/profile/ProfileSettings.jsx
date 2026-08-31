@@ -9,6 +9,7 @@ import { FaCircleCheck, FaClock } from 'react-icons/fa6';
 import KycVerificationPanel from '../onboarding/KycVerificationPanel';
 import KycProfileSyncAlert from '../onboarding/KycProfileSyncAlert';
 import ActivityAuditPanel from '../userManagement/profile/ActivityAuditPanel';
+import MpinInput from '../common/MpinInput';
 
 const ProfileSettings = () => {
   const navigate = useNavigate();
@@ -218,50 +219,50 @@ const ProfileSettings = () => {
   return (
     <div className="max-w-4xl mx-auto space-y-6">
       {successMessage && (
-        <div className="bg-green-50 border border-green-200 text-green-700 px-4 py-3 rounded-lg">
+        <div className="bg-green-50 dark:bg-green-950/40 border border-green-200 dark:border-green-800 text-green-700 dark:text-green-300 px-4 py-3 rounded-lg">
           {successMessage}
         </div>
       )}
 
       {errors.general && (
-        <div className="bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded-lg">
+        <div className="bg-red-50 dark:bg-red-950/40 border border-red-200 dark:border-red-800 text-red-700 dark:text-red-300 px-4 py-3 rounded-lg">
           {errors.general}
         </div>
       )}
 
-      <div className="bg-white rounded-xl shadow-sm p-6 border border-gray-200">
+      <div className="bg-white dark:bg-slate-900 rounded-xl shadow-sm p-6 border border-gray-200 dark:border-slate-700">
         <div className="flex items-center space-x-4 mb-6">
           <div className="w-20 h-20 bg-blue-600 rounded-full flex items-center justify-center text-white text-3xl font-bold">
             {user?.name?.charAt(0).toUpperCase() || 'U'}
           </div>
           <div>
-            <h2 className="text-2xl font-bold text-gray-900">{user?.name}</h2>
-            <p className="text-gray-600">User ID: {formatUserId(user?.displayCode || user?.userId || user?.user_id || user?.memberId)}</p>
-            <p className="text-sm text-gray-500">{user?.role}</p>
+            <h2 className="text-2xl font-bold text-gray-900 dark:text-slate-100">{user?.name}</h2>
+            <p className="text-gray-600 dark:text-slate-400">User ID: {formatUserId(user?.displayCode || user?.userId || user?.user_id || user?.memberId)}</p>
+            <p className="text-sm text-gray-500 dark:text-slate-400">{user?.role}</p>
           </div>
         </div>
 
         <div className="flex items-center justify-between mb-4">
-          <h3 className="text-sm font-semibold text-gray-700 uppercase tracking-wide">Wallet Balances</h3>
+          <h3 className="text-sm font-semibold text-gray-700 dark:text-slate-300 uppercase tracking-wide">Wallet Balances</h3>
           <button
             type="button"
             onClick={loadWallets}
             disabled={walletsLoading}
-            className="flex items-center gap-1.5 text-sm text-blue-600 hover:text-blue-700 disabled:opacity-50"
+            className="flex items-center gap-1.5 text-sm text-blue-600 dark:text-blue-400 hover:text-blue-700 dark:hover:text-blue-200 disabled:opacity-50"
           >
             <FiRefreshCw className={walletsLoading ? 'animate-spin' : ''} size={14} />
             Refresh
           </button>
         </div>
 
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-4 pt-4 border-t border-gray-200">
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-4 pt-4 border-t border-gray-200 dark:border-slate-700">
           <button
             type="button"
             onClick={() => navigate('/reports/passbook')}
-            className="text-center p-4 bg-blue-50 rounded-lg hover:bg-blue-100 transition-colors cursor-pointer border border-blue-100"
+            className="text-center p-4 bg-blue-50 dark:bg-blue-950/40 rounded-lg hover:bg-blue-100 dark:hover:bg-blue-900/60 transition-colors cursor-pointer border border-blue-100 dark:border-blue-900"
           >
-            <p className="text-sm text-gray-600 mb-1">Main Wallet</p>
-            <p className="text-xl font-bold text-blue-600">
+            <p className="text-sm text-gray-600 dark:text-slate-400 mb-1">Main Wallet</p>
+            <p className="text-xl font-bold text-blue-600 dark:text-blue-400">
               {walletsLoading ? '...' : formatCurrency(wallets.main)}
             </p>
           </button>
@@ -269,10 +270,10 @@ const ProfileSettings = () => {
             <button
               type="button"
               onClick={() => navigate('/reports/commission')}
-              className="text-center p-4 bg-green-50 rounded-lg hover:bg-green-100 transition-colors cursor-pointer border border-green-100"
+              className="text-center p-4 bg-green-50 dark:bg-green-950/40 rounded-lg hover:bg-green-100 dark:hover:bg-green-900/60 transition-colors cursor-pointer border border-green-100 dark:border-green-900"
             >
-              <p className="text-sm text-gray-600 mb-1">Commission Wallet</p>
-              <p className="text-xl font-bold text-green-600">
+              <p className="text-sm text-gray-600 dark:text-slate-400 mb-1">Commission Wallet</p>
+              <p className="text-xl font-bold text-green-600 dark:text-green-400">
                 {walletsLoading ? '...' : formatCurrency(wallets.commission)}
               </p>
             </button>
@@ -280,10 +281,10 @@ const ProfileSettings = () => {
           <button
             type="button"
             onClick={() => navigate('/reports/bbps')}
-            className="text-center p-4 bg-yellow-50 rounded-lg hover:bg-yellow-100 transition-colors cursor-pointer border border-yellow-100"
+            className="text-center p-4 bg-yellow-50 dark:bg-yellow-950/40 rounded-lg hover:bg-yellow-100 dark:hover:bg-yellow-900/60 transition-colors cursor-pointer border border-yellow-100 dark:border-yellow-900"
           >
-            <p className="text-sm text-gray-600 mb-1">BBPS Wallet</p>
-            <p className="text-xl font-bold text-yellow-600">
+            <p className="text-sm text-gray-600 dark:text-slate-400 mb-1">BBPS Wallet</p>
+            <p className="text-xl font-bold text-yellow-600 dark:text-yellow-400">
               {walletsLoading ? '...' : formatCurrency(wallets.bbps)}
             </p>
           </button>
@@ -291,10 +292,10 @@ const ProfileSettings = () => {
             <button
               type="button"
               onClick={() => navigate('/wallets/profit')}
-              className="text-center p-4 bg-purple-50 rounded-lg hover:bg-purple-100 transition-colors cursor-pointer border border-purple-100"
+              className="text-center p-4 bg-purple-50 dark:bg-purple-950/40 rounded-lg hover:bg-purple-100 dark:hover:bg-purple-900/60 transition-colors cursor-pointer border border-purple-100 dark:border-purple-900"
             >
-              <p className="text-sm text-gray-600 mb-1">Profit Wallet</p>
-              <p className="text-xl font-bold text-purple-600">
+              <p className="text-sm text-gray-600 dark:text-slate-400 mb-1">Profit Wallet</p>
+              <p className="text-xl font-bold text-purple-600 dark:text-purple-400">
                 {walletsLoading ? '...' : formatCurrency(wallets.profit)}
               </p>
             </button>
@@ -302,7 +303,7 @@ const ProfileSettings = () => {
         </div>
 
         {ob != null && !ob.kyc_complete ? (
-          <div className="mt-6 pt-6 border-t border-gray-200">
+          <div className="mt-6 pt-6 border-t border-gray-200 dark:border-slate-700">
             <button
               type="button"
               onClick={() => navigate('/onboarding/kyc')}
@@ -315,8 +316,8 @@ const ProfileSettings = () => {
         ) : null}
       </div>
 
-      <div className="bg-white rounded-xl shadow-sm border border-gray-200">
-        <div className="border-b border-gray-200">
+      <div className="bg-white dark:bg-slate-900 rounded-xl shadow-sm border border-gray-200 dark:border-slate-700">
+        <div className="border-b border-gray-200 dark:border-slate-700">
           <nav className="flex -mb-px px-6 overflow-x-auto" role="tablist" aria-label="Profile settings">
             {tabs.map((tab) => {
               const Icon = tab.icon;
@@ -336,8 +337,8 @@ const ProfileSettings = () => {
                   }}
                   className={`flex items-center space-x-2 px-6 py-4 text-sm font-medium border-b-2 transition-colors whitespace-nowrap ${
                     selected
-                      ? 'border-blue-600 text-blue-600'
-                      : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
+                      ? 'border-blue-600 text-blue-600 dark:text-blue-400'
+                      : 'border-transparent text-gray-500 dark:text-slate-400 hover:text-gray-700 dark:hover:text-slate-300 hover:border-gray-300 dark:hover:border-slate-600'
                   }`}
                 >
                   <Icon />
@@ -357,8 +358,8 @@ const ProfileSettings = () => {
               className="space-y-6"
             >
               <div>
-                <h3 className="text-xl font-bold text-gray-900">Verification status</h3>
-                <p className="text-sm text-gray-600 mt-1">
+                <h3 className="text-xl font-bold text-gray-900 dark:text-slate-100">Verification status</h3>
+                <p className="text-sm text-gray-600 dark:text-slate-400 mt-1">
                   Identity verification via Cashfree (PAN) and DigiLocker (Aadhaar).
                 </p>
               </div>
@@ -366,7 +367,7 @@ const ProfileSettings = () => {
               {userRefreshing ? (
                 <KycVerificationPanel loading title="Your verified KYC records" />
               ) : ob == null ? (
-                <p className="text-gray-600 text-sm">Unable to load verification status. Please refresh the page.</p>
+                <p className="text-gray-600 dark:text-slate-400 text-sm">Unable to load verification status. Please refresh the page.</p>
               ) : (
                 <>
                   <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
@@ -385,18 +386,18 @@ const ProfileSettings = () => {
                     ].map((item) => (
                       <div
                         key={item.label}
-                        className="rounded-xl border border-slate-200 bg-slate-50 p-4 flex items-start gap-3"
+                        className="rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800/50 p-4 flex items-start gap-3"
                       >
-                        <div className={`h-9 w-9 rounded-lg flex items-center justify-center ${item.done ? 'bg-emerald-100' : 'bg-amber-100'}`}>
+                        <div className={`h-9 w-9 rounded-lg flex items-center justify-center ${item.done ? 'bg-emerald-100 dark:bg-emerald-900/40' : 'bg-amber-100 dark:bg-amber-900/40'}`}>
                           {item.done ? (
-                            <FaCircleCheck className="text-emerald-600" size={16} />
+                            <FaCircleCheck className="text-emerald-600 dark:text-emerald-400" size={16} />
                           ) : (
-                            <FaClock className="text-amber-600" size={16} />
+                            <FaClock className="text-amber-600 dark:text-amber-400" size={16} />
                           )}
                         </div>
                         <div>
-                          <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">{item.label}</p>
-                          <p className={`text-sm font-semibold ${item.done ? 'text-emerald-700' : 'text-amber-700'}`}>
+                          <p className="text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">{item.label}</p>
+                          <p className={`text-sm font-semibold ${item.done ? 'text-emerald-700 dark:text-emerald-300' : 'text-amber-700 dark:text-amber-300'}`}>
                             {item.done ? 'Verified' : item.pendingLabel}
                           </p>
                         </div>
@@ -417,7 +418,7 @@ const ProfileSettings = () => {
                           : 'Continue verification'}
                     </button>
                   ) : (
-                    <p className="text-sm text-emerald-700 bg-emerald-50 border border-emerald-100 rounded-xl px-4 py-3">
+                    <p className="text-sm text-emerald-700 dark:text-emerald-300 bg-emerald-50 dark:bg-emerald-950/40 border border-emerald-100 dark:border-emerald-900 rounded-xl px-4 py-3">
                       Your identity verification is complete and Admin-approved.
                     </p>
                   )}
@@ -437,7 +438,7 @@ const ProfileSettings = () => {
           {activeTab === 'profile' && (
             <div className="space-y-6">
               <div className="flex items-center justify-between mb-6">
-                <h3 className="text-xl font-bold text-gray-900">Profile Information</h3>
+                <h3 className="text-xl font-bold text-gray-900 dark:text-slate-100">Profile Information</h3>
                 {!isEditing ? (
                   <button
                     onClick={() => setIsEditing(true)}
@@ -458,7 +459,7 @@ const ProfileSettings = () => {
                         });
                         setErrors({});
                       }}
-                      className="flex items-center space-x-2 px-4 py-2 border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50 transition-colors"
+                      className="flex items-center space-x-2 px-4 py-2 border border-gray-300 dark:border-slate-600 text-gray-700 dark:text-slate-300 rounded-lg hover:bg-gray-50 dark:hover:bg-slate-800 transition-colors"
                     >
                       <FiX />
                       <span>Cancel</span>
@@ -477,21 +478,21 @@ const ProfileSettings = () => {
 
               <div className="space-y-4">
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-2">User ID</label>
-                  <div className="px-4 py-3 bg-gray-50 border border-gray-300 rounded-lg">
-                    <p className="text-gray-900 font-semibold">{formatUserId(user?.displayCode || user?.userId || user?.user_id || user?.memberId)}</p>
+                  <label className="block text-sm font-medium text-gray-700 dark:text-slate-300 mb-2">User ID</label>
+                  <div className="px-4 py-3 bg-gray-50 dark:bg-slate-800/50 border border-gray-300 dark:border-slate-600 rounded-lg">
+                    <p className="text-gray-900 dark:text-slate-100 font-semibold">{formatUserId(user?.displayCode || user?.userId || user?.user_id || user?.memberId)}</p>
                   </div>
                 </div>
 
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-2">Role</label>
-                  <div className="px-4 py-3 bg-gray-50 border border-gray-300 rounded-lg">
-                    <p className="text-gray-900 font-semibold">{user?.role}</p>
+                  <label className="block text-sm font-medium text-gray-700 dark:text-slate-300 mb-2">Role</label>
+                  <div className="px-4 py-3 bg-gray-50 dark:bg-slate-800/50 border border-gray-300 dark:border-slate-600 rounded-lg">
+                    <p className="text-gray-900 dark:text-slate-100 font-semibold">{user?.role}</p>
                   </div>
                 </div>
 
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-2">
+                  <label className="block text-sm font-medium text-gray-700 dark:text-slate-300 mb-2">
                     <FiUser className="inline mr-2" />
                     Full Name
                   </label>
@@ -501,39 +502,39 @@ const ProfileSettings = () => {
                         type="text"
                         value={profileData.name}
                         onChange={(e) => handleProfileChange('name', e.target.value)}
-                        className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                        className="w-full px-4 py-3 border border-gray-300 dark:border-slate-600 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
                       />
-                      {errors.name && <p className="mt-1 text-sm text-red-600">{errors.name}</p>}
+                      {errors.name && <p className="mt-1 text-sm text-red-600 dark:text-red-400">{errors.name}</p>}
                     </>
                   ) : (
-                    <div className="px-4 py-3 bg-gray-50 border border-gray-300 rounded-lg">
-                      <p className="text-gray-900">{profileData.name}</p>
+                    <div className="px-4 py-3 bg-gray-50 dark:bg-slate-800/50 border border-gray-300 dark:border-slate-600 rounded-lg">
+                      <p className="text-gray-900 dark:text-slate-100">{profileData.name}</p>
                     </div>
                   )}
                 </div>
 
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-2">
+                  <label className="block text-sm font-medium text-gray-700 dark:text-slate-300 mb-2">
                     <FiMail className="inline mr-2" />
                     Email Address
                   </label>
-                  <div className="px-4 py-3 bg-gray-50 border border-gray-300 rounded-lg">
-                    <p className="text-gray-900 break-all">{profileData.email || '—'}</p>
+                  <div className="px-4 py-3 bg-gray-50 dark:bg-slate-800/50 border border-gray-300 dark:border-slate-600 rounded-lg">
+                    <p className="text-gray-900 dark:text-slate-100 break-all">{profileData.email || '—'}</p>
                   </div>
-                  <p className="mt-1 text-xs text-gray-500">
+                  <p className="mt-1 text-xs text-gray-500 dark:text-slate-400">
                     Email cannot be changed here. Contact your administrator if an update is required.
                   </p>
                 </div>
 
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-2">
+                  <label className="block text-sm font-medium text-gray-700 dark:text-slate-300 mb-2">
                     <FiPhone className="inline mr-2" />
                     Phone Number
                   </label>
-                  <div className="px-4 py-3 bg-gray-50 border border-gray-300 rounded-lg">
-                    <p className="text-gray-900 font-mono tabular-nums">{profileData.phone || '—'}</p>
+                  <div className="px-4 py-3 bg-gray-50 dark:bg-slate-800/50 border border-gray-300 dark:border-slate-600 rounded-lg">
+                    <p className="text-gray-900 dark:text-slate-100 font-mono tabular-nums">{profileData.phone || '—'}</p>
                   </div>
-                  <p className="mt-1 text-xs text-gray-500">
+                  <p className="mt-1 text-xs text-gray-500 dark:text-slate-400">
                     Mobile number is used to sign in and cannot be changed here. Contact your administrator if an update is required.
                   </p>
                 </div>
@@ -548,13 +549,13 @@ const ProfileSettings = () => {
               aria-labelledby="profile-tab-btn-activity"
               className="space-y-4"
             >
-              <div className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-slate-200 bg-slate-50 px-4 py-3">
-                <p className="text-sm text-slate-600">
+              <div className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800/50 px-4 py-3">
+                <p className="text-sm text-slate-600 dark:text-slate-400">
                   Review every login and session event for this account.
                 </p>
                 <Link
                   to="/profile/login-activity"
-                  className="text-sm font-semibold text-indigo-600 hover:text-indigo-800"
+                  className="text-sm font-semibold text-indigo-600 dark:text-indigo-400 hover:text-indigo-800 dark:hover:text-indigo-200"
                 >
                   Open login activity →
                 </Link>
@@ -565,41 +566,41 @@ const ProfileSettings = () => {
 
           {activeTab === 'password' && (
             <div className="space-y-6">
-              <h3 className="text-xl font-bold text-gray-900 mb-6">Change Password</h3>
+              <h3 className="text-xl font-bold text-gray-900 dark:text-slate-100 mb-6">Change Password</h3>
 
               <div className="space-y-4">
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-2">Current Password</label>
+                  <label className="block text-sm font-medium text-gray-700 dark:text-slate-300 mb-2">Current Password</label>
                   <input
                     type="password"
                     value={passwordData.currentPassword}
                     onChange={(e) => setPasswordData({ ...passwordData, currentPassword: e.target.value })}
-                    className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                    className="w-full px-4 py-3 border border-gray-300 dark:border-slate-600 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
                   />
-                  {errors.currentPassword && <p className="mt-1 text-sm text-red-600">{errors.currentPassword}</p>}
+                  {errors.currentPassword && <p className="mt-1 text-sm text-red-600 dark:text-red-400">{errors.currentPassword}</p>}
                 </div>
 
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-2">New Password</label>
+                  <label className="block text-sm font-medium text-gray-700 dark:text-slate-300 mb-2">New Password</label>
                   <input
                     type="password"
                     value={passwordData.newPassword}
                     onChange={(e) => setPasswordData({ ...passwordData, newPassword: e.target.value })}
-                    className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                    className="w-full px-4 py-3 border border-gray-300 dark:border-slate-600 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
                     placeholder="Minimum 6 characters"
                   />
-                  {errors.newPassword && <p className="mt-1 text-sm text-red-600">{errors.newPassword}</p>}
+                  {errors.newPassword && <p className="mt-1 text-sm text-red-600 dark:text-red-400">{errors.newPassword}</p>}
                 </div>
 
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-2">Confirm New Password</label>
+                  <label className="block text-sm font-medium text-gray-700 dark:text-slate-300 mb-2">Confirm New Password</label>
                   <input
                     type="password"
                     value={passwordData.confirmPassword}
                     onChange={(e) => setPasswordData({ ...passwordData, confirmPassword: e.target.value })}
-                    className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                    className="w-full px-4 py-3 border border-gray-300 dark:border-slate-600 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
                   />
-                  {errors.confirmPassword && <p className="mt-1 text-sm text-red-600">{errors.confirmPassword}</p>}
+                  {errors.confirmPassword && <p className="mt-1 text-sm text-red-600 dark:text-red-400">{errors.confirmPassword}</p>}
                 </div>
 
                 <button
@@ -616,67 +617,41 @@ const ProfileSettings = () => {
           {activeTab === 'mpin' && (
             <div className="space-y-6">
               <div className="flex flex-wrap items-center justify-between gap-3 mb-6">
-                <h3 className="text-xl font-bold text-gray-900">Change MPIN</h3>
+                <h3 className="text-xl font-bold text-gray-900 dark:text-slate-100">Change MPIN</h3>
                 <button
                   type="button"
                   onClick={() => navigate('/forgot-mpin')}
-                  className="text-sm font-medium text-indigo-600 hover:text-indigo-800"
+                  className="text-sm font-medium text-indigo-600 dark:text-indigo-400 hover:text-indigo-800 dark:hover:text-indigo-200"
                 >
                   Forgot MPIN? Reset via OTP
                 </button>
               </div>
 
               <div className="space-y-4">
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-2">Current MPIN</label>
-                  <input
-                    type="password"
-                    inputMode="numeric"
-                    value={mpinData.currentMPIN}
-                    onChange={(e) => {
-                      const value = e.target.value.replace(/\D/g, '').slice(0, 6);
-                      setMpinData({ ...mpinData, currentMPIN: value });
-                    }}
-                    maxLength={6}
-                    className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent text-center text-2xl font-bold tracking-widest"
-                    placeholder="000000"
-                  />
-                  {errors.currentMPIN && <p className="mt-1 text-sm text-red-600">{errors.currentMPIN}</p>}
-                </div>
-
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-2">New MPIN (6 digits)</label>
-                  <input
-                    type="password"
-                    inputMode="numeric"
-                    value={mpinData.newMPIN}
-                    onChange={(e) => {
-                      const value = e.target.value.replace(/\D/g, '').slice(0, 6);
-                      setMpinData({ ...mpinData, newMPIN: value });
-                    }}
-                    maxLength={6}
-                    className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent text-center text-2xl font-bold tracking-widest"
-                    placeholder="000000"
-                  />
-                  {errors.newMPIN && <p className="mt-1 text-sm text-red-600">{errors.newMPIN}</p>}
-                </div>
-
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-2">Confirm New MPIN</label>
-                  <input
-                    type="password"
-                    inputMode="numeric"
-                    value={mpinData.confirmMPIN}
-                    onChange={(e) => {
-                      const value = e.target.value.replace(/\D/g, '').slice(0, 6);
-                      setMpinData({ ...mpinData, confirmMPIN: value });
-                    }}
-                    maxLength={6}
-                    className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent text-center text-2xl font-bold tracking-widest"
-                    placeholder="000000"
-                  />
-                  {errors.confirmMPIN && <p className="mt-1 text-sm text-red-600">{errors.confirmMPIN}</p>}
-                </div>
+                <MpinInput
+                  variant="single"
+                  label="Current MPIN"
+                  value={mpinData.currentMPIN}
+                  onChange={(value) => setMpinData({ ...mpinData, currentMPIN: value })}
+                  placeholder="000000"
+                  error={errors.currentMPIN}
+                />
+                <MpinInput
+                  variant="single"
+                  label="New MPIN (6 digits)"
+                  value={mpinData.newMPIN}
+                  onChange={(value) => setMpinData({ ...mpinData, newMPIN: value })}
+                  placeholder="000000"
+                  error={errors.newMPIN}
+                />
+                <MpinInput
+                  variant="single"
+                  label="Confirm New MPIN"
+                  value={mpinData.confirmMPIN}
+                  onChange={(value) => setMpinData({ ...mpinData, confirmMPIN: value })}
+                  placeholder="000000"
+                  error={errors.confirmMPIN}
+                />
 
                 <button
                   onClick={handleMPINChange}

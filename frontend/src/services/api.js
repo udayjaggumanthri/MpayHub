@@ -1188,6 +1188,27 @@ export const fundManagementAPI = {
   },
 
   /**
+   * Submit manual QR pay-in proof for admin review.
+   * POST /api/fund-management/pay-in/qr/submit/ (multipart)
+   */
+  submitPayInQr: async ({ packageId, qrAccountId, contactId, amount, utr, paymentDate, receiptFile }) => {
+    try {
+      const form = new FormData();
+      form.append('package_id', String(packageId));
+      form.append('qr_account_id', String(qrAccountId));
+      form.append('contact_id', String(contactId));
+      form.append('amount', String(amount));
+      form.append('utr', utr.trim());
+      form.append('payment_date', paymentDate);
+      form.append('receipt', receiptFile);
+      const response = await apiClient.post('/fund-management/pay-in/qr/submit/', form, formDataRequestConfig(form));
+      return extractData(response);
+    } catch (error) {
+      return handleError(error);
+    }
+  },
+
+  /**
    * Payout quote (max eligible + slab hints)
    * GET /api/fund-management/payout/quote/
    */
@@ -1697,6 +1718,25 @@ export const bbpsAPI = {
   updateProviderFloatSettings: async (payload) => {
     try {
       const response = await apiClient.patch('/bbps/admin/provider-float/settings/', payload);
+      return extractData(response);
+    } catch (error) {
+      return handleError(error);
+    }
+  },
+
+  getCatalogUxSettings: async (environment) => {
+    try {
+      const params = environment ? { environment } : {};
+      const response = await apiClient.get('/bbps/admin/catalog-ux-settings/', { params });
+      return extractData(response);
+    } catch (error) {
+      return handleError(error);
+    }
+  },
+
+  updateCatalogUxSettings: async (payload) => {
+    try {
+      const response = await apiClient.patch('/bbps/admin/catalog-ux-settings/', payload);
       return extractData(response);
     } catch (error) {
       return handleError(error);
@@ -2649,9 +2689,150 @@ export const adminAPI = {
    * Preview Pay-in Package settlement for amount (Admin)
    * POST /api/admin/pay-in-packages/{id}/preview/
    */
-  previewPayInPackage: async (packageId, amount) => {
+  previewPayInPackage: async (packageId, payload) => {
     try {
-      const response = await apiClient.post(`/admin/pay-in-packages/${packageId}/preview/`, { amount });
+      const body = typeof payload === 'object' && payload !== null ? payload : { amount: payload };
+      const response = await apiClient.post(`/admin/pay-in-packages/${packageId}/preview/`, body);
+      return extractData(response);
+    } catch (error) {
+      return handleError(error);
+    }
+  },
+
+  listPayInQrAccounts: async (params = {}) => {
+    try {
+      const response = await apiClient.get('/admin/pay-in-qr-accounts/', { params });
+      return extractData(response);
+    } catch (error) {
+      return handleError(error);
+    }
+  },
+
+  createPayInQrAccount: async (formData) => {
+    try {
+      const response = await apiClient.post(
+        '/admin/pay-in-qr-accounts/',
+        formData,
+        formDataRequestConfig(formData),
+      );
+      return extractData(response);
+    } catch (error) {
+      return handleError(error);
+    }
+  },
+
+  updatePayInQrAccount: async (id, formData) => {
+    try {
+      const response = await apiClient.patch(
+        `/admin/pay-in-qr-accounts/${id}/`,
+        formData,
+        formDataRequestConfig(formData),
+      );
+      return extractData(response);
+    } catch (error) {
+      return handleError(error);
+    }
+  },
+
+  deletePayInQrAccount: async (id) => {
+    try {
+      const response = await apiClient.delete(`/admin/pay-in-qr-accounts/${id}/`);
+      return extractData(response);
+    } catch (error) {
+      return handleError(error);
+    }
+  },
+
+  togglePayInQrAccountStatus: async (id) => {
+    try {
+      const response = await apiClient.post(`/admin/pay-in-qr-accounts/${id}/toggle_status/`);
+      return extractData(response);
+    } catch (error) {
+      return handleError(error);
+    }
+  },
+
+  getQrOperationsStats: async () => {
+    try {
+      const response = await apiClient.get('/admin/pay-in/qr-operations/stats/');
+      return extractData(response);
+    } catch (error) {
+      return handleError(error);
+    }
+  },
+
+  listQrOperations: async (params = {}) => {
+    try {
+      const response = await apiClient.get('/admin/pay-in/qr-operations/', { params });
+      return extractData(response);
+    } catch (error) {
+      return handleError(error);
+    }
+  },
+
+  getQrOperationDetail: async (id) => {
+    try {
+      const response = await apiClient.get(`/admin/pay-in/qr-operations/${id}/`);
+      return extractData(response);
+    } catch (error) {
+      return handleError(error);
+    }
+  },
+
+  approveQrOperation: async (id, { approvedAmount, internalNote }) => {
+    try {
+      const response = await apiClient.post(`/admin/pay-in/qr-operations/${id}/approve/`, {
+        approved_amount: approvedAmount,
+        internal_note: internalNote || '',
+      });
+      return extractData(response);
+    } catch (error) {
+      return handleError(error);
+    }
+  },
+
+  rejectQrOperation: async (id, { reasonCode, reasonText, internalNote }) => {
+    try {
+      const response = await apiClient.post(`/admin/pay-in/qr-operations/${id}/reject/`, {
+        reason_code: reasonCode,
+        reason_text: reasonText || '',
+        internal_note: internalNote || '',
+      });
+      return extractData(response);
+    } catch (error) {
+      return handleError(error);
+    }
+  },
+
+  exportQrOperationsCsv: async (params = {}) => {
+    try {
+      const response = await apiClient.get('/admin/pay-in/qr-operations/export.csv', {
+        params,
+        responseType: 'blob',
+      });
+      return response;
+    } catch (error) {
+      return handleError(error);
+    }
+  },
+
+  exportQrOperationsXlsx: async (params = {}) => {
+    try {
+      const response = await apiClient.get('/admin/pay-in/qr-operations/export.xlsx', {
+        params,
+        responseType: 'blob',
+      });
+      return response;
+    } catch (error) {
+      return handleError(error);
+    }
+  },
+
+  releaseQrOperationUtr: async (id, { internalNote }) => {
+    try {
+      const response = await apiClient.post(`/admin/pay-in/qr-operations/${id}/release-utr/`, {
+        internal_note: internalNote,
+      });
       return extractData(response);
     } catch (error) {
       return handleError(error);
@@ -3051,6 +3232,33 @@ export const adminAPI = {
   },
 
   /**
+   * GET /api/admin/appearance/
+   */
+  getAppearanceConfig: async () => {
+    try {
+      const response = await apiClient.get('/admin/appearance/');
+      return extractData(response);
+    } catch (error) {
+      return handleError(error);
+    }
+  },
+
+  /**
+   * PATCH /api/admin/appearance/ — JSON or multipart (logo upload)
+   */
+  patchAppearanceConfig: async (payload) => {
+    try {
+      const isFormData = typeof FormData !== 'undefined' && payload instanceof FormData;
+      const response = await apiClient.patch('/admin/appearance/', payload, isFormData
+        ? { headers: { 'Content-Type': 'multipart/form-data' } }
+        : undefined);
+      return extractData(response);
+    } catch (error) {
+      return handleError(error);
+    }
+  },
+
+  /**
    * Session security settings (User Management)
    * GET/PATCH /api/admin/session-security/settings/
    */
@@ -3171,6 +3379,18 @@ export const adminAPI = {
 };
 
 export const systemAPI = {
+  /**
+   * GET /api/system/appearance/ — public branding and theme settings
+   */
+  getAppearance: async () => {
+    try {
+      const response = await apiClient.get('/system/appearance/');
+      return extractData(response);
+    } catch (error) {
+      return handleError(error);
+    }
+  },
+
   /**
    * GET /api/system/maintenance-status/
    */

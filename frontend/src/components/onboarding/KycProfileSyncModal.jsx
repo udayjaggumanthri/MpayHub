@@ -16,16 +16,16 @@ const formatDob = (value) => {
 const CompareRow = ({ label, current, verified, differs }) => {
   if (!differs && !current && !verified) return null;
   return (
-    <div className="rounded-xl border border-slate-200 bg-slate-50/80 p-3">
-      <p className="text-xs font-semibold uppercase tracking-wide text-slate-500 mb-2">{label}</p>
+    <div className="rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50/80 dark:bg-slate-800/50 p-3">
+      <p className="text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400 mb-2">{label}</p>
       <dl className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-sm">
         <div>
-          <dt className="text-slate-500">Current profile</dt>
-          <dd className="font-medium text-slate-900 mt-0.5">{current || '—'}</dd>
+          <dt className="text-slate-500 dark:text-slate-400">Current profile</dt>
+          <dd className="font-medium text-slate-900 dark:text-slate-100 mt-0.5">{current || '—'}</dd>
         </div>
         <div>
-          <dt className="text-emerald-700">Verified (KYC)</dt>
-          <dd className="font-medium text-emerald-900 mt-0.5">{verified || '—'}</dd>
+          <dt className="text-emerald-700 dark:text-emerald-300">Verified (KYC)</dt>
+          <dd className="font-medium text-emerald-900 dark:text-emerald-300 mt-0.5">{verified || '—'}</dd>
         </div>
       </dl>
     </div>
@@ -79,7 +79,7 @@ const KycProfileSyncModal = ({
       onClick={() => !loading && onClose?.()}
     >
       <div
-        className="relative w-full max-w-lg rounded-2xl bg-white p-6 shadow-2xl ring-1 ring-black/5"
+        className="relative w-full max-w-lg rounded-2xl bg-white dark:bg-slate-900 p-6 shadow-2xl ring-1 ring-black/5"
         role="dialog"
         aria-modal="true"
         aria-labelledby="kyc-profile-sync-title"
@@ -88,7 +88,7 @@ const KycProfileSyncModal = ({
         <button
           type="button"
           onClick={() => !loading && onClose?.()}
-          className="absolute right-4 top-4 rounded-lg p-1 text-slate-400 hover:bg-slate-100 hover:text-slate-600"
+          className="absolute right-4 top-4 rounded-lg p-1 text-slate-400 dark:text-slate-500 hover:bg-slate-100 dark:hover:bg-slate-700 hover:text-slate-600 dark:hover:text-slate-400"
           aria-label="Close"
           disabled={loading}
         >
@@ -96,14 +96,14 @@ const KycProfileSyncModal = ({
         </button>
 
         <div className="flex items-start gap-3 pr-8">
-          <div className="h-10 w-10 shrink-0 rounded-xl bg-indigo-100 flex items-center justify-center">
-            <FaArrowsRotate className="text-indigo-600" size={18} />
+          <div className="h-10 w-10 shrink-0 rounded-xl bg-indigo-100 dark:bg-indigo-900/40 flex items-center justify-center">
+            <FaArrowsRotate className="text-indigo-600 dark:text-indigo-400" size={18} />
           </div>
           <div>
-            <h2 id="kyc-profile-sync-title" className="text-xl font-bold text-slate-900">
+            <h2 id="kyc-profile-sync-title" className="text-xl font-bold text-slate-900 dark:text-slate-100">
               Update profile from verified KYC?
             </h2>
-            <p className="mt-2 text-sm text-slate-600">
+            <p className="mt-2 text-sm text-slate-600 dark:text-slate-400">
               {profileSync.message ||
                 'Your profile name or date of birth differs from verified KYC records.'}
             </p>
@@ -125,12 +125,12 @@ const KycProfileSyncModal = ({
           />
         </div>
 
-        <p className="mt-4 text-xs text-slate-500">
+        <p className="mt-4 text-xs text-slate-500 dark:text-slate-400">
           KYC verification is already complete. You can update your profile now or keep your current details.
         </p>
 
         {warning ? (
-          <p role="alert" className="mt-3 text-sm text-amber-800 bg-amber-50 border border-amber-100 rounded-lg px-3 py-2">
+          <p role="alert" className="mt-3 text-sm text-amber-800 dark:text-amber-300 bg-amber-50 dark:bg-amber-950/40 border border-amber-100 dark:border-amber-900 rounded-lg px-3 py-2">
             {warning}
           </p>
         ) : null}

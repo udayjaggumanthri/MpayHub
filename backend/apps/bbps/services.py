@@ -215,18 +215,14 @@ def process_bill_payment(*args, **kwargs):
 
 
 def get_bill_categories():
-    """Get categories strictly from currently visible billers (active BillAvenue env)."""
-    visible_qs = biller_master_qs_for_env().filter(
-        biller_status__in=ALLOWED_BILLER_STATUSES,
-        is_active_local=True,
-        soft_deleted_at__isnull=True,
-    )
-    if _stale_block_enabled():
-        visible_qs = visible_qs.filter(is_stale=False)
+    """Get categories strictly from billers visible to end users in the active BillAvenue env."""
+    visible_masters = [
+        m for m in _visible_biller_masters_queryset() if _biller_end_user_visible(m)
+    ]
     visible_codes = {
-        normalize_category_code(code)
-        for code in visible_qs.values_list('biller_category', flat=True)
-        if str(code or '').strip()
+        normalize_category_code(m.biller_category)
+        for m in visible_masters
+        if str(m.biller_category or '').strip()
     }
     partner_slugs = sorted({partner_route_category_slug(c) for c in visible_codes})
     if not partner_slugs:
@@ -254,23 +250,29 @@ def to_title_case(value: str) -> str:
     return ' '.join(word.capitalize() for word in cleaned.split())
 
 
-def get_billers_by_category(category):
-    """Get billers for a specific category directly from biller master visibility flags."""
-    lookup_values = _category_lookup_values(category)
-    category_filter = Q()
-    for val in lookup_values:
-        category_filter |= Q(biller_category__iexact=val)
-    masters = (
-        biller_master_qs_for_env().filter(
-            biller_status__in=ALLOWED_BILLER_STATUSES,
-            is_active_local=True,
-            soft_deleted_at__isnull=True,
-        )
-        .filter(category_filter)
-        .order_by('biller_name')
+def _visible_biller_masters_queryset(category: str | None = None):
+    """Active, locally enabled billers for the current environment (optional category scope)."""
+    qs = biller_master_qs_for_env().filter(
+        biller_status__in=ALLOWED_BILLER_STATUSES,
+        is_active_local=True,
+        soft_deleted_at__isnull=True,
     )
     if _stale_block_enabled():
-        masters = masters.filter(is_stale=False)
+        qs = qs.filter(is_stale=False)
+    if category:
+        lookup_values = _category_lookup_values(category)
+        category_filter = Q()
+        for val in lookup_values:
+            category_filter |= Q(biller_category__iexact=val)
+        qs = qs.filter(category_filter)
+    return qs.order_by('biller_name')
+
+
+def get_billers_by_category(category):
+    """Get billers for a specific category that end users can actually pay."""
+    masters = [
+        m for m in _visible_biller_masters_queryset(category) if _biller_end_user_visible(m)
+    ]
     return [
         {
             'id': m.pk,
@@ -313,6 +315,61 @@ def _biller_category_assisted_card_like(raw: str) -> bool:
     return s in ('credit card', 'loan repayment')
 
 
+def _biller_supports_agt_cash(master: BbpsBillerMaster) -> bool:
+    """True when biller can accept assisted counter payment via AGT + Cash."""
+    from apps.bbps.service_flow.compliance import display_payment_modes_for_channel
+    from apps.bbps.service_flow.payment_ui_policy import mdm_labels_with_implicit_cash_for_agt
+
+    channels = list(
+        BbpsBillerPaymentChannelLimit.objects.filter(
+            is_deleted=False, biller=master, is_active=True
+        )
+    )
+    ch_codes = [_normalize_text(c.payment_channel).upper() for c in channels if c.payment_channel]
+    if not ch_codes:
+        ch_codes = ['AGT']
+    if 'AGT' not in ch_codes:
+        return False
+
+    modes = list(
+        BbpsBillerPaymentModeLimit.objects.filter(
+            is_deleted=False, biller=master, is_active=True
+        )
+    )
+    mdm_labels = [m.payment_mode for m in modes if m.payment_mode]
+    if not mdm_labels:
+        return True
+
+    agt_modes = display_payment_modes_for_channel('AGT', mdm_labels)
+    if agt_modes:
+        return any('cash' in str(m).lower() for m in agt_modes)
+
+    eff = mdm_labels_with_implicit_cash_for_agt(mdm_labels)
+    return bool(display_payment_modes_for_channel('AGT', eff))
+
+
+def _biller_end_user_visible(master: BbpsBillerMaster) -> bool:
+    """True when biller should appear in end-user category/biller lists and pay flow."""
+    from apps.bbps.service_flow.catalog_ux_settings import is_cash_only_for_users
+    from apps.bbps.service_flow.provider_policy import provider_policy_decision_for_combo
+
+    if is_cash_only_for_users():
+        if not _biller_supports_agt_cash(master):
+            return False
+        return (
+            provider_policy_decision_for_combo(
+                biller_id=getattr(master, 'biller_id', ''),
+                biller_category=getattr(master, 'biller_category', ''),
+                payment_mode='Cash',
+                payment_channel='AGT',
+            )
+            is not False
+        )
+
+    opts = get_biller_payment_ui_options(str(master.biller_id))
+    return bool(opts.get('payment_modes'))
+
+
 def get_biller_payment_ui_options(biller_id: str) -> dict:
     """
     Payment channels/modes for UI: from BillAvenue MDM rows on the biller, intersected with
@@ -339,6 +396,30 @@ def get_biller_payment_ui_options(biller_id: str) -> dict:
             'default_channel': '',
             'default_payment_mode': '',
             'source': 'none',
+            'hide_payment_method': False,
+            'payment_ui_mode': 'standard',
+        }
+
+    from apps.bbps.service_flow.catalog_ux_settings import is_cash_only_for_users
+
+    if is_cash_only_for_users():
+        return {
+            'payment_channels': [
+                {
+                    'code': 'AGT',
+                    'label': _payment_channel_ui_label('AGT'),
+                    'min_amount': '0',
+                    'max_amount': '0',
+                }
+            ],
+            'payment_modes_by_channel': {'AGT': ['Cash']},
+            'payment_modes': ['Cash'],
+            'payment_mode_channel_map': {'Cash': 'AGT'},
+            'default_channel': 'AGT',
+            'default_payment_mode': 'Cash',
+            'source': 'catalog_ux_cash_only',
+            'hide_payment_method': True,
+            'payment_ui_mode': 'cash_only_assisted',
         }
 
     channels = list(
@@ -448,6 +529,8 @@ def get_biller_payment_ui_options(biller_id: str) -> dict:
         'default_channel': default_ch,
         'default_payment_mode': default_mode,
         'source': src,
+        'hide_payment_method': True,
+        'payment_ui_mode': 'cash_only_assisted',
     }
 
 

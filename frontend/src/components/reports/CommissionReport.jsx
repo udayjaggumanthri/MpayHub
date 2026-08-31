@@ -1,15 +1,34 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { FiDownload } from 'react-icons/fi';
 import { useAuth } from '../../context/AuthContext';
 import { reportsAPI } from '../../services/api';
 import { canUseTeamReportScope } from '../../utils/rolePermissions';
 import { formatCurrency, formatDateTime } from '../../utils/formatters';
 import ReportDateRange from '../common/ReportDateRange';
+import ReportPagination from '../common/ReportPagination';
+import { countActiveReportFilters } from '../../utils/reportFilters';
+import {
+  CollapsibleReportFilters,
+  FILTER_INPUT_CLASS,
+  FILTER_SELECT_CLASS,
+  ReportFilterDateRow,
+  ReportFilterField,
+  ReportFilterGrid,
+} from '../common/ReportFilterPanel';
+
+const DEFAULT_PAGE_SIZE = 25;
 
 const CommissionReport = () => {
   const { user } = useAuth();
+  const userId = user?.id ?? user?.user_id;
+  const fetchIdRef = useRef(0);
   const [commissions, setCommissions] = useState([]);
-  const [loading, setLoading] = useState(false);
+  const [loading, setLoading] = useState(true);
+  const [hasLoadedOnce, setHasLoadedOnce] = useState(false);
+  const [isRefreshing, setIsRefreshing] = useState(false);
+  const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = useState(DEFAULT_PAGE_SIZE);
+  const [total, setTotal] = useState(0);
   const [totalCommission, setTotalCommission] = useState(0);
   const [reportScope, setReportScope] = useState('self');
   const [filters, setFilters] = useState({
@@ -26,25 +45,32 @@ const CommissionReport = () => {
     agentRole: '',
     serviceId: '',
   });
+  const [showFilters, setShowFilters] = useState(false);
 
   const loadCommissions = useCallback(async () => {
-    if (!user) return;
+    if (!userId) return;
 
-    setLoading(true);
+    const runId = ++fetchIdRef.current;
+    if (hasLoadedOnce) setIsRefreshing(true);
+    else setLoading(true);
     try {
-      const params =
-        reportScope === 'team' && canUseTeamReportScope(user?.role) ? { scope: 'team' } : {};
+      const params = { page, page_size: pageSize };
+      if (reportScope === 'team' && canUseTeamReportScope(user?.role)) params.scope = 'team';
       if (appliedFilters.dateFrom) params.date_from = appliedFilters.dateFrom;
       if (appliedFilters.dateTo) params.date_to = appliedFilters.dateTo;
       if (appliedFilters.mobile.trim()) params.mobile = appliedFilters.mobile.trim();
       if (appliedFilters.agentRole.trim()) params.agent_role = appliedFilters.agentRole.trim();
       if (appliedFilters.serviceId.trim()) params.service_id = appliedFilters.serviceId.trim();
       const result = await reportsAPI.getCommissionReport(params);
+      if (runId !== fetchIdRef.current) return;
       if (!result.success) {
         setCommissions([]);
+        setTotal(0);
         setTotalCommission(0);
         return;
       }
+
+      setTotal(Number(result.data?.total) || 0);
 
       const rawLedger = result.data?.ledger || [];
 
@@ -96,102 +122,36 @@ const CommissionReport = () => {
         setTotalCommission(mapped.reduce((sum, c) => sum + (c.commissionAmount || 0), 0));
       }
     } catch (error) {
+      if (runId !== fetchIdRef.current) return;
       console.error('Error loading commissions:', error);
       setCommissions([]);
+      setTotal(0);
       setTotalCommission(0);
     } finally {
+      if (runId !== fetchIdRef.current) return;
       setLoading(false);
+      setIsRefreshing(false);
+      setHasLoadedOnce(true);
     }
-  }, [user, reportScope, appliedFilters]);
+  }, [userId, user?.role, reportScope, appliedFilters, page, pageSize, hasLoadedOnce]);
 
   useEffect(() => {
     loadCommissions();
   }, [loadCommissions]);
 
   return (
-    <div className="space-y-6">
-      <div className="bg-white rounded-xl shadow-sm p-6 border border-gray-200">
-        <h2 className="text-2xl font-bold text-gray-900 mb-4">Commission Report</h2>
-        {canUseTeamReportScope(user?.role) && (
-          <div className="flex flex-wrap gap-2 mb-6">
-            <button
-              type="button"
-              onClick={() => setReportScope('self')}
-              className={`px-4 py-2 rounded-lg text-sm font-semibold border ${
-                reportScope === 'self'
-                  ? 'bg-blue-600 text-white border-blue-600'
-                  : 'bg-white text-gray-700 border-gray-300'
-              }`}
-            >
-              All my commission
-            </button>
-            <button
-              type="button"
-              onClick={() => setReportScope('team')}
-              className={`px-4 py-2 rounded-lg text-sm font-semibold border ${
-                reportScope === 'team'
-                  ? 'bg-blue-600 text-white border-blue-600'
-                  : 'bg-white text-gray-700 border-gray-300'
-              }`}
-            >
-              From downline pay-in
-            </button>
-          </div>
-        )}
-
-        <div className="mb-6 grid grid-cols-1 gap-3 rounded-lg border border-gray-200 bg-gray-50 p-4 md:grid-cols-3 lg:grid-cols-5">
-          <div className="min-w-0 md:col-span-2">
-            <ReportDateRange
-              idPrefix="commission"
-              dateFrom={filters.dateFrom}
-              dateTo={filters.dateTo}
-              fromLabel="Date from"
-              toLabel="Date to"
-              onChange={({ dateFrom, dateTo }) =>
-                setFilters((prev) => ({ ...prev, dateFrom, dateTo }))
-              }
-            />
-          </div>
-          <div>
-            <label className="mb-1 block text-xs font-medium text-gray-600">Source mobile</label>
-            <input
-              type="text"
-              value={filters.mobile}
-              onChange={(e) => setFilters({ ...filters, mobile: e.target.value })}
-              className="w-full rounded border border-gray-300 px-2 py-2 text-sm"
-            />
-          </div>
-          <div>
-            <label className="mb-1 block text-xs font-medium text-gray-600">Source role</label>
-            <input
-              type="text"
-              value={filters.agentRole}
-              onChange={(e) => setFilters({ ...filters, agentRole: e.target.value })}
-              className="w-full rounded border border-gray-300 px-2 py-2 text-sm"
-            />
-          </div>
-          <div>
-            <label className="mb-1 block text-xs font-medium text-gray-600">Pay-in ref</label>
-            <input
-              type="text"
-              value={filters.serviceId}
-              onChange={(e) => setFilters({ ...filters, serviceId: e.target.value })}
-              className="w-full rounded border border-gray-300 px-2 py-2 text-sm"
-            />
-          </div>
-          <div className="flex items-end">
-            <button
-              type="button"
-              onClick={() => setAppliedFilters({ ...filters })}
-              className="w-full rounded-lg bg-blue-600 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-700"
-            >
-              Apply filters
-            </button>
-          </div>
+    <div className="space-y-4">
+      <div className="bg-white dark:bg-slate-900 rounded-xl shadow-sm p-4 sm:p-5 border border-gray-200 dark:border-slate-700">
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between mb-3">
+          <h2 className="text-xl sm:text-2xl font-bold text-gray-900 dark:text-slate-100">Commission Report</h2>
         </div>
 
-        <div className="mb-6 p-4 bg-blue-50 border-2 border-blue-200 rounded-lg">
-          <div className="mb-3 flex justify-end">
+        <CollapsibleReportFilters
+          open={showFilters}
+          onOpenChange={setShowFilters}
+          activeCount={countActiveReportFilters(appliedFilters)}
+          applying={isRefreshing}
+          toolbarEnd={
             <button
               type="button"
               onClick={async () => {
@@ -211,54 +171,142 @@ const CommissionReport = () => {
                 a.click();
                 window.URL.revokeObjectURL(url);
               }}
-              className="inline-flex items-center gap-2 rounded-lg border border-gray-300 bg-white px-4 py-2 text-sm font-semibold text-gray-800 shadow-sm hover:bg-gray-50"
+              className="inline-flex min-h-[40px] items-center gap-2 rounded-lg border border-gray-300 dark:border-slate-600 bg-white dark:bg-slate-900 px-3.5 py-2 text-sm font-semibold text-gray-800 dark:text-slate-200 shadow-sm hover:bg-gray-50 dark:hover:bg-slate-800"
             >
               <FiDownload className="h-4 w-4" aria-hidden />
               Download CSV
             </button>
+          }
+          onApply={() => {
+            setPage(1);
+            setAppliedFilters({ ...filters });
+          }}
+          onClear={() => {
+            const cleared = { dateFrom: '', dateTo: '', mobile: '', agentRole: '', serviceId: '' };
+            setFilters(cleared);
+            setPage(1);
+            setAppliedFilters(cleared);
+          }}
+        >
+          <ReportFilterGrid>
+            <ReportFilterField label="Source mobile" htmlFor="commission-mobile">
+              <input
+                id="commission-mobile"
+                type="text"
+                inputMode="tel"
+                value={filters.mobile}
+                onChange={(e) => setFilters({ ...filters, mobile: e.target.value })}
+                placeholder="Mobile number"
+                className={FILTER_INPUT_CLASS}
+              />
+            </ReportFilterField>
+            <ReportFilterField label="Source role" htmlFor="commission-role">
+              <input
+                id="commission-role"
+                type="text"
+                value={filters.agentRole}
+                onChange={(e) => setFilters({ ...filters, agentRole: e.target.value })}
+                placeholder="e.g. Retailer"
+                className={FILTER_INPUT_CLASS}
+              />
+            </ReportFilterField>
+            <ReportFilterField label="Pay-in reference" htmlFor="commission-ref">
+              <input
+                id="commission-ref"
+                type="text"
+                value={filters.serviceId}
+                onChange={(e) => setFilters({ ...filters, serviceId: e.target.value })}
+                placeholder="Service ID"
+                className={FILTER_INPUT_CLASS}
+              />
+            </ReportFilterField>
+          </ReportFilterGrid>
+          <ReportFilterDateRow>
+            <ReportDateRange
+              idPrefix="commission"
+              dateFrom={filters.dateFrom}
+              dateTo={filters.dateTo}
+              fromLabel="Date from"
+              toLabel="Date to"
+              compact
+              onChange={({ dateFrom, dateTo }) =>
+                setFilters((prev) => ({ ...prev, dateFrom, dateTo }))
+              }
+            />
+          </ReportFilterDateRow>
+        </CollapsibleReportFilters>
+
+        {canUseTeamReportScope(user?.role) && (
+          <div className="flex flex-wrap gap-2 mb-4">
+            <button
+              type="button"
+              onClick={() => setReportScope('self')}
+              className={`px-4 py-2 rounded-lg text-sm font-semibold border ${
+                reportScope === 'self'
+                  ? 'bg-blue-600 text-white border-blue-600'
+                  : 'bg-white dark:bg-slate-900 text-gray-700 dark:text-slate-300 border-gray-300 dark:border-slate-600'
+              }`}
+            >
+              All my commission
+            </button>
+            <button
+              type="button"
+              onClick={() => setReportScope('team')}
+              className={`px-4 py-2 rounded-lg text-sm font-semibold border ${
+                reportScope === 'team'
+                  ? 'bg-blue-600 text-white border-blue-600'
+                  : 'bg-white dark:bg-slate-900 text-gray-700 dark:text-slate-300 border-gray-300 dark:border-slate-600'
+              }`}
+            >
+              From downline pay-in
+            </button>
           </div>
-          <p className="text-sm text-gray-600 mb-1">Net commission (this view)</p>
-          <p className="text-3xl font-bold text-blue-600">{formatCurrency(totalCommission)}</p>
+        )}
+
+        <div className="mb-4 p-4 bg-blue-50 dark:bg-blue-950/40 border-2 border-blue-200 dark:border-blue-800 rounded-lg">
+          <p className="text-sm text-gray-600 dark:text-slate-400 mb-1">Net commission (this view)</p>
+          <p className="text-3xl font-bold text-blue-600 dark:text-blue-400">{formatCurrency(totalCommission)}</p>
         </div>
 
-        {loading ? (
+        {loading && !hasLoadedOnce ? (
           <div className="text-center py-12">
             <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600 mx-auto"></div>
-            <p className="mt-4 text-gray-600">Loading commissions...</p>
+            <p className="mt-4 text-gray-600 dark:text-slate-400">Loading commissions...</p>
           </div>
-        ) : commissions.length === 0 ? (
-          <div className="text-center py-12 text-gray-500">No commission records found</div>
+        ) : hasLoadedOnce && commissions.length === 0 && !isRefreshing ? (
+          <div className="text-center py-12 text-gray-500 dark:text-slate-400">No commission records found</div>
         ) : (
+          <div className={isRefreshing ? 'opacity-60 pointer-events-none' : ''}>
           <div className="overflow-x-auto">
             <table className="w-full border-collapse">
               <thead>
-                <tr className="bg-gray-50 border-b border-gray-200">
-                  <th className="px-4 py-3 text-left text-sm font-semibold text-gray-700">DATE & TIME</th>
-                  <th className="px-4 py-3 text-left text-sm font-semibold text-gray-700">SOURCE NAME</th>
-                  <th className="px-4 py-3 text-left text-sm font-semibold text-gray-700">USER ID</th>
-                  <th className="px-4 py-3 text-left text-sm font-semibold text-gray-700">ROLE</th>
-                  <th className="px-4 py-3 text-left text-sm font-semibold text-gray-700">PAY-IN REF</th>
-                  <th className="px-4 py-3 text-left text-sm font-semibold text-gray-700">SLICE / NOTE</th>
-                  <th className="px-4 py-3 text-left text-sm font-semibold text-gray-700">AMOUNT</th>
-                  <th className="px-4 py-3 text-left text-sm font-semibold text-gray-700">STATUS</th>
+                <tr className="bg-gray-50 dark:bg-slate-800/50 border-b border-gray-200 dark:border-slate-700">
+                  <th className="px-4 py-3 text-left text-sm font-semibold text-gray-700 dark:text-slate-300">DATE & TIME</th>
+                  <th className="px-4 py-3 text-left text-sm font-semibold text-gray-700 dark:text-slate-300">SOURCE NAME</th>
+                  <th className="px-4 py-3 text-left text-sm font-semibold text-gray-700 dark:text-slate-300">USER ID</th>
+                  <th className="px-4 py-3 text-left text-sm font-semibold text-gray-700 dark:text-slate-300">ROLE</th>
+                  <th className="px-4 py-3 text-left text-sm font-semibold text-gray-700 dark:text-slate-300">PAY-IN REF</th>
+                  <th className="px-4 py-3 text-left text-sm font-semibold text-gray-700 dark:text-slate-300">SLICE / NOTE</th>
+                  <th className="px-4 py-3 text-left text-sm font-semibold text-gray-700 dark:text-slate-300">AMOUNT</th>
+                  <th className="px-4 py-3 text-left text-sm font-semibold text-gray-700 dark:text-slate-300">STATUS</th>
                 </tr>
               </thead>
               <tbody>
                 {commissions.map((comm) => (
-                  <tr key={comm.id} className="border-b border-gray-200 hover:bg-gray-50">
-                    <td className="px-4 py-3 text-sm text-gray-700">{formatDateTime(comm.date)}</td>
-                    <td className="px-4 py-3 text-sm text-gray-900 font-medium">{comm.fromUser || '-'}</td>
-                    <td className="px-4 py-3 text-sm text-gray-700">{comm.fromUserId || '-'}</td>
-                    <td className="px-4 py-3 text-sm text-gray-700">{comm.fromRole || '—'}</td>
-                    <td className="px-4 py-3 text-sm text-gray-700">{comm.transactionId || '-'}</td>
-                    <td className="px-4 py-3 text-sm text-gray-700">
+                  <tr key={comm.id} className="border-b border-gray-200 dark:border-slate-700 hover:bg-gray-50 dark:hover:bg-slate-800">
+                    <td className="px-4 py-3 text-sm text-gray-700 dark:text-slate-300">{formatDateTime(comm.date)}</td>
+                    <td className="px-4 py-3 text-sm text-gray-900 dark:text-slate-100 font-medium">{comm.fromUser || '-'}</td>
+                    <td className="px-4 py-3 text-sm text-gray-700 dark:text-slate-300">{comm.fromUserId || '-'}</td>
+                    <td className="px-4 py-3 text-sm text-gray-700 dark:text-slate-300">{comm.fromRole || '—'}</td>
+                    <td className="px-4 py-3 text-sm text-gray-700 dark:text-slate-300">{comm.transactionId || '-'}</td>
+                    <td className="px-4 py-3 text-sm text-gray-700 dark:text-slate-300">
                       {comm.commissionRate != null ? String(comm.commissionRate) : '—'}
                     </td>
-                    <td className="px-4 py-3 text-sm font-semibold text-green-600">
+                    <td className="px-4 py-3 text-sm font-semibold text-green-600 dark:text-green-400">
                       {formatCurrency(comm.commissionAmount || 0)}
                     </td>
                     <td className="px-4 py-3">
-                      <span className="px-3 py-1 rounded-full text-xs font-semibold bg-green-100 text-green-800 border border-green-200">
+                      <span className="px-3 py-1 rounded-full text-xs font-semibold bg-green-100 dark:bg-green-900/40 text-green-800 dark:text-green-300 border border-green-200 dark:border-green-800">
                         {comm.status || 'SUCCESS'}
                       </span>
                     </td>
@@ -266,6 +314,18 @@ const CommissionReport = () => {
                 ))}
               </tbody>
             </table>
+          </div>
+          <ReportPagination
+            page={page}
+            pageSize={pageSize}
+            total={total}
+            loading={isRefreshing}
+            onPageChange={setPage}
+            onPageSizeChange={(size) => {
+              setPageSize(size);
+              setPage(1);
+            }}
+          />
           </div>
         )}
       </div>

@@ -83,12 +83,12 @@ const SetPasswordOnboarding = () => {
     <div className="max-w-lg mx-auto py-8 px-4">
       <Card className="p-6 sm:p-8">
         <div className="flex items-center gap-3 mb-6">
-          <div className="h-12 w-12 rounded-xl bg-indigo-100 flex items-center justify-center">
-            <FaLock className="text-indigo-600" size={22} />
+          <div className="h-12 w-12 rounded-xl bg-indigo-100 dark:bg-indigo-900/40 flex items-center justify-center">
+            <FaLock className="text-indigo-600 dark:text-indigo-400" size={22} />
           </div>
           <div>
-            <h1 className="text-xl font-bold text-slate-900">Set your password</h1>
-            <p className="text-sm text-slate-600">
+            <h1 className="text-xl font-bold text-slate-900 dark:text-slate-100">Set your password</h1>
+            <p className="text-sm text-slate-600 dark:text-slate-400">
               {step === 1 && 'Required on first login for your security'}
               {step === 2 && 'Enter the verification code we sent you'}
               {step === 3 && 'Choose a new password for your account'}
@@ -97,14 +97,14 @@ const SetPasswordOnboarding = () => {
         </div>
 
         {error && (
-          <p className="mb-4 text-sm text-red-600 bg-red-50 border border-red-100 rounded-lg px-3 py-2">
+          <p className="mb-4 text-sm text-red-600 dark:text-red-400 bg-red-50 dark:bg-red-950/40 border border-red-100 dark:border-red-900 rounded-lg px-3 py-2">
             {error}
           </p>
         )}
 
         {step === 1 && (
           <div className="space-y-4">
-            <p className="text-sm text-slate-600">
+            <p className="text-sm text-slate-600 dark:text-slate-400">
               Your account was created with a temporary password. Before continuing, verify your
               identity with a one-time code and choose a new password.
             </p>
@@ -134,14 +134,14 @@ const SetPasswordOnboarding = () => {
         {step === 2 && (
           <form onSubmit={handleOtpNext} className="space-y-4">
             <div>
-              <label className="block text-sm font-medium text-slate-700 mb-1">6-digit OTP</label>
+              <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1">6-digit OTP</label>
               <input
                 type="text"
                 inputMode="numeric"
                 maxLength={6}
                 value={otp}
                 onChange={(e) => setOtp(e.target.value.replace(/\D/g, '').slice(0, 6))}
-                className="w-full rounded-xl border border-slate-200 px-4 py-3 text-center font-mono text-lg tracking-widest"
+                className="w-full rounded-xl border border-slate-200 dark:border-slate-700 px-4 py-3 text-center font-mono text-lg tracking-widest"
                 placeholder="000000"
                 autoComplete="one-time-code"
               />
@@ -151,7 +151,7 @@ const SetPasswordOnboarding = () => {
             </Button>
             <button
               type="button"
-              className="text-sm text-indigo-600 hover:underline w-full text-center"
+              className="text-sm text-indigo-600 dark:text-indigo-400 hover:underline w-full text-center"
               onClick={() => setStep(1)}
             >
               Resend code
@@ -162,23 +162,23 @@ const SetPasswordOnboarding = () => {
         {step === 3 && (
           <form onSubmit={handleComplete} className="space-y-4">
             <div>
-              <label className="block text-sm font-medium text-slate-700 mb-1">New password</label>
+              <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1">New password</label>
               <input
                 type="password"
                 value={newPassword}
                 onChange={(e) => setNewPassword(e.target.value)}
-                className="w-full rounded-xl border border-slate-200 px-4 py-3"
+                className="w-full rounded-xl border border-slate-200 dark:border-slate-700 px-4 py-3"
                 minLength={8}
                 autoComplete="new-password"
               />
             </div>
             <div>
-              <label className="block text-sm font-medium text-slate-700 mb-1">Confirm password</label>
+              <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1">Confirm password</label>
               <input
                 type="password"
                 value={confirmPassword}
                 onChange={(e) => setConfirmPassword(e.target.value)}
-                className="w-full rounded-xl border border-slate-200 px-4 py-3"
+                className="w-full rounded-xl border border-slate-200 dark:border-slate-700 px-4 py-3"
                 minLength={8}
                 autoComplete="new-password"
               />

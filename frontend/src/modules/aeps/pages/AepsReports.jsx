@@ -49,14 +49,14 @@ const AepsReports = () => {
     <div className="space-y-6">
       <header className="flex flex-wrap items-end justify-between gap-3">
         <div>
-          <h2 className="text-xl font-bold text-slate-900">AEPS reports</h2>
-          <p className="text-sm text-slate-500">
+          <h2 className="text-xl font-bold text-slate-900 dark:text-slate-100">AEPS reports</h2>
+          <p className="text-sm text-slate-500 dark:text-slate-400">
             Built only on AEPS transactions{isAdmin ? ' (all users)' : ' (your activity)'}.
           </p>
         </div>
         <div className="flex gap-2">
           <select
-            className="rounded-lg border border-slate-200 px-3 py-2 text-sm"
+            className="rounded-lg border border-slate-200 dark:border-slate-700 px-3 py-2 text-sm"
             value={days}
             onChange={(e) => setDays(Number(e.target.value))}
           >
@@ -80,9 +80,9 @@ const AepsReports = () => {
         <Metric label="Volume" value={summary?.volume != null ? `₹${summary.volume}` : '—'} />
       </div>
 
-      <div className="overflow-x-auto rounded-xl border border-slate-200 bg-white shadow-sm">
+      <div className="overflow-x-auto rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 shadow-sm">
         <table className="min-w-full text-left text-sm">
-          <thead className="bg-slate-50 text-xs uppercase text-slate-500">
+          <thead className="bg-slate-50 dark:bg-slate-800/50 text-xs uppercase text-slate-500 dark:text-slate-400">
             <tr>
               <th className="px-4 py-3">Product</th>
               <th className="px-4 py-3">Status</th>
@@ -93,19 +93,19 @@ const AepsReports = () => {
           </thead>
           <tbody>
             {rows.map((r) => (
-              <tr key={r.merchant_tran_id} className="border-t border-slate-100">
+              <tr key={r.merchant_tran_id} className="border-t border-slate-100 dark:border-slate-800">
                 <td className="px-4 py-3">{r.product}</td>
                 <td className="px-4 py-3">{r.status}</td>
                 <td className="px-4 py-3">₹{r.amount}</td>
                 <td className="px-4 py-3 font-mono text-xs">{r.bank_rrn || '—'}</td>
-                <td className="whitespace-nowrap px-4 py-3 text-slate-600">
+                <td className="whitespace-nowrap px-4 py-3 text-slate-600 dark:text-slate-400">
                   {r.created_at ? new Date(r.created_at).toLocaleString() : '—'}
                 </td>
               </tr>
             ))}
             {!rows.length ? (
               <tr>
-                <td colSpan={5} className="px-4 py-10 text-center text-slate-500">
+                <td colSpan={5} className="px-4 py-10 text-center text-slate-500 dark:text-slate-400">
                   No rows in this period.
                 </td>
               </tr>
@@ -119,8 +119,8 @@ const AepsReports = () => {
 
 const Metric = ({ label, value }) => (
   <Card padding="md" shadow="sm">
-    <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">{label}</p>
-    <p className="mt-1 text-2xl font-bold text-slate-900">{value}</p>
+    <p className="text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">{label}</p>
+    <p className="mt-1 text-2xl font-bold text-slate-900 dark:text-slate-100">{value}</p>
   </Card>
 );
 

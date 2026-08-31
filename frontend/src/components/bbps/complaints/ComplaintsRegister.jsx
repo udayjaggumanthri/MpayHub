@@ -10,9 +10,9 @@ const METHOD_BCONNECT = 'BCONNECT';
 const METHOD_MOBILE = 'MOBILE';
 
 const fieldInputClass =
-  'w-full rounded-lg border border-slate-200 bg-white px-3 py-2.5 text-sm text-slate-900 shadow-sm transition-colors placeholder:text-slate-400 focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500/20';
-const fieldLabelClass = 'block text-sm font-medium text-slate-700 mb-1.5';
-const sectionTitleClass = 'text-sm font-semibold text-slate-800 mb-2';
+  'w-full rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 px-3 py-2.5 text-sm text-slate-900 dark:text-slate-100 shadow-sm transition-colors placeholder:text-slate-400 dark:placeholder:text-slate-500 focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500/20';
+const fieldLabelClass = 'block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1.5';
+const sectionTitleClass = 'text-sm font-semibold text-slate-800 dark:text-slate-200 mb-2';
 
 const ComplaintsRegister = () => {
   const location = useLocation();
@@ -172,40 +172,40 @@ const ComplaintsRegister = () => {
   if (successPayload) {
     const manual = successPayload.manual_escalation_required;
     return (
-      <div className="max-w-2xl mx-auto bg-white rounded-xl border border-violet-100 shadow-sm p-8">
+      <div className="max-w-2xl mx-auto bg-white dark:bg-slate-900 rounded-xl border border-violet-100 dark:border-violet-900 shadow-sm p-8">
         <BharatConnectBranding stage="stage2" title="BHARAT CONNECT — RAISE COMPLAINT" />
-        <h2 className="text-xl font-semibold text-emerald-700 mt-2">Complaint Registered Successfully</h2>
-        <p className="text-sm text-gray-600 mt-1">Your complaint has been successfully registered.</p>
+        <h2 className="text-xl font-semibold text-emerald-700 dark:text-emerald-300 mt-2">Complaint Registered Successfully</h2>
+        <p className="text-sm text-gray-600 dark:text-slate-400 mt-1">Your complaint has been successfully registered.</p>
 
-        <div className="mt-6 rounded-lg border border-sky-200 bg-sky-50/80 p-5 text-sm space-y-3">
+        <div className="mt-6 rounded-lg border border-sky-200 dark:border-sky-800 bg-sky-50/80 dark:bg-sky-950/40 p-5 text-sm space-y-3">
           <div className="flex flex-wrap gap-2 justify-between">
-            <span className="text-gray-500">Complaint ID</span>
-            <span className="font-semibold text-gray-900">{successPayload.complaint_id || '—'}</span>
+            <span className="text-gray-500 dark:text-slate-400">Complaint ID</span>
+            <span className="font-semibold text-gray-900 dark:text-slate-100">{successPayload.complaint_id || '—'}</span>
           </div>
           <div className="flex flex-wrap gap-2 justify-between items-center">
-            <span className="text-gray-500">Status</span>
+            <span className="text-gray-500 dark:text-slate-400">Status</span>
             <span
               className={`inline-flex border rounded-full px-3 py-0.5 text-xs font-medium ${
-                manual ? 'bg-amber-100 text-amber-900 border-amber-300' : 'bg-amber-100 text-amber-900 border-amber-300'
+                manual ? 'bg-amber-100 dark:bg-amber-900/40 text-amber-900 dark:text-amber-300 border-amber-300 dark:border-amber-800' : 'bg-amber-100 dark:bg-amber-900/40 text-amber-900 dark:text-amber-300 border-amber-300 dark:border-amber-800'
               }`}
             >
               {manual ? 'Manual escalation' : 'Open'}
             </span>
           </div>
           <div className="flex flex-wrap gap-2 justify-between">
-            <span className="text-gray-500">Type</span>
+            <span className="text-gray-500 dark:text-slate-400">Type</span>
             <span className="font-medium">{successPayload.complaint_type}</span>
           </div>
           <div className="flex flex-wrap gap-2 justify-between">
-            <span className="text-gray-500">Disposition</span>
+            <span className="text-gray-500 dark:text-slate-400">Disposition</span>
             <span className="font-medium text-right max-w-[70%]">{successPayload.disposition}</span>
           </div>
           <div className="flex flex-wrap gap-2 justify-between">
-            <span className="text-gray-500">Expected resolution</span>
+            <span className="text-gray-500 dark:text-slate-400">Expected resolution</span>
             <span className="font-medium">{manual ? 'See manual escalation instructions' : '24–48 hours'}</span>
           </div>
           <div className="flex flex-wrap gap-2 justify-between">
-            <span className="text-gray-500">Created</span>
+            <span className="text-gray-500 dark:text-slate-400">Created</span>
             <span className="font-medium">
               {successPayload.created_at ? successPayload.created_at.slice(0, 10) : '—'}
             </span>
@@ -213,20 +213,20 @@ const ComplaintsRegister = () => {
         </div>
 
         {manual && (
-          <p className="mt-4 text-sm text-amber-900 bg-amber-50 border border-amber-200 rounded-lg p-3">
+          <p className="mt-4 text-sm text-amber-900 dark:text-amber-300 bg-amber-50 dark:bg-amber-950/40 border border-amber-200 dark:border-amber-800 rounded-lg p-3">
             BillAvenue did not accept automated registration for this transaction. Use the reference ID above for support
             communication and follow email instructions if your operator requires escalation to cms@billavenue.com.
           </p>
         )}
 
-        <p className="mt-4 text-sm text-gray-600">
+        <p className="mt-4 text-sm text-gray-600 dark:text-slate-400">
           You can track status anytime from Complaint Tracking in this portal.
         </p>
 
         <div className="mt-8 flex flex-wrap gap-3">
           <button
             type="button"
-            className="border border-gray-300 rounded-lg px-4 py-2 text-sm hover:bg-gray-50"
+            className="border border-gray-300 dark:border-slate-600 rounded-lg px-4 py-2 text-sm hover:bg-gray-50 dark:hover:bg-slate-800"
             onClick={resetAfterSuccess}
           >
             Submit another complaint
@@ -234,7 +234,7 @@ const ComplaintsRegister = () => {
           <Link to="/bill-payments/complaints/track" className="bg-blue-600 text-white rounded-lg px-4 py-2 text-sm">
             Track complaint
           </Link>
-          <Link to="/bill-payments/complaints" className="text-blue-700 text-sm py-2 underline-offset-2 hover:underline">
+          <Link to="/bill-payments/complaints" className="text-blue-700 dark:text-blue-300 text-sm py-2 underline-offset-2 hover:underline">
             Back to Complaint Management
           </Link>
         </div>
@@ -243,11 +243,11 @@ const ComplaintsRegister = () => {
   }
 
   return (
-    <div className="max-w-3xl mx-auto bg-white rounded-xl border border-slate-200 shadow-sm p-6 md:p-8">
+    <div className="max-w-3xl mx-auto bg-white dark:bg-slate-900 rounded-xl border border-slate-200 dark:border-slate-700 shadow-sm p-6 md:p-8">
       <BharatConnectBranding stage="stage2" title="BHARAT CONNECT — RAISE COMPLAINT" />
       <Link
         to="/bill-payments/complaints"
-        className="text-sm text-blue-700 hover:underline mb-6 inline-block"
+        className="text-sm text-blue-700 dark:text-blue-300 hover:underline mb-6 inline-block"
       >
         ← Back to Complaint Management
       </Link>
@@ -305,7 +305,7 @@ const ComplaintsRegister = () => {
           <>
             <div>
               <label className={fieldLabelClass}>
-                B-Connect TXN ID <span className="text-red-600">*</span>
+                B-Connect TXN ID <span className="text-red-600 dark:text-red-400">*</span>
               </label>
               <input
                 className={fieldInputClass}
@@ -313,7 +313,7 @@ const ComplaintsRegister = () => {
                 onChange={(e) => setTxnRefId(e.target.value)}
                 placeholder="Enter B-Connect TXN ID"
               />
-              <p className="mt-1 text-xs text-gray-500">
+              <p className="mt-1 text-xs text-gray-500 dark:text-slate-400">
                 Only the CC… reference is sent when you submit. Use Mobile Number below if you need to search by date
                 range first.
               </p>
@@ -325,7 +325,7 @@ const ComplaintsRegister = () => {
           <>
             <div>
               <label className={fieldLabelClass}>
-                Mobile Number <span className="text-red-600">*</span>
+                Mobile Number <span className="text-red-600 dark:text-red-400">*</span>
               </label>
               <input
                 className={fieldInputClass}
@@ -339,7 +339,7 @@ const ComplaintsRegister = () => {
             <div className="grid sm:grid-cols-2 gap-4">
               <div>
                 <label className={fieldLabelClass}>
-                  From Date <span className="text-red-600">*</span>
+                  From Date <span className="text-red-600 dark:text-red-400">*</span>
                 </label>
                 <input
                   type="date"
@@ -352,7 +352,7 @@ const ComplaintsRegister = () => {
               </div>
               <div>
                 <label className={fieldLabelClass}>
-                  To Date <span className="text-red-600">*</span>
+                  To Date <span className="text-red-600 dark:text-red-400">*</span>
                 </label>
                 <input
                   type="date"
@@ -373,12 +373,12 @@ const ComplaintsRegister = () => {
               >
                 {lookupLoading ? 'Searching…' : 'Find transaction'}
               </button>
-              {lookupError && <p className="mt-2 text-sm text-red-700">{lookupError}</p>}
+              {lookupError && <p className="mt-2 text-sm text-red-700 dark:text-red-300">{lookupError}</p>}
             </div>
 
             {lookupRows.length > 0 && (
               <div className="border rounded-lg overflow-hidden">
-                <p className="text-sm font-medium text-gray-700 px-3 py-2 bg-gray-50 border-b">
+                <p className="text-sm font-medium text-gray-700 dark:text-slate-300 px-3 py-2 bg-gray-50 dark:bg-slate-800/50 border-b">
                   Select a transaction for your complaint
                 </p>
                 <div className="max-h-60 overflow-auto divide-y">
@@ -389,11 +389,11 @@ const ComplaintsRegister = () => {
                       <button
                         key={`${ref}-${idx}`}
                         type="button"
-                        className={`w-full text-left px-3 py-2 text-sm hover:bg-violet-50 ${sel ? 'bg-violet-100' : ''}`}
+                        className={`w-full text-left px-3 py-2 text-sm hover:bg-violet-50 dark:hover:bg-violet-950/60 ${sel ? 'bg-violet-100 dark:bg-violet-900/40' : ''}`}
                         onClick={() => setSelectedTxnRef(ref)}
                       >
                         <div className="font-medium">{ref || 'Unknown ref'}</div>
-                        <div className="text-gray-600 text-xs">
+                        <div className="text-gray-600 dark:text-slate-400 text-xs">
                           {(r.billerName || r.billerId || '-') + ' · ' + (r.txnDate || '-')}
                         </div>
                       </button>
@@ -401,7 +401,7 @@ const ComplaintsRegister = () => {
                   })}
                 </div>
                 {selectedTxnRef && (
-                  <p className="text-xs text-emerald-800 bg-emerald-50 px-3 py-2 border-t">
+                  <p className="text-xs text-emerald-800 dark:text-emerald-300 bg-emerald-50 dark:bg-emerald-950/40 px-3 py-2 border-t">
                     Selected B-Connect TXN ID: <strong>{selectedTxnRef}</strong>
                   </p>
                 )}
@@ -410,11 +410,11 @@ const ComplaintsRegister = () => {
           </>
         )}
 
-        <div className="rounded-xl border border-slate-200 bg-slate-50/60 p-4 md:p-5">
+        <div className="rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50/60 dark:bg-slate-800/50 p-4 md:p-5">
           <label htmlFor="complaint-disposition" className={fieldLabelClass}>
-            Complaint Disposition <span className="text-red-600">*</span>
+            Complaint Disposition <span className="text-red-600 dark:text-red-400">*</span>
           </label>
-          <p className="text-xs text-slate-500 mb-3">
+          <p className="text-xs text-slate-500 dark:text-slate-400 mb-3">
             Choose the reason that best describes your complaint. Options follow Bharat Connect standard
             dispositions.
           </p>
@@ -431,8 +431,8 @@ const ComplaintsRegister = () => {
             ))}
           </select>
           {disposition ? (
-            <p className="mt-3 rounded-lg border border-slate-200 bg-white px-3 py-2.5 text-xs leading-relaxed text-slate-600">
-              <span className="font-medium text-slate-700">Selected disposition: </span>
+            <p className="mt-3 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 px-3 py-2.5 text-xs leading-relaxed text-slate-600 dark:text-slate-400">
+              <span className="font-medium text-slate-700 dark:text-slate-300">Selected disposition: </span>
               {disposition}
             </p>
           ) : null}
@@ -440,7 +440,7 @@ const ComplaintsRegister = () => {
 
         <div>
           <label htmlFor="complaint-description" className={fieldLabelClass}>
-            Complaint Description <span className="text-red-600">*</span>
+            Complaint Description <span className="text-red-600 dark:text-red-400">*</span>
           </label>
           <textarea
             id="complaint-description"
@@ -452,7 +452,7 @@ const ComplaintsRegister = () => {
           />
         </div>
 
-        <p className="text-xs text-gray-500">
+        <p className="text-xs text-gray-500 dark:text-slate-400">
           Use B-Connect Transaction ID from receipt (CC…) or internal service ID (PMBBPS…). For mobile search, pick a
           date range that includes the payment day; direct B-Connect submission uses only the transaction reference and
           disposition.
@@ -462,7 +462,7 @@ const ComplaintsRegister = () => {
           <div className={`text-sm rounded border p-3 whitespace-pre-wrap ${toneClass(messageTone)}`}>{message}</div>
         )}
 
-        <div className="flex justify-end pt-2 border-t border-slate-100">
+        <div className="flex justify-end pt-2 border-t border-slate-100 dark:border-slate-800">
           <button
             type="button"
             className="inline-flex items-center justify-center rounded-lg bg-blue-600 px-8 py-2.5 text-sm font-semibold text-white shadow-sm transition-colors hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500/30"

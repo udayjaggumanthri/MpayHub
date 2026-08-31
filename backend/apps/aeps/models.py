@@ -57,9 +57,30 @@ class AepsProviderConfig(BaseModel):
     egress_ip = models.CharField(
         max_length=64,
         blank=True,
-        default='139.99.47.143',
-        help_text='Public egress IP sent as ipAddress and used in whitelist diagnosis',
+        default='',
+        help_text=(
+            'Override for the public egress IP sent as ipAddress. Normally leave blank — '
+            'it is auto-detected. Only set it when this host is behind NAT and cannot '
+            'see its own public address.'
+        ),
     )
+    # RD-service finger format asked for at capture time. Readers differ in what
+    # they can emit, and a format the device cannot produce reaches UIDAI as
+    # "Missing biometric data as specified in Uses", so it is tunable per install.
+    FTYPE_CHOICES = [('0', '0 — FMR'), ('1', '1 — FIR'), ('2', '2 — Full image')]
+    capture_ftype_aeps = models.CharField(
+        max_length=1,
+        choices=FTYPE_CHOICES,
+        default='2',
+        help_text='fType requested for 2FA and AEPS product captures (2 = FMR+FIR; Mantra L1)',
+    )
+    capture_ftype_ekyc = models.CharField(
+        max_length=1,
+        choices=FTYPE_CHOICES,
+        default='2',
+        help_text='fType requested for eKYC captures',
+    )
+
     # Admin-editable relative paths; empty keys fall back to doc defaults
     endpoints_json = models.JSONField(default=dict, blank=True)
 
@@ -137,9 +158,13 @@ class AepsProviderConfig(BaseModel):
         return 'cbc' if self.resolved_onboarding_api_style == 'php' else 'ecb'
 
     def resolved_egress_ip(self) -> str:
-        from apps.integrations.fingpay.endpoints import DEFAULT_EGRESS_IP
+        """Detected outbound address, with the stored value as a NAT override."""
+        from apps.integrations.fingpay.netinfo import resolve_egress_ip
 
-        return (self.egress_ip or '').strip() or DEFAULT_EGRESS_IP
+        return resolve_egress_ip(
+            self.egress_ip or '',
+            url=self.onboarding_base_url or self.aeps_base_url or '',
+        )
 
 
 class AepsEntitlement(BaseModel):

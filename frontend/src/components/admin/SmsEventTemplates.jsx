@@ -60,10 +60,10 @@ function readiness(t) {
 }
 
 const toneClasses = {
-  emerald: 'bg-emerald-50 text-emerald-800 ring-emerald-200',
-  amber: 'bg-amber-50 text-amber-900 ring-amber-200',
-  sky: 'bg-sky-50 text-sky-900 ring-sky-200',
-  slate: 'bg-slate-100 text-slate-600 ring-slate-200',
+  emerald: 'bg-emerald-50 dark:bg-emerald-950/40 text-emerald-800 dark:text-emerald-300 ring-emerald-200 dark:ring-emerald-800',
+  amber: 'bg-amber-50 dark:bg-amber-950/40 text-amber-900 dark:text-amber-300 ring-amber-200 dark:ring-amber-800',
+  sky: 'bg-sky-50 dark:bg-sky-950/40 text-sky-900 dark:text-sky-300 ring-sky-200 dark:ring-sky-800',
+  slate: 'bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400 ring-slate-200 dark:ring-slate-700',
 };
 
 const SmsEventTemplates = () => {
@@ -217,32 +217,32 @@ const SmsEventTemplates = () => {
   };
 
   return (
-    <div className="min-h-[calc(100vh-6rem)] bg-gradient-to-b from-slate-50 via-white to-slate-50/80 -mx-4 sm:-mx-6 lg:-mx-8 px-4 sm:px-6 lg:px-8 py-6">
+    <div className="min-h-[calc(100vh-6rem)] bg-gradient-to-b from-slate-50 dark:from-slate-900 via-white dark:via-slate-900 to-slate-50/80 dark:to-slate-900/80 -mx-4 sm:-mx-6 lg:-mx-8 px-4 sm:px-6 lg:px-8 py-6">
       <div className="max-w-5xl mx-auto space-y-6">
         <div className="flex flex-wrap items-center justify-between gap-3">
           <Link
             to="/admin/sms-settings"
-            className="inline-flex items-center gap-2 text-sm font-medium text-slate-600 hover:text-slate-900"
+            className="inline-flex items-center gap-2 text-sm font-medium text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-100"
           >
-            <span className="flex h-8 w-8 items-center justify-center rounded-lg border border-slate-200 bg-white shadow-sm">
+            <span className="flex h-8 w-8 items-center justify-center rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 shadow-sm">
               <FaArrowLeft className="h-3.5 w-3.5" />
             </span>
             SMS profiles
           </Link>
           <Link
             to="/admin/sms-settings/logs"
-            className="text-sm font-semibold text-indigo-700 hover:text-indigo-900"
+            className="text-sm font-semibold text-indigo-700 dark:text-indigo-300 hover:text-indigo-900 dark:hover:text-indigo-200"
           >
             Delivery logs →
           </Link>
         </div>
 
-        <div className="rounded-2xl border border-slate-200/80 bg-white p-6 shadow-sm">
+        <div className="rounded-2xl border border-slate-200/80 dark:border-slate-700/80 bg-white dark:bg-slate-900 p-6 shadow-sm">
           <div className="flex flex-col lg:flex-row lg:items-end lg:justify-between gap-6">
             <div>
-              <p className="text-xs font-semibold uppercase tracking-wider text-indigo-600">MSG91 Flow</p>
-              <h1 className="mt-1 text-2xl font-bold tracking-tight text-slate-900">Event templates</h1>
-              <p className="mt-2 max-w-xl text-sm leading-relaxed text-slate-600">
+              <p className="text-xs font-semibold uppercase tracking-wider text-indigo-600 dark:text-indigo-400">MSG91 Flow</p>
+              <h1 className="mt-1 text-2xl font-bold tracking-tight text-slate-900 dark:text-slate-100">Event templates</h1>
+              <p className="mt-2 max-w-xl text-sm leading-relaxed text-slate-600 dark:text-slate-400">
                 Paste a MSG91 template ID and fetch — placeholders are detected from the live template
                 and mapped automatically. Re-fetch anytime the DLT template changes.
               </p>
@@ -255,10 +255,10 @@ const SmsEventTemplates = () => {
               ].map((s) => (
                 <div
                   key={s.label}
-                  className="min-w-[76px] rounded-xl bg-slate-50 px-3 py-2 text-center ring-1 ring-slate-200/80"
+                  className="min-w-[76px] rounded-xl bg-slate-50 dark:bg-slate-800/50 px-3 py-2 text-center ring-1 ring-slate-200/80 dark:ring-slate-700/80"
                 >
-                  <div className="text-lg font-bold tabular-nums text-slate-900">{s.value}</div>
-                  <div className="text-[11px] font-medium uppercase tracking-wide text-slate-500">{s.label}</div>
+                  <div className="text-lg font-bold tabular-nums text-slate-900 dark:text-slate-100">{s.value}</div>
+                  <div className="text-[11px] font-medium uppercase tracking-wide text-slate-500 dark:text-slate-400">{s.label}</div>
                 </div>
               ))}
             </div>
@@ -272,14 +272,14 @@ const SmsEventTemplates = () => {
             ].map((step) => (
               <li
                 key={step.n}
-                className="flex items-start gap-3 rounded-xl border border-slate-100 bg-slate-50/80 px-3.5 py-3"
+                className="flex items-start gap-3 rounded-xl border border-slate-100 dark:border-slate-800 bg-slate-50/80 dark:bg-slate-800/50 px-3.5 py-3"
               >
                 <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-indigo-600 text-xs font-bold text-white">
                   {step.n}
                 </span>
                 <div>
-                  <p className="text-sm font-semibold text-slate-900">{step.title}</p>
-                  <p className="text-xs text-slate-500">{step.desc}</p>
+                  <p className="text-sm font-semibold text-slate-900 dark:text-slate-100">{step.title}</p>
+                  <p className="text-xs text-slate-500 dark:text-slate-400">{step.desc}</p>
                 </div>
               </li>
             ))}
@@ -291,10 +291,10 @@ const SmsEventTemplates = () => {
             role="status"
             className={`rounded-xl border px-4 py-3 text-sm ${
               msg.type === 'success'
-                ? 'border-emerald-200 bg-emerald-50 text-emerald-900'
+                ? 'border-emerald-200 dark:border-emerald-800 bg-emerald-50 dark:bg-emerald-950/40 text-emerald-900 dark:text-emerald-300'
                 : msg.type === 'error'
-                  ? 'border-red-200 bg-red-50 text-red-900'
-                  : 'border-sky-200 bg-sky-50 text-sky-900'
+                  ? 'border-red-200 dark:border-red-800 bg-red-50 dark:bg-red-950/40 text-red-900 dark:text-red-300'
+                  : 'border-sky-200 dark:border-sky-800 bg-sky-50 dark:bg-sky-950/40 text-sky-900 dark:text-sky-300'
             }`}
           >
             {msg.text}
@@ -314,13 +314,13 @@ const SmsEventTemplates = () => {
                 className={`inline-flex items-center gap-2 rounded-full px-3.5 py-1.5 text-sm font-medium transition ${
                   active
                     ? 'bg-slate-900 text-white shadow-sm'
-                    : 'bg-white text-slate-600 ring-1 ring-slate-200 hover:bg-slate-50'
+                    : 'bg-white dark:bg-slate-900 text-slate-600 dark:text-slate-400 ring-1 ring-slate-200 dark:ring-slate-700 hover:bg-slate-50 dark:hover:bg-slate-800'
                 }`}
               >
                 {m === 'all' ? 'All events' : MODULE_LABELS[m] || m}
                 <span
                   className={`rounded-full px-1.5 text-[11px] tabular-nums ${
-                    active ? 'bg-white/20 text-white' : 'bg-slate-100 text-slate-500'
+                    active ? 'bg-white/20 dark:bg-slate-900/20 text-white' : 'bg-slate-100 dark:bg-slate-800 text-slate-500 dark:text-slate-400'
                   }`}
                 >
                   {count}
@@ -331,11 +331,11 @@ const SmsEventTemplates = () => {
         </div>
 
         {loading ? (
-          <div className="rounded-2xl border border-slate-200 bg-white py-16 text-center text-slate-500">
+          <div className="rounded-2xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 py-16 text-center text-slate-500 dark:text-slate-400">
             Loading templates…
           </div>
         ) : filtered.length === 0 ? (
-          <div className="rounded-2xl border border-dashed border-slate-300 bg-white py-16 text-center text-slate-500">
+          <div className="rounded-2xl border border-dashed border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-900 py-16 text-center text-slate-500 dark:text-slate-400">
             No events in this category.
           </div>
         ) : (
@@ -370,14 +370,14 @@ const SmsEventTemplates = () => {
               return (
                 <article
                   key={t.event_key}
-                  className={`overflow-hidden rounded-2xl border bg-white shadow-sm transition ${
-                    isOpen ? 'border-indigo-200 ring-1 ring-indigo-100' : 'border-slate-200'
+                  className={`overflow-hidden rounded-2xl border bg-white dark:bg-slate-900 shadow-sm transition ${
+                    isOpen ? 'border-indigo-200 dark:border-indigo-800 ring-1 ring-indigo-100 dark:ring-indigo-900' : 'border-slate-200 dark:border-slate-700'
                   }`}
                 >
                   <div className="flex flex-col gap-4 p-5 sm:flex-row sm:items-center sm:justify-between">
                     <div className="min-w-0 flex-1">
                       <div className="flex flex-wrap items-center gap-2">
-                        <h2 className="text-base font-semibold text-slate-900">{t.label}</h2>
+                        <h2 className="text-base font-semibold text-slate-900 dark:text-slate-100">{t.label}</h2>
                         <span
                           className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[11px] font-semibold ring-1 ${toneClasses[status.tone]}`}
                         >
@@ -391,13 +391,13 @@ const SmsEventTemplates = () => {
                           {status.label}
                         </span>
                       </div>
-                      <p className="mt-1 text-sm text-slate-500 line-clamp-2">{t.description}</p>
-                      <p className="mt-1 font-mono text-[11px] text-slate-400">{t.event_key}</p>
+                      <p className="mt-1 text-sm text-slate-500 dark:text-slate-400 line-clamp-2">{t.description}</p>
+                      <p className="mt-1 font-mono text-[11px] text-slate-400 dark:text-slate-500">{t.event_key}</p>
                     </div>
 
                     <div className="flex shrink-0 items-center gap-4">
                       <div className="flex items-center gap-2">
-                        <span className="text-xs font-medium text-slate-600">Send SMS</span>
+                        <span className="text-xs font-medium text-slate-600 dark:text-slate-400">Send SMS</span>
                         <button
                           type="button"
                           role="switch"
@@ -405,11 +405,11 @@ const SmsEventTemplates = () => {
                           disabled={saving}
                           onClick={() => updateTemplate(t.event_key, { is_enabled: !t.is_enabled })}
                           className={`relative h-7 w-12 rounded-full transition ${
-                            t.is_enabled ? 'bg-emerald-500' : 'bg-slate-300'
+                            t.is_enabled ? 'bg-emerald-500' : 'bg-slate-300 dark:bg-slate-600'
                           } disabled:opacity-50`}
                         >
                           <span
-                            className={`absolute top-0.5 left-0.5 h-6 w-6 rounded-full bg-white shadow transition ${
+                            className={`absolute top-0.5 left-0.5 h-6 w-6 rounded-full bg-white dark:bg-slate-900 shadow transition ${
                               t.is_enabled ? 'translate-x-5' : ''
                             }`}
                           />
@@ -418,28 +418,28 @@ const SmsEventTemplates = () => {
                       <button
                         type="button"
                         onClick={() => toggleOpen(t.event_key)}
-                        className="inline-flex items-center gap-2 rounded-xl border border-slate-200 bg-slate-50 px-3.5 py-2 text-sm font-semibold text-slate-800 hover:bg-white"
+                        className="inline-flex items-center gap-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800/50 px-3.5 py-2 text-sm font-semibold text-slate-800 dark:text-slate-200 hover:bg-white dark:hover:bg-slate-900"
                       >
                         {isOpen ? 'Close' : 'Configure'}
                         <FaChevronDown
-                          className={`h-3 w-3 text-slate-500 transition ${isOpen ? 'rotate-180' : ''}`}
+                          className={`h-3 w-3 text-slate-500 dark:text-slate-400 transition ${isOpen ? 'rotate-180' : ''}`}
                         />
                       </button>
                     </div>
                   </div>
 
                   {isOpen ? (
-                    <div className="border-t border-slate-100 bg-slate-50/60 px-5 py-5 space-y-5">
-                      <section className="rounded-xl border border-slate-200 bg-white p-4 space-y-3">
+                    <div className="border-t border-slate-100 dark:border-slate-800 bg-slate-50/60 dark:bg-slate-800/50 px-5 py-5 space-y-5">
+                      <section className="rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 p-4 space-y-3">
                         <div className="flex items-center gap-2">
-                          <span className="flex h-6 w-6 items-center justify-center rounded-full bg-indigo-100 text-[11px] font-bold text-indigo-700">
+                          <span className="flex h-6 w-6 items-center justify-center rounded-full bg-indigo-100 dark:bg-indigo-900/40 text-[11px] font-bold text-indigo-700 dark:text-indigo-300">
                             A
                           </span>
-                          <h3 className="text-sm font-semibold text-slate-900">MSG91 template ID</h3>
+                          <h3 className="text-sm font-semibold text-slate-900 dark:text-slate-100">MSG91 template ID</h3>
                         </div>
                         <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
                           <input
-                            className="flex-1 rounded-xl border border-slate-200 px-3.5 py-2.5 font-mono text-sm outline-none focus:border-indigo-300 focus:ring-2 focus:ring-indigo-500/20"
+                            className="flex-1 rounded-xl border border-slate-200 dark:border-slate-700 px-3.5 py-2.5 font-mono text-sm outline-none focus:border-indigo-300 focus:ring-2 focus:ring-indigo-500/20"
                             placeholder="Paste template_id from MSG91"
                             value={draftIds[t.event_key] ?? ''}
                             disabled={saving}
@@ -459,22 +459,22 @@ const SmsEventTemplates = () => {
                           </button>
                         </div>
                         {preview ? (
-                          <div className="rounded-xl border border-indigo-100 bg-indigo-50/50 p-3 space-y-2">
-                            <div className="flex flex-wrap gap-x-4 gap-y-1 text-xs text-indigo-950">
+                          <div className="rounded-xl border border-indigo-100 dark:border-indigo-900 bg-indigo-50/50 dark:bg-indigo-950/40 p-3 space-y-2">
+                            <div className="flex flex-wrap gap-x-4 gap-y-1 text-xs text-indigo-950 dark:text-indigo-200">
                               <span className="font-semibold">{preview.template_name || 'Template'}</span>
                               <span>Sender: {preview.sender_id || '—'}</span>
                               <span>DLT: {preview.dlt_id || '—'}</span>
                               {t.msg91_synced_at ? (
-                                <span className="text-indigo-700">
+                                <span className="text-indigo-700 dark:text-indigo-300">
                                   Synced {new Date(t.msg91_synced_at).toLocaleString()}
                                 </span>
                               ) : null}
                             </div>
-                            <p className="rounded-lg bg-white/80 px-3 py-2 text-sm leading-relaxed text-slate-700 ring-1 ring-indigo-100">
+                            <p className="rounded-lg bg-white/80 dark:bg-slate-900/80 px-3 py-2 text-sm leading-relaxed text-slate-700 dark:text-slate-300 ring-1 ring-indigo-100 dark:ring-indigo-900">
                               {preview.template_data}
                             </p>
                             {(preview.detected_vars || []).length ? (
-                              <p className="text-xs text-indigo-800">
+                              <p className="text-xs text-indigo-800 dark:text-indigo-300">
                                 Placeholders found:{' '}
                                 <span className="font-mono font-semibold">
                                   {(preview.detected_vars || []).join(', ')}
@@ -485,59 +485,59 @@ const SmsEventTemplates = () => {
                         ) : null}
                       </section>
 
-                      <section className="rounded-xl border border-slate-200 bg-white p-4 space-y-3">
+                      <section className="rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 p-4 space-y-3">
                         <div className="flex flex-wrap items-center justify-between gap-2">
                           <div className="flex items-center gap-2">
-                            <span className="flex h-6 w-6 items-center justify-center rounded-full bg-indigo-100 text-[11px] font-bold text-indigo-700">
+                            <span className="flex h-6 w-6 items-center justify-center rounded-full bg-indigo-100 dark:bg-indigo-900/40 text-[11px] font-bold text-indigo-700 dark:text-indigo-300">
                               B
                             </span>
-                            <h3 className="text-sm font-semibold text-slate-900">Map variables</h3>
-                            <span className="text-xs text-slate-500">
+                            <h3 className="text-sm font-semibold text-slate-900 dark:text-slate-100">Map variables</h3>
+                            <span className="text-xs text-slate-500 dark:text-slate-400">
                               {mappedCount}/{schema.length} mapped
                             </span>
-                            <span className="rounded-full bg-slate-100 px-2 py-0.5 text-[11px] font-medium text-slate-600">
+                            <span className="rounded-full bg-slate-100 dark:bg-slate-800 px-2 py-0.5 text-[11px] font-medium text-slate-600 dark:text-slate-400">
                               {sourceLabel}
                             </span>
                           </div>
-                          <p className="text-xs text-slate-500">
+                          <p className="text-xs text-slate-500 dark:text-slate-400">
                             App value → MSG91 key (from ##placeholder##)
                           </p>
                         </div>
 
                         {(health.unmapped_required || []).length ? (
-                          <p className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-900">
+                          <p className="rounded-lg border border-amber-200 dark:border-amber-800 bg-amber-50 dark:bg-amber-950/40 px-3 py-2 text-xs text-amber-900 dark:text-amber-300">
                             Unmapped required: {(health.unmapped_required || []).join(', ')}. Click
                             Fetch &amp; auto-map or set manually.
                           </p>
                         ) : null}
                         {(health.orphan_targets || []).length ? (
-                          <p className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-900">
+                          <p className="rounded-lg border border-amber-200 dark:border-amber-800 bg-amber-50 dark:bg-amber-950/40 px-3 py-2 text-xs text-amber-900 dark:text-amber-300">
                             Mapped keys not in template: {(health.orphan_targets || []).join(', ')}.
                             Re-fetch to fix.
                           </p>
                         ) : null}
 
                         {schema.length === 0 ? (
-                          <p className="text-sm text-slate-500">No variables for this event.</p>
+                          <p className="text-sm text-slate-500 dark:text-slate-400">No variables for this event.</p>
                         ) : (
                           <div className="space-y-2">
                             {schema.map((v) => (
                               <div
                                 key={v.name}
-                                className="grid grid-cols-1 items-center gap-2 rounded-xl bg-slate-50 px-3 py-2.5 sm:grid-cols-[1fr_auto_1fr]"
+                                className="grid grid-cols-1 items-center gap-2 rounded-xl bg-slate-50 dark:bg-slate-800/50 px-3 py-2.5 sm:grid-cols-[1fr_auto_1fr]"
                               >
                                 <div>
-                                  <p className="text-sm font-semibold text-slate-800">
+                                  <p className="text-sm font-semibold text-slate-800 dark:text-slate-200">
                                     {v.name}
                                     {v.required ? <span className="ml-1 text-red-500">*</span> : null}
                                   </p>
                                   {v.description ? (
-                                    <p className="text-xs text-slate-500">{v.description}</p>
+                                    <p className="text-xs text-slate-500 dark:text-slate-400">{v.description}</p>
                                   ) : null}
                                 </div>
-                                <FaArrowRight className="hidden h-3.5 w-3.5 text-slate-400 sm:block justify-self-center" />
+                                <FaArrowRight className="hidden h-3.5 w-3.5 text-slate-400 dark:text-slate-500 sm:block justify-self-center" />
                                 <select
-                                  className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm font-mono outline-none focus:border-indigo-300 focus:ring-2 focus:ring-indigo-500/20"
+                                  className="w-full rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 px-3 py-2 text-sm font-mono outline-none focus:border-indigo-300 focus:ring-2 focus:ring-indigo-500/20"
                                   value={mapDraft[v.name] || ''}
                                   disabled={saving}
                                   onChange={(e) =>
@@ -582,22 +582,22 @@ const SmsEventTemplates = () => {
                             Save manual override
                           </button>
                         </div>
-                        <p className="text-xs text-slate-500">
+                        <p className="text-xs text-slate-500 dark:text-slate-400">
                           Prefer Re-sync after any MSG91 template edit. Manual save is only for rare
                           overrides.
                         </p>
                       </section>
 
-                      <section className="rounded-xl border border-slate-200 bg-white p-4 space-y-3">
+                      <section className="rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 p-4 space-y-3">
                         <div className="flex items-center gap-2">
-                          <span className="flex h-6 w-6 items-center justify-center rounded-full bg-indigo-100 text-[11px] font-bold text-indigo-700">
+                          <span className="flex h-6 w-6 items-center justify-center rounded-full bg-indigo-100 dark:bg-indigo-900/40 text-[11px] font-bold text-indigo-700 dark:text-indigo-300">
                             C
                           </span>
-                          <h3 className="text-sm font-semibold text-slate-900">Send a test</h3>
+                          <h3 className="text-sm font-semibold text-slate-900 dark:text-slate-100">Send a test</h3>
                         </div>
                         <div className="flex flex-col gap-2 sm:flex-row">
                           <input
-                            className="flex-1 rounded-xl border border-slate-200 px-3.5 py-2.5 text-sm outline-none focus:border-indigo-300 focus:ring-2 focus:ring-indigo-500/20"
+                            className="flex-1 rounded-xl border border-slate-200 dark:border-slate-700 px-3.5 py-2.5 text-sm outline-none focus:border-indigo-300 focus:ring-2 focus:ring-indigo-500/20"
                             placeholder="10-digit mobile number"
                             inputMode="numeric"
                             value={rowTestPhone[t.event_key] || ''}
@@ -612,23 +612,23 @@ const SmsEventTemplates = () => {
                             type="button"
                             disabled={saving || !(draftIds[t.event_key] || t.template_id)}
                             onClick={() => testTemplateRow(t.event_key)}
-                            className="inline-flex items-center justify-center gap-2 rounded-xl border border-slate-200 bg-white px-4 py-2.5 text-sm font-semibold text-slate-800 hover:bg-slate-50 disabled:opacity-50"
+                            className="inline-flex items-center justify-center gap-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 px-4 py-2.5 text-sm font-semibold text-slate-800 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-800 disabled:opacity-50"
                           >
-                            <FaPaperPlane className="h-3.5 w-3.5 text-indigo-600" />
+                            <FaPaperPlane className="h-3.5 w-3.5 text-indigo-600 dark:text-indigo-400" />
                             Send test SMS
                           </button>
                         </div>
-                        <p className="flex items-start gap-2 text-xs text-slate-500">
+                        <p className="flex items-start gap-2 text-xs text-slate-500 dark:text-slate-400">
                           <FaLink className="mt-0.5 h-3 w-3 shrink-0" />
                           Uses sample values and your variable map. Requires an active MSG91 profile.
                         </p>
                       </section>
                     </div>
                   ) : (
-                    <div className="border-t border-slate-100 px-5 py-3 flex flex-wrap gap-x-4 gap-y-1 text-xs text-slate-500">
+                    <div className="border-t border-slate-100 dark:border-slate-800 px-5 py-3 flex flex-wrap gap-x-4 gap-y-1 text-xs text-slate-500 dark:text-slate-400">
                       <span>
                         Template:{' '}
-                        <span className="font-mono text-slate-700">
+                        <span className="font-mono text-slate-700 dark:text-slate-300">
                           {(t.template_id || '').trim() || '—'}
                         </span>
                       </span>
@@ -648,7 +648,7 @@ const SmsEventTemplates = () => {
           </div>
         )}
 
-        <p className="pb-8 text-center text-xs text-slate-400">
+        <p className="pb-8 text-center text-xs text-slate-400 dark:text-slate-500">
           Only the active SMS profile is used for live sends. Disable any event to silence that SMS without
           changing code.
         </p>

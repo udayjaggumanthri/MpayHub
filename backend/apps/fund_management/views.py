@@ -61,11 +61,11 @@ def pay_in_checkout_gateways_view(request):
     assert_module_available(MODULE_PAY_IN)
     from apps.fund_management.package_gateways import list_payin_checkout_options_for_user
 
-    gateways = list_payin_checkout_options_for_user(request.user)
+    methods = list_payin_checkout_options_for_user(request.user, request=request)
     return Response(
         {
             'success': True,
-            'data': {'gateways': gateways},
+            'data': {'gateways': methods, 'payment_methods': methods},
             'message': 'OK',
             'errors': [],
         },

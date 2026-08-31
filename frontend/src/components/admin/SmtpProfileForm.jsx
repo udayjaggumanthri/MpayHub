@@ -134,7 +134,7 @@ const SmtpProfileForm = () => {
 
   if (loading) {
     return (
-      <div className="max-w-3xl mx-auto p-12 text-center text-gray-500">Loading profile...</div>
+      <div className="max-w-3xl mx-auto p-12 text-center text-gray-500 dark:text-slate-400">Loading profile...</div>
     );
   }
 
@@ -143,7 +143,7 @@ const SmtpProfileForm = () => {
       <div className="flex items-center gap-3">
         <Link
           to="/admin/smtp-settings"
-          className="inline-flex items-center gap-1.5 text-sm text-gray-600 hover:text-gray-900"
+          className="inline-flex items-center gap-1.5 text-sm text-gray-600 dark:text-slate-400 hover:text-gray-900 dark:hover:text-slate-100"
         >
           <FaArrowLeft className="w-3.5 h-3.5" /> Back to profiles
         </Link>
@@ -153,22 +153,22 @@ const SmtpProfileForm = () => {
         <div
           className={`text-sm border rounded-lg px-4 py-3 ${
             msg.type === 'success'
-              ? 'bg-green-50 border-green-200 text-green-800'
+              ? 'bg-green-50 dark:bg-green-950/40 border-green-200 dark:border-green-800 text-green-800 dark:text-green-300'
               : msg.type === 'error'
-                ? 'bg-red-50 border-red-200 text-red-800'
-                : 'bg-blue-50 border-blue-200 text-blue-800'
+                ? 'bg-red-50 dark:bg-red-950/40 border-red-200 dark:border-red-800 text-red-800 dark:text-red-300'
+                : 'bg-blue-50 dark:bg-blue-950/40 border-blue-200 dark:border-blue-800 text-blue-800 dark:text-blue-300'
           }`}
         >
           {msg.text}
         </div>
       )}
 
-      <form onSubmit={saveProfile} className="bg-white rounded-xl border border-gray-200 p-6 shadow-sm space-y-6">
+      <form onSubmit={saveProfile} className="bg-white dark:bg-slate-900 rounded-xl border border-gray-200 dark:border-slate-700 p-6 shadow-sm space-y-6">
         <div>
-          <h1 className="text-xl font-semibold text-gray-900">
+          <h1 className="text-xl font-semibold text-gray-900 dark:text-slate-100">
             {isNew ? 'New SMTP profile' : `Edit: ${form.name}`}
           </h1>
-          <p className="text-sm text-gray-500 mt-1">
+          <p className="text-sm text-gray-500 dark:text-slate-400 mt-1">
             {isNew
               ? 'Create a new SMTP account. Activate it from the list when ready.'
               : `${providerLabel(form)} — ${form.is_active ? 'Active for OTP email' : 'Not active'}`}
@@ -176,9 +176,9 @@ const SmtpProfileForm = () => {
         </div>
 
         <div>
-          <label className="block text-xs font-medium text-gray-600 mb-1">Apply provider preset</label>
+          <label className="block text-xs font-medium text-gray-600 dark:text-slate-400 mb-1">Apply provider preset</label>
           <select
-            className="w-full max-w-md border border-gray-300 rounded-lg px-3 py-2 text-sm bg-white"
+            className="w-full max-w-md border border-gray-300 dark:border-slate-600 rounded-lg px-3 py-2 text-sm bg-white dark:bg-slate-900"
             value={presetKey}
             onChange={handlePresetChange}
           >
@@ -193,20 +193,20 @@ const SmtpProfileForm = () => {
 
         <div className="grid md:grid-cols-2 gap-4">
           <div>
-            <label className="block text-xs font-medium text-gray-600 mb-1">Profile name (unique)</label>
+            <label className="block text-xs font-medium text-gray-600 dark:text-slate-400 mb-1">Profile name (unique)</label>
             <input
               required
-              className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm"
+              className="w-full border border-gray-300 dark:border-slate-600 rounded-lg px-3 py-2 text-sm"
               placeholder="e.g. gmail-noreply"
               value={form.name}
               onChange={(e) => setForm((p) => ({ ...p, name: e.target.value }))}
             />
           </div>
           <div>
-            <label className="block text-xs font-medium text-gray-600 mb-1">SMTP host</label>
+            <label className="block text-xs font-medium text-gray-600 dark:text-slate-400 mb-1">SMTP host</label>
             <input
               required
-              className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm"
+              className="w-full border border-gray-300 dark:border-slate-600 rounded-lg px-3 py-2 text-sm"
               value={form.host}
               onChange={(e) => {
                 setPresetKey('');
@@ -215,10 +215,10 @@ const SmtpProfileForm = () => {
             />
           </div>
           <div>
-            <label className="block text-xs font-medium text-gray-600 mb-1">Port</label>
+            <label className="block text-xs font-medium text-gray-600 dark:text-slate-400 mb-1">Port</label>
             <input
               type="number"
-              className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm"
+              className="w-full border border-gray-300 dark:border-slate-600 rounded-lg px-3 py-2 text-sm"
               value={form.port}
               onChange={(e) => {
                 setPresetKey('');
@@ -227,19 +227,19 @@ const SmtpProfileForm = () => {
             />
           </div>
           <div>
-            <label className="block text-xs font-medium text-gray-600 mb-1">Username</label>
+            <label className="block text-xs font-medium text-gray-600 dark:text-slate-400 mb-1">Username</label>
             <input
-              className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm"
+              className="w-full border border-gray-300 dark:border-slate-600 rounded-lg px-3 py-2 text-sm"
               autoComplete="off"
               value={form.username}
               onChange={(e) => setForm((p) => ({ ...p, username: e.target.value }))}
             />
           </div>
           <div className="md:col-span-2">
-            <label className="block text-xs font-medium text-gray-600 mb-1">From email</label>
+            <label className="block text-xs font-medium text-gray-600 dark:text-slate-400 mb-1">From email</label>
             <input
               type="email"
-              className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm"
+              className="w-full border border-gray-300 dark:border-slate-600 rounded-lg px-3 py-2 text-sm"
               value={form.from_email}
               onChange={(e) => setForm((p) => ({ ...p, from_email: e.target.value }))}
             />
@@ -288,7 +288,7 @@ const SmtpProfileForm = () => {
               Enabled
             </label>
             {isNew && (
-              <label className="flex items-center gap-2 text-sm text-gray-600">
+              <label className="flex items-center gap-2 text-sm text-gray-600 dark:text-slate-400">
                 <input
                   type="checkbox"
                   checked={form.is_active}
@@ -310,7 +310,7 @@ const SmtpProfileForm = () => {
           </button>
           <Link
             to="/admin/smtp-settings"
-            className="px-4 py-2 rounded-lg border border-gray-300 text-sm font-medium text-gray-700 hover:bg-gray-50"
+            className="px-4 py-2 rounded-lg border border-gray-300 dark:border-slate-600 text-sm font-medium text-gray-700 dark:text-slate-300 hover:bg-gray-50 dark:hover:bg-slate-800"
           >
             Cancel
           </Link>
@@ -319,9 +319,9 @@ const SmtpProfileForm = () => {
 
       {!isNew && (
         <>
-          <div className="bg-white rounded-xl border border-gray-200 p-6 shadow-sm space-y-4">
-            <h2 className="text-lg font-semibold text-gray-900">SMTP password</h2>
-            <p className="text-sm text-gray-500">
+          <div className="bg-white dark:bg-slate-900 rounded-xl border border-gray-200 dark:border-slate-700 p-6 shadow-sm space-y-4">
+            <h2 className="text-lg font-semibold text-gray-900 dark:text-slate-100">SMTP password</h2>
+            <p className="text-sm text-gray-500 dark:text-slate-400">
               {hasPassword
                 ? 'Password stored (encrypted). Enter a new value to replace.'
                 : 'Required before you can activate or test this profile.'}
@@ -329,7 +329,7 @@ const SmtpProfileForm = () => {
             <div className="flex flex-col sm:flex-row gap-3">
               <input
                 type="password"
-                className="flex-1 border border-gray-300 rounded-lg px-3 py-2 text-sm"
+                className="flex-1 border border-gray-300 dark:border-slate-600 rounded-lg px-3 py-2 text-sm"
                 placeholder="SMTP password or app password"
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
@@ -339,23 +339,23 @@ const SmtpProfileForm = () => {
                 type="button"
                 disabled={saving}
                 onClick={savePassword}
-                className="px-4 py-2 rounded-lg border border-gray-300 text-sm font-medium hover:bg-gray-50 disabled:opacity-50"
+                className="px-4 py-2 rounded-lg border border-gray-300 dark:border-slate-600 text-sm font-medium hover:bg-gray-50 dark:hover:bg-slate-800 disabled:opacity-50"
               >
                 Update password
               </button>
             </div>
           </div>
 
-          <div className="bg-white rounded-xl border border-gray-200 p-6 shadow-sm space-y-4">
-            <h2 className="text-lg font-semibold text-gray-900">Test this profile</h2>
-            <p className="text-sm text-gray-500">
+          <div className="bg-white dark:bg-slate-900 rounded-xl border border-gray-200 dark:border-slate-700 p-6 shadow-sm space-y-4">
+            <h2 className="text-lg font-semibold text-gray-900 dark:text-slate-100">Test this profile</h2>
+            <p className="text-sm text-gray-500 dark:text-slate-400">
               Sends using this profile&apos;s settings (not only if active). Leave recipient blank to use your admin
               email.
             </p>
             <div className="flex flex-col sm:flex-row gap-3">
               <input
                 type="email"
-                className="flex-1 border border-gray-300 rounded-lg px-3 py-2 text-sm"
+                className="flex-1 border border-gray-300 dark:border-slate-600 rounded-lg px-3 py-2 text-sm"
                 placeholder="recipient@example.com (optional)"
                 value={testEmail}
                 onChange={(e) => setTestEmail(e.target.value)}

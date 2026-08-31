@@ -56,3 +56,32 @@ If you see **Error 521**, set SSL/TLS mode to **Flexible** (origin listens on HT
 | `pm2 list` empty after reboot | `pm2 resurrect` or run deploy script |
 | API 502 | `sudo systemctl restart mpayhub` |
 | Wrong UI | Rebuild + `sudo systemctl reload nginx` |
+
+---
+
+## UAT (partner-uat.mpayhub.in)
+
+Same architecture as production; repo path is `/root/Mpayhub-UAT/MpayHub`, PM2 runs as **root**.
+
+| Component | PM2 app | Port |
+|-----------|---------|------|
+| **API** | `mpayhub-backend` | `127.0.0.1:8000` |
+| **UI** | `mpayhub-frontend` | `127.0.0.1:3002` (internal) |
+| **Domain** | nginx | `:80` + `:443` + **`:3001`** (Cloudflare Tunnel) → proxies to PM2 |
+
+```bash
+/root/Mpayhub-UAT/MpayHub/scripts/setup-uat-pm2-and-domain.sh   # full UAT setup
+```
+
+**Cloudflare Tunnel:** `partner-uat.mpayhub.in` → `http://localhost:3001` (nginx). Keep `cloudflared` running (`systemctl status cloudflared`).
+
+### UAT deploy / update
+
+```bash
+cd /root/Mpayhub-UAT/MpayHub
+pm2 restart mpayhub-backend                    # backend code
+cd frontend && npm run build && pm2 restart mpayhub-frontend   # UI
+nginx -t && systemctl reload nginx             # nginx config
+```
+
+**Deprecated (do not use):** `ecosystem.uat.config.cjs`, `scripts/uat-proxy.js`, `backend/run_gunicorn_uat.sh`.

@@ -10,7 +10,7 @@ import KycDetailsCard from './KycDetailsCard';
 import KycProfileSyncModal from './KycProfileSyncModal';
 
 const inputClass =
-  'w-full px-4 py-3 border border-slate-200 rounded-xl focus:border-indigo-300 focus:ring-2 focus:ring-indigo-500/20 outline-none transition';
+  'w-full px-4 py-3 border border-slate-200 dark:border-slate-700 rounded-xl focus:border-indigo-300 focus:ring-2 focus:ring-indigo-500/20 outline-none transition';
 
 /**
  * Step 1: PAN + name. Step 2: optional Aadhaar pre-check + DigiLocker redirect.
@@ -181,16 +181,16 @@ const OnboardingKYC = () => {
           subtitle="Your documents were verified. An administrator must approve your KYC before your account becomes active."
           padding="lg"
         >
-          <div className="rounded-xl border border-amber-200 bg-amber-50/70 px-4 py-4 space-y-3">
+          <div className="rounded-xl border border-amber-200 dark:border-amber-800 bg-amber-50/70 dark:bg-amber-950/40 px-4 py-4 space-y-3">
             <div className="flex items-start gap-3">
-              <FaClock className="text-amber-600 shrink-0 mt-0.5" size={20} />
-              <div className="text-sm text-amber-950 space-y-2">
+              <FaClock className="text-amber-600 dark:text-amber-400 shrink-0 mt-0.5" size={20} />
+              <div className="text-sm text-amber-950 dark:text-amber-200 space-y-2">
                 <p className="font-semibold">Awaiting Admin approval</p>
                 <p>
                   PAN and Aadhaar checks are complete. You will be able to set your MPIN and use
                   services once an administrator approves your KYC.
                 </p>
-                <ul className="list-disc list-inside space-y-1 text-amber-900/90">
+                <ul className="list-disc list-inside space-y-1 text-amber-900/90 dark:text-amber-300/90">
                   <li>PAN verified</li>
                   <li>Aadhaar verified</li>
                   <li>Manual Admin review pending</li>
@@ -214,8 +214,8 @@ const OnboardingKYC = () => {
           subtitle="An administrator reviewed your KYC and could not approve it yet."
           padding="lg"
         >
-          <div className="rounded-xl border border-red-200 bg-red-50/70 px-4 py-4 space-y-3">
-            <p className="text-sm text-red-900">
+          <div className="rounded-xl border border-red-200 dark:border-red-800 bg-red-50/70 dark:bg-red-950/40 px-4 py-4 space-y-3">
+            <p className="text-sm text-red-900 dark:text-red-300">
               Please contact your administrator or support for next steps. Your account will remain
               inactive until KYC is approved.
             </p>
@@ -248,16 +248,16 @@ const OnboardingKYC = () => {
               <div className="flex items-center gap-2 mb-1">
                 <span
                   className={`h-7 w-7 rounded-full flex items-center justify-center text-xs font-bold ${
-                    step >= s.n ? 'bg-indigo-600 text-white' : 'bg-slate-200 text-slate-600'
+                    step >= s.n ? 'bg-indigo-600 text-white' : 'bg-slate-200 dark:bg-slate-700 text-slate-600 dark:text-slate-400'
                   }`}
                 >
                   {s.n}
                 </span>
-                <span className={`text-xs font-semibold ${step >= s.n ? 'text-indigo-700' : 'text-slate-500'}`}>
+                <span className={`text-xs font-semibold ${step >= s.n ? 'text-indigo-700 dark:text-indigo-300' : 'text-slate-500 dark:text-slate-400'}`}>
                   {s.label}
                 </span>
               </div>
-              <div className={`h-1.5 rounded-full ${step >= s.n ? 'bg-indigo-600' : 'bg-slate-200'}`} />
+              <div className={`h-1.5 rounded-full ${step >= s.n ? 'bg-indigo-600' : 'bg-slate-200 dark:bg-slate-700'}`} />
             </div>
           ))}
         </div>
@@ -265,14 +265,14 @@ const OnboardingKYC = () => {
         <div aria-live="polite">
           {step === 1 && (
             <form className="space-y-5" onSubmit={handleVerifyPan}>
-              <div className="flex items-center gap-3 rounded-xl border border-indigo-100 bg-indigo-50/50 px-4 py-3">
-                <FaIdCard className="text-indigo-600 shrink-0" size={20} />
-                <p className="text-sm text-indigo-900">
+              <div className="flex items-center gap-3 rounded-xl border border-indigo-100 dark:border-indigo-900 bg-indigo-50/50 dark:bg-indigo-950/40 px-4 py-3">
+                <FaIdCard className="text-indigo-600 dark:text-indigo-400 shrink-0" size={20} />
+                <p className="text-sm text-indigo-900 dark:text-indigo-300">
                   Enter your PAN and name exactly as printed on your PAN card.
                 </p>
               </div>
               <div>
-                <label htmlFor="onboarding-pan" className="block text-sm font-medium text-slate-700 mb-1">
+                <label htmlFor="onboarding-pan" className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1">
                   PAN
                 </label>
                 <input
@@ -286,7 +286,7 @@ const OnboardingKYC = () => {
                 />
               </div>
               <div>
-                <label htmlFor="onboarding-pan-name" className="block text-sm font-medium text-slate-700 mb-1">
+                <label htmlFor="onboarding-pan-name" className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1">
                   Name as per PAN
                 </label>
                 <input
@@ -299,7 +299,7 @@ const OnboardingKYC = () => {
                 />
               </div>
               {error ? (
-                <p role="alert" className="text-sm text-red-700 bg-red-50 border border-red-100 rounded-lg px-3 py-2">
+                <p role="alert" className="text-sm text-red-700 dark:text-red-300 bg-red-50 dark:bg-red-950/40 border border-red-100 dark:border-red-900 rounded-lg px-3 py-2">
                   {error}
                 </p>
               ) : null}
@@ -315,24 +315,24 @@ const OnboardingKYC = () => {
               <button
                 type="button"
                 onClick={() => setStep(1)}
-                className="text-sm font-medium text-indigo-700 hover:text-indigo-900"
+                className="text-sm font-medium text-indigo-700 dark:text-indigo-300 hover:text-indigo-900 dark:hover:text-indigo-200"
               >
                 Change PAN details
               </button>
-              <div className="rounded-xl border border-blue-100 bg-blue-50/60 px-4 py-3 space-y-2">
-                <div className="flex items-center gap-2 text-blue-900 font-semibold text-sm">
+              <div className="rounded-xl border border-blue-100 dark:border-blue-900 bg-blue-50/60 dark:bg-blue-950/40 px-4 py-3 space-y-2">
+                <div className="flex items-center gap-2 text-blue-900 dark:text-blue-300 font-semibold text-sm">
                   <FaLock size={14} />
                   Secure DigiLocker verification
                 </div>
-                <ul className="text-sm text-blue-900/90 list-disc list-inside space-y-1">
+                <ul className="text-sm text-blue-900/90 dark:text-blue-300/90 list-disc list-inside space-y-1">
                   <li>You will be redirected to the official DigiLocker portal.</li>
                   <li>Only Aadhaar details you consent to share are retrieved.</li>
                   <li>Your Aadhaar number is never stored in full on our servers.</li>
                 </ul>
               </div>
               <div>
-                <label htmlFor="onboarding-aadhaar" className="block text-sm font-medium text-slate-700 mb-1">
-                  Aadhaar number <span className="text-slate-400 font-normal">(optional pre-check)</span>
+                <label htmlFor="onboarding-aadhaar" className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1">
+                  Aadhaar number <span className="text-slate-400 dark:text-slate-500 font-normal">(optional pre-check)</span>
                 </label>
                 <input
                   id="onboarding-aadhaar"
@@ -345,7 +345,7 @@ const OnboardingKYC = () => {
                 />
               </div>
               {error ? (
-                <p role="alert" className="text-sm text-red-700 bg-red-50 border border-red-100 rounded-lg px-3 py-2">
+                <p role="alert" className="text-sm text-red-700 dark:text-red-300 bg-red-50 dark:bg-red-950/40 border border-red-100 dark:border-red-900 rounded-lg px-3 py-2">
                   {error}
                 </p>
               ) : null}

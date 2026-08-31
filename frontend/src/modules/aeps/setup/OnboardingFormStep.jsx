@@ -399,14 +399,14 @@ export default function OnboardingFormStep({ aepsStatus: status, refreshStatus, 
           <button
             type="button"
             onClick={() => previewImage(fieldKey)}
-            className="rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-xs font-semibold text-slate-700 hover:bg-slate-50"
+            className="rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 px-3 py-1.5 text-xs font-semibold text-slate-700 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-800"
           >
             Preview
           </button>
           <button
             type="button"
             onClick={() => downloadImage(fieldKey)}
-            className="rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-xs font-semibold text-slate-700 hover:bg-slate-50"
+            className="rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 px-3 py-1.5 text-xs font-semibold text-slate-700 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-800"
           >
             Download JPG
           </button>
@@ -414,7 +414,7 @@ export default function OnboardingFormStep({ aepsStatus: status, refreshStatus, 
             <img
               src={base64ToDataUrl(form[fieldKey])}
               alt={label}
-              className="h-16 w-16 rounded-lg border border-slate-200 object-cover"
+              className="h-16 w-16 rounded-lg border border-slate-200 dark:border-slate-700 object-cover"
             />
           ) : null}
         </div>
@@ -424,7 +424,7 @@ export default function OnboardingFormStep({ aepsStatus: status, refreshStatus, 
 
   if (loadingStatus || status == null) {
     return (
-      <div className="rounded-2xl border border-slate-200 bg-white p-10 text-center text-sm text-slate-500 shadow-sm">
+      <div className="rounded-2xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 p-10 text-center text-sm text-slate-500 dark:text-slate-400 shadow-sm">
         Checking AEPS access…
       </div>
     );
@@ -432,10 +432,10 @@ export default function OnboardingFormStep({ aepsStatus: status, refreshStatus, 
 
   if (!status.entitled) {
     return (
-      <div className="rounded-2xl border border-slate-200 bg-white p-8 text-center shadow-sm">
-        <p className="text-sm font-semibold uppercase tracking-widest text-slate-400">AEPS</p>
-        <h2 className="mt-2 text-xl font-bold text-slate-900">Access required</h2>
-        <p className="mt-2 text-slate-600">Ask Admin to enable AEPS for your account before onboarding.</p>
+      <div className="rounded-2xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 p-8 text-center shadow-sm">
+        <p className="text-sm font-semibold uppercase tracking-widest text-slate-400 dark:text-slate-500">AEPS</p>
+        <h2 className="mt-2 text-xl font-bold text-slate-900 dark:text-slate-100">Access required</h2>
+        <p className="mt-2 text-slate-600 dark:text-slate-400">Ask Admin to enable AEPS for your account before onboarding.</p>
       </div>
     );
   }
@@ -443,7 +443,7 @@ export default function OnboardingFormStep({ aepsStatus: status, refreshStatus, 
   if (onboardingLocked) {
     return (
       <SetupPageShell>
-        <div className="rounded-2xl border border-slate-200 bg-white p-10 text-center text-sm text-slate-500 shadow-sm">
+        <div className="rounded-2xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 p-10 text-center text-sm text-slate-500 dark:text-slate-400 shadow-sm">
           Redirecting to the next step…
         </div>
       </SetupPageShell>
@@ -452,7 +452,7 @@ export default function OnboardingFormStep({ aepsStatus: status, refreshStatus, 
 
   if (loading) {
     return (
-      <div className="rounded-2xl border border-slate-200 bg-white p-10 text-center text-sm text-slate-500 shadow-sm">
+      <div className="rounded-2xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 p-10 text-center text-sm text-slate-500 dark:text-slate-400 shadow-sm">
         Loading merchant setup…
       </div>
     );
@@ -482,11 +482,11 @@ export default function OnboardingFormStep({ aepsStatus: status, refreshStatus, 
             <button
               type="button"
               onClick={copyFingpayExchange}
-              className="rounded-lg border border-rose-300 bg-white px-3 py-1.5 text-xs font-medium text-rose-900 hover:bg-rose-100"
+              className="rounded-lg border border-rose-300 dark:border-rose-800 bg-white dark:bg-slate-900 px-3 py-1.5 text-xs font-medium text-rose-900 dark:text-rose-300 hover:bg-rose-100 dark:hover:bg-rose-900/60"
             >
               Copy request/response for Tapits
             </button>
-            <pre className="max-h-56 overflow-auto rounded-lg border border-rose-200 bg-white/80 p-2 text-[11px] leading-relaxed text-rose-950">
+            <pre className="max-h-56 overflow-auto rounded-lg border border-rose-200 dark:border-rose-800 bg-white/80 dark:bg-slate-900/80 p-2 text-[11px] leading-relaxed text-rose-950 dark:text-rose-200">
               {JSON.stringify(fingpayExchange.share_with_tapits || fingpayExchange, null, 2)}
             </pre>
           </div>
@@ -609,7 +609,7 @@ export default function OnboardingFormStep({ aepsStatus: status, refreshStatus, 
       <Section
         title="5. Shop / outlet"
         action={
-          <button type="button" onClick={copyResidenceToShop} className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-1.5 text-xs font-semibold text-slate-700 hover:bg-slate-100">
+          <button type="button" onClick={copyResidenceToShop} className="rounded-lg border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800/50 px-3 py-1.5 text-xs font-semibold text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-700">
             Copy from residence
           </button>
         }
@@ -651,8 +651,8 @@ export default function OnboardingFormStep({ aepsStatus: status, refreshStatus, 
         </div>
       </Section>
 
-      <div className="sticky bottom-3 z-10 flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-slate-200 bg-white/95 px-4 py-3 shadow-lg backdrop-blur">
-        <p className="text-xs text-slate-500">
+      <div className="sticky bottom-3 z-10 flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-slate-200 dark:border-slate-700 bg-white/95 dark:bg-slate-900/95 px-4 py-3 shadow-lg backdrop-blur">
+        <p className="text-xs text-slate-500 dark:text-slate-400">
           {dirty ? 'Unsaved changes' : 'Save draft anytime. Submit sends the merchant to Fingpay.'}
         </p>
         <div className="flex flex-wrap gap-2">

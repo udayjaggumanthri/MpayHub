@@ -150,11 +150,11 @@ const ActivityAuditPanel = ({
   };
 
   return (
-    <Card className="overflow-hidden border-slate-200/80 shadow-sm">
-      <div className="flex flex-col gap-3 border-b border-slate-100 bg-slate-50/60 px-5 py-4 sm:flex-row sm:items-center sm:justify-between">
+    <Card className="overflow-hidden border-slate-200/80 dark:border-slate-700/80 shadow-sm">
+      <div className="flex flex-col gap-3 border-b border-slate-100 dark:border-slate-800 bg-slate-50/60 dark:bg-slate-800/50 px-5 py-4 sm:flex-row sm:items-center sm:justify-between">
         <div>
-          <h2 className="text-base font-semibold tracking-tight text-slate-900">{title}</h2>
-          <p className="mt-0.5 text-sm text-slate-500">
+          <h2 className="text-base font-semibold tracking-tight text-slate-900 dark:text-slate-100">{title}</h2>
+          <p className="mt-0.5 text-sm text-slate-500 dark:text-slate-400">
             Auth, money, contacts, reports, and admin events. Times shown in IST with seconds.
             Precise location uses browser GPS when allowed; otherwise IP GeoIP.
           </p>
@@ -175,7 +175,7 @@ const ActivityAuditPanel = ({
         </div>
       </div>
 
-      <div className="space-y-4 border-b border-slate-100 px-5 py-4">
+      <div className="space-y-4 border-b border-slate-100 dark:border-slate-800 px-5 py-4">
         <div className="flex flex-wrap gap-2">
           {PRESETS.map((p) => (
             <button
@@ -185,7 +185,7 @@ const ActivityAuditPanel = ({
               className={`rounded-lg px-3 py-1.5 text-xs font-semibold transition ${
                 preset === p.id
                   ? 'bg-slate-900 text-white'
-                  : 'bg-white text-slate-600 ring-1 ring-slate-200 hover:bg-slate-50'
+                  : 'bg-white dark:bg-slate-900 text-slate-600 dark:text-slate-400 ring-1 ring-slate-200 dark:ring-slate-700 hover:bg-slate-50 dark:hover:bg-slate-800'
               }`}
             >
               {p.label}
@@ -204,7 +204,7 @@ const ActivityAuditPanel = ({
               className={`rounded-full px-3 py-1 text-xs font-semibold transition ${
                 category === c.id
                   ? 'bg-indigo-600 text-white'
-                  : 'bg-indigo-50 text-indigo-800 ring-1 ring-indigo-100 hover:bg-indigo-100'
+                  : 'bg-indigo-50 dark:bg-indigo-950/40 text-indigo-800 dark:text-indigo-300 ring-1 ring-indigo-100 dark:ring-indigo-900 hover:bg-indigo-100 dark:hover:bg-indigo-900/60'
               }`}
             >
               {c.label}
@@ -236,7 +236,7 @@ const ActivityAuditPanel = ({
               }}
             />
           </div>
-          <label className="block text-xs font-semibold text-slate-600">
+          <label className="block text-xs font-semibold text-slate-600 dark:text-slate-400">
             Event type
             <input
               type="text"
@@ -246,7 +246,7 @@ const ActivityAuditPanel = ({
                 setPage(1);
               }}
               placeholder="e.g. login_success"
-              className="mt-1 w-full rounded-lg border border-slate-200 px-3 py-2 text-sm text-slate-900 shadow-sm focus:border-indigo-400 focus:outline-none focus:ring-1 focus:ring-indigo-400"
+              className="mt-1 w-full rounded-lg border border-slate-200 dark:border-slate-700 px-3 py-2 text-sm text-slate-900 dark:text-slate-100 shadow-sm focus:border-indigo-400 focus:outline-none focus:ring-1 focus:ring-indigo-400"
             />
           </label>
         </div>
@@ -254,17 +254,17 @@ const ActivityAuditPanel = ({
 
       <div className="px-5 py-4">
         {error ? (
-          <p className="mb-3 text-sm text-red-600">{error}</p>
+          <p className="mb-3 text-sm text-red-600 dark:text-red-400">{error}</p>
         ) : null}
         {loading ? (
-          <p className="py-10 text-center text-sm text-slate-500">Loading activity…</p>
+          <p className="py-10 text-center text-sm text-slate-500 dark:text-slate-400">Loading activity…</p>
         ) : rows.length === 0 ? (
-          <p className="py-10 text-center text-sm text-slate-500">No events for this filter.</p>
+          <p className="py-10 text-center text-sm text-slate-500 dark:text-slate-400">No events for this filter.</p>
         ) : (
           <div className="overflow-x-auto">
             <table className="min-w-full text-left text-sm">
               <thead>
-                <tr className="border-b border-slate-200 text-[11px] font-semibold uppercase tracking-wide text-slate-500">
+                <tr className="border-b border-slate-200 dark:border-slate-700 text-[11px] font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">
                   <th className="px-2 py-2">When</th>
                   <th className="px-2 py-2">Event</th>
                   <th className="px-2 py-2">Category</th>
@@ -275,7 +275,7 @@ const ActivityAuditPanel = ({
                   <th className="px-2 py-2">Message</th>
                 </tr>
               </thead>
-              <tbody className="divide-y divide-slate-100">
+              <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
                 {rows.map((row) => {
                   const resolution = row.location_resolution || '';
                   const precise =
@@ -294,18 +294,18 @@ const ActivityAuditPanel = ({
                           ? `GeoIP · ${row.location_source}`
                           : '';
                   return (
-                  <tr key={row.id} className="align-top text-slate-700">
-                    <td className="whitespace-nowrap px-2 py-2.5 text-xs text-slate-500">
+                  <tr key={row.id} className="align-top text-slate-700 dark:text-slate-300">
+                    <td className="whitespace-nowrap px-2 py-2.5 text-xs text-slate-500 dark:text-slate-400">
                       {formatAuditDateTime(row.created_at)}
                     </td>
                     <td className="px-2 py-2.5">
-                      <div className="font-medium text-slate-900">
+                      <div className="font-medium text-slate-900 dark:text-slate-100">
                         {formatAuditEventLabel(row.event_type)}
                       </div>
-                      <div className="mt-0.5 font-mono text-[10px] text-slate-400">{row.event_type}</div>
+                      <div className="mt-0.5 font-mono text-[10px] text-slate-400 dark:text-slate-500">{row.event_type}</div>
                     </td>
                     <td className="px-2 py-2.5">
-                      <span className="rounded-md bg-slate-100 px-1.5 py-0.5 text-[11px] font-semibold uppercase text-slate-600">
+                      <span className="rounded-md bg-slate-100 dark:bg-slate-800 px-1.5 py-0.5 text-[11px] font-semibold uppercase text-slate-600 dark:text-slate-400">
                         {row.category || '—'}
                       </span>
                     </td>
@@ -314,7 +314,7 @@ const ActivityAuditPanel = ({
                         {row.user_id ? (
                           <Link
                             to={`/user-management/users/${row.user_id}`}
-                            className="font-semibold text-indigo-600 hover:text-indigo-800"
+                            className="font-semibold text-indigo-600 dark:text-indigo-400 hover:text-indigo-800 dark:hover:text-indigo-200"
                           >
                             {formatUserId(row.user) || row.user?.phone || row.user_id}
                           </Link>
@@ -329,26 +329,26 @@ const ActivityAuditPanel = ({
                     <td className="px-2 py-2.5 text-xs">
                       <div>{precise}</div>
                       {sourceBadge ? (
-                        <div className="mt-0.5 text-[10px] font-medium uppercase tracking-wide text-slate-400">
+                        <div className="mt-0.5 text-[10px] font-medium uppercase tracking-wide text-slate-400 dark:text-slate-500">
                           {sourceBadge}
                         </div>
                       ) : null}
                       {row.location_label &&
                       resolution === 'browser' &&
                       row.precise_location_label !== row.location_label ? (
-                        <div className="mt-0.5 text-[10px] text-slate-400">
+                        <div className="mt-0.5 text-[10px] text-slate-400 dark:text-slate-500">
                           IP: {row.location_label}
                         </div>
                       ) : null}
                       {row.network_capture === 'unavailable' ||
                       row.location_source === 'server_side' ? (
-                        <div className="mt-0.5 text-[10px] font-medium uppercase tracking-wide text-slate-400">
+                        <div className="mt-0.5 text-[10px] font-medium uppercase tracking-wide text-slate-400 dark:text-slate-500">
                           No client request
                         </div>
                       ) : null}
                     </td>
                     {showDeviceColumns ? (
-                      <td className="px-2 py-2.5 text-xs text-slate-600">
+                      <td className="px-2 py-2.5 text-xs text-slate-600 dark:text-slate-400">
                         {row.device_summary ||
                           [
                             row.device?.browser_name,
@@ -359,14 +359,14 @@ const ActivityAuditPanel = ({
                             .join(' · ') ||
                           '—'}
                         {row.device?.screen ? (
-                          <div className="mt-0.5 text-[10px] text-slate-400">{row.device.screen}</div>
+                          <div className="mt-0.5 text-[10px] text-slate-400 dark:text-slate-500">{row.device.screen}</div>
                         ) : null}
                         {row.device?.timezone ? (
-                          <div className="mt-0.5 text-[10px] text-slate-400">{row.device.timezone}</div>
+                          <div className="mt-0.5 text-[10px] text-slate-400 dark:text-slate-500">{row.device.timezone}</div>
                         ) : null}
                       </td>
                     ) : null}
-                    <td className="max-w-xs px-2 py-2.5 text-xs text-slate-500">
+                    <td className="max-w-xs px-2 py-2.5 text-xs text-slate-500 dark:text-slate-400">
                       {(row.message || '').slice(0, 120) || '—'}
                     </td>
                   </tr>
@@ -378,7 +378,7 @@ const ActivityAuditPanel = ({
         )}
 
         {pagination.total_pages > 1 ? (
-          <div className="mt-4 flex items-center justify-between text-sm text-slate-600">
+          <div className="mt-4 flex items-center justify-between text-sm text-slate-600 dark:text-slate-400">
             <span>
               Page {pagination.page} of {pagination.total_pages} · {pagination.total} events
             </span>
@@ -387,7 +387,7 @@ const ActivityAuditPanel = ({
                 type="button"
                 disabled={page <= 1}
                 onClick={() => setPage((p) => Math.max(1, p - 1))}
-                className="rounded-lg border border-slate-200 px-3 py-1.5 text-xs font-semibold disabled:opacity-40"
+                className="rounded-lg border border-slate-200 dark:border-slate-700 px-3 py-1.5 text-xs font-semibold disabled:opacity-40"
               >
                 Previous
               </button>
@@ -395,7 +395,7 @@ const ActivityAuditPanel = ({
                 type="button"
                 disabled={page >= pagination.total_pages}
                 onClick={() => setPage((p) => p + 1)}
-                className="rounded-lg border border-slate-200 px-3 py-1.5 text-xs font-semibold disabled:opacity-40"
+                className="rounded-lg border border-slate-200 dark:border-slate-700 px-3 py-1.5 text-xs font-semibold disabled:opacity-40"
               >
                 Next
               </button>

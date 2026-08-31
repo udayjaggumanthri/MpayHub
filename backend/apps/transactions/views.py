@@ -31,6 +31,7 @@ from apps.transactions.report_operational import (
     platform_bbps_queryset,
     platform_payin_queryset,
     platform_payout_queryset,
+    user_scope_payin_load_money_queryset,
 )
 from apps.transactions.report_api import (
     bbps_rows_for_transactions,
@@ -339,24 +340,18 @@ def payin_report_view(request):
         tx_data = []
     else:
         try:
-            uq = transaction_user_q(request)
+            qs = user_scope_payin_load_money_queryset(request)
         except PermissionDenied as e:
             return Response(
                 {'success': False, 'data': None, 'message': str(e.detail if hasattr(e, 'detail') else e), 'errors': []},
                 status=status.HTTP_403_FORBIDDEN,
             )
-        qs = (
-            Transaction.objects.filter(uq, transaction_type='payin')
-            .select_related('user', 'agent_user')
-            .order_by('-created_at')
-        )
-        qs = apply_transaction_report_filters(qs, request, include_customer_mobile=True)
-        summary = txn_status_financial_summary(qs)
+        summary = operational_status_financial_summary(qs)
         total = qs.count()
         start = (page - 1) * page_size
         slice_qs = list(qs[start : start + page_size])
-        tx_data = TransactionSerializer(slice_qs, many=True).data
-        rows = payin_rows_for_transactions(request, slice_qs)
+        rows = payin_rows_from_load_money(request, slice_qs)
+        tx_data = []
     _audit_report_view(request, 'payin', scope)
     return Response(
         {
@@ -525,8 +520,8 @@ def commission_report_view(request):
     )
     ledger_qs = apply_commission_ledger_filters(ledger_qs, request)
     ledger_total = ledger_qs.aggregate(s=Sum('amount'))['s'] or Decimal('0')
-
-    ledger_ser = CommissionLedgerSerializer(ledger_qs[:500], many=True)
+    page, page_size = _report_page_params(request)
+    ledger_count = ledger_qs.count()
 
     try:
         commission_wallet = Wallet.objects.get(user=request.user, wallet_type='commission')
@@ -549,7 +544,20 @@ def commission_report_view(request):
 
         from apps.wallets.serializers import WalletTransactionSerializer
 
-        serializer = WalletTransactionSerializer(transactions[:500], many=True)
+        start = (page - 1) * page_size
+        end = start + page_size
+        if ledger_count > 0:
+            total = ledger_count
+            ledger_slice = list(ledger_qs[start:end])
+            txn_slice = []
+        else:
+            txn_qs = transactions
+            total = txn_qs.count()
+            ledger_slice = []
+            txn_slice = list(txn_qs[start:end])
+
+        ledger_ser = CommissionLedgerSerializer(ledger_slice, many=True)
+        serializer = WalletTransactionSerializer(txn_slice, many=True)
 
         _audit_report_view(request, 'commission', get_report_scope(request))
         return Response(
@@ -559,12 +567,15 @@ def commission_report_view(request):
                     'transactions': serializer.data,
                     'ledger': ledger_ser.data,
                     'scope': get_report_scope(request),
+                    'total': total,
+                    'page': page,
+                    'page_size': page_size,
                     'summary': {
                         'total_commission': str(total_commission),
                         'ledger_total': str(ledger_total),
                         'current_balance': str(current_balance),
                         'count': transactions.count(),
-                        'ledger_count': ledger_qs.count(),
+                        'ledger_count': ledger_count,
                     },
                 },
                 'message': 'Commission report retrieved successfully',
@@ -573,6 +584,10 @@ def commission_report_view(request):
             status=status.HTTP_200_OK,
         )
     except Wallet.DoesNotExist:
+        start = (page - 1) * page_size
+        end = start + page_size
+        ledger_slice = list(ledger_qs[start:end])
+        ledger_ser = CommissionLedgerSerializer(ledger_slice, many=True)
         return Response(
             {
                 'success': True,
@@ -580,12 +595,15 @@ def commission_report_view(request):
                     'transactions': [],
                     'ledger': ledger_ser.data,
                     'scope': get_report_scope(request),
+                    'total': ledger_count,
+                    'page': page,
+                    'page_size': page_size,
                     'summary': {
                         'total_commission': '0.0000',
                         'ledger_total': str(ledger_total),
                         'current_balance': '0.0000',
                         'count': 0,
-                        'ledger_count': ledger_qs.count(),
+                        'ledger_count': ledger_count,
                     },
                 },
                 'message': 'Commission report retrieved successfully',
@@ -598,11 +616,7 @@ def commission_report_view(request):
 def _payin_report_queryset(request):
     if get_report_scope(request) == 'platform':
         return platform_payin_queryset(request)
-    uq = transaction_user_q(request)
-    qs = Transaction.objects.filter(uq, transaction_type='payin').select_related('user', 'agent_user').order_by(
-        '-created_at'
-    )
-    return apply_transaction_report_filters(qs, request, include_customer_mobile=True)
+    return user_scope_payin_load_money_queryset(request)
 
 
 def _payout_report_queryset(request):

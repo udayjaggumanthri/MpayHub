@@ -16,6 +16,7 @@ import Badge from '../../common/Badge';
 import Button from '../../common/Button';
 import LoadingSpinner from '../../common/LoadingSpinner';
 import Tabs from '../../common/Tabs';
+import BbpsCashOnlyToggle from './BbpsCashOnlyToggle';
 
 const PAGE_SIZES = [25, 50, 100];
 
@@ -35,11 +36,11 @@ function timeAgo(iso) {
 const CopyId = ({ value }) => {
   const [copied, setCopied] = useState(false);
   return (
-    <span className="inline-flex items-center gap-1.5 font-mono text-xs text-slate-600">
+    <span className="inline-flex items-center gap-1.5 font-mono text-xs text-slate-600 dark:text-slate-400">
       {value}
       <button
         type="button"
-        className="text-slate-400 hover:text-blue-600"
+        className="text-slate-400 dark:text-slate-500 hover:text-blue-600"
         title="Copy biller ID"
         onClick={(e) => {
           e.stopPropagation();
@@ -48,7 +49,7 @@ const CopyId = ({ value }) => {
           setTimeout(() => setCopied(false), 1200);
         }}
       >
-        {copied ? <FaCheck size={11} className="text-emerald-600" /> : <FaCopy size={11} />}
+        {copied ? <FaCheck size={11} className="text-emerald-600 dark:text-emerald-400" /> : <FaCopy size={11} />}
       </button>
     </span>
   );
@@ -92,10 +93,10 @@ const BillerDrawer = ({ row, onClose }) => {
   return (
     <>
       <div className="fixed inset-0 z-40 bg-slate-900/40" onClick={onClose} />
-      <aside className="fixed inset-y-0 right-0 z-50 flex w-full max-w-md flex-col bg-white shadow-2xl">
-        <div className="flex items-start justify-between border-b border-slate-200 px-5 py-4">
+      <aside className="fixed inset-y-0 right-0 z-50 flex w-full max-w-md flex-col bg-white dark:bg-slate-900 shadow-2xl">
+        <div className="flex items-start justify-between border-b border-slate-200 dark:border-slate-700 px-5 py-4">
           <div className="min-w-0">
-            <h2 className="truncate text-lg font-bold text-slate-900">{b.biller_name}</h2>
+            <h2 className="truncate text-lg font-bold text-slate-900 dark:text-slate-100">{b.biller_name}</h2>
             <div className="mt-1 flex flex-wrap items-center gap-2">
               <CopyId value={b.biller_id} />
               <Badge variant={b.is_active_local ? 'success' : 'default'} size="sm">
@@ -106,7 +107,7 @@ const BillerDrawer = ({ row, onClose }) => {
               </Badge>
             </div>
           </div>
-          <button type="button" onClick={onClose} className="rounded-lg p-2 text-slate-400 hover:bg-slate-100 hover:text-slate-700">
+          <button type="button" onClick={onClose} className="rounded-lg p-2 text-slate-400 dark:text-slate-500 hover:bg-slate-100 dark:hover:bg-slate-700 hover:text-slate-700 dark:hover:text-slate-300">
             <FaXmark size={16} />
           </button>
         </div>
@@ -119,71 +120,71 @@ const BillerDrawer = ({ row, onClose }) => {
           ) : (
             <>
               <section>
-                <h3 className="text-xs font-semibold uppercase tracking-wide text-slate-500">Overview</h3>
+                <h3 className="text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">Overview</h3>
                 <dl className="mt-2 grid grid-cols-2 gap-x-4 gap-y-2 text-sm">
                   <div>
-                    <dt className="text-xs text-slate-500">Category</dt>
-                    <dd className="font-medium text-slate-800">{b.biller_category || '—'}</dd>
+                    <dt className="text-xs text-slate-500 dark:text-slate-400">Category</dt>
+                    <dd className="font-medium text-slate-800 dark:text-slate-200">{b.biller_category || '—'}</dd>
                   </div>
                   <div>
-                    <dt className="text-xs text-slate-500">Environment</dt>
-                    <dd className="font-medium uppercase text-slate-800">{b.environment || '—'}</dd>
+                    <dt className="text-xs text-slate-500 dark:text-slate-400">Environment</dt>
+                    <dd className="font-medium uppercase text-slate-800 dark:text-slate-200">{b.environment || '—'}</dd>
                   </div>
                   <div>
-                    <dt className="text-xs text-slate-500">Coverage</dt>
-                    <dd className="font-medium text-slate-800">{detail?.biller_coverage || '—'}</dd>
+                    <dt className="text-xs text-slate-500 dark:text-slate-400">Coverage</dt>
+                    <dd className="font-medium text-slate-800 dark:text-slate-200">{detail?.biller_coverage || '—'}</dd>
                   </div>
                   <div>
-                    <dt className="text-xs text-slate-500">Fetch requirement</dt>
-                    <dd className="font-medium text-slate-800">{detail?.biller_fetch_requiremet || detail?.biller_fetch_requirement || '—'}</dd>
+                    <dt className="text-xs text-slate-500 dark:text-slate-400">Fetch requirement</dt>
+                    <dd className="font-medium text-slate-800 dark:text-slate-200">{detail?.biller_fetch_requiremet || detail?.biller_fetch_requirement || '—'}</dd>
                   </div>
                   <div>
-                    <dt className="text-xs text-slate-500">Last synced</dt>
-                    <dd className="font-medium text-slate-800">{timeAgo(b.last_synced_at)}</dd>
+                    <dt className="text-xs text-slate-500 dark:text-slate-400">Last synced</dt>
+                    <dd className="font-medium text-slate-800 dark:text-slate-200">{timeAgo(b.last_synced_at)}</dd>
                   </div>
                   <div>
-                    <dt className="text-xs text-slate-500">Sync status</dt>
-                    <dd className="font-medium text-slate-800">{b.last_sync_status || '—'}</dd>
+                    <dt className="text-xs text-slate-500 dark:text-slate-400">Sync status</dt>
+                    <dd className="font-medium text-slate-800 dark:text-slate-200">{b.last_sync_status || '—'}</dd>
                   </div>
                 </dl>
               </section>
 
               <section>
-                <h3 className="text-xs font-semibold uppercase tracking-wide text-slate-500">
+                <h3 className="text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">
                   Input schema ({inputParams.length})
                 </h3>
                 {inputParams.length === 0 ? (
-                  <p className="mt-2 text-sm text-slate-500">No input parameters recorded.</p>
+                  <p className="mt-2 text-sm text-slate-500 dark:text-slate-400">No input parameters recorded.</p>
                 ) : (
                   <ul className="mt-2 space-y-1.5">
                     {inputParams.slice(0, 8).map((p) => (
-                      <li key={p.param_name} className="flex items-center justify-between rounded-lg bg-slate-50 px-3 py-1.5 text-sm">
-                        <span className="font-medium text-slate-800">{p.param_name}</span>
-                        <span className="text-xs text-slate-500">
+                      <li key={p.param_name} className="flex items-center justify-between rounded-lg bg-slate-50 dark:bg-slate-800/50 px-3 py-1.5 text-sm">
+                        <span className="font-medium text-slate-800 dark:text-slate-200">{p.param_name}</span>
+                        <span className="text-xs text-slate-500 dark:text-slate-400">
                           {p.data_type || 'TEXT'} · {p.is_optional ? 'optional' : 'required'}
                         </span>
                       </li>
                     ))}
                     {inputParams.length > 8 && (
-                      <li className="text-xs text-slate-400">+{inputParams.length - 8} more…</li>
+                      <li className="text-xs text-slate-400 dark:text-slate-500">+{inputParams.length - 8} more…</li>
                     )}
                   </ul>
                 )}
               </section>
 
               <section>
-                <h3 className="text-xs font-semibold uppercase tracking-wide text-slate-500">
+                <h3 className="text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">
                   Payment modes ({paymentModes.length})
                 </h3>
                 {paymentModes.length === 0 ? (
-                  <p className="mt-2 text-sm text-slate-500">No payment mode limits recorded.</p>
+                  <p className="mt-2 text-sm text-slate-500 dark:text-slate-400">No payment mode limits recorded.</p>
                 ) : (
                   <div className="mt-2 flex flex-wrap gap-1.5">
                     {paymentModes.map((m) => (
                       <span
                         key={m.payment_mode}
                         className={`rounded-full px-2.5 py-1 text-xs font-medium ${
-                          m.is_active ? 'bg-blue-50 text-blue-700' : 'bg-slate-100 text-slate-400 line-through'
+                          m.is_active ? 'bg-blue-50 dark:bg-blue-950/40 text-blue-700 dark:text-blue-300' : 'bg-slate-100 dark:bg-slate-800 text-slate-400 dark:text-slate-500 line-through'
                         }`}
                       >
                         {m.payment_mode}
@@ -192,14 +193,14 @@ const BillerDrawer = ({ row, onClose }) => {
                   </div>
                 )}
                 {channels.length > 0 && (
-                  <p className="mt-2 text-xs text-slate-500">Channels: {channels.join(', ')}</p>
+                  <p className="mt-2 text-xs text-slate-500 dark:text-slate-400">Channels: {channels.join(', ')}</p>
                 )}
               </section>
             </>
           )}
         </div>
 
-        <div className="border-t border-slate-200 px-5 py-3">
+        <div className="border-t border-slate-200 dark:border-slate-700 px-5 py-3">
           <Link
             to={`/admin/bbps-governance/biller/${row.id}`}
             className="flex w-full items-center justify-center gap-2 rounded-lg bg-blue-600 px-4 py-2.5 text-sm font-semibold text-white transition hover:bg-blue-700"
@@ -389,7 +390,7 @@ const BillerDirectory = () => {
   return (
     <div className="space-y-4">
       {isProdEnv && (
-        <div className="rounded-lg border border-emerald-300 bg-emerald-50 px-4 py-2 text-xs font-semibold text-emerald-800">
+        <div className="rounded-lg border border-emerald-300 dark:border-emerald-800 bg-emerald-50 dark:bg-emerald-950/40 px-4 py-2 text-xs font-semibold text-emerald-800 dark:text-emerald-300">
           You are viewing the PRODUCTION catalog. Bulk actions here affect live retailers.
         </div>
       )}
@@ -397,7 +398,7 @@ const BillerDirectory = () => {
       {notice && (
         <div
           className={`rounded-lg px-4 py-2.5 text-sm font-medium ${
-            notice.type === 'success' ? 'bg-emerald-50 text-emerald-800' : 'bg-red-50 text-red-700'
+            notice.type === 'success' ? 'bg-emerald-50 dark:bg-emerald-950/40 text-emerald-800 dark:text-emerald-300' : 'bg-red-50 dark:bg-red-950/40 text-red-700 dark:text-red-300'
           }`}
         >
           {notice.text}
@@ -406,8 +407,8 @@ const BillerDirectory = () => {
 
       <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
         <div>
-          <h2 className="text-lg font-bold text-slate-900">Biller Directory</h2>
-          <p className="text-sm text-slate-500">
+          <h2 className="text-lg font-bold text-slate-900 dark:text-slate-100">Biller Directory</h2>
+          <p className="text-sm text-slate-500 dark:text-slate-400">
             {totals ? `${totals.total} billers · ${totals.visible} visible · ${totals.hidden} hidden` : 'Loading catalog…'}
           </p>
         </div>
@@ -421,9 +422,11 @@ const BillerDirectory = () => {
         />
       </div>
 
+      <BbpsCashOnlyToggle environment={env || liveMode || 'uat'} />
+
       <div className="grid gap-4 lg:grid-cols-[230px_1fr]">
         {/* Category tree */}
-        <aside className="h-fit rounded-xl border border-slate-200 bg-white p-2 shadow-sm lg:sticky lg:top-4">
+        <aside className="h-fit rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 p-2 shadow-sm lg:sticky lg:top-4">
           {loadingCats ? (
             <div className="flex justify-center py-8">
               <LoadingSpinner size="sm" />
@@ -434,11 +437,11 @@ const BillerDirectory = () => {
                 type="button"
                 onClick={() => pickCategory('')}
                 className={`flex items-center justify-between rounded-lg px-3 py-2 text-sm font-medium transition ${
-                  !category ? 'bg-blue-600 text-white' : 'text-slate-600 hover:bg-slate-50'
+                  !category ? 'bg-blue-600 text-white' : 'text-slate-600 dark:text-slate-400 hover:bg-slate-50 dark:hover:bg-slate-800'
                 }`}
               >
                 All categories
-                <span className={`text-xs font-semibold ${!category ? 'text-blue-100' : 'text-slate-400'}`}>
+                <span className={`text-xs font-semibold ${!category ? 'text-blue-100' : 'text-slate-400 dark:text-slate-500'}`}>
                   {totals?.total ?? 0}
                 </span>
               </button>
@@ -450,12 +453,12 @@ const BillerDirectory = () => {
                     type="button"
                     onClick={() => pickCategory(c.category)}
                     className={`flex items-center justify-between gap-2 rounded-lg px-3 py-2 text-left text-sm font-medium transition ${
-                      isActive ? 'bg-blue-600 text-white' : 'text-slate-600 hover:bg-slate-50'
+                      isActive ? 'bg-blue-600 text-white' : 'text-slate-600 dark:text-slate-400 hover:bg-slate-50 dark:hover:bg-slate-800'
                     }`}
                     title={`${c.category}: ${c.visible} visible, ${c.hidden} hidden`}
                   >
                     <span className="truncate">{c.category}</span>
-                    <span className={`shrink-0 text-xs font-semibold ${isActive ? 'text-blue-100' : 'text-slate-400'}`}>
+                    <span className={`shrink-0 text-xs font-semibold ${isActive ? 'text-blue-100' : 'text-slate-400 dark:text-slate-500'}`}>
                       {c.total}
                     </span>
                   </button>
@@ -468,15 +471,15 @@ const BillerDirectory = () => {
         {/* Table area */}
         <div className="min-w-0 space-y-3">
           {/* Filter bar */}
-          <div className="flex flex-wrap items-center gap-2 rounded-xl border border-slate-200 bg-white px-3 py-2.5 shadow-sm">
+          <div className="flex flex-wrap items-center gap-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 px-3 py-2.5 shadow-sm">
             <div className="relative min-w-[220px] flex-1">
-              <FaMagnifyingGlass className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" size={13} />
+              <FaMagnifyingGlass className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 dark:text-slate-500" size={13} />
               <input
                 type="text"
                 value={qInput}
                 onChange={(e) => onSearchChange(e.target.value)}
                 placeholder="Search biller name or ID…"
-                className="w-full rounded-lg border border-slate-200 py-2 pl-9 pr-3 text-sm focus:border-blue-400 focus:outline-none focus:ring-2 focus:ring-blue-100"
+                className="w-full rounded-lg border border-slate-200 dark:border-slate-700 py-2 pl-9 pr-3 text-sm focus:border-blue-400 focus:outline-none focus:ring-2 focus:ring-blue-100"
               />
             </div>
             <select
@@ -485,7 +488,7 @@ const BillerDirectory = () => {
                 setActive(e.target.value);
                 setPage(1);
               }}
-              className="rounded-lg border border-slate-200 px-3 py-2 text-sm focus:border-blue-400 focus:outline-none"
+              className="rounded-lg border border-slate-200 dark:border-slate-700 px-3 py-2 text-sm focus:border-blue-400 focus:outline-none"
             >
               <option value="">All visibility</option>
               <option value="true">Visible only</option>
@@ -497,7 +500,7 @@ const BillerDirectory = () => {
                 setPageSize(Number(e.target.value));
                 setPage(1);
               }}
-              className="rounded-lg border border-slate-200 px-3 py-2 text-sm focus:border-blue-400 focus:outline-none"
+              className="rounded-lg border border-slate-200 dark:border-slate-700 px-3 py-2 text-sm focus:border-blue-400 focus:outline-none"
             >
               {PAGE_SIZES.map((s) => (
                 <option key={s} value={s}>
@@ -515,7 +518,7 @@ const BillerDirectory = () => {
                   setActive('');
                   setPage(1);
                 }}
-                className="text-sm font-medium text-blue-600 hover:text-blue-800"
+                className="text-sm font-medium text-blue-600 dark:text-blue-400 hover:text-blue-800 dark:hover:text-blue-200"
               >
                 Clear filters
               </button>
@@ -524,8 +527,8 @@ const BillerDirectory = () => {
 
           {/* Bulk bar */}
           {selected.size > 0 && (
-            <div className="flex flex-wrap items-center gap-2 rounded-xl border border-blue-200 bg-blue-50 px-3 py-2">
-              <span className="text-sm font-semibold text-blue-900">{selected.size} selected</span>
+            <div className="flex flex-wrap items-center gap-2 rounded-xl border border-blue-200 dark:border-blue-800 bg-blue-50 dark:bg-blue-950/40 px-3 py-2">
+              <span className="text-sm font-semibold text-blue-900 dark:text-blue-300">{selected.size} selected</span>
               <div className="ml-auto flex flex-wrap gap-2">
                 <Button size="sm" variant="outline" onClick={() => runBulk('sync')} disabled={!!busy}>
                   <FaArrowsRotate className="mr-1.5" size={12} />
@@ -551,35 +554,35 @@ const BillerDirectory = () => {
           )}
 
           {/* Table */}
-          <div className="overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm">
+          <div className="overflow-hidden rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 shadow-sm">
             <div className="max-h-[65vh] overflow-auto">
-              <table className="min-w-full divide-y divide-slate-200 text-sm">
-                <thead className="sticky top-0 z-10 bg-slate-50">
+              <table className="min-w-full divide-y divide-slate-200 dark:divide-slate-700 text-sm">
+                <thead className="sticky top-0 z-10 bg-slate-50 dark:bg-slate-800/50">
                   <tr>
                     <th className="w-10 px-3 py-2.5">
                       <input type="checkbox" checked={allOnPageSelected} onChange={toggleAll} className="rounded" />
                     </th>
-                    <th className="px-3 py-2.5 text-left text-xs font-semibold uppercase tracking-wide text-slate-500">Biller</th>
-                    <th className="px-3 py-2.5 text-left text-xs font-semibold uppercase tracking-wide text-slate-500">Biller ID</th>
-                    <th className="px-3 py-2.5 text-left text-xs font-semibold uppercase tracking-wide text-slate-500">Category</th>
-                    <th className="px-3 py-2.5 text-left text-xs font-semibold uppercase tracking-wide text-slate-500">Mapping</th>
-                    <th className="px-3 py-2.5 text-left text-xs font-semibold uppercase tracking-wide text-slate-500">BA status</th>
-                    <th className="px-3 py-2.5 text-left text-xs font-semibold uppercase tracking-wide text-slate-500">Visibility</th>
-                    <th className="px-3 py-2.5 text-left text-xs font-semibold uppercase tracking-wide text-slate-500">Last sync</th>
+                    <th className="px-3 py-2.5 text-left text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">Biller</th>
+                    <th className="px-3 py-2.5 text-left text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">Biller ID</th>
+                    <th className="px-3 py-2.5 text-left text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">Category</th>
+                    <th className="px-3 py-2.5 text-left text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">Mapping</th>
+                    <th className="px-3 py-2.5 text-left text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">BA status</th>
+                    <th className="px-3 py-2.5 text-left text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">Visibility</th>
+                    <th className="px-3 py-2.5 text-left text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">Last sync</th>
                   </tr>
                 </thead>
-                <tbody className="divide-y divide-slate-100">
+                <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
                   {loadingRows ? (
                     Array.from({ length: 8 }).map((_, i) => (
                       <tr key={i}>
                         <td className="px-3 py-3" colSpan={8}>
-                          <div className="h-4 w-full animate-pulse rounded bg-slate-100" />
+                          <div className="h-4 w-full animate-pulse rounded bg-slate-100 dark:bg-slate-800" />
                         </td>
                       </tr>
                     ))
                   ) : rows.length === 0 ? (
                     <tr>
-                      <td colSpan={8} className="px-3 py-14 text-center text-sm text-slate-500">
+                      <td colSpan={8} className="px-3 py-14 text-center text-sm text-slate-500 dark:text-slate-400">
                         No billers match the current filters.
                       </td>
                     </tr>
@@ -588,7 +591,7 @@ const BillerDirectory = () => {
                       <tr
                         key={r.id}
                         onClick={() => setDrawerRow(r)}
-                        className="cursor-pointer transition hover:bg-blue-50/40"
+                        className="cursor-pointer transition hover:bg-blue-50/40 dark:hover:bg-blue-950/60"
                       >
                         <td className="px-3 py-2.5" onClick={(e) => e.stopPropagation()}>
                           <input
@@ -599,14 +602,14 @@ const BillerDirectory = () => {
                           />
                         </td>
                         <td className="max-w-[260px] px-3 py-2.5">
-                          <div className="truncate font-medium text-slate-800" title={r.biller_name}>
+                          <div className="truncate font-medium text-slate-800 dark:text-slate-200" title={r.biller_name}>
                             {r.biller_name}
                           </div>
                         </td>
                         <td className="px-3 py-2.5 whitespace-nowrap">
                           <CopyId value={r.biller_id} />
                         </td>
-                        <td className="max-w-[160px] truncate px-3 py-2.5 text-slate-600" title={r.biller_category}>
+                        <td className="max-w-[160px] truncate px-3 py-2.5 text-slate-600 dark:text-slate-400" title={r.biller_category}>
                           {r.biller_category || '—'}
                         </td>
                         <td className="px-3 py-2.5">
@@ -625,7 +628,7 @@ const BillerDirectory = () => {
                             {r.is_active_local ? 'Visible' : 'Hidden'}
                           </Badge>
                         </td>
-                        <td className="whitespace-nowrap px-3 py-2.5 text-xs text-slate-500">
+                        <td className="whitespace-nowrap px-3 py-2.5 text-xs text-slate-500 dark:text-slate-400">
                           {timeAgo(r.last_synced_at)}
                         </td>
                       </tr>
@@ -636,8 +639,8 @@ const BillerDirectory = () => {
             </div>
 
             {/* Pagination */}
-            <div className="flex flex-wrap items-center justify-between gap-2 border-t border-slate-200 px-3 py-2.5">
-              <span className="text-xs text-slate-500">
+            <div className="flex flex-wrap items-center justify-between gap-2 border-t border-slate-200 dark:border-slate-700 px-3 py-2.5">
+              <span className="text-xs text-slate-500 dark:text-slate-400">
                 {pagination
                   ? `Page ${pagination.page} of ${totalPages} · ${pagination.total} billers`
                   : '—'}
@@ -663,9 +666,9 @@ const BillerDirectory = () => {
       {/* Delete confirm modal */}
       {confirmAction === 'delete' && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/50 p-4">
-          <div className="w-full max-w-md rounded-xl bg-white p-6 shadow-2xl">
-            <h3 className="text-lg font-bold text-slate-900">Delete {selected.size} billers?</h3>
-            <p className="mt-2 text-sm text-slate-600">
+          <div className="w-full max-w-md rounded-xl bg-white dark:bg-slate-900 p-6 shadow-2xl">
+            <h3 className="text-lg font-bold text-slate-900 dark:text-slate-100">Delete {selected.size} billers?</h3>
+            <p className="mt-2 text-sm text-slate-600 dark:text-slate-400">
               This removes them from the <strong className="uppercase">{env || liveMode}</strong> catalog. They can be
               restored by re-syncing from BillAvenue.
             </p>
