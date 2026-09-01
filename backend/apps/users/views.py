@@ -5,6 +5,7 @@ import logging
 
 from rest_framework import status, viewsets
 from rest_framework.decorators import action
+from rest_framework.pagination import PageNumberPagination
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 from django.db import models
@@ -34,10 +35,20 @@ from apps.users.services import (
     get_subordinates,
     get_viewable_user_ids,
 )
-from apps.users.hierarchy_policy import creatable_roles_for, policy_snapshot
+from apps.users.hierarchy_policy import (
+    assignable_roles_for_admin_change,
+    creatable_roles_for,
+    policy_snapshot,
+)
 from apps.wallets.views import build_wallet_summary
 
 logger = logging.getLogger(__name__)
+
+
+class UserDirectoryPagination(PageNumberPagination):
+    page_size = 25
+    page_size_query_param = 'page_size'
+    max_page_size = 100
 
 
 class UserViewSet(viewsets.ModelViewSet):
@@ -46,6 +57,7 @@ class UserViewSet(viewsets.ModelViewSet):
     """
     queryset = User.objects.all()
     permission_classes = [IsAuthenticated]
+    pagination_class = UserDirectoryPagination
     
     def get_serializer_class(self):
         if self.action == 'list':
@@ -109,19 +121,32 @@ class UserViewSet(viewsets.ModelViewSet):
         page = self.paginate_queryset(queryset)
         if page is not None:
             serializer = self.get_serializer(page, many=True)
-            # Return custom format matching frontend expectations
+            paginator = self.paginator
+            page_obj = getattr(paginator, 'page', None)
+            total = page_obj.paginator.count if page_obj is not None else queryset.count()
+            page_number = page_obj.number if page_obj is not None else 1
+            page_size = paginator.get_page_size(request)
             return Response({
                 'success': True,
-                'data': {'users': serializer.data},
+                'data': {
+                    'users': serializer.data,
+                    'total': total,
+                    'page': page_number,
+                    'page_size': page_size,
+                },
                 'message': 'Users retrieved successfully',
                 'errors': []
             })
         
-        # If no pagination, return all results
         serializer = self.get_serializer(queryset, many=True)
         return Response({
             'success': True,
-            'data': {'users': serializer.data},
+            'data': {
+                'users': serializer.data,
+                'total': queryset.count(),
+                'page': 1,
+                'page_size': queryset.count(),
+            },
             'message': 'Users retrieved successfully',
             'errors': []
         })
@@ -331,14 +356,34 @@ class UserViewSet(viewsets.ModelViewSet):
     
     @action(detail=False, methods=['get'])
     def subordinates(self, request):
-        """Get all subordinate users."""
-        subordinates = get_subordinates(request.user)
-        serializer = UserListSerializer(subordinates, many=True)
+        """Get subordinate users (paginated)."""
+        sub_ids = [u.pk for u in get_subordinates(request.user)]
+        queryset = User.objects.filter(pk__in=sub_ids).select_related('profile', 'kyc').order_by('-created_at')
+        page = self.paginate_queryset(queryset)
+        if page is not None:
+            serializer = UserListSerializer(page, many=True)
+            paginator = self.paginator
+            page_obj = getattr(paginator, 'page', None)
+            total = page_obj.paginator.count if page_obj is not None else queryset.count()
+            page_number = page_obj.number if page_obj is not None else 1
+            page_size = paginator.get_page_size(request)
+            return Response({
+                'success': True,
+                'data': {
+                    'users': serializer.data,
+                    'total': total,
+                    'page': page_number,
+                    'page_size': page_size,
+                },
+                'message': 'Subordinates retrieved successfully',
+                'errors': [],
+            }, status=status.HTTP_200_OK)
+        serializer = UserListSerializer(queryset, many=True)
         return Response({
             'success': True,
-            'data': {'users': serializer.data},
+            'data': {'users': serializer.data, 'total': len(serializer.data), 'page': 1, 'page_size': len(serializer.data)},
             'message': 'Subordinates retrieved successfully',
-            'errors': []
+            'errors': [],
         }, status=status.HTTP_200_OK)
 
     @action(detail=False, methods=['get'], url_path='creatable-roles')
@@ -354,6 +399,29 @@ class UserViewSet(viewsets.ModelViewSet):
             'message': 'Creatable roles retrieved successfully',
             'errors': [],
         }, status=status.HTTP_200_OK)
+
+    @action(detail=False, methods=['get'], url_path='assignable-roles')
+    def assignable_roles(self, request):
+        """All roles an Admin may assign when changing a user's role."""
+        if getattr(request.user, 'role', None) != 'Admin':
+            return Response(
+                {
+                    'success': False,
+                    'data': None,
+                    'message': 'Only administrators may list assignable roles.',
+                    'errors': [],
+                },
+                status=status.HTTP_403_FORBIDDEN,
+            )
+        return Response(
+            {
+                'success': True,
+                'data': {'roles': assignable_roles_for_admin_change()},
+                'message': 'Assignable roles retrieved successfully',
+                'errors': [],
+            },
+            status=status.HTTP_200_OK,
+        )
 
     @action(detail=True, methods=['get'], url_path='wallets')
     def user_wallets(self, request, pk=None):

@@ -133,6 +133,15 @@ class PlatformScopeReportTests(TestCase):
 
     def test_self_scope_still_limits_to_own_user(self):
         LoadMoney.objects.create(
+            user=self.admin,
+            amount=Decimal('999'),
+            gateway='test',
+            charge=Decimal('1'),
+            net_credit=Decimal('998'),
+            status='SUCCESS',
+            transaction_id='LM-ADMIN-HIDDEN',
+        )
+        LoadMoney.objects.create(
             user=self.retailer,
             amount=Decimal('50'),
             gateway='test',
@@ -144,4 +153,30 @@ class PlatformScopeReportTests(TestCase):
         r = self.retailer_client.get('/api/reports/payin/', {'scope': 'self'})
         self.assertEqual(r.status_code, status.HTTP_200_OK)
         self.assertEqual(r.data['data']['scope'], 'self')
-        self.assertEqual(r.data['data']['total'], 0)
+        ids = [row['service_id'] for row in r.data['data']['rows']]
+        self.assertEqual(ids, ['LM-SELF-ONLY'])
+        self.assertNotIn('LM-ADMIN-HIDDEN', ids)
+        self.assertEqual(r.data['data']['total'], 1)
+
+    def test_payin_summary_uses_cache_on_repeat(self):
+        from django.core.cache import cache
+        from django.db import connection
+        from django.test.utils import CaptureQueriesContext
+
+        LoadMoney.objects.create(
+            user=self.retailer,
+            amount=Decimal('75'),
+            gateway='test',
+            charge=Decimal('1'),
+            net_credit=Decimal('74'),
+            status='SUCCESS',
+            transaction_id='LM-SUM-CACHE-1',
+        )
+        cache.clear()
+        with CaptureQueriesContext(connection) as first:
+            r1 = self.admin_client.get('/api/reports/payin/', {'scope': 'platform'})
+        with CaptureQueriesContext(connection) as second:
+            r2 = self.admin_client.get('/api/reports/payin/', {'scope': 'platform'})
+        self.assertEqual(r1.status_code, status.HTTP_200_OK)
+        self.assertEqual(r1.data['data']['summary'], r2.data['data']['summary'])
+        self.assertLess(len(second.captured_queries), len(first.captured_queries))

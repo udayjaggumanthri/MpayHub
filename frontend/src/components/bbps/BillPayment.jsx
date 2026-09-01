@@ -15,12 +15,23 @@ import {
   normalizeCategorySlug,
   resolveCategoryRouteSlug,
 } from '../../constants/bbpsCanonicalCategories';
+import {
+  readBillerListCache,
+  readCategoryListCache,
+  prefetchBillerList,
+  syncCatalogUxMode,
+  writeCategoryListCache,
+} from '../../utils/bbpsCatalogCache';
 
 const BillPayment = () => {
   const { category } = useParams();
   const navigate = useNavigate();
   const { maintenance, refreshMaintenance } = useAuth();
-  const [apiCategories, setApiCategories] = useState([]);
+  const [apiCategories, setApiCategories] = useState(() => readCategoryListCache() || []);
+  const [categoriesLoading, setCategoriesLoading] = useState(true);
+  const [catalogResolved, setCatalogResolved] = useState(() => Boolean(readCategoryListCache()?.length));
+  const [prefetchedBillers, setPrefetchedBillers] = useState(null);
+  const [billersLoading, setBillersLoading] = useState(false);
 
   useEffect(() => {
     refreshMaintenance?.();
@@ -28,13 +39,63 @@ const BillPayment = () => {
     return () => clearInterval(id);
   }, [refreshMaintenance]);
 
+  // Categories: load once per session (warm session cache immediately, refresh in background).
   useEffect(() => {
+    let cancelled = false;
     const load = async () => {
-      const res = await bbpsAPI.getCategories();
-      setApiCategories(Array.isArray(res.data?.categories) ? res.data.categories : []);
+      const hadCache = Boolean(readCategoryListCache()?.length);
+      if (!hadCache) setCategoriesLoading(true);
+      try {
+        const catRes = await bbpsAPI.getCategories();
+        if (cancelled) return;
+        syncCatalogUxMode(catRes.data?.catalog_ux);
+        const cats = Array.isArray(catRes.data?.categories) ? catRes.data.categories : [];
+        setApiCategories(cats);
+        writeCategoryListCache(cats);
+        setCatalogResolved(true);
+      } finally {
+        if (!cancelled) setCategoriesLoading(false);
+      }
     };
     load();
+    return () => {
+      cancelled = true;
+    };
   }, []);
+
+  // Billers: fetch only when a category route is active (do not refetch categories).
+  useEffect(() => {
+    if (!category) {
+      setPrefetchedBillers(null);
+      setBillersLoading(false);
+      return undefined;
+    }
+
+    let cancelled = false;
+    const cached = readBillerListCache(category);
+    if (cached) {
+      setPrefetchedBillers(cached);
+      setBillersLoading(false);
+    } else {
+      setPrefetchedBillers(null);
+      setBillersLoading(true);
+    }
+
+    const loadBillers = async () => {
+      try {
+        const billers = await prefetchBillerList(category, bbpsAPI.getBillers);
+        if (cancelled) return;
+        setPrefetchedBillers(Array.isArray(billers) ? billers : []);
+      } finally {
+        if (!cancelled) setBillersLoading(false);
+      }
+    };
+    loadBillers();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [category]);
 
   const catalog = useMemo(() => buildCategoryCatalog(apiCategories), [apiCategories]);
   const availableSlugSet = useMemo(
@@ -56,10 +117,10 @@ const BillPayment = () => {
     ? resolveCategoryRouteSlug(categoryEntry?.apiSlug || category, availableSlugSet)
     : null;
   const categoryMeta = category ? findCanonicalCategory(category) : null;
-  const showCategoryPicker = Boolean(category && !categoryEntry);
+  const showCategoryPicker = Boolean(category && catalogResolved && !categoryEntry);
+  const catalogReady = catalogResolved;
 
   const handlePaymentSuccess = (receiptRef = {}) => {
-    // Redirect to My Bills and auto-open the latest paid transaction receipt.
     navigate('/bill-payments/my-bills', {
       state: {
         openReceipt: {
@@ -86,6 +147,9 @@ const BillPayment = () => {
           />
           <p className="mt-1.5 text-sm text-slate-600 dark:text-slate-400 sm:mt-2">
             Choose a category from the dropdown or pick a tile below
+            {categoriesLoading ? (
+              <span className="ml-1 text-blue-600 dark:text-blue-400">Updating catalog…</span>
+            ) : null}
           </p>
         </div>
         <div className="flex min-h-0 flex-1 flex-col px-3 pb-3 pt-3 sm:px-5 sm:pb-4 sm:pt-3.5">{selector}</div>
@@ -93,32 +157,25 @@ const BillPayment = () => {
     </div>
   );
 
-  // If no category selected, show category selector
+  const categoryBackButton = (
+    <button
+      type="button"
+      onClick={() => navigate('/bill-payments/pay')}
+      className="flex shrink-0 items-center space-x-2 text-gray-600 dark:text-slate-400 transition-colors hover:text-blue-600"
+    >
+      <FaArrowLeft size={18} />
+      <span className="font-medium">Back to Categories</span>
+    </button>
+  );
+
   if (!category) {
     return categoryPickerShell(
-      <BillCategorySelector selectedCategory={null} scrollCategoriesOnly />
-    );
-  }
-
-  if (showCategoryPicker) {
-    return (
-      <div className="mx-auto flex w-full max-w-6xl min-h-0 flex-col gap-4 sm:gap-6">
-        <button
-          type="button"
-          onClick={() => navigate('/bill-payments/pay')}
-          className="flex shrink-0 items-center space-x-2 text-gray-600 dark:text-slate-400 transition-colors hover:text-blue-600"
-        >
-          <FaArrowLeft size={18} />
-          <span className="font-medium">Back to Categories</span>
-        </button>
-        <div className="shrink-0 rounded-lg border border-amber-200 dark:border-amber-800 bg-amber-50 dark:bg-amber-950/40 px-4 py-3 text-sm text-amber-900 dark:text-amber-300">
-          We could not match &quot;{category}&quot; to a bill category. Select one below from all available
-          categories.
-        </div>
-        {categoryPickerShell(
-          <BillCategorySelector selectedCategory={null} scrollCategoriesOnly />
-        )}
-      </div>
+      <BillCategorySelector
+        selectedCategory={null}
+        scrollCategoriesOnly
+        apiCategories={apiCategories}
+        catalogUpdating={categoriesLoading}
+      />
     );
   }
 
@@ -129,7 +186,31 @@ const BillPayment = () => {
       .replace(/-/g, ' ')
       .replace(/\b\w/g, (c) => c.toUpperCase());
 
-  if (!categoryEntry.hasBillers) {
+  const resolvedCat = resolvedCategory || category;
+  const cachedBillers = readBillerListCache(resolvedCat) || readBillerListCache(category);
+  const billersReady = prefetchedBillers !== null || Boolean(cachedBillers?.length);
+
+  if (showCategoryPicker) {
+    return (
+      <div className="mx-auto flex w-full max-w-6xl min-h-0 flex-col gap-4 sm:gap-6">
+        {categoryBackButton}
+        <div className="shrink-0 rounded-lg border border-amber-200 dark:border-amber-800 bg-amber-50 dark:bg-amber-950/40 px-4 py-3 text-sm text-amber-900 dark:text-amber-300">
+          We could not match &quot;{category}&quot; to a bill category. Select one below from all available
+          categories.
+        </div>
+        {categoryPickerShell(
+          <BillCategorySelector
+            selectedCategory={null}
+            scrollCategoriesOnly
+            apiCategories={apiCategories}
+            catalogUpdating={categoriesLoading}
+          />
+        )}
+      </div>
+    );
+  }
+
+  if (catalogReady && categoryEntry && !categoryEntry.hasBillers) {
     return (
       <BbpsCategoryComingSoon
         categoryName={displayTitle}
@@ -140,20 +221,15 @@ const BillPayment = () => {
 
   return (
     <div className="mx-auto flex w-full max-w-7xl flex-col gap-3 overflow-visible">
-      <button
-        type="button"
-        onClick={() => navigate('/bill-payments/pay')}
-        className="flex shrink-0 items-center space-x-2 text-gray-600 dark:text-slate-400 transition-colors hover:text-blue-600"
-      >
-        <FaArrowLeft size={18} />
-        <span className="font-medium">Back to Categories</span>
-      </button>
+      {categoryBackButton}
 
       <CreditCardBill
-        category={resolvedCategory || category}
+        category={resolvedCat}
         categoryLabel={displayTitle}
         onPaymentSuccess={handlePaymentSuccess}
         onBack={() => navigate('/bill-payments/pay')}
+        initialBillers={prefetchedBillers ?? cachedBillers}
+        parentLoadingBillers={!billersReady}
       />
     </div>
   );

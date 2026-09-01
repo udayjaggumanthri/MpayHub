@@ -23,6 +23,7 @@ from apps.fund_management.models import LoadMoney, PayInPackage, Payout
 from apps.fund_management.serializers import (
     LegacyLoadMoneyCreateSerializer,
     LoadMoneySerializer,
+    LoadMoneyListSerializer,
     PayInCreateOrderSerializer,
     PayInMockCompleteSerializer,
     PayInPackageSerializer,
@@ -446,13 +447,13 @@ def load_money_list_view(request):
     start = (page - 1) * page_size
     end = start + page_size
     paginated_transactions = transactions[start:end]
-    serializer = LoadMoneySerializer(paginated_transactions, many=True, context={'request': request})
+    serializer = LoadMoneyListSerializer(paginated_transactions, many=True, context={'request': request})
     return Response(
         {
             'success': True,
             'data': {
                 'transactions': serializer.data,
-                'total': transactions.count(),
+                'total': total,
                 'page': page,
                 'page_size': page_size,
             },

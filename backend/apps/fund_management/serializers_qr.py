@@ -54,14 +54,13 @@ class PayInQrAccountSerializer(serializers.ModelSerializer):
     def get_qr_image_url(self, obj):
         if not obj.qr_image:
             return ''
-        request = self.context.get('request')
         try:
-            url = obj.qr_image.url
-            if request:
-                return request.build_absolute_uri(url)
-            return url
+            return reverse('admin_panel:pay-in-qr-account-qr-image', kwargs={'pk': obj.pk})
         except Exception:
-            return ''
+            try:
+                return obj.qr_image.url
+            except Exception:
+                return ''
 
 
 class PayInQrSubmitSerializer(serializers.Serializer):

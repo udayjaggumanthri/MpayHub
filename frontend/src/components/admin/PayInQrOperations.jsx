@@ -17,7 +17,7 @@ import {
   ReportFilterGrid,
 } from '../common/ReportFilterPanel';
 import { countActiveReportFilters } from '../../utils/reportFilters';
-import { formatCurrency } from '../../utils/formatters';
+import { formatCurrency, formatDecimalInput } from '../../utils/formatters';
 import { downloadFromUrl } from '../../utils/downloadFile';
 import { payinQrReceiptApiUrl } from '../../utils/mediaUrl';
 import AuthenticatedImage from '../common/AuthenticatedImage';
@@ -161,7 +161,7 @@ const PayInQrOperations = () => {
     if (res.success) {
       setDetail(res.data);
       const sub = res.data?.submitted_amount ?? res.data?.amount;
-      setApproveAmount(sub != null ? String(sub) : '');
+      setApproveAmount(sub != null ? formatDecimalInput(sub) : '');
       setInternalNote('');
       setRejectText('');
     } else {
@@ -492,6 +492,8 @@ const PayInQrOperations = () => {
                       <Input
                         label="Approved amount (INR)"
                         type="number"
+                        step="0.01"
+                        min="0.01"
                         value={approveAmount}
                         onChange={(e) => setApproveAmount(e.target.value)}
                         disabled={actionBusy}

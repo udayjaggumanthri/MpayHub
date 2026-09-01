@@ -36,6 +36,7 @@ from apps.transactions.report_operational import (
 from apps.transactions.report_api import (
     bbps_rows_for_transactions,
     bbps_rows_from_bill_payment,
+    cached_report_financial_summary,
     operational_status_financial_summary,
     passbook_period_header,
     passbook_rows,
@@ -75,7 +76,7 @@ def transactions_list_view(request):
             {'success': False, 'data': None, 'message': str(e.detail if hasattr(e, 'detail') else e), 'errors': []},
             status=status.HTTP_403_FORBIDDEN,
         )
-    transactions = Transaction.objects.filter(uq)
+    transactions = Transaction.objects.filter(uq).order_by('-created_at')
     
     # Apply filters
     transaction_type = request.query_params.get('type', 'all')
@@ -125,7 +126,7 @@ def transactions_list_view(request):
     start = (page - 1) * page_size
     end = start + page_size
 
-    paginated_transactions = transactions[start:end]
+    paginated_transactions = transactions.select_related('user', 'agent_user')[start:end]
     serializer = TransactionSerializer(paginated_transactions, many=True)
 
     return Response(
@@ -185,7 +186,9 @@ def passbook_view(request):
             {'success': False, 'data': None, 'message': str(e.detail if hasattr(e, 'detail') else e), 'errors': []},
             status=status.HTTP_403_FORBIDDEN,
         )
-    entries = PassbookEntry.objects.filter(uq).select_related('user', 'initiator_user')
+    entries = PassbookEntry.objects.filter(uq).select_related(
+        'user', 'user__profile', 'initiator_user', 'initiator_user__profile'
+    )
     entries = apply_passbook_report_filters(entries, request)
 
     period_summary = passbook_period_header(entries)
@@ -220,14 +223,12 @@ def passbook_view(request):
 
     paginated_entries = list(entries.order_by('-created_at')[start:end])
     serializer = PassbookEntrySerializer(paginated_entries, many=True)
-    enterprise_rows = passbook_rows(request, paginated_entries)
 
     return Response(
         {
             'success': True,
             'data': {
                 'entries': serializer.data,
-                'rows': enterprise_rows,
                 'period_summary': period_summary,
                 'scope': get_report_scope(request),
                 'total': total,
@@ -332,12 +333,12 @@ def payin_report_view(request):
     page, page_size = _report_page_params(request)
     if scope == 'platform':
         qs = platform_payin_queryset(request)
-        summary = operational_status_financial_summary(qs)
-        total = qs.count()
         start = (page - 1) * page_size
         slice_qs = list(qs[start : start + page_size])
         rows = payin_rows_from_load_money(request, slice_qs)
         tx_data = []
+        summary = cached_report_financial_summary(qs, request, 'payin', scope)
+        total = summary['total_count']
     else:
         try:
             qs = user_scope_payin_load_money_queryset(request)
@@ -346,12 +347,12 @@ def payin_report_view(request):
                 {'success': False, 'data': None, 'message': str(e.detail if hasattr(e, 'detail') else e), 'errors': []},
                 status=status.HTTP_403_FORBIDDEN,
             )
-        summary = operational_status_financial_summary(qs)
-        total = qs.count()
         start = (page - 1) * page_size
         slice_qs = list(qs[start : start + page_size])
         rows = payin_rows_from_load_money(request, slice_qs)
         tx_data = []
+        summary = cached_report_financial_summary(qs, request, 'payin', scope)
+        total = summary['total_count']
     _audit_report_view(request, 'payin', scope)
     return Response(
         {
@@ -389,12 +390,12 @@ def payout_report_view(request):
     page, page_size = _report_page_params(request)
     if scope == 'platform':
         qs = platform_payout_queryset(request)
-        summary = operational_status_financial_summary(qs)
-        total = qs.count()
         start = (page - 1) * page_size
         slice_qs = list(qs[start : start + page_size])
         rows = payout_rows_from_payout(request, slice_qs)
         tx_data = []
+        summary = cached_report_financial_summary(qs, request, 'payout', scope)
+        total = summary['total_count']
     else:
         try:
             uq = transaction_user_q(request)
@@ -405,16 +406,16 @@ def payout_report_view(request):
             )
         qs = (
             Transaction.objects.filter(uq, transaction_type='payout')
-            .select_related('user', 'agent_user')
+            .select_related('user', 'user__profile', 'agent_user', 'agent_user__profile')
             .order_by('-created_at')
         )
         qs = apply_transaction_report_filters(qs, request, include_customer_mobile=False)
-        summary = txn_status_financial_summary(qs)
-        total = qs.count()
         start = (page - 1) * page_size
         slice_qs = list(qs[start : start + page_size])
         tx_data = TransactionSerializer(slice_qs, many=True).data
         rows = payout_rows_for_transactions(request, slice_qs)
+        summary = cached_report_financial_summary(qs, request, 'payout', scope)
+        total = summary['total_count']
     _audit_report_view(request, 'payout', scope)
     return Response(
         {
@@ -453,7 +454,7 @@ def bbps_report_view(request):
     if scope == 'platform':
         qs = platform_bbps_queryset(request)
         summary = operational_status_financial_summary(qs)
-        total = qs.count()
+        total = summary['total_count']
         start = (page - 1) * page_size
         slice_qs = list(qs[start : start + page_size])
         rows = bbps_rows_from_bill_payment(request, slice_qs, serial_offset=start)
@@ -473,7 +474,7 @@ def bbps_report_view(request):
         )
         qs = apply_transaction_report_filters(qs, request, include_customer_mobile=False)
         summary = txn_status_financial_summary(qs)
-        total = qs.count()
+        total = summary['total_count']
         start = (page - 1) * page_size
         slice_qs = list(qs[start : start + page_size])
         tx_data = TransactionSerializer(slice_qs, many=True).data
@@ -658,7 +659,7 @@ def payin_report_export_csv(request):
     scope = get_report_scope(request)
     slice_list = list(qs[:5000])
     if scope == 'platform':
-        rows = payin_rows_from_load_money(request, slice_list)
+        rows = payin_rows_from_load_money(request, slice_list, include_heavy_fields=True)
     else:
         rows = payin_rows_for_transactions(request, slice_list)
     headers = [

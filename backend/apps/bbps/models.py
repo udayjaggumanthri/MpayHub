@@ -80,6 +80,11 @@ class BillPayment(BaseModel):
         indexes = [
             models.Index(fields=['user', 'status', 'created_at']),
             models.Index(fields=['service_id']),
+            models.Index(
+                fields=['status', 'created_at'],
+                name='billpay_status_created_rpt',
+                condition=models.Q(is_deleted=False),
+            ),
         ]
     
     def __str__(self):
@@ -117,7 +122,20 @@ class BbpsBillerMaster(BaseModel):
     source_hash = models.CharField(max_length=128, blank=True, default='')
     source_version = models.CharField(max_length=20, blank=True, default='')
     source_type = models.CharField(max_length=20, blank=True, default='synced', db_index=True)
+    LOCAL_VISIBILITY_HOLD_CHOICES = [
+        ('', 'None'),
+        ('admin', 'Admin disabled'),
+        ('cash_only', 'Cash-only policy'),
+    ]
     is_active_local = models.BooleanField(default=True, db_index=True)
+    local_visibility_hold = models.CharField(
+        max_length=20,
+        blank=True,
+        default='',
+        db_index=True,
+        choices=LOCAL_VISIBILITY_HOLD_CHOICES,
+        help_text='Why local visibility was suppressed (admin vs cash-only policy).',
+    )
     last_sync_status = models.CharField(max_length=20, blank=True, default='', db_index=True)
     last_sync_error = models.TextField(blank=True, default='')
     last_sync_request_id = models.CharField(max_length=60, blank=True, default='', db_index=True)

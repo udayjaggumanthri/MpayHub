@@ -117,6 +117,9 @@ else:
         }
     }
 
+DATABASES['default']['CONN_MAX_AGE'] = config('DB_CONN_MAX_AGE', default=60, cast=int)
+DATABASES['default']['CONN_HEALTH_CHECKS'] = config('DB_CONN_HEALTH_CHECKS', default=True, cast=bool)
+
 # Password validation
 AUTH_PASSWORD_VALIDATORS = [
     {

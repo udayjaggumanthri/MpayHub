@@ -6,6 +6,7 @@ import logging
 
 from django.db import transaction
 from django.db.models import Q
+from django.core.cache import cache
 
 from apps.authentication.models import User
 
@@ -887,6 +888,11 @@ def get_viewable_user_ids(user) -> set:
     User IDs a non-admin may list/retrieve: all subordinates, direct parents of
     those subordinates (point of contact from profile links), and self.
     """
+    cache_key = f'users:viewable_ids:{user.pk}'
+    cached = cache.get(cache_key)
+    if cached is not None:
+        return set(cached)
+
     subordinates = UserHierarchy.get_subordinates(user)
     subordinate_ids = {u.id for u in subordinates}
     parent_ids = set()
@@ -896,7 +902,9 @@ def get_viewable_user_ids(user) -> set:
                 'parent_user_id', flat=True
             )
         )
-    return subordinate_ids | parent_ids | {user.id}
+    result = subordinate_ids | parent_ids | {user.id}
+    cache.set(cache_key, list(result), timeout=60)
+    return result
 
 
 def _user_display_name(u: User) -> str:
@@ -1044,16 +1052,7 @@ def admin_change_user_role(*, actor: User, target: User, new_role: str) -> User:
                 f'under role {new_role}. Reassign or remove subordinates first.'
             )
 
-    # Parent links must still allow this role (skip when promoting to Admin)
-    if new_role != 'Admin':
-        for rel in UserHierarchy.objects.filter(child_user=target).select_related('parent_user'):
-            parent = rel.parent_user
-            if not UserHierarchy.can_create_role(parent, new_role):
-                raise ValueError(
-                    f'Cannot change role: parent {public_display_code(parent)} ({parent.role}) cannot have a direct '
-                    f'report with role {new_role}. Use hierarchy tools or promote/demote parents first.'
-                )
-
+    # Admin manual role change ignores upline onboarding rules — only downline validity is checked above.
     old_role = target.role
     old_display = (getattr(target, 'display_code', None) or '') or ''
     # Ensure member identity exists (backfill should have run; allocate only if missing).

@@ -72,6 +72,7 @@ const TransactionReport = ({ type = 'all' }) => {
   const fetchIdRef = useRef(0);
   const [loading, setLoading] = useState(true);
   const [hasLoadedOnce, setHasLoadedOnce] = useState(false);
+  const hasLoadedOnceRef = useRef(false);
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(DEFAULT_PAGE_SIZE);
@@ -146,7 +147,7 @@ const TransactionReport = ({ type = 'all' }) => {
     if (!['payin', 'payout', 'bbps'].includes(type)) return;
 
     const runId = ++fetchIdRef.current;
-    if (hasLoadedOnce) setIsRefreshing(true);
+    if (hasLoadedOnceRef.current) setIsRefreshing(true);
     else setLoading(true);
     try {
       const params = buildReportParams();
@@ -295,9 +296,12 @@ const TransactionReport = ({ type = 'all' }) => {
       if (runId !== fetchIdRef.current) return;
       setLoading(false);
       setIsRefreshing(false);
-      setHasLoadedOnce(true);
+      if (!hasLoadedOnceRef.current) {
+        hasLoadedOnceRef.current = true;
+        setHasLoadedOnce(true);
+      }
     }
-  }, [userId, type, buildReportParams, hasLoadedOnce]);
+  }, [userId, type, buildReportParams]);
 
   const exportCsv = useCallback(async () => {
     if (!['payin', 'payout', 'bbps'].includes(type)) return;

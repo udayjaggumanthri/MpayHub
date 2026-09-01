@@ -42,7 +42,7 @@ import ProfileTabs from './profile/ProfileTabs';
 import ProfileHeader from './profile/ProfileHeader';
 import ActivityAuditPanel from './profile/ActivityAuditPanel';
 
-const ADMIN_ASSIGNABLE_ROLES = [
+const DEFAULT_ASSIGNABLE_ROLES = [
   'Admin',
   'Super Distributor',
   'Master Distributor',
@@ -76,6 +76,7 @@ const UserDetail = () => {
   const [error, setError] = useState('');
 
   const [roleDraft, setRoleDraft] = useState('');
+  const [assignableRoles, setAssignableRoles] = useState(DEFAULT_ASSIGNABLE_ROLES);
   const [roleSaving, setRoleSaving] = useState(false);
   const [roleMessage, setRoleMessage] = useState('');
 
@@ -201,6 +202,15 @@ const UserDetail = () => {
   }, [userId, isAdmin]);
 
   useEffect(() => {
+    if (!isAdmin) return;
+    usersAPI.getAssignableRoles().then((res) => {
+      if (res.success && Array.isArray(res.data?.roles) && res.data.roles.length > 0) {
+        setAssignableRoles(res.data.roles);
+      }
+    });
+  }, [isAdmin]);
+
+  useEffect(() => {
     loadUser();
   }, [loadUser]);
 
@@ -273,8 +283,8 @@ const UserDetail = () => {
       } else {
         setRoleMessage(res.message || 'Role update failed.');
       }
-    } catch {
-      setRoleMessage('Role update failed.');
+    } catch (err) {
+      setRoleMessage(err?.message || 'Role update failed.');
     } finally {
       setRoleSaving(false);
     }
@@ -985,16 +995,16 @@ const UserDetail = () => {
                   {/* Role Change */}
                   <div>
                     <p className="text-xs font-semibold uppercase tracking-wide text-slate-600 dark:text-slate-400 mb-2">Change Role</p>
-                    <div className="flex gap-2">
+                    <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
                       <select
                         value={roleDraft}
                         onChange={(e) => {
                           setRoleDraft(e.target.value);
                           setRoleMessage('');
                         }}
-                        className="flex-1 rounded-xl border border-slate-200 dark:border-slate-700 px-3 py-2.5 text-sm focus:border-indigo-300 focus:ring-2 focus:ring-indigo-500/20"
+                        className="w-full min-w-0 flex-1 rounded-xl border border-slate-200 dark:border-slate-700 px-3 py-2.5 text-sm focus:border-indigo-300 focus:ring-2 focus:ring-indigo-500/20"
                       >
-                        {ADMIN_ASSIGNABLE_ROLES.map((r) => (
+                        {assignableRoles.map((r) => (
                           <option key={r} value={r}>{r}</option>
                         ))}
                       </select>
@@ -1003,6 +1013,7 @@ const UserDetail = () => {
                         disabled={roleSaving || !roleDraft || roleDraft === user.role}
                         variant="primary"
                         size="md"
+                        className="w-full shrink-0 sm:w-auto sm:min-w-[6.5rem]"
                       >
                         {roleSaving ? 'Saving...' : 'Apply'}
                       </Button>

@@ -18,7 +18,12 @@ def platform_payin_queryset(request) -> QuerySet:
     qs = (
         LoadMoney.objects.filter(is_deleted=False)
         .select_related(
-            'user', 'package', 'package__payment_gateway', 'payment_gateway', 'pay_in_qr_account'
+            'user',
+            'user__profile',
+            'package',
+            'package__payment_gateway',
+            'payment_gateway',
+            'pay_in_qr_account',
         )
         .order_by('-created_at')
     )
@@ -33,7 +38,12 @@ def user_scope_payin_load_money_queryset(request) -> QuerySet:
     qs = (
         LoadMoney.objects.filter(is_deleted=False)
         .select_related(
-            'user', 'package', 'package__payment_gateway', 'payment_gateway', 'pay_in_qr_account'
+            'user',
+            'user__profile',
+            'package',
+            'package__payment_gateway',
+            'payment_gateway',
+            'pay_in_qr_account',
         )
         .order_by('-created_at')
     )
@@ -57,12 +67,16 @@ def user_scope_payin_load_money_queryset(request) -> QuerySet:
 def platform_payout_queryset(request) -> QuerySet:
     qs = (
         Payout.objects.filter(is_deleted=False)
-        .select_related('user', 'bank_account')
+        .select_related('user', 'user__profile', 'bank_account')
         .order_by('-created_at')
     )
     return apply_operational_report_filters(qs, request, id_field='transaction_id')
 
 
 def platform_bbps_queryset(request) -> QuerySet:
-    qs = BillPayment.objects.filter(is_deleted=False).select_related('user').order_by('-created_at')
+    qs = (
+        BillPayment.objects.filter(is_deleted=False)
+        .select_related('user', 'user__profile')
+        .order_by('-created_at')
+    )
     return apply_operational_report_filters(qs, request, id_field='service_id')

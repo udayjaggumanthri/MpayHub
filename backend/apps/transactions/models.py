@@ -2,6 +2,7 @@
 Transaction and reporting models for the mPayhub platform.
 """
 from django.db import models
+from django.contrib.postgres.indexes import GinIndex
 
 from apps.core.models import BaseModel
 from apps.authentication.models import User
@@ -209,6 +210,7 @@ class CommissionLedger(BaseModel):
             models.Index(fields=['reference_service_id']),
             models.Index(fields=['user', 'source', 'created_at']),
             models.Index(fields=['user', 'created_at']),
+            GinIndex(fields=['meta'], name='commission_ledger_meta_gin'),
         ]
 
     def __str__(self):

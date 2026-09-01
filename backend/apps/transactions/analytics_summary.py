@@ -9,29 +9,70 @@ from decimal import Decimal
 from typing import Any
 
 from django.core.cache import cache
-from django.db.models import Sum
+from django.db.models import Case, CharField, Count, F, Sum, Value, When
+from django.db.models.functions import Coalesce, NullIf, Replace, TruncDate, TruncMonth
 
 from apps.admin_panel.models import PaymentGateway
 from apps.fund_management.models import LoadMoney
-from apps.fund_management.serializers import payin_payment_gateway_name
 from apps.transactions.dashboard_stats import parse_date_param, resolve_period
 from apps.transactions.models import CommissionLedger
 
 CACHE_KEY_PREFIX = 'gateway_analytics_v1'
-CACHE_TTL_SECONDS = 12
+CACHE_TTL_SECONDS = 60
+
+_EMPTY = Value('')
 
 
-def _gateway_name(lm: LoadMoney) -> str:
-    name = (payin_payment_gateway_name(lm) or '').strip()
-    if not name or name == '—':
-        name = str(lm.gateway or 'unknown').replace('_', ' ').strip() or 'Unknown'
-    return name
+def _gateway_label_expression():
+    """SQL equivalent of payin_collection_method_label (QR account vs gateway provider)."""
+    qr_name = Coalesce(
+        NullIf(F('pay_in_qr_account__display_name'), _EMPTY),
+        NullIf(F('gateway'), _EMPTY),
+        Value('Manual QR'),
+        output_field=CharField(),
+    )
+    pkg_provider_name = Case(
+        When(package__provider__iexact='razorpay', then=Value('Razorpay')),
+        When(package__provider__iexact='payu', then=Value('PayU')),
+        When(package__provider__iexact='mock', then=Value('Mock (test)')),
+        default=Value(''),
+        output_field=CharField(),
+    )
+    gateway_fallback = Replace(
+        Coalesce(NullIf(F('gateway'), _EMPTY), Value('Unknown')),
+        Value('_'),
+        Value(' '),
+    )
+    gw_name = Coalesce(
+        NullIf(F('payment_gateway__name'), _EMPTY),
+        NullIf(F('package__payment_gateway__name'), _EMPTY),
+        NullIf(pkg_provider_name, _EMPTY),
+        NullIf(F('package__display_name'), _EMPTY),
+        NullIf(F('package__code'), _EMPTY),
+        gateway_fallback,
+        output_field=CharField(),
+    )
+    return Case(
+        When(collection_rail='qr', then=qr_name),
+        default=gw_name,
+        output_field=CharField(),
+    )
 
 
-def _period_key(created_at, interval: str) -> str:
+def _format_period_bucket(bucket, interval: str) -> str:
+    if bucket is None:
+        return ''
     if interval == 'monthly':
-        return created_at.strftime('%Y-%m')
-    return created_at.date().isoformat()
+        return bucket.strftime('%Y-%m')
+    if hasattr(bucket, 'date') and callable(bucket.date):
+        try:
+            return bucket.date().isoformat()
+        except (ValueError, OverflowError):
+            pass
+    if hasattr(bucket, 'isoformat'):
+        text = bucket.isoformat()
+        return text[:10] if len(text) >= 10 else text
+    return str(bucket)
 
 
 def get_gateway_analytics_summary(
@@ -60,18 +101,42 @@ def get_gateway_analytics_summary(
         if cached is not None:
             return cached
 
-    lm_qs = (
+    period_expr = TruncMonth('created_at') if interval == 'monthly' else TruncDate('created_at')
+    base = (
         LoadMoney.objects.filter(is_deleted=False, status='SUCCESS')
         .filter(
             created_at__date__gte=date_from,
             created_at__date__lte=date_to,
         )
-        .select_related('payment_gateway', 'package__payment_gateway')
-        .order_by('created_at')
+        .annotate(
+            period_bucket=period_expr,
+            gateway_name=_gateway_label_expression(),
+        )
+    )
+    if gateway_filter:
+        base = base.filter(gateway_name__iexact=gateway_filter)
+
+    aggregated = list(
+        base.values('period_bucket', 'gateway_name')
+        .annotate(
+            payin_sales=Sum('amount'),
+            payin_charges=Sum('charge'),
+            transactions_count=Count('id'),
+        )
+        .order_by('period_bucket', 'gateway_name')
     )
 
-    service_ids = list(lm_qs.values_list('transaction_id', flat=True))
-    profit_by_service: dict[str, Decimal] = {}
+    profit_by_bucket: dict[tuple[str, str], Decimal] = {}
+    tid_rows = base.values_list('transaction_id', 'period_bucket', 'gateway_name')
+    service_ids = []
+    tid_to_bucket: dict[str, tuple[str, str]] = {}
+    for tid, bucket, gw in tid_rows:
+        if not tid:
+            continue
+        service_ids.append(tid)
+        period = _format_period_bucket(bucket, interval)
+        tid_to_bucket[str(tid)] = (period, str(gw or 'Unknown'))
+
     if service_ids:
         for row in (
             CommissionLedger.objects.filter(
@@ -82,28 +147,10 @@ def get_gateway_analytics_summary(
             .values('reference_service_id')
             .annotate(total=Sum('amount'))
         ):
-            profit_by_service[row['reference_service_id']] = row['total'] or Decimal('0')
-
-    buckets: dict[tuple[str, str], dict[str, Any]] = {}
-    for lm in lm_qs:
-        gateway = _gateway_name(lm)
-        if gateway_filter and gateway_filter != gateway.lower():
-            continue
-        period = _period_key(lm.created_at, interval)
-        key = (period, gateway)
-        if key not in buckets:
-            buckets[key] = {
-                'period': period,
-                'gateway': gateway,
-                'payin_sales': Decimal('0'),
-                'payin_charges': Decimal('0'),
-                'platform_profit': Decimal('0'),
-                'transactions_count': 0,
-            }
-        buckets[key]['payin_sales'] += lm.amount or Decimal('0')
-        buckets[key]['payin_charges'] += lm.charge or Decimal('0')
-        buckets[key]['platform_profit'] += profit_by_service.get(lm.transaction_id, Decimal('0'))
-        buckets[key]['transactions_count'] += 1
+            key = tid_to_bucket.get(str(row['reference_service_id'] or ''))
+            if not key:
+                continue
+            profit_by_bucket[key] = profit_by_bucket.get(key, Decimal('0')) + (row['total'] or Decimal('0'))
 
     rows = []
     grand = {
@@ -112,22 +159,27 @@ def get_gateway_analytics_summary(
         'platform_profit': Decimal('0'),
         'transactions_count': 0,
     }
-    for key in sorted(buckets.keys()):
-        row = buckets[key]
+    for row in aggregated:
+        period = _format_period_bucket(row['period_bucket'], interval)
+        gateway = str(row['gateway_name'] or 'Unknown')
+        sales = row['payin_sales'] or Decimal('0')
+        charges = row['payin_charges'] or Decimal('0')
+        count = int(row['transactions_count'] or 0)
+        profit = profit_by_bucket.get((period, gateway), Decimal('0'))
         rows.append(
             {
-                'period': row['period'],
-                'gateway': row['gateway'],
-                'payin_sales': str(row['payin_sales']),
-                'payin_charges': str(row['payin_charges']),
-                'platform_profit': str(row['platform_profit']),
-                'transactions_count': row['transactions_count'],
+                'period': period,
+                'gateway': gateway,
+                'payin_sales': str(sales),
+                'payin_charges': str(charges),
+                'platform_profit': str(profit),
+                'transactions_count': count,
             }
         )
-        grand['payin_sales'] += row['payin_sales']
-        grand['payin_charges'] += row['payin_charges']
-        grand['platform_profit'] += row['platform_profit']
-        grand['transactions_count'] += row['transactions_count']
+        grand['payin_sales'] += sales
+        grand['payin_charges'] += charges
+        grand['platform_profit'] += profit
+        grand['transactions_count'] += count
 
     configured_gateways = list(
         PaymentGateway.objects.filter(is_deleted=False, status='active')

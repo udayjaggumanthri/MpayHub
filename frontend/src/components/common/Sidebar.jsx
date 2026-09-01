@@ -107,7 +107,10 @@ const Sidebar = ({ mobileMenuOpen = false, setMobileMenuOpen = () => {} }) => {
     }));
   };
 
-  const isActive = (path) => {
+  const isActive = (path, { exact = false } = {}) => {
+    if (exact) {
+      return location.pathname === path;
+    }
     return location.pathname === path || location.pathname.startsWith(path + '/');
   };
 
@@ -165,7 +168,9 @@ const Sidebar = ({ mobileMenuOpen = false, setMobileMenuOpen = () => {} }) => {
           {isExpanded && (
             <div className="ml-6 sm:ml-8 mt-1.5 mb-2 space-y-1 animate-fadeIn">
               {item.submenu.map((subItem) => {
-                const subActive = isActive(subItem.path);
+                const subActive = subItem.exactEnd
+                  ? isActive(subItem.path, { exact: true })
+                  : isActive(subItem.path);
                 return (
                   <Link
                     key={subItem.path}

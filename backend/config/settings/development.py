@@ -48,6 +48,15 @@ RATELIMIT_ENABLE = False
 # For production, use Redis or Memcached which support atomic operations
 RATELIMIT_USE_CACHE = 'default'
 
+REDIS_URL = config('REDIS_URL', default='').strip()
+if REDIS_URL:
+    CACHES = {
+        'default': {
+            'BACKEND': 'django.core.cache.backends.redis.RedisCache',
+            'LOCATION': REDIS_URL,
+        }
+    }
+
 # Behind nginx / Cloudflare — build https absolute URLs for media and API links
 USE_X_FORWARDED_HOST = True
 SECURE_PROXY_SSL_HEADER = ('HTTP_X_FORWARDED_PROTO', 'https')

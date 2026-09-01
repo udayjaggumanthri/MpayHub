@@ -45,6 +45,7 @@ const Passbook = () => {
   });
   const [loading, setLoading] = useState(true);
   const [hasLoadedOnce, setHasLoadedOnce] = useState(false);
+  const hasLoadedOnceRef = useRef(false);
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [showFilters, setShowFilters] = useState(false);
   const [summary, setSummary] = useState({
@@ -58,7 +59,7 @@ const Passbook = () => {
     if (!userId) return;
 
     const runId = ++fetchIdRef.current;
-    if (hasLoadedOnce) setIsRefreshing(true);
+    if (hasLoadedOnceRef.current) setIsRefreshing(true);
     else setLoading(true);
     try {
       const params = { page, page_size: pageSize };
@@ -156,9 +157,12 @@ const Passbook = () => {
       if (runId !== fetchIdRef.current) return;
       setLoading(false);
       setIsRefreshing(false);
-      setHasLoadedOnce(true);
+      if (!hasLoadedOnceRef.current) {
+        hasLoadedOnceRef.current = true;
+        setHasLoadedOnce(true);
+      }
     }
-  }, [userId, user?.role, appliedFilters, reportScope, page, pageSize, hasLoadedOnce]);
+  }, [userId, user?.role, appliedFilters, reportScope, page, pageSize]);
 
   useEffect(() => {
     loadPassbook();

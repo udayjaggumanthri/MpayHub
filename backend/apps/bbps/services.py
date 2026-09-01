@@ -1,9 +1,11 @@
 """BBPS business logic services."""
-from django.db import models, transaction as db_transaction
+from django.db import close_old_connections, models, transaction as db_transaction
 from django.db.models import Q
 from decimal import Decimal
 from django.conf import settings
 from django.core.cache import cache
+import logging
+import threading
 from apps.bbps.catalog.env import (
     active_bbps_environment,
     biller_master_qs_for_env,
@@ -37,6 +39,8 @@ from apps.integrations.billavenue.registry import get_active_billavenue_config
 from apps.integrations.bbps_client import BBPSClient
 import random
 import string
+
+logger = logging.getLogger(__name__)
 
 
 BBPS_CATEGORY_ALIASES = {
@@ -231,26 +235,122 @@ def process_bill_payment(*args, **kwargs):
     raise RuntimeError('Legacy BBPS process_bill_payment() path disabled. Use service_flow.process_bill_payment_flow().')
 
 
-def get_bill_categories():
+CATALOG_LIST_CACHE_TIMEOUT = 3600
+BILLER_LIST_CACHE_TIMEOUT = 3600
+
+
+def _biller_list_cache_key(category: str, *, cash_only: bool) -> str:
+    norm = normalize_category_code(category)
+    return f'bbps:billers:{catalog_cache_env_key()}:{norm}:cash_only={int(bool(cash_only))}'
+
+
+def _visible_categories_materialized_key(*, cash_only: bool) -> str:
+    return f'bbps:visible_categories:{catalog_cache_env_key()}:cash_only={int(bool(cash_only))}'
+
+
+def _visible_categories_last_key(*, cash_only: bool) -> str:
+    return f'{_visible_categories_materialized_key(cash_only=cash_only)}:last'
+
+
+def materialize_visible_category_codes(*, cash_only: bool) -> set[str]:
+    """Precompute visible category codes (called on catalog invalidation)."""
+    codes = _visible_end_user_category_codes(cash_only=cash_only)
+    sorted_codes = sorted(codes)
+    cache.set(
+        _visible_categories_materialized_key(cash_only=cash_only),
+        sorted_codes,
+        timeout=CATALOG_LIST_CACHE_TIMEOUT,
+    )
+    cache.set(
+        _visible_categories_last_key(cash_only=cash_only),
+        sorted_codes,
+        timeout=7 * 24 * 3600,
+    )
+    return codes
+
+
+def _schedule_catalog_rematerialize(*, cash_only: bool) -> None:
+    """Refresh the catalog off the request path. Fail-soft; never blocks payments."""
+    if not getattr(settings, 'BBPS_ASYNC_CATALOG_REMATERIALIZE', True):
+        return
+    lock_key = (
+        f'bbps:rematerialize_lock:{catalog_cache_env_key()}:cash_only={int(bool(cash_only))}'
+    )
+    if not cache.add(lock_key, 1, timeout=120):
+        return
+
+    def _run():
+        close_old_connections()
+        try:
+            materialize_visible_category_codes(cash_only=cash_only)
+            from apps.bbps.service_flow.catalog_ux_settings import is_cash_only_for_users
+
+            if bool(is_cash_only_for_users()) == bool(cash_only):
+                cache.delete(
+                    f'bbps:categories:{catalog_cache_env_key()}:cash_only={int(bool(cash_only))}'
+                )
+                get_bill_categories()
+        except Exception:
+            logger.exception('BBPS catalog rematerialize failed (cash_only=%s)', cash_only)
+        finally:
+            cache.delete(lock_key)
+            close_old_connections()
+
+    threading.Thread(target=_run, daemon=True, name='bbps-catalog-rematerialize').start()
+
+
+def warmup_bbps_catalog_cache() -> dict:
+    """
+    Fill Redis/LocMem so the first live user never pays a full catalog scan.
+    Read-path only. Fail-soft callers should catch exceptions.
+    """
+    from apps.bbps.service_flow.catalog_ux_settings import is_cash_only_for_users
+
+    stats = {'categories': 0, 'biller_lists': 0}
+    live_cash_only = bool(is_cash_only_for_users())
+    for cash_flag in (False, True):
+        materialize_visible_category_codes(cash_only=cash_flag)
+        cats = get_bill_categories(cash_only=cash_flag)
+        if cash_flag == live_cash_only:
+            stats['categories'] = len(cats)
+        for row in cats:
+            slug = str((row or {}).get('id') or '').strip()
+            if not slug:
+                continue
+            get_billers_by_category(slug, cash_only=cash_flag)
+            if cash_flag == live_cash_only:
+                stats['biller_lists'] += 1
+    return stats
+
+
+def _get_materialized_visible_category_codes(*, cash_only: bool) -> set[str]:
+    """Cache-first visible codes. Prefer last snapshot over a live-user catalog scan."""
+    cached = cache.get(_visible_categories_materialized_key(cash_only=cash_only))
+    if cached is not None:
+        return set(cached)
+    last = cache.get(_visible_categories_last_key(cash_only=cash_only))
+    if last is not None:
+        _schedule_catalog_rematerialize(cash_only=cash_only)
+        return set(last)
+    return materialize_visible_category_codes(cash_only=cash_only)
+
+
+def get_bill_categories(*, cash_only: bool | None = None):
     """Get categories strictly from billers visible to end users in the active BillAvenue env."""
     from apps.bbps.service_flow.catalog_ux_settings import is_cash_only_for_users
 
-    cash_only = bool(is_cash_only_for_users())
+    if cash_only is None:
+        cash_only = bool(is_cash_only_for_users())
     cache_key = f'bbps:categories:{catalog_cache_env_key()}:cash_only={int(cash_only)}'
     cached = cache.get(cache_key)
     if cached is not None:
         return cached
 
-    visible_masters = _list_end_user_visible_masters()
-    visible_codes = {
-        normalize_category_code(m.biller_category)
-        for m in visible_masters
-        if str(m.biller_category or '').strip()
-    }
+    visible_codes = _get_materialized_visible_category_codes(cash_only=cash_only)
     partner_slugs = sorted({partner_route_category_slug(c) for c in visible_codes})
     if not partner_slugs:
         out = []
-        cache.set(cache_key, out, timeout=120)
+        cache.set(cache_key, out, timeout=CATALOG_LIST_CACHE_TIMEOUT)
         return out
     name_map = {
         normalize_category_code(row.code): row.name
@@ -267,7 +367,7 @@ def get_bill_categories():
         if not name:
             name = to_title_case(slug)
         out.append({'id': slug, 'name': name})
-    cache.set(cache_key, out, timeout=120)
+    cache.set(cache_key, out, timeout=CATALOG_LIST_CACHE_TIMEOUT)
     return out
 
 
@@ -282,7 +382,7 @@ def _visible_biller_masters_queryset(category: str | None = None):
         biller_status__in=ALLOWED_BILLER_STATUSES,
         is_active_local=True,
         soft_deleted_at__isnull=True,
-    )
+    ).defer('raw_payload', 'last_sync_error', 'sync_error')
     if _stale_block_enabled():
         qs = qs.filter(is_stale=False)
     if category:
@@ -294,10 +394,19 @@ def _visible_biller_masters_queryset(category: str | None = None):
     return qs.order_by('biller_name')
 
 
-def get_billers_by_category(category):
+def get_billers_by_category(category, *, cash_only: bool | None = None):
     """Get billers for a specific category that end users can actually pay."""
-    masters = _list_end_user_visible_masters(category)
-    return [
+    from apps.bbps.service_flow.catalog_ux_settings import is_cash_only_for_users
+
+    if cash_only is None:
+        cash_only = bool(is_cash_only_for_users())
+    cache_key = _biller_list_cache_key(category, cash_only=cash_only)
+    cached = cache.get(cache_key)
+    if cached is not None:
+        return cached
+
+    masters = _list_end_user_visible_masters(category, cash_only=cash_only)
+    payload = [
         {
             'id': m.pk,
             'biller_id': m.biller_id,
@@ -310,6 +419,8 @@ def get_billers_by_category(category):
         }
         for m in masters
     ]
+    cache.set(cache_key, payload, timeout=BILLER_LIST_CACHE_TIMEOUT)
+    return payload
 
 
 def _payment_channel_ui_label(code: str) -> str:
@@ -339,7 +450,53 @@ def _biller_category_assisted_card_like(raw: str) -> bool:
     return s in ('credit card', 'loan repayment')
 
 
-def _list_end_user_visible_masters(category: str | None = None):
+def _channel_mode_limits_by_biller(master_ids: list[int]) -> tuple[dict[int, list], dict[int, list]]:
+    """Batch-load payment channel/mode limits for catalog visibility (no per-biller queries)."""
+    channel_limits_by_biller: dict[int, list] = {pk: [] for pk in master_ids}
+    mode_limits_by_biller: dict[int, list] = {pk: [] for pk in master_ids}
+    if not master_ids:
+        return channel_limits_by_biller, mode_limits_by_biller
+    for row in BbpsBillerPaymentChannelLimit.objects.filter(
+        biller_id__in=master_ids,
+        is_deleted=False,
+        is_active=True,
+    ).order_by('payment_channel'):
+        channel_limits_by_biller.setdefault(row.biller_id, []).append(row)
+    for row in BbpsBillerPaymentModeLimit.objects.filter(
+        biller_id__in=master_ids,
+        is_deleted=False,
+        is_active=True,
+    ).order_by('payment_mode'):
+        mode_limits_by_biller.setdefault(row.biller_id, []).append(row)
+    return channel_limits_by_biller, mode_limits_by_biller
+
+
+def _visible_end_user_category_codes(*, cash_only: bool) -> set[str]:
+    """Distinct visible categories without hydrating full MDM rows / raw_payload."""
+    masters = list(
+        _visible_biller_masters_queryset().only('id', 'biller_id', 'biller_category')
+    )
+    if not masters:
+        return set()
+    channel_limits_by_biller, mode_limits_by_biller = _channel_mode_limits_by_biller(
+        [m.pk for m in masters]
+    )
+    codes: set[str] = set()
+    for master in masters:
+        cat = str(master.biller_category or '').strip()
+        if not cat:
+            continue
+        if _biller_end_user_visible(
+            master,
+            cash_only=cash_only,
+            channel_limits=channel_limits_by_biller.get(master.pk),
+            mode_limits=mode_limits_by_biller.get(master.pk),
+        ):
+            codes.add(normalize_category_code(cat))
+    return codes
+
+
+def _list_end_user_visible_masters(category: str | None = None, *, cash_only: bool | None = None):
     """Visible biller masters with batched payment-limit prefetch (avoids N+1 on catalog APIs)."""
     from apps.bbps.service_flow.catalog_ux_settings import is_cash_only_for_users
 
@@ -347,23 +504,11 @@ def _list_end_user_visible_masters(category: str | None = None):
     if not masters:
         return []
 
-    cash_only = is_cash_only_for_users()
-    master_ids = [m.pk for m in masters]
-    channel_limits_by_biller: dict[int, list] = {pk: [] for pk in master_ids}
-    for row in BbpsBillerPaymentChannelLimit.objects.filter(
-        biller_id__in=master_ids,
-        is_deleted=False,
-        is_active=True,
-    ).order_by('payment_channel'):
-        channel_limits_by_biller.setdefault(row.biller_id, []).append(row)
-
-    mode_limits_by_biller: dict[int, list] = {pk: [] for pk in master_ids}
-    for row in BbpsBillerPaymentModeLimit.objects.filter(
-        biller_id__in=master_ids,
-        is_deleted=False,
-        is_active=True,
-    ).order_by('payment_mode'):
-        mode_limits_by_biller.setdefault(row.biller_id, []).append(row)
+    if cash_only is None:
+        cash_only = is_cash_only_for_users()
+    channel_limits_by_biller, mode_limits_by_biller = _channel_mode_limits_by_biller(
+        [m.pk for m in masters]
+    )
 
     return [
         master
@@ -383,9 +528,8 @@ def _biller_supports_agt_cash(
     channel_limits=None,
     mode_limits=None,
 ) -> bool:
-    """True when biller can accept assisted counter payment via AGT + Cash."""
+    """True when biller has active AGT channel and Cash mode (strict; no implicit defaults)."""
     from apps.bbps.service_flow.compliance import display_payment_modes_for_channel
-    from apps.bbps.service_flow.payment_ui_policy import mdm_labels_with_implicit_cash_for_agt
 
     if channel_limits is None:
         channels = list(
@@ -397,8 +541,6 @@ def _biller_supports_agt_cash(
         channels = list(channel_limits)
 
     ch_codes = [_normalize_text(c.payment_channel).upper() for c in channels if c.payment_channel]
-    if not ch_codes:
-        ch_codes = ['AGT']
     if 'AGT' not in ch_codes:
         return False
 
@@ -413,14 +555,10 @@ def _biller_supports_agt_cash(
 
     mdm_labels = [m.payment_mode for m in modes if m.payment_mode]
     if not mdm_labels:
-        return True
+        return False
 
     agt_modes = display_payment_modes_for_channel('AGT', mdm_labels)
-    if agt_modes:
-        return any('cash' in str(m).lower() for m in agt_modes)
-
-    eff = mdm_labels_with_implicit_cash_for_agt(mdm_labels)
-    return bool(display_payment_modes_for_channel('AGT', eff))
+    return any('cash' in str(m).lower() for m in agt_modes)
 
 
 def _biller_has_visible_payment_mode(
@@ -577,7 +715,30 @@ def get_biller_payment_ui_options(
 
     from apps.bbps.service_flow.catalog_ux_settings import is_cash_only_for_users
 
+    channels = list(channel_limits) if channel_limits is not None else list(
+        BbpsBillerPaymentChannelLimit.objects.filter(
+            is_deleted=False, biller=master, is_active=True
+        ).order_by('payment_channel')
+    )
+    modes = list(mode_limits) if mode_limits is not None else list(
+        BbpsBillerPaymentModeLimit.objects.filter(
+            is_deleted=False, biller=master, is_active=True
+        ).order_by('payment_mode')
+    )
+
     if is_cash_only_for_users():
+        if not _biller_supports_agt_cash(master, channel_limits=channels, mode_limits=modes):
+            return {
+                'payment_channels': [],
+                'payment_modes_by_channel': {},
+                'payment_modes': [],
+                'payment_mode_channel_map': {},
+                'default_channel': '',
+                'default_payment_mode': '',
+                'source': 'requires_device_context',
+                'hide_payment_method': False,
+                'payment_ui_mode': 'standard',
+            }
         return {
             'payment_channels': [
                 {
@@ -596,17 +757,6 @@ def get_biller_payment_ui_options(
             'hide_payment_method': True,
             'payment_ui_mode': 'cash_only_assisted',
         }
-
-    channels = list(channel_limits) if channel_limits is not None else list(
-        BbpsBillerPaymentChannelLimit.objects.filter(
-            is_deleted=False, biller=master, is_active=True
-        ).order_by('payment_channel')
-    )
-    modes = list(mode_limits) if mode_limits is not None else list(
-        BbpsBillerPaymentModeLimit.objects.filter(
-            is_deleted=False, biller=master, is_active=True
-        ).order_by('payment_mode')
-    )
 
     ch_codes = [_normalize_text(c.payment_channel).upper() for c in channels if c.payment_channel]
     if not ch_codes:
@@ -704,30 +854,34 @@ def get_biller_payment_ui_options(
         'default_channel': default_ch,
         'default_payment_mode': default_mode,
         'source': src,
-        'hide_payment_method': True,
-        'payment_ui_mode': 'cash_only_assisted',
+        'hide_payment_method': bool(offer_agt_cash_only),
+        'payment_ui_mode': 'cash_only_assisted' if offer_agt_cash_only else 'standard',
     }
 
 
-def get_biller_input_schema(biller_id: str) -> list[dict]:
-    master = biller_master_qs_for_env().filter(
-        biller_id=biller_id,
-        is_active_local=True,
-        soft_deleted_at__isnull=True,
-    ).first()
+def get_biller_input_schema(biller_id: str, *, master=None) -> list[dict]:
+    if master is None:
+        master = biller_master_qs_for_env().filter(
+            biller_id=biller_id,
+            is_active_local=True,
+            soft_deleted_at__isnull=True,
+        ).first()
     if not master:
         return []
     plan_req = str(getattr(master, 'plan_mdm_requirement', '') or '').strip().upper()
     plan_driven = plan_req in ('MANDATORY', 'OPTIONAL', 'SUPPORTED', 'Y', 'YES', 'TRUE', '1')
+    param_rows = list(
+        BbpsBillerInputParam.objects.filter(is_deleted=False, biller=master).order_by('display_order', 'id')
+    )
     plan_slot_name = ''
     if plan_driven:
         # Prefer MDM param named Id (BSNL prepaid); else first required+hidden param.
-        for p0 in BbpsBillerInputParam.objects.filter(is_deleted=False, biller=master).order_by('display_order', 'id'):
+        for p0 in param_rows:
             if str(p0.param_name or '').strip().lower() == 'id':
                 plan_slot_name = str(p0.param_name).strip()
                 break
         if not plan_slot_name:
-            for p0 in BbpsBillerInputParam.objects.filter(is_deleted=False, biller=master).order_by('display_order', 'id'):
+            for p0 in param_rows:
                 if not bool(getattr(p0, 'visibility', True)) and not bool(getattr(p0, 'is_optional', True)):
                     plan_slot_name = str(p0.param_name or '').strip()
                     break
@@ -740,7 +894,7 @@ def get_biller_input_schema(biller_id: str) -> list[dict]:
         if w:
             raw_by_wire_lower.setdefault(w.lower(), rr)
 
-    params = BbpsBillerInputParam.objects.filter(is_deleted=False, biller=master).order_by('display_order', 'id')
+    params = param_rows
     rows = []
     for idx, p in enumerate(params, start=1):
         wire = str(p.param_name or '').strip()
@@ -808,12 +962,13 @@ def get_biller_input_schema(biller_id: str) -> list[dict]:
     return rows
 
 
-def get_biller_additional_info_schema(biller_id: str) -> dict[str, list[dict]]:
+def get_biller_additional_info_schema(biller_id: str, *, master=None) -> dict[str, list[dict]]:
     """Group MDM additional-info / plan-additional tags by info_group for the schema API."""
-    master = biller_master_qs_for_env().filter(
-        biller_id=biller_id,
-        soft_deleted_at__isnull=True,
-    ).first()
+    if master is None:
+        master = biller_master_qs_for_env().filter(
+            biller_id=biller_id,
+            soft_deleted_at__isnull=True,
+        ).first()
     if not master:
         return {}
     rows = (
@@ -835,13 +990,14 @@ def get_biller_additional_info_schema(biller_id: str) -> dict[str, list[dict]]:
 
 
 def get_biller_plans_lite(
-    biller_id: str, *, limit: int = 100, circle: str = ''
+    biller_id: str, *, limit: int = 100, circle: str = '', master=None
 ) -> tuple[list[dict], bool]:
     """Active plan rows for pay UI (plan-mandatory billers). Returns (rows, truncated)."""
-    master = biller_master_qs_for_env().filter(
-        biller_id=biller_id,
-        soft_deleted_at__isnull=True,
-    ).first()
+    if master is None:
+        master = biller_master_qs_for_env().filter(
+            biller_id=biller_id,
+            soft_deleted_at__isnull=True,
+        ).first()
     if not master:
         return [], False
     qs = (
@@ -923,7 +1079,7 @@ def get_providers_by_category(category):
         biller_status__in=ALLOWED_BILLER_STATUSES,
         is_active_local=True,
         soft_deleted_at__isnull=True,
-    ).filter(category_filter).order_by('biller_name')
+    ).defer('raw_payload', 'last_sync_error', 'sync_error').filter(category_filter).order_by('biller_name')
     if _stale_block_enabled():
         masters = masters.filter(is_stale=False)
     payload = [

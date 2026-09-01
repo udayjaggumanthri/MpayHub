@@ -1,5 +1,7 @@
 /** Shared helpers for pay-in package form and list. */
 
+import { formatDecimalInput } from '../../utils/formatters';
+
 export const normalizeGatewayId = (value) => {
   if (value == null || value === '') return null;
   if (typeof value === 'object' && value.id != null) return String(value.id);
@@ -102,11 +104,17 @@ export const packageFormFromPkg = (pkg, gateways, qrAccounts) => {
   const qrLinked = linkedQrFromPackage(pkg, qrAccounts);
   const gateway_fees = {};
   gwLinked.forEach((g) => {
-    gateway_fees[g.id] = g.gateway_fee_pct != null && g.gateway_fee_pct !== '' ? String(g.gateway_fee_pct) : '';
+    gateway_fees[g.id] =
+      g.gateway_fee_pct != null && g.gateway_fee_pct !== ''
+        ? formatDecimalInput(g.gateway_fee_pct)
+        : '';
   });
   const qr_fees = {};
   qrLinked.forEach((q) => {
-    qr_fees[q.id] = q.gateway_fee_pct != null && q.gateway_fee_pct !== '' ? String(q.gateway_fee_pct) : '';
+    qr_fees[q.id] =
+      q.gateway_fee_pct != null && q.gateway_fee_pct !== ''
+        ? formatDecimalInput(q.gateway_fee_pct)
+        : '';
   });
   return {
     code: pkg.code || '',
@@ -117,13 +125,13 @@ export const packageFormFromPkg = (pkg, gateways, qrAccounts) => {
     qr_account_ids: qrIds,
     default_qr_account_id: defaultQrIdFromPackage(pkg, qrAccounts, qrIds),
     qr_fees,
-    min_amount: pkg.min_amount?.toString?.() || '1',
-    max_amount_per_txn: pkg.max_amount_per_txn?.toString?.() || '200000',
-    admin_pct: pkg.admin_pct?.toString?.() || '0',
-    retailer_commission_pct: '0',
-    super_distributor_pct: pkg.super_distributor_pct?.toString?.() || '0',
-    master_distributor_pct: pkg.master_distributor_pct?.toString?.() || '0',
-    distributor_pct: pkg.distributor_pct?.toString?.() || '0',
+    min_amount: formatDecimalInput(pkg.min_amount) || '1.00',
+    max_amount_per_txn: formatDecimalInput(pkg.max_amount_per_txn) || '200000.00',
+    admin_pct: formatDecimalInput(pkg.admin_pct) || '0.00',
+    retailer_commission_pct: '0.00',
+    super_distributor_pct: formatDecimalInput(pkg.super_distributor_pct) || '0.00',
+    master_distributor_pct: formatDecimalInput(pkg.master_distributor_pct) || '0.00',
+    distributor_pct: formatDecimalInput(pkg.distributor_pct) || '0.00',
     is_active: Boolean(pkg.is_active),
     sort_order: pkg.sort_order?.toString?.() || '0',
   };

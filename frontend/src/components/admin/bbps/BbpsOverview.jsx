@@ -57,12 +57,13 @@ const BbpsOverview = () => {
   const [syncHistory, setSyncHistory] = useState([]);
   const [mdmJobs, setMdmJobs] = useState([]);
   const [deposits, setDeposits] = useState([]);
+  const [visSummary, setVisSummary] = useState(null);
 
   useEffect(() => {
     let cancelled = false;
     (async () => {
       setLoading(true);
-      const [cats, q, flt, ob, hist, jobs, dep] = await Promise.all([
+      const [cats, q, flt, ob, hist, jobs, dep, vis] = await Promise.all([
         billAvenueAdminAPI.getBillerCategoryCounts(),
         bbpsAPI.getSyncUsageToday(),
         bbpsAPI.getProviderFloat({ page_size: 5 }),
@@ -70,6 +71,7 @@ const BbpsOverview = () => {
         bbpsAPI.getSyncUsageHistory(),
         bbpsAPI.listMdmImportJobs(),
         bbpsAPI.getDepositEnquiryHistory({ page_size: 5 }),
+        bbpsAPI.getCatalogVisibilitySummary(),
       ]);
       if (cancelled) return;
       if (cats.success) setCatData(cats.data);
@@ -79,6 +81,7 @@ const BbpsOverview = () => {
       if (hist.success) setSyncHistory(hist.data?.history || []);
       if (jobs.success) setMdmJobs((jobs.data?.jobs || []).slice(0, 5));
       if (dep.success) setDeposits(dep.data?.results || []);
+      if (vis.success) setVisSummary(vis.data);
       setLoading(false);
     })();
     return () => {
@@ -135,22 +138,39 @@ const BbpsOverview = () => {
 
   return (
     <div className="space-y-5">
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <p className="text-sm text-slate-600 dark:text-slate-400">
+          Manage partner catalog, MDM billers, visibility, and sync from one workspace.
+        </p>
+        <button
+          type="button"
+          onClick={() => navigate('/admin/bbps/catalog')}
+          className="rounded-lg bg-blue-600 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-700"
+        >
+          Open Catalog Hub
+        </button>
+      </div>
+
       {/* KPI row */}
       <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
         <StatCard
-          label="Catalog billers"
+          label="Partner-visible billers"
           icon={FaDatabase}
-          value={totals.total ?? '—'}
-          sub={`${(catData?.catalog_environment || '').toUpperCase()} catalog · PROD ${catData?.catalog_counts?.prod ?? 0} / UAT ${catData?.catalog_counts?.uat ?? 0}`}
-          onClick={() => navigate('/admin/bbps/directory')}
+          value={visSummary?.partner_visible ?? '—'}
+          sub={`${visSummary?.mdm_total ?? '—'} MDM total · Live ${(catData?.live_mode || '').toUpperCase()}`}
+          onClick={() => navigate('/admin/bbps/catalog?tab=partner')}
         />
         <StatCard
-          label="Visibility"
+          label="Hidden from partners"
           icon={totals.hidden ? FaEyeSlash : FaEye}
-          value={`${totals.visible ?? 0} visible`}
-          sub={`${totals.hidden ?? 0} hidden from partners`}
-          tone={totals.hidden ? 'warning' : 'success'}
-          onClick={() => navigate('/admin/bbps/directory')}
+          value={visSummary?.hidden_from_partners ?? 0}
+          sub={
+            visSummary?.cash_only_for_users
+              ? `${visSummary?.cash_only_hidden ?? 0} cash-only · ${visSummary?.admin_hidden ?? 0} admin`
+              : `${visSummary?.admin_hidden ?? 0} admin-hidden in MDM`
+          }
+          tone={visSummary?.hidden_from_partners ? 'warning' : 'success'}
+          onClick={() => navigate('/admin/bbps/catalog?tab=visibility')}
         />
         <StatCard
           label="Sync quota today"
@@ -158,7 +178,7 @@ const BbpsOverview = () => {
           value={`${quota?.used_calls_today ?? 0}/${quota?.max_calls_per_day ?? 15}`}
           sub={`${quota?.remaining_calls_today ?? '—'} calls remaining (${(quota?.environment || '').toUpperCase()})`}
           tone={(quota?.remaining_calls_today ?? 1) <= 0 ? 'danger' : 'default'}
-          onClick={() => navigate('/admin/bbps/catalog')}
+          onClick={() => navigate('/admin/bbps/catalog?tab=sync')}
         />
         <StatCard
           label="Provider float"
@@ -177,7 +197,7 @@ const BbpsOverview = () => {
 
       <div className="grid gap-5 xl:grid-cols-3">
         {/* Category donut */}
-        <Card title="Billers by category" subtitle="Click a category in the Directory to drill in" padding="md">
+        <Card title="Billers by category" subtitle="Open Catalog Hub MDM tab to drill in" padding="md">
           {donutData.length === 0 ? (
             <p className="py-10 text-center text-sm text-slate-500 dark:text-slate-400">No billers in this catalog yet.</p>
           ) : (
@@ -213,7 +233,9 @@ const BbpsOverview = () => {
                     type="button"
                     onClick={() =>
                       entry.name !== 'Other' &&
-                      navigate(`/admin/bbps/directory?category=${encodeURIComponent(entry.name)}`)
+                      navigate(
+                        `/admin/bbps/catalog?tab=mdm&mdmEnv=${(catData?.live_mode || 'uat') === 'prod' ? 'prod' : 'uat'}&category=${encodeURIComponent(entry.name)}`,
+                      )
                     }
                     className="flex items-center gap-1.5 truncate text-left text-xs text-slate-600 dark:text-slate-400 hover:text-blue-700 dark:hover:text-blue-200"
                     title={entry.name}

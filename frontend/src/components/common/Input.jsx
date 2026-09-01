@@ -19,6 +19,7 @@ const Input = ({
   fullWidth = true,
   size = 'md',
   className = '',
+  onWheel,
   ...props
 }) => {
   const sizeClasses = {
@@ -26,6 +27,11 @@ const Input = ({
     md: 'px-4 py-2.5 text-base',
     lg: 'px-5 py-3 text-lg',
   };
+
+  const isNumberInput = type === 'number';
+  const numberInputClasses = isNumberInput
+    ? '[appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none [-moz-appearance:textfield]'
+    : '';
 
   const baseClasses = `
     block border rounded-lg
@@ -37,8 +43,16 @@ const Input = ({
     ${Icon && iconPosition === 'left' ? 'pl-11' : ''}
     ${RightIcon || error ? 'pr-11' : ''}
     ${error ? inputVariants.error : inputVariants.default}
+    ${numberInputClasses}
     ${className}
   `;
+
+  const handleWheel = (e) => {
+    if (isNumberInput) {
+      e.currentTarget.blur();
+    }
+    onWheel?.(e);
+  };
 
   return (
     <div className={fullWidth ? 'w-full' : ''}>
@@ -61,6 +75,7 @@ const Input = ({
           placeholder={placeholder}
           disabled={disabled}
           className={baseClasses}
+          onWheel={handleWheel}
           {...props}
         />
         {error && !RightIcon && (

@@ -96,6 +96,55 @@ class PayInPackageSerializer(serializers.ModelSerializer):
         read_only_fields = fields
 
 
+class LoadMoneyListSerializer(serializers.ModelSerializer):
+    """Lite list serializer — omits heavy payment_meta blob."""
+
+    payment_mode_display = serializers.SerializerMethodField()
+    payment_gateway_name = serializers.SerializerMethodField()
+    reject_reason = serializers.SerializerMethodField()
+
+    class Meta:
+        model = LoadMoney
+        fields = [
+            'id',
+            'package',
+            'amount',
+            'gateway',
+            'charge',
+            'net_credit',
+            'customer_name',
+            'customer_email',
+            'customer_phone',
+            'provider_order_id',
+            'payment_method',
+            'payment_mode_display',
+            'payment_gateway_name',
+            'status',
+            'transaction_id',
+            'gateway_transaction_id',
+            'failure_reason',
+            'collection_rail',
+            'utr',
+            'payment_date',
+            'submitted_amount',
+            'reject_reason',
+            'reviewed_at',
+            'created_at',
+        ]
+        read_only_fields = fields
+
+    def get_reject_reason(self, obj):
+        if (getattr(obj, 'collection_rail', None) or '') == 'qr' and (obj.status or '') == 'FAILED':
+            return (obj.failure_reason or '').strip()
+        return ''
+
+    def get_payment_mode_display(self, obj):
+        return payin_payment_mode_display(obj)
+
+    def get_payment_gateway_name(self, obj):
+        return payin_payment_gateway_name(obj)
+
+
 class LoadMoneySerializer(serializers.ModelSerializer):
     """Serializer for LoadMoney model (read/update shape)."""
 

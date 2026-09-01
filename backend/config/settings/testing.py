@@ -47,3 +47,6 @@ SILENCED_SYSTEM_CHECKS = [
 
 # Email backend
 EMAIL_BACKEND = 'django.core.mail.backends.locmem.EmailBackend'
+
+# Request-path catalog refresh must not use a background thread (sqlite locks under TestCase).
+BBPS_ASYNC_CATALOG_REMATERIALIZE = False

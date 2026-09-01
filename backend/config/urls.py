@@ -8,6 +8,8 @@ from django.http import JsonResponse
 from django.urls import path, include
 from drf_spectacular.views import SpectacularAPIView, SpectacularSwaggerView
 
+from apps.core.views import health_view
+
 
 def api_root(_request):
     """Quiet probe/bot traffic to ``GET /`` (avoids 404 noise in API logs)."""
@@ -16,6 +18,7 @@ def api_root(_request):
 
 urlpatterns = [
     path('', api_root),
+    path('api/health/', health_view, name='api-health'),
     path('admin/', admin.site.urls),
     
     # API Documentation

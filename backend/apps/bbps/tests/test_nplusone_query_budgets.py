@@ -29,6 +29,11 @@ class BbpsCatalogQueryBudgetTests(TestCase):
         clear_provider_policy_cache()
         _cached_cash_only_for_users.cache_clear()
 
+    def tearDown(self):
+        cache.clear()
+        clear_provider_policy_cache()
+        _cached_cash_only_for_users.cache_clear()
+
     def _make_visible_biller(self, biller_id: str, category: str = 'Electricity'):
         master = BbpsBillerMaster.objects.create(
             environment='uat',
@@ -82,6 +87,106 @@ class BbpsCatalogQueryBudgetTests(TestCase):
         with CaptureQueriesContext(connection) as ctx:
             second = get_bill_categories()
         self.assertEqual(first, second)
+        self.assertLessEqual(len(ctx.captured_queries), 5)
+
+    def test_last_snapshot_serves_categories_without_full_rescan(self):
+        from apps.bbps.catalog.env import catalog_cache_env_key
+        from apps.bbps.service_flow.catalog_ux_settings import is_cash_only_for_users
+        from apps.bbps.services import (
+            _visible_categories_last_key,
+            _visible_categories_materialized_key,
+        )
+
+        self._make_visible_biller('LAST01')
+        cache.clear()
+        clear_provider_policy_cache()
+        _cached_cash_only_for_users.cache_clear()
+        first = get_bill_categories()
+        cash_only = bool(is_cash_only_for_users())
+        env = catalog_cache_env_key()
+        cache.delete(f'bbps:categories:{env}:cash_only={int(cash_only)}')
+        cache.delete(_visible_categories_materialized_key(cash_only=cash_only))
+        self.assertIsNotNone(cache.get(_visible_categories_last_key(cash_only=cash_only)))
+        with CaptureQueriesContext(connection) as ctx:
+            second = get_bill_categories()
+        self.assertEqual(first, second)
+        self.assertLessEqual(len(ctx.captured_queries), 12)
+
+    def test_warmup_fills_category_and_biller_caches(self):
+        from apps.bbps.services import get_billers_by_category, warmup_bbps_catalog_cache
+
+        self._make_visible_biller('WARM01', category='Credit Card')
+        cache.clear()
+        clear_provider_policy_cache()
+        _cached_cash_only_for_users.cache_clear()
+        stats = warmup_bbps_catalog_cache()
+        self.assertGreaterEqual(stats['categories'], 1)
+        self.assertGreaterEqual(stats['biller_lists'], 1)
+        with CaptureQueriesContext(connection) as ctx:
+            cats = get_bill_categories()
+            billers = get_billers_by_category('credit-card')
+        self.assertTrue(any(c['id'] == 'credit-card' for c in cats))
+        self.assertGreaterEqual(len(billers), 1)
+        self.assertLessEqual(len(ctx.captured_queries), 12)
+
+    def test_categories_and_billers_send_private_cache_control(self):
+        user = User.objects.create_user(
+            phone='9555555599',
+            email='cache-hdr@test.com',
+            password='secret123',
+            role='Retailer',
+            user_id='CACHDR1',
+        )
+        self._make_visible_biller('HDR01', category='Credit Card')
+        client = APIClient()
+        client.force_authenticate(user=user)
+        r = client.get('/api/bbps/categories/')
+        self.assertEqual(r.status_code, 200)
+        self.assertIn('private', r.get('Cache-Control', ''))
+        self.assertIn('max-age=60', r.get('Cache-Control', ''))
+        r2 = client.get('/api/bbps/billers/credit-card/')
+        self.assertEqual(r2.status_code, 200)
+        self.assertIn('private', r2.get('Cache-Control', ''))
+        self.assertIn('max-age=60', r2.get('Cache-Control', ''))
+
+    def test_get_billers_by_category_query_count_stable_with_more_billers(self):
+        from apps.bbps.services import get_billers_by_category
+
+        for i in range(5):
+            self._make_visible_biller(f'BLQ{i:03d}', category='Credit Card')
+        cache.clear()
+        clear_provider_policy_cache()
+        _cached_cash_only_for_users.cache_clear()
+
+        with CaptureQueriesContext(connection) as ctx5:
+            rows5 = get_billers_by_category('credit-card')
+        n5 = len(ctx5.captured_queries)
+        self.assertGreaterEqual(len(rows5), 5)
+
+        for i in range(5, 25):
+            self._make_visible_biller(f'BLQ{i:03d}', category='Credit Card')
+        cache.clear()
+        clear_provider_policy_cache()
+        _cached_cash_only_for_users.cache_clear()
+
+        with CaptureQueriesContext(connection) as ctx25:
+            rows25 = get_billers_by_category('credit-card')
+        n25 = len(ctx25.captured_queries)
+        self.assertGreaterEqual(len(rows25), 25)
+        self.assertLessEqual(n25, n5 + 2, f'n5={n5} n25={n25}')
+        self.assertLessEqual(n25, 20)
+
+    def test_get_billers_by_category_cache_hit(self):
+        from apps.bbps.services import get_billers_by_category
+
+        self._make_visible_biller('BLCACHE01', category='Credit Card')
+        cache.clear()
+        clear_provider_policy_cache()
+        _cached_cash_only_for_users.cache_clear()
+        first = get_billers_by_category('credit-card')
+        with CaptureQueriesContext(connection) as ctx:
+            second = get_billers_by_category('credit-card')
+        self.assertEqual(len(first), len(second))
         self.assertLessEqual(len(ctx.captured_queries), 5)
 
 

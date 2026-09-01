@@ -365,6 +365,11 @@ class LoadMoney(BaseModel):
             models.Index(fields=['transaction_id']),
             models.Index(fields=['collection_rail', 'status', 'created_at']),
             models.Index(fields=['pay_in_qr_account', 'status', 'created_at']),
+            models.Index(
+                fields=['status', 'created_at'],
+                name='loadmoney_status_created_rpt',
+                condition=models.Q(is_deleted=False),
+            ),
         ]
         constraints = [
             models.UniqueConstraint(
@@ -463,6 +468,11 @@ class Payout(BaseModel):
         indexes = [
             models.Index(fields=['user', 'status', 'created_at']),
             models.Index(fields=['transaction_id']),
+            models.Index(
+                fields=['status', 'created_at'],
+                name='payout_status_created_rpt',
+                condition=models.Q(is_deleted=False),
+            ),
         ]
 
     def __str__(self):

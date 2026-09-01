@@ -1,29 +1,17 @@
 import React, { useEffect, useState } from 'react';
-import { NavLink, Route, Routes } from 'react-router-dom';
-import {
-  FaChartPie,
-  FaGears,
-  FaLayerGroup,
-  FaScrewdriverWrench,
-  FaTableList,
-  FaWallet,
-} from 'react-icons/fa6';
+import { Navigate, Route, Routes } from 'react-router-dom';
 import { billAvenueAdminAPI } from '../../../services/api';
 import BillAvenueSettings from '../BillAvenueSettings';
 import BbpsOpsConsole from '../BbpsOpsConsole';
 import BbpsProviderFloat from '../BbpsProviderFloat';
-import BbpsProviderGovernance from '../BbpsProviderGovernance';
 import BbpsOverview from './BbpsOverview';
-import BillerDirectory from './BillerDirectory';
+import BbpsCatalogHub from './BbpsCatalogHub';
 
-const NAV = [
-  { to: '/admin/bbps', end: true, label: 'Overview', icon: FaChartPie },
-  { to: '/admin/bbps/directory', label: 'Biller Directory', icon: FaTableList },
-  { to: '/admin/bbps/catalog', label: 'Catalog & Sync', icon: FaLayerGroup },
-  { to: '/admin/bbps/float', label: 'Provider Float', icon: FaWallet },
-  { to: '/admin/bbps/ops', label: 'Ops Tools', icon: FaScrewdriverWrench },
-  { to: '/admin/bbps/settings', label: 'BillAvenue Settings', icon: FaGears },
-];
+const CatalogRedirect = ({ tab, mdmEnv }) => {
+  const params = new URLSearchParams({ tab });
+  if (mdmEnv) params.set('mdmEnv', mdmEnv);
+  return <Navigate to={`/admin/bbps/catalog?${params.toString()}`} replace />;
+};
 
 const BbpsConsole = () => {
   const [liveMode, setLiveMode] = useState('');
@@ -76,31 +64,20 @@ const BbpsConsole = () => {
           </div>
         </header>
 
-        {/* Mobile horizontal nav */}
-        <nav className="flex gap-2 overflow-x-auto pb-1 lg:hidden">
-          {NAV.map((item) => (
-            <NavLink
-              key={item.to}
-              to={item.to}
-              end={item.end}
-              className={({ isActive }) =>
-                `whitespace-nowrap rounded-full px-3 py-1.5 text-xs font-semibold ring-1 ${
-                  isActive ? 'bg-blue-600 text-white ring-blue-600' : 'bg-white dark:bg-slate-900 text-slate-700 dark:text-slate-300 ring-slate-200 dark:ring-slate-700'
-                }`
-              }
-            >
-              {item.label}
-            </NavLink>
-          ))}
-        </nav>
-
-        {/* Section routes take the full width; navigation lives in the app sidebar
-            (BBPS Console submenu). The pill strip above covers mobile. */}
         <main className="min-w-0">
           <Routes>
             <Route index element={<BbpsOverview />} />
-            <Route path="directory" element={<BillerDirectory />} />
-            <Route path="catalog" element={<BbpsProviderGovernance />} />
+            <Route path="catalog" element={<BbpsCatalogHub />} />
+            <Route path="partner-catalog" element={<CatalogRedirect tab="partner" />} />
+            <Route path="catalog-visibility/hidden" element={<CatalogRedirect tab="visibility" />} />
+            <Route path="catalog-visibility" element={<CatalogRedirect tab="visibility" />} />
+            <Route path="directory/uat" element={<CatalogRedirect tab="mdm" mdmEnv="uat" />} />
+            <Route path="directory/production" element={<CatalogRedirect tab="mdm" mdmEnv="prod" />} />
+            <Route
+              path="directory"
+              element={<CatalogRedirect tab="mdm" mdmEnv={isProd ? 'prod' : 'uat'} />}
+            />
+            <Route path="sync" element={<CatalogRedirect tab="sync" />} />
             <Route path="float" element={<BbpsProviderFloat />} />
             <Route path="ops" element={<BbpsOpsConsole />} />
             <Route path="settings" element={<BillAvenueSettings />} />

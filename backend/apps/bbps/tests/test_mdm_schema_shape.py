@@ -121,6 +121,8 @@ class MdmSchemaShapeTests(TestCase):
         self.assertTrue(truncated)
 
     def test_input_schema_enriches_csv_values_from_raw_and_hides_invisible(self):
+        # Not a plan-driven biller: required hidden Id must still appear for agent entry.
+        self.master.plan_mdm_requirement = ''
         self.master.raw_payload = {
             'billerId': 'SCHEMA01',
             'billerInputParams': {
@@ -148,7 +150,7 @@ class MdmSchemaShapeTests(TestCase):
                 ]
             },
         }
-        self.master.save(update_fields=['raw_payload'])
+        self.master.save(update_fields=['raw_payload', 'plan_mdm_requirement'])
         BbpsBillerInputParam.objects.create(
             biller=self.master,
             param_name='Circle',

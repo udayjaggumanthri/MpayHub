@@ -5,6 +5,7 @@ import Card from '../common/Card';
 import Input from '../common/Input';
 import Button from '../common/Button';
 import LoadingSpinner from '../common/LoadingSpinner';
+import AuthenticatedImage from '../common/AuthenticatedImage';
 import AccountAccessBanner from '../common/AccountAccessBanner';
 import MaintenanceModuleLock from '../common/MaintenanceModuleLock';
 import { formatCurrency } from '../../utils/formatters';
@@ -280,8 +281,8 @@ const QrPayInPage = () => {
                       >
                         <div className="flex gap-3">
                           {opt.qr_image_url ? (
-                            <img
-                              src={normalizeAssetUrl(opt.qr_image_url)}
+                            <AuthenticatedImage
+                              src={opt.qr_image_url}
                               alt=""
                               className="h-20 w-20 rounded-lg border bg-white dark:bg-slate-900 object-contain p-1 flex-shrink-0"
                             />
@@ -389,8 +390,8 @@ const QrPayInPage = () => {
                     <p className="text-lg font-bold text-gray-900 dark:text-slate-100 mb-4 tracking-wide">SCAN &amp; PAY</p>
                     {selected?.qr_image_url ? (
                       <>
-                        <img
-                          src={normalizeAssetUrl(selected.qr_image_url)}
+                        <AuthenticatedImage
+                          src={selected.qr_image_url}
                           alt="Scan QR"
                           className="max-h-64 max-w-full rounded-lg border-2 border-gray-200 dark:border-slate-700 bg-white dark:bg-slate-900 p-3 object-contain"
                         />

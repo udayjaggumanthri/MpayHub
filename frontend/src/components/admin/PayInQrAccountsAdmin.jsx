@@ -5,9 +5,10 @@ import Card from '../common/Card';
 import Input from '../common/Input';
 import Button from '../common/Button';
 import LoadingSpinner from '../common/LoadingSpinner';
+import AuthenticatedImage from '../common/AuthenticatedImage';
 import GatewayFlowStepper from './GatewayFlowStepper';
 import { firstErrorMessage } from './gatewayAdminShared';
-import { formatCurrency } from '../../utils/formatters';
+import { formatCurrency, formatDecimalInput } from '../../utils/formatters';
 import {
   FaPlus,
   FaPenToSquare,
@@ -28,16 +29,13 @@ const emptyForm = () => ({
   upi_vpa: '',
   bank_details: '',
   sort_order: '0',
-  daily_limit_24h: '100000',
+  daily_limit_24h: '100000.00',
   max_per_txn: '',
   charge_rate: '0',
   status: 'active',
 });
 
-const noNumberSpinnerClass =
-  '[appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none [-moz-appearance:textfield]';
-
-const preventNumberWheel = (e) => e.currentTarget.blur();
+const isBlobPreview = (url) => typeof url === 'string' && url.startsWith('blob:');
 
 const PayInQrAccountsAdmin = () => {
   const [rows, setRows] = useState([]);
@@ -122,13 +120,13 @@ const PayInQrAccountsAdmin = () => {
       upi_vpa: row.upi_vpa || '',
       bank_details: typeof row.bank_details === 'string' ? row.bank_details : JSON.stringify(row.bank_details || ''),
       sort_order: String(row.sort_order ?? 0),
-      daily_limit_24h: row.daily_limit_24h != null ? String(row.daily_limit_24h) : '100000',
-      max_per_txn: row.max_per_txn != null ? String(row.max_per_txn) : '',
-      charge_rate: row.charge_rate != null ? String(row.charge_rate) : '0',
+      daily_limit_24h: row.daily_limit_24h != null ? formatDecimalInput(row.daily_limit_24h) : '100000.00',
+      max_per_txn: row.max_per_txn != null ? formatDecimalInput(row.max_per_txn) : '',
+      charge_rate: row.charge_rate != null ? formatDecimalInput(row.charge_rate) : '0.00',
       status: row.status || 'active',
     });
     setQrImage(null);
-    setPreview(row.qr_image_url || '');
+    setPreview(row.qr_image_url ? normalizeAssetUrl(row.qr_image_url) : '');
     setModalOpen(true);
   };
 
@@ -308,7 +306,11 @@ const PayInQrAccountsAdmin = () => {
                     <tr key={row.id} className="border-b hover:bg-gray-50 dark:hover:bg-slate-800">
                       <td className="px-5 py-3">
                         {row.qr_image_url ? (
-                          <img src={normalizeAssetUrl(row.qr_image_url)} alt="" className="h-12 w-12 rounded border object-contain bg-white dark:bg-slate-900" />
+                          <AuthenticatedImage
+                            src={row.qr_image_url}
+                            alt=""
+                            className="h-12 w-12 rounded border object-contain bg-white dark:bg-slate-900"
+                          />
                         ) : (
                           <span className="inline-flex h-12 w-12 items-center justify-center rounded border bg-slate-50 dark:bg-slate-800/50 text-slate-400 dark:text-slate-500">
                             <FaQrcode />
@@ -393,42 +395,49 @@ const PayInQrAccountsAdmin = () => {
                   }}
                   className="text-sm w-full"
                 />
-                {preview ? <img src={preview} alt="QR preview" className="mt-2 h-32 rounded border" /> : null}
+                {preview ? (
+                  isBlobPreview(preview) ? (
+                    <img src={preview} alt="QR preview" className="mt-2 h-32 rounded border object-contain bg-white dark:bg-slate-900" />
+                  ) : (
+                    <AuthenticatedImage
+                      src={preview}
+                      alt="QR preview"
+                      className="mt-2 h-32 rounded border object-contain bg-white dark:bg-slate-900"
+                    />
+                  )
+                ) : null}
               </div>
               <Input
                 label="Minimum fee % (package floor)"
                 type="number"
-                step="0.0001"
+                step="0.01"
                 min="0"
                 value={form.charge_rate}
                 onChange={(e) => setForm({ ...form, charge_rate: e.target.value })}
                 helperText="Packages cannot set a QR rail fee below this value."
-                className={noNumberSpinnerClass}
-                onWheel={preventNumberWheel}
               />
               <Input
                 label="24h daily limit (INR)"
                 type="number"
+                step="0.01"
+                min="0"
                 value={form.daily_limit_24h}
                 onChange={(e) => setForm({ ...form, daily_limit_24h: e.target.value })}
-                className={noNumberSpinnerClass}
-                onWheel={preventNumberWheel}
               />
               <Input
                 label="Max per txn (INR)"
                 type="number"
+                step="0.01"
+                min="0"
                 value={form.max_per_txn}
                 onChange={(e) => setForm({ ...form, max_per_txn: e.target.value })}
-                className={noNumberSpinnerClass}
-                onWheel={preventNumberWheel}
               />
               <Input
                 label="Sort order"
                 type="number"
+                step="1"
                 value={form.sort_order}
                 onChange={(e) => setForm({ ...form, sort_order: e.target.value })}
-                className={noNumberSpinnerClass}
-                onWheel={preventNumberWheel}
               />
               <div className="flex gap-3 pt-2">
                 <Button type="button" variant="outline" fullWidth onClick={() => setModalOpen(false)}>

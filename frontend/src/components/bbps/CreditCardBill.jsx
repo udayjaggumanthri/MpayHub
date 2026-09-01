@@ -20,8 +20,16 @@ import MaintenanceModuleLock from '../common/MaintenanceModuleLock';
 import { getModuleMessage, isModuleEnabled } from '../../utils/maintenanceMode';
 import { parseBbpsError } from '../../utils/bbpsErrors';
 import { deriveFormReceiptIdentity } from './bbpsBillsHelpers';
+import { readBillerListCache, writeBillerListCache } from '../../utils/bbpsCatalogCache';
 
-const CreditCardBill = ({ category = 'credit-card', categoryLabel = '', onPaymentSuccess, onBack }) => {
+const CreditCardBill = ({
+  category = 'credit-card',
+  categoryLabel = '',
+  onPaymentSuccess,
+  onBack,
+  initialBillers = null,
+  parentLoadingBillers = false,
+}) => {
   const { user, maintenance, refreshMaintenance } = useAuth();
   const bbpsMaintenance = !isModuleEnabled(maintenance, 'bbps');
   const paySubmitInFlight = useRef(false);
@@ -117,20 +125,45 @@ const CreditCardBill = ({ category = 'credit-card', categoryLabel = '', onPaymen
   }, [refreshMaintenance]);
 
   useEffect(() => {
+    let cancelled = false;
     const loadBillers = async () => {
+      const cached = (Array.isArray(initialBillers) && initialBillers.length ? initialBillers : null)
+        || readBillerListCache(category);
+      if (cached) {
+        setBillerOptions(cached);
+        setBillersLoading(false);
+        if (Array.isArray(initialBillers) && initialBillers.length) {
+          writeBillerListCache(category, initialBillers);
+        }
+        return undefined;
+      }
+      if (parentLoadingBillers || initialBillers == null) {
+        setBillersLoading(true);
+        return undefined;
+      }
+      if (Array.isArray(initialBillers)) {
+        setBillerOptions(initialBillers);
+        setBillersLoading(false);
+        return undefined;
+      }
       setBillersLoading(true);
       setBiller('');
       setBillerOptions([]);
       const bRes = await bbpsAPI.getBillers(category);
+      if (cancelled) return;
       if (bRes.success && Array.isArray(bRes.data?.billers)) {
         setBillerOptions(bRes.data.billers);
+        writeBillerListCache(category, bRes.data.billers);
       } else {
         setBillerOptions([]);
       }
       setBillersLoading(false);
     };
     loadBillers();
-  }, [category]);
+    return () => {
+      cancelled = true;
+    };
+  }, [category, initialBillers, parentLoadingBillers]);
 
   useEffect(() => {
     const loadSchema = async () => {

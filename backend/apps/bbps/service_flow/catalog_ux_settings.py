@@ -49,7 +49,12 @@ def update_catalog_ux_settings(
         row.updated_by = admin_user
     row.save(update_fields=['cash_only_for_users', 'updated_by', 'updated_at'])
     _cached_cash_only_for_users.cache_clear()
-    return serialize_catalog_ux_settings(row)
+    from apps.bbps.service_flow.catalog_visibility import apply_cash_only_visibility_for_env
+
+    apply_stats = apply_cash_only_visibility_for_env(row.environment)
+    out = serialize_catalog_ux_settings(row)
+    out['apply_stats'] = apply_stats
+    return out
 
 
 @lru_cache(maxsize=8)

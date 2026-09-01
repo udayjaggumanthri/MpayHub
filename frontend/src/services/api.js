@@ -905,6 +905,18 @@ export const usersAPI = {
   },
 
   /**
+   * GET /api/users/assignable-roles/ — Admin only; roles for profile role change.
+   */
+  getAssignableRoles: async () => {
+    try {
+      const response = await apiClient.get('/users/assignable-roles/');
+      return extractData(response);
+    } catch (error) {
+      return handleError(error);
+    }
+  },
+
+  /**
    * Admin only: approve or reject KYC after provider verification.
    * POST /api/users/{id}/kyc-approval/
    */
@@ -1737,6 +1749,33 @@ export const bbpsAPI = {
   updateCatalogUxSettings: async (payload) => {
     try {
       const response = await apiClient.patch('/bbps/admin/catalog-ux-settings/', payload);
+      return extractData(response);
+    } catch (error) {
+      return handleError(error);
+    }
+  },
+
+  getCatalogVisibilitySummary: async (params = {}) => {
+    try {
+      const response = await apiClient.get('/bbps/admin/catalog-visibility/summary/', { params });
+      return extractData(response);
+    } catch (error) {
+      return handleError(error);
+    }
+  },
+
+  previewCatalogVisibility: async (params = {}) => {
+    try {
+      const response = await apiClient.get('/bbps/admin/catalog-visibility/preview/', { params });
+      return extractData(response);
+    } catch (error) {
+      return handleError(error);
+    }
+  },
+
+  listCatalogHiddenBillers: async (params = {}) => {
+    try {
+      const response = await apiClient.get('/bbps/admin/catalog-visibility/hidden/', { params });
       return extractData(response);
     } catch (error) {
       return handleError(error);

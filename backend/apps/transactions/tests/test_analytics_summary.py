@@ -2,6 +2,7 @@
 from decimal import Decimal
 
 from django.contrib.auth import get_user_model
+from django.core.cache import cache
 from django.test import TestCase
 from django.urls import reverse
 from rest_framework.test import APIClient
@@ -25,6 +26,7 @@ def _create_user(**kwargs):
 
 class GatewayAnalyticsPlatformScopeTests(TestCase):
     def setUp(self):
+        cache.clear()
         self.admin = _create_user(
             phone='9111000001',
             email='admin_analytics@test.com',
@@ -74,15 +76,34 @@ class GatewayAnalyticsPlatformScopeTests(TestCase):
         self._lm(self.retailer_a, 'LM-A-2', '1000')
         client = APIClient()
         client.force_authenticate(user=self.admin)
-        url = reverse('analytics-summary')
+        url = reverse('reports:analytics-summary')
         res = client.get(url, {'date_from': self.today, 'date_to': self.today})
         self.assertEqual(res.status_code, 200)
         self.assertEqual(res.data['data']['scope'], 'platform')
         self.assertGreaterEqual(res.data['data']['totals']['transactions_count'], 1)
 
+    def test_groups_by_gateway_without_loading_each_row_in_python(self):
+        self._lm(self.retailer_a, 'LM-GW-A', '1000')
+        lm_b = self._lm(self.retailer_b, 'LM-GW-B', '2000')
+        lm_b.gateway = 'PayU'
+        lm_b.save(update_fields=['gateway'])
+
+        data = get_gateway_analytics_summary(
+            interval='daily',
+            date_from_raw=self.today,
+            date_to_raw=self.today,
+            use_cache=False,
+        )
+        by_gw = {r['gateway']: r for r in data['rows']}
+        self.assertIn('Razorpay', by_gw)
+        self.assertIn('PayU', by_gw)
+        self.assertEqual(by_gw['Razorpay']['transactions_count'], 1)
+        self.assertEqual(by_gw['PayU']['transactions_count'], 1)
+        self.assertEqual(data['totals']['transactions_count'], 2)
+
     def test_non_admin_forbidden(self):
         client = APIClient()
         client.force_authenticate(user=self.retailer_a)
-        url = reverse('analytics-summary')
+        url = reverse('reports:analytics-summary')
         res = client.get(url)
         self.assertEqual(res.status_code, 403)

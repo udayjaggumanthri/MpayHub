@@ -155,6 +155,13 @@ const BillAvenueSettings = () => {
       return;
     }
     if (mode === 'prod') {
+      const typed = window.prompt(
+        'Type PRODUCTION to confirm switching live partners to Production credentials and catalog.',
+      );
+      if (typed !== 'PRODUCTION') {
+        setBanner('error', 'Live environment switch cancelled — confirmation text did not match.');
+        return;
+      }
       const ok = window.confirm('Switch partners to Production credentials and catalog?');
       if (!ok) return;
     }

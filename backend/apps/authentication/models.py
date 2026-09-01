@@ -53,7 +53,7 @@ class User(AbstractUser, TimestampedModel):
     username = None  # Remove username field
     phone = models.CharField(max_length=10, unique=True, db_index=True)
     email = models.EmailField(unique=True, db_index=True)
-    role = models.CharField(max_length=20, choices=ROLE_CHOICES, default='Retailer')
+    role = models.CharField(max_length=20, choices=ROLE_CHOICES, default='Retailer', db_index=True)
     mpin_hash = models.CharField(max_length=255, blank=True, null=True)
     # Legacy public code (role-prefixed historically). Preserved for search/history.
     user_id = models.CharField(max_length=20, unique=True, db_index=True, null=True, blank=True)
@@ -81,14 +81,16 @@ class User(AbstractUser, TimestampedModel):
         db_index=True,
         help_text='Role-prefix + member_number (prefix updates on role change).',
     )
-    is_active = models.BooleanField(default=True)
+    is_active = models.BooleanField(default=True, db_index=True)
     # Admin access controls (see apps.core.financial_access)
     is_restricted = models.BooleanField(
         default=False,
+        db_index=True,
         help_text='Read-only portal: no pay-in or payment outflows.',
     )
     payments_locked = models.BooleanField(
         default=False,
+        db_index=True,
         help_text='Block BBPS pay, payout, and wallet transfers; pay-in allowed unless restricted.',
     )
     pay_in_allowed_when_disabled = models.BooleanField(

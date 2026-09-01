@@ -240,14 +240,6 @@ const Dashboard = () => {
     <>
       <AnnouncementBanner />
       <KycProfileSyncAlert className="mx-auto mb-6 max-w-7xl" />
-      {loading ? (
-        <div className="flex min-h-[400px] items-center justify-center">
-          <div className="text-center">
-            <div className="mx-auto h-12 w-12 animate-spin rounded-full border-b-2 border-blue-600" />
-            <p className="mt-4 text-slate-600 dark:text-slate-400">Loading dashboard…</p>
-          </div>
-        </div>
-      ) : (
         <div className="mx-auto max-w-7xl space-y-10 pb-10">
           <Card className="border border-slate-200/90 dark:border-slate-700/90 shadow-sm" padding="lg">
             <div
@@ -290,7 +282,17 @@ const Dashboard = () => {
             >
               Wallets
             </h2>
-            <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
+      {loading ? (
+        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4" aria-busy="true">
+          {(showProfitWallet || showCommissionWallet ? [0, 1, 2, 3] : [0, 1, 2]).map((i) => (
+            <div
+              key={i}
+              className="h-36 animate-pulse rounded-2xl border border-slate-200/90 dark:border-slate-700/90 bg-slate-100 dark:bg-slate-800"
+            />
+          ))}
+        </div>
+      ) : (
+        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
               <WalletCard
                 type="main"
                 amount={wallets.main}
@@ -326,6 +328,7 @@ const Dashboard = () => {
                 />
               )}
             </div>
+          )}
           </section>
 
           {/* 2 — Operational / admin quick actions */}
@@ -419,28 +422,28 @@ const Dashboard = () => {
 
             <Card className="border border-slate-200/90 dark:border-slate-700/90 shadow-sm" padding="lg">
               <div className="mb-6 grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4">
-                <div className="rounded-xl border border-slate-100 dark:border-slate-700 bg-white dark:bg-slate-800/60 p-4 shadow-sm">
+                <div className={`rounded-xl border border-slate-100 dark:border-slate-700 bg-white dark:bg-slate-800/60 p-4 shadow-sm ${analyticsLoading ? 'animate-pulse' : ''}`}>
                   <p className="text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">Sales (period)</p>
                   <p className="mt-1 text-xl font-bold tabular-nums text-slate-900 dark:text-slate-100">
-                    {formatCurrency(parseFloat(analyticsTotals.payin_sales || 0))}
+                    {analyticsLoading ? '—' : formatCurrency(parseFloat(analyticsTotals.payin_sales || 0))}
                   </p>
                 </div>
-                <div className="rounded-xl border border-slate-100 dark:border-slate-700 bg-white dark:bg-slate-800/60 p-4 shadow-sm">
+                <div className={`rounded-xl border border-slate-100 dark:border-slate-700 bg-white dark:bg-slate-800/60 p-4 shadow-sm ${analyticsLoading ? 'animate-pulse' : ''}`}>
                   <p className="text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">Charges (period)</p>
                   <p className="mt-1 text-xl font-bold tabular-nums text-amber-900 dark:text-amber-300">
-                    {formatCurrency(parseFloat(analyticsTotals.payin_charges || 0))}
+                    {analyticsLoading ? '—' : formatCurrency(parseFloat(analyticsTotals.payin_charges || 0))}
                   </p>
                 </div>
-                <div className="rounded-xl border border-emerald-100 dark:border-emerald-800/70 bg-emerald-50/50 dark:bg-emerald-950/50 p-4 shadow-sm">
+                <div className={`rounded-xl border border-emerald-100 dark:border-emerald-800/70 bg-emerald-50/50 dark:bg-emerald-950/50 p-4 shadow-sm ${analyticsLoading ? 'animate-pulse' : ''}`}>
                   <p className="text-xs font-semibold uppercase tracking-wide text-emerald-800 dark:text-emerald-300">Platform profit</p>
                   <p className="mt-1 text-xl font-bold tabular-nums text-emerald-900 dark:text-emerald-300">
-                    {formatCurrency(parseFloat(analyticsTotals.platform_profit || 0))}
+                    {analyticsLoading ? '—' : formatCurrency(parseFloat(analyticsTotals.platform_profit || 0))}
                   </p>
                 </div>
-                <div className="rounded-xl border border-slate-100 dark:border-slate-700 bg-white dark:bg-slate-800/60 p-4 shadow-sm">
+                <div className={`rounded-xl border border-slate-100 dark:border-slate-700 bg-white dark:bg-slate-800/60 p-4 shadow-sm ${analyticsLoading ? 'animate-pulse' : ''}`}>
                   <p className="text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">Transactions</p>
                   <p className="mt-1 text-xl font-bold tabular-nums text-slate-900 dark:text-slate-100">
-                    {analyticsTotals.transactions_count ?? 0}
+                    {analyticsLoading ? '—' : (analyticsTotals.transactions_count ?? 0)}
                   </p>
                 </div>
               </div>
@@ -549,7 +552,6 @@ const Dashboard = () => {
           </section>
           ) : null}
         </div>
-      )}
     </>
   );
 };

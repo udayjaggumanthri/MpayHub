@@ -5,7 +5,7 @@ from datetime import timedelta
 from decimal import Decimal, InvalidOperation
 
 from django.db.models import Count, Q, Sum
-from django.http import StreamingHttpResponse
+from django.http import Http404, StreamingHttpResponse
 from django.utils import timezone
 from django.utils.dateparse import parse_date
 from rest_framework import status, viewsets
@@ -33,7 +33,11 @@ from apps.fund_management.serializers_qr import (
     QrPayInRejectSerializer,
     QrPayInReleaseUtrSerializer,
 )
-from apps.fund_management.payin_distribution import _compute_payin_distribution
+from apps.fund_management.payin_distribution import (
+    _compute_payin_distribution,
+    serialize_payin_distribution_for_api,
+)
+from apps.fund_management.qr_image import qr_image_file_response
 
 logger = logging.getLogger(__name__)
 
@@ -202,6 +206,13 @@ class PayInQrAccountViewSet(viewsets.ModelViewSet):
         instance.save(update_fields=['is_deleted', 'updated_at'])
         return Response({'success': True, 'data': None, 'message': 'QR account removed', 'errors': []})
 
+    @action(detail=True, methods=['get'], url_path='qr-image')
+    def qr_image(self, request, pk=None):
+        account = self.get_object()
+        if not account.qr_image:
+            raise Http404
+        return qr_image_file_response(account.qr_image, download_name=f'qr-{account.pk}.png')
+
     @action(detail=True, methods=['post'])
     def toggle_status(self, request, pk=None):
         qr = self.get_object()
@@ -307,7 +318,9 @@ def qr_operations_detail_view(request, pk: int):
             rail_fee = resolve_rail_gateway_fee_pct(
                 lm.package, qr_account_id=lm.pay_in_qr_account_id
             )
-            preview = _compute_payin_distribution(lm.package, amt, lm.user, gateway_fee_pct=rail_fee)
+            preview = serialize_payin_distribution_for_api(
+                _compute_payin_distribution(lm.package, amt, lm.user, gateway_fee_pct=rail_fee)
+            )
         except Exception:
             preview = None
     ser = QrPayInOperationDetailSerializer(lm, context={'request': request})

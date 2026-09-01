@@ -27,6 +27,11 @@ urlpatterns = [
         views_qr.pay_in_qr_receipt_view,
         name='pay-in-qr-receipt',
     ),
+    path(
+        'pay-in/qr/accounts/<int:qr_account_id>/qr-image/',
+        views_qr.pay_in_qr_account_image_view,
+        name='pay-in-qr-account-image',
+    ),
 
     # Package assignment endpoints
     path('packages/user/<int:user_id>/', views.user_packages_view, name='user-packages'),

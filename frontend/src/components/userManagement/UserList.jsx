@@ -15,7 +15,6 @@ import {
   FaClock,
   FaBan,
   FaUsers,
-  FaXmark,
   FaTrash,
 } from 'react-icons/fa6';
 import Button from '../common/Button';
@@ -42,6 +41,10 @@ const UserList = ({ role, onCreateNew, currentUserId, isAdmin = false }) => {
   const navigate = useNavigate();
   const [users, setUsers] = useState([]);
   const [searchTerm, setSearchTerm] = useState('');
+  const [appliedSearch, setAppliedSearch] = useState('');
+  const [page, setPage] = useState(1);
+  const [pageSize] = useState(25);
+  const [total, setTotal] = useState(0);
   const [accountFilter, setAccountFilter] = useState('all');
   const [loading, setLoading] = useState(false);
   const [activeStatusSaving, setActiveStatusSaving] = useState(false);
@@ -55,49 +58,38 @@ const UserList = ({ role, onCreateNew, currentUserId, isAdmin = false }) => {
   const loadUsers = useCallback(async () => {
     setLoading(true);
     try {
-      const params = {};
+      const params = { page, page_size: pageSize };
+      if (appliedSearch) params.search = appliedSearch;
       if (role && role !== 'all') params.role = role;
       if (isAdmin && accountFilter === 'active') params.account_status = 'active';
       if (isAdmin && accountFilter === 'inactive') params.account_status = 'disabled';
       const result = await usersAPI.listUsers(params);
 
       if (result.success && result.data?.users) {
-        const filtered = result.data.users.filter((u) => {
-          const searchLower = searchTerm.toLowerCase();
-          const firstName = (u.first_name || '').toLowerCase();
-          const lastName = (u.last_name || '').toLowerCase();
-          const fullName = `${firstName} ${lastName}`.trim();
-          const userId = String(u.user_id ?? '').toLowerCase();
-          const displayCode = String(u.display_code ?? '').toLowerCase();
-          const memberId = String(u.member_id ?? '').toLowerCase();
-          const legacyId = String(u.legacy_user_id ?? u.user_id ?? '').toLowerCase();
-          const phone = (u.phone || '').toLowerCase();
-          const email = (u.email || '').toLowerCase();
-          const businessName = (u.profile?.business_name || '').toLowerCase();
-
-          return (
-            fullName.includes(searchLower) ||
-            userId.includes(searchLower) ||
-            displayCode.includes(searchLower) ||
-            memberId.includes(searchLower) ||
-            legacyId.includes(searchLower) ||
-            phone.includes(searchTerm) ||
-            email.includes(searchLower) ||
-            businessName.includes(searchLower)
-          );
-        });
-        setUsers(filtered);
+        setUsers(result.data.users);
+        setTotal(Number(result.data.total) || result.data.users.length || 0);
       } else {
         setUsers([]);
+        setTotal(0);
         console.error('Error loading users:', result.message);
       }
     } catch (error) {
       console.error('Error loading users:', error);
       setUsers([]);
+      setTotal(0);
     } finally {
       setLoading(false);
     }
-  }, [role, searchTerm, isAdmin, accountFilter]);
+  }, [role, appliedSearch, isAdmin, accountFilter, page, pageSize]);
+
+  useEffect(() => {
+    const t = setTimeout(() => setAppliedSearch(searchTerm.trim()), 300);
+    return () => clearTimeout(t);
+  }, [searchTerm]);
+
+  useEffect(() => {
+    setPage(1);
+  }, [appliedSearch, role, accountFilter]);
 
   useEffect(() => {
     loadUsers();
@@ -227,11 +219,15 @@ const UserList = ({ role, onCreateNew, currentUserId, isAdmin = false }) => {
             )}
           </div>
         </div>
-        {!loading && users.length > 0 && (
+        {!loading && total > 0 && (
           <p className="mt-3 text-xs font-medium text-slate-500 dark:text-slate-400">
-            Showing <span className="text-slate-800 dark:text-slate-200">{users.length}</span>
-            {users.length === 1 ? ' user' : ' users'}
-            {searchTerm ? ' matching your search' : ''}
+            Showing{' '}
+            <span className="text-slate-800 dark:text-slate-200">
+              {(page - 1) * pageSize + 1}–{Math.min(page * pageSize, total)}
+            </span>{' '}
+            of <span className="text-slate-800 dark:text-slate-200">{total}</span>
+            {total === 1 ? ' user' : ' users'}
+            {appliedSearch ? ' matching your search' : ''}
           </p>
         )}
       </div>
@@ -421,6 +417,31 @@ const UserList = ({ role, onCreateNew, currentUserId, isAdmin = false }) => {
               </tbody>
             </table>
           </div>
+          {total > pageSize ? (
+            <div className="flex flex-wrap items-center justify-between gap-3 border-t border-slate-100 dark:border-slate-800 px-4 py-3">
+              <p className="text-xs text-slate-500 dark:text-slate-400">
+                Page {page} of {Math.max(1, Math.ceil(total / pageSize))}
+              </p>
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  disabled={page <= 1 || loading}
+                  onClick={() => setPage((p) => Math.max(1, p - 1))}
+                  className="rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 px-3 py-1.5 text-xs font-semibold text-slate-700 dark:text-slate-300 disabled:opacity-50"
+                >
+                  Previous
+                </button>
+                <button
+                  type="button"
+                  disabled={page >= Math.ceil(total / pageSize) || loading}
+                  onClick={() => setPage((p) => p + 1)}
+                  className="rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 px-3 py-1.5 text-xs font-semibold text-slate-700 dark:text-slate-300 disabled:opacity-50"
+                >
+                  Next
+                </button>
+              </div>
+            </div>
+          ) : null}
         </div>
       )}
 

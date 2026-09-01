@@ -95,6 +95,7 @@ const BbpsBillsList = ({
   const [transactions, setTransactions] = useState([]);
   const [loading, setLoading] = useState(true);
   const [hasLoadedOnce, setHasLoadedOnce] = useState(false);
+  const hasLoadedOnceRef = useRef(false);
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(DEFAULT_PAGE_SIZE);
@@ -158,7 +159,7 @@ const BbpsBillsList = ({
 
   const loadTransactions = useCallback(async () => {
     const runId = ++fetchIdRef.current;
-    if (hasLoadedOnce) setIsRefreshing(true);
+    if (hasLoadedOnceRef.current) setIsRefreshing(true);
     else setLoading(true);
     try {
       const result = await bbpsAPI.getBillPayments(buildListParams());
@@ -190,9 +191,12 @@ const BbpsBillsList = ({
       if (runId !== fetchIdRef.current) return;
       setLoading(false);
       setIsRefreshing(false);
-      setHasLoadedOnce(true);
+      if (!hasLoadedOnceRef.current) {
+        hasLoadedOnceRef.current = true;
+        setHasLoadedOnce(true);
+      }
     }
-  }, [buildListParams, hasLoadedOnce]);
+  }, [buildListParams]);
 
   useEffect(() => {
     loadTransactions();

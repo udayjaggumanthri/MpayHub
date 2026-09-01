@@ -289,13 +289,16 @@ export const AuthProvider = ({ children }) => {
   }, [applyMaintenanceFromPayload]);
 
   const refreshMaintenance = useCallback(async () => {
+    const token =
+      localStorage.getItem('access_token') || sessionStorage.getItem('access_token');
+    if (!token) return;
     try {
       const result = await systemAPI.getMaintenanceStatus();
       if (result.success && result.data?.maintenance) {
         setMaintenance(normalizeMaintenance(result.data.maintenance));
       }
     } catch {
-      /* ignore */
+      /* ignore — user may not be authenticated yet */
     }
   }, []);
 

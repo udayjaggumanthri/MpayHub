@@ -87,7 +87,8 @@ const BbpsBillerDetails = () => {
   const [syncing, setSyncing] = useState(false);
   const [pullingPlans, setPullingPlans] = useState(false);
   const [togglingLocal, setTogglingLocal] = useState(false);
-  const [error, setError] = useState('');
+  const [loadError, setLoadError] = useState('');
+  const [syncError, setSyncError] = useState('');
   const [biller, setBiller] = useState(null);
   const [catalogSummary, setCatalogSummary] = useState(null);
   const [catalogLoading, setCatalogLoading] = useState(false);
@@ -143,10 +144,10 @@ const BbpsBillerDetails = () => {
 
   const load = useCallback(async () => {
     setLoading(true);
-    setError('');
+    setLoadError('');
     const res = await billAvenueAdminAPI.getBillerMasterDetails(billerPk);
     if (!res.success) {
-      setError(res.message || 'Failed to load biller details');
+      setLoadError(res.message || 'Failed to load biller details');
       setLoading(false);
       return null;
     }
@@ -172,13 +173,18 @@ const BbpsBillerDetails = () => {
     if (!biller?.biller_id) return;
     const beforeRaw = biller.raw_payload || {};
     setSyncing(true);
-    setError('');
+    setSyncError('');
+    setLoadError('');
     setInfo('');
     setChangedFieldMap({});
     setChangedCount(0);
-    const res = await bbpsAPI.syncBillers([biller.biller_id]);
+    const res = await bbpsAPI.syncBillers(
+      [biller.biller_id],
+      biller.environment || undefined,
+    );
     if (!res.success) {
-      setError(res.message || 'Failed to sync this biller');
+      const hint = res.data?.hint || res.data?.actionable_hint || '';
+      setSyncError(hint ? `${res.message} ${hint}` : res.message || 'Failed to sync this biller');
       setSyncing(false);
       return;
     }
@@ -213,11 +219,11 @@ const BbpsBillerDetails = () => {
   const pullPlansForThisBiller = async () => {
     if (!biller?.biller_id) return;
     setPullingPlans(true);
-    setError('');
+    setLoadError('');
     setInfo('');
     const res = await bbpsAPI.pullPlans([biller.biller_id]);
     if (!res.success) {
-      setError(res.message || 'Plan pull failed');
+      setSyncError(res.message || 'Plan pull failed');
       setPullingPlans(false);
       return;
     }
@@ -230,13 +236,13 @@ const BbpsBillerDetails = () => {
   const toggleLocalActive = async () => {
     if (!billerPk || !biller) return;
     setTogglingLocal(true);
-    setError('');
+    setLoadError('');
     setInfo('');
     const res = biller.is_active_local
       ? await billAvenueAdminAPI.disableBillerMaster(billerPk)
       : await billAvenueAdminAPI.enableBillerMaster(billerPk);
     if (!res.success) {
-      setError(res.message || 'Could not update local active flag');
+      setSyncError(res.message || 'Could not update local active flag');
       setTogglingLocal(false);
       return;
     }
@@ -275,18 +281,18 @@ const BbpsBillerDetails = () => {
   const savePaymentMapping = async () => {
     if (!biller?.biller_id) return;
     if (!allowedChannels.length) {
-      setError('Select at least one allowed payment channel.');
+      setSyncError('Select at least one allowed payment channel.');
       return;
     }
     setMappingSaving(true);
-    setError('');
+    setLoadError('');
     setInfo('');
     const res = await billAvenueAdminAPI.saveBillerPaymentMapping(biller.biller_id, {
       allowed_channels: allowedChannels,
     });
     setMappingSaving(false);
     if (!res.success) {
-      setError(res.message || 'Failed to save payment mapping');
+      setSyncError(res.message || 'Failed to save payment mapping');
       return;
     }
     await load();
@@ -294,7 +300,7 @@ const BbpsBillerDetails = () => {
   };
 
   if (loading) return <div className="max-w-7xl mx-auto text-sm text-gray-500 dark:text-slate-400">Loading biller details...</div>;
-  if (error) return <div className="max-w-7xl mx-auto text-sm text-red-700 dark:text-red-300 bg-red-50 dark:bg-red-950/40 border border-red-200 dark:border-red-800 rounded p-3">{error}</div>;
+  if (loadError) return <div className="max-w-7xl mx-auto text-sm text-red-700 dark:text-red-300 bg-red-50 dark:bg-red-950/40 border border-red-200 dark:border-red-800 rounded p-3">{loadError}</div>;
   if (!biller) return <div className="max-w-7xl mx-auto text-sm text-gray-500 dark:text-slate-400">Biller not found.</div>;
   const rawPayload = biller.raw_payload || {};
   const flattened = flattenObject(rawPayload);
@@ -324,10 +330,32 @@ const BbpsBillerDetails = () => {
 
   return (
     <div className="max-w-7xl mx-auto space-y-4">
+      {syncError ? (
+        <div className="rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-800 dark:border-red-900 dark:bg-red-950/40 dark:text-red-300">
+          {syncError}
+          <div className="mt-2">
+            <Link to="/admin/bbps/settings" className="font-semibold text-blue-700 underline dark:text-blue-300">
+              Open BillAvenue Settings
+            </Link>
+          </div>
+        </div>
+      ) : null}
+      {info ? (
+        <div className="rounded-lg border border-emerald-200 bg-emerald-50 px-4 py-2 text-sm text-emerald-800 dark:border-emerald-900 dark:bg-emerald-950/40 dark:text-emerald-300">
+          {info}
+        </div>
+      ) : null}
       <div className="flex items-center justify-between">
         <div>
           <h1 className="text-xl font-semibold text-gray-900 dark:text-slate-100">{biller.biller_name || 'Biller Details'}</h1>
-          <p className="text-sm text-gray-600 dark:text-slate-400">Biller ID: <span className="font-mono">{biller.biller_id}</span></p>
+          <p className="text-sm text-gray-600 dark:text-slate-400">
+            Biller ID: <span className="font-mono">{biller.biller_id}</span>
+            {biller.environment ? (
+              <span className="ml-2 rounded-full bg-slate-100 px-2 py-0.5 text-xs font-semibold uppercase text-slate-600 dark:bg-slate-800 dark:text-slate-300">
+                {biller.environment}
+              </span>
+            ) : null}
+          </p>
         </div>
         <div className="flex flex-wrap gap-2">
           <button

@@ -44,6 +44,7 @@ from apps.bbps.models import (
 )
 from apps.bbps.api_response import bbps_error_response
 from apps.bbps.serializers import (
+    BillPaymentListSerializer,
     BillPaymentSerializer,
     FetchBillSerializer,
     BillPaymentCreateSerializer,
@@ -53,6 +54,8 @@ from apps.bbps.serializers import (
     BillAvenueSecretUpdateSerializer,
     BbpsCategoryCommissionRuleSerializer,
     BbpsBillerMasterLiteSerializer,
+    BbpsBillerMasterDirectorySerializer,
+    CatalogVisibilityHiddenBillerSerializer,
     BbpsBillerMasterAdminSerializer,
     BbpsProviderBillerMapSerializer,
     BbpsSyncUsageLogSerializer,
@@ -82,6 +85,7 @@ from apps.bbps.services import (
     get_billers_by_category,
     get_providers_by_category,
     get_setup_readiness,
+    materialize_visible_category_codes,
     normalize_category_code,
 )
 from apps.bbps.mdm_param_utils import is_placeholder_style_param_name
@@ -339,13 +343,20 @@ def get_categories_view(request):
     Get bill categories.
     GET /api/bbps/categories/
     """
+    from apps.bbps.service_flow.catalog_ux_settings import is_cash_only_for_users
+
     categories = get_bill_categories()
-    return Response({
+    response = Response({
         'success': True,
-        'data': {'categories': categories},
+        'data': {
+            'categories': categories,
+            'catalog_ux': {'cash_only_for_users': bool(is_cash_only_for_users())},
+        },
         'message': 'Categories retrieved successfully',
         'errors': []
     }, status=status.HTTP_200_OK)
+    response['Cache-Control'] = 'private, max-age=60'
+    return response
 
 
 @api_view(['GET'])
@@ -356,12 +367,14 @@ def get_billers_view(request, category):
     GET /api/bbps/billers/{category}/
     """
     billers = get_billers_by_category(category)
-    return Response({
+    response = Response({
         'success': True,
         'data': {'billers': billers},
         'message': 'Billers retrieved successfully',
         'errors': []
     }, status=status.HTTP_200_OK)
+    response['Cache-Control'] = 'private, max-age=60'
+    return response
 
 
 @api_view(['GET'])
@@ -385,9 +398,9 @@ def get_providers_view(request, category):
 @api_view(['GET'])
 @permission_classes([IsAuthenticated])
 def biller_schema_view(request, biller_id):
-    schema = get_biller_input_schema(biller_id)
-    payment_ui = get_biller_payment_ui_options(biller_id)
     master = get_biller_master(biller_id)
+    schema = get_biller_input_schema(biller_id, master=master)
+    payment_ui = get_biller_payment_ui_options(biller_id, master=master)
     plan_req = str(getattr(master, 'plan_mdm_requirement', '') or '').strip() if master else ''
     fetch_req = str(getattr(master, 'biller_fetch_requirement', '') or '').strip() if master else ''
     fetch_req_upper = fetch_req.upper().replace('-', '_').replace(' ', '_')
@@ -400,9 +413,11 @@ def biller_schema_view(request, biller_id):
         'QUICKPAY' in fetch_req_upper
         and ('ONLY' in fetch_req_upper or 'NOT_SUPPORTED' in fetch_req_upper or 'UNSUPPORTED' in fetch_req_upper)
     )
-    additional_info_schema = get_biller_additional_info_schema(biller_id)
+    additional_info_schema = get_biller_additional_info_schema(biller_id, master=master)
     circle_q = str(request.query_params.get('circle') or request.query_params.get('Circle') or '').strip()
-    plans_lite, plans_truncated = get_biller_plans_lite(biller_id, limit=100, circle=circle_q)
+    plans_lite, plans_truncated = get_biller_plans_lite(
+        biller_id, limit=100, circle=circle_q, master=master
+    )
     input_guidance = None
     if schema and all(is_placeholder_style_param_name(str(r.get('param_name') or '')) for r in schema):
         input_guidance = (
@@ -976,7 +991,7 @@ def bill_payments_list_view(request):
     total = payments.count()
     start = (page - 1) * page_size
     paginated_payments = list(payments[start : start + page_size])
-    serializer = BillPaymentSerializer(paginated_payments, many=True)
+    serializer = BillPaymentListSerializer(paginated_payments, many=True)
     from apps.bbps.bill_payment_balances import enrich_serialized_bill_payments
 
     payment_rows = enrich_serialized_bill_payments(paginated_payments, list(serializer.data))
@@ -1533,15 +1548,28 @@ def _invalidate_bbps_user_catalog_cache():
         str(code or '').strip()
         for code in biller_master_qs_for_env().values_list('biller_category', flat=True)
     )
-    _invalidate_provider_cache(*[c for c in category_codes if c])
-    # Categories list (cash_only 0/1) — clear both variants for active env + legacy.
+    codes = [c for c in category_codes if c]
+    _invalidate_provider_cache(*codes)
     env = catalog_cache_env_key()
+    for code in codes:
+        norm = normalize_category_code(code)
+        for cash_flag in (0, 1):
+            cache.delete(f'bbps:billers:{env}:{norm}:cash_only={cash_flag}')
+            cache.delete(f'bbps:billers:{norm}:cash_only={cash_flag}')
+    # Categories list (cash_only 0/1) — clear both variants for active env + legacy.
     for cash_flag in (0, 1):
         cache.delete(f'bbps:categories:{env}:cash_only={cash_flag}')
         cache.delete(f'bbps:categories:cash_only={cash_flag}')
+        cache.delete(f'bbps:visible_categories:{env}:cash_only={cash_flag}')
+        cache.delete(f'bbps:visible_categories:{env}:cash_only={cash_flag}:last')
     from apps.bbps.service_flow.provider_policy import clear_provider_policy_cache
 
     clear_provider_policy_cache()
+    from apps.bbps.service_flow.catalog_visibility import invalidate_catalog_visibility_summary_cache
+
+    invalidate_catalog_visibility_summary_cache()
+    for cash_flag in (False, True):
+        materialize_visible_category_codes(cash_only=cash_flag)
 
 
 def _extract_mobile_from_input_map(input_map: dict) -> str:
@@ -1908,7 +1936,16 @@ def provider_biller_maps_view(request):
     if not getattr(settings, 'BBPS_PROVIDER_GOVERNANCE_ENABLED', True):
         return Response({'success': False, 'data': None, 'message': 'Provider governance is disabled', 'errors': []}, status=503)
     if request.method == 'GET':
-        rows = BbpsProviderBillerMap.objects.filter(is_deleted=False).select_related('provider__category', 'biller_master').order_by('provider__category__display_order', 'provider__priority', 'priority')
+        rows = (
+            BbpsProviderBillerMap.objects.filter(is_deleted=False)
+            .select_related('provider__category', 'biller_master')
+            .order_by('provider__category__display_order', 'provider__priority', 'priority')
+        )
+        biller_ids_raw = str(request.query_params.get('biller_ids') or '').strip()
+        if biller_ids_raw:
+            biller_ids = [x.strip() for x in biller_ids_raw.split(',') if x.strip()]
+            if biller_ids:
+                rows = rows.filter(biller_master__biller_id__in=biller_ids)
         status_filter = str(request.query_params.get('approval') or '').strip().lower()
         if status_filter in ('pending', 'approved', 'rejected'):
             rows = [r for r in rows if _approval_status(r) == status_filter]
@@ -2001,41 +2038,84 @@ def biller_master_admin_view(request):
         return Response({'success': False, 'data': None, 'message': 'Provider governance is disabled', 'errors': []}, status=503)
     live_mode = active_bbps_environment()
     if request.method == 'GET':
-        env_param = str(request.query_params.get('environment') or request.query_params.get('mode') or '').strip().lower()
-        catalog_env = normalize_billavenue_mode(env_param) if env_param in ('uat', 'prod') else live_mode
+        from apps.bbps.admin_directory import (
+            admin_biller_directory_queryset,
+            resolve_catalog_env,
+        )
+        from apps.bbps.service_flow.catalog_visibility import hidden_billers_queryset
+        from apps.bbps.services import ALLOWED_BILLER_STATUSES
+        from apps.bbps.service_flow.catalog_ux_settings import is_cash_only_for_users
+
+        view_mode = str(request.query_params.get('view') or 'mdm').strip().lower()
+        catalog_env = resolve_catalog_env(request)
+        if view_mode == 'partner':
+            catalog_env = active_bbps_environment()
         category = request.query_params.get('category')
         q = str(request.query_params.get('q') or '').strip()
         active = str(request.query_params.get('active') or '').strip().lower()
+        hold = str(request.query_params.get('hold') or '').strip().lower()
+        cash_only_eligible = str(request.query_params.get('cash_only_eligible') or '').strip().lower()
         try:
             page = max(1, int(request.query_params.get('page') or 1))
         except (TypeError, ValueError):
             page = 1
         try:
-            # Admin directory may request "All" (up to 50k) for bulk select/sync.
-            page_size = max(1, min(50000, int(request.query_params.get('page_size') or 25)))
+            page_size = max(1, min(100, int(request.query_params.get('page_size') or 25)))
         except (TypeError, ValueError):
             page_size = 25
-        qs = biller_master_qs_for_env(catalog_env).filter(soft_deleted_at__isnull=True).order_by('biller_name')
-        if category:
-            qs = qs.filter(biller_category__icontains=category)
-        if q:
-            qs = qs.filter(Q(biller_name__icontains=q) | Q(biller_id__icontains=q))
-        if active in ('true', 'false'):
-            qs = qs.filter(is_active_local=(active == 'true'))
-        total = qs.count()
-        start = (page - 1) * page_size
-        end = start + page_size
-        rows = qs[start:end]
+
+        qs = admin_biller_directory_queryset(
+            catalog_env=catalog_env,
+            category=category,
+            q=q or None,
+            active=active or None,
+            hold=hold or None,
+            cash_only_eligible=cash_only_eligible or None,
+            view=view_mode,
+        )
+
+        cash_only = is_cash_only_for_users(catalog_env)
+        ser_ctx = {'cash_only': cash_only}
+
+        if view_mode == 'partner':
+            qs = qs.filter(
+                is_active_local=True,
+                biller_status__in=ALLOWED_BILLER_STATUSES,
+            )
+            total = qs.count()
+            start = (page - 1) * page_size
+            rows = list(qs[start : start + page_size])
+        else:
+            if cash_only_eligible in ('true', 'false'):
+                filtered = []
+                for master in qs:
+                    ser = BbpsBillerMasterDirectorySerializer(master, context=ser_ctx)
+                    eligible = bool(ser.data.get('cash_only_eligible'))
+                    if cash_only_eligible == 'true' and eligible:
+                        filtered.append(master)
+                    elif cash_only_eligible == 'false' and not eligible:
+                        filtered.append(master)
+                total = len(filtered)
+                start = (page - 1) * page_size
+                rows = filtered[start : start + page_size]
+            else:
+                total = qs.count()
+                start = (page - 1) * page_size
+                rows = list(qs[start : start + page_size])
+
         counts = catalog_counts_by_environment()
+        billers = BbpsBillerMasterDirectorySerializer(rows, many=True, context=ser_ctx).data
         return Response(
             {
                 'success': True,
                 'data': {
-                    'billers': BbpsBillerMasterLiteSerializer(rows, many=True).data,
+                    'billers': billers,
                     'live_mode': live_mode,
                     'catalog_environment': catalog_env,
                     'catalog_counts': counts,
                     'quota': _sync_quota_snapshot(),
+                    'view': view_mode,
+                    'cash_only_for_users': bool(cash_only),
                     'pagination': {
                         'page': page,
                         'page_size': page_size,
@@ -2090,8 +2170,13 @@ def biller_master_category_counts_view(request):
     live_mode = active_bbps_environment()
     env_param = str(request.query_params.get('environment') or request.query_params.get('mode') or '').strip().lower()
     catalog_env = normalize_billavenue_mode(env_param) if env_param in ('uat', 'prod') else live_mode
+    view_mode = str(request.query_params.get('view') or 'mdm').strip().lower()
+
+    from apps.bbps.services import ALLOWED_BILLER_STATUSES
 
     qs = biller_master_qs_for_env(catalog_env).filter(soft_deleted_at__isnull=True)
+    if view_mode == 'partner':
+        qs = qs.filter(is_active_local=True, biller_status__in=ALLOWED_BILLER_STATUSES)
     raw = (
         qs.values('biller_category')
         .annotate(
@@ -2187,25 +2272,67 @@ def biller_master_disable_view(request, pk: int):
     if not row:
         return Response({'success': False, 'data': None, 'message': 'Biller not found', 'errors': []}, status=404)
     row.is_active_local = False
+    row.local_visibility_hold = 'admin'
     row.updated_by_admin_at = timezone.now()
-    row.save(update_fields=['is_active_local', 'updated_by_admin_at', 'updated_at'])
+    row.save(update_fields=['is_active_local', 'local_visibility_hold', 'updated_by_admin_at', 'updated_at'])
     _invalidate_bbps_user_catalog_cache()
-    return Response({'success': True, 'data': {'id': row.pk, 'is_active_local': row.is_active_local}, 'message': 'Biller disabled', 'errors': []}, status=200)
+    return Response(
+        {
+            'success': True,
+            'data': {
+                'id': row.pk,
+                'is_active_local': row.is_active_local,
+                'local_visibility_hold': row.local_visibility_hold,
+            },
+            'message': 'Biller disabled',
+            'errors': [],
+        },
+        status=200,
+    )
 
 
 @api_view(['POST'])
 @permission_classes([IsAuthenticated, IsAdmin])
 def biller_master_enable_view(request, pk: int):
+    from apps.bbps.service_flow.catalog_visibility import assert_biller_can_be_enabled
+
     row = BbpsBillerMaster.objects.filter(pk=pk, is_deleted=False).first()
     if not row:
         return Response({'success': False, 'data': None, 'message': 'Biller not found', 'errors': []}, status=404)
+    block_msg = assert_biller_can_be_enabled(row)
+    if block_msg:
+        return Response(
+            {'success': False, 'data': None, 'message': block_msg, 'errors': {'cash_only': [block_msg]}},
+            status=409,
+        )
     row.is_active_local = True
+    row.local_visibility_hold = ''
     if row.soft_deleted_at is not None:
         row.soft_deleted_at = None
     row.updated_by_admin_at = timezone.now()
-    row.save(update_fields=['is_active_local', 'soft_deleted_at', 'updated_by_admin_at', 'updated_at'])
+    row.save(
+        update_fields=[
+            'is_active_local',
+            'local_visibility_hold',
+            'soft_deleted_at',
+            'updated_by_admin_at',
+            'updated_at',
+        ]
+    )
     _invalidate_bbps_user_catalog_cache()
-    return Response({'success': True, 'data': {'id': row.pk, 'is_active_local': row.is_active_local}, 'message': 'Biller enabled', 'errors': []}, status=200)
+    return Response(
+        {
+            'success': True,
+            'data': {
+                'id': row.pk,
+                'is_active_local': row.is_active_local,
+                'local_visibility_hold': row.local_visibility_hold,
+            },
+            'message': 'Biller enabled',
+            'errors': [],
+        },
+        status=200,
+    )
 
 
 @api_view(['GET'])
@@ -2902,6 +3029,21 @@ def sync_billers_view(request):
     live_mode = active_bbps_environment()
     requested_env = str((request.data or {}).get('environment') or '').strip().lower()
     sync_env = normalize_billavenue_mode(requested_env) if requested_env in ('uat', 'prod') else live_mode
+    if not requested_env and biller_ids:
+        from apps.bbps.models import BbpsBillerMaster
+
+        envs = set(
+            BbpsBillerMaster.objects.filter(
+                biller_id__in=biller_ids,
+                is_deleted=False,
+                soft_deleted_at__isnull=True,
+            )
+            .values_list('environment', flat=True)
+            .distinct()
+        )
+        envs = {normalize_billavenue_mode(e) for e in envs if e}
+        if len(envs) == 1:
+            sync_env = envs.pop()
     try:
         out = run_mdm_sync_batch(
             biller_ids,
@@ -2927,8 +3069,9 @@ def sync_billers_view(request):
         live = active_bbps_environment()
         code = e.code
         data = dict(e.data or {})
-        if code in ('001', '205', 'PARSE', '202'):
+        if code in ('001', '205', 'PARSE', '202', 'AUTH'):
             msg_l = str(e or '').lower()
+            sync_env_label = str((data or {}).get('environment') or live).upper()
             if code == 'PARSE':
                 hint = (
                     f'BillAvenue returned a malformed/partial MDM payload (missing responseCode). '
@@ -2942,10 +3085,17 @@ def sync_billers_view(request):
                 )
             elif code == '205' and ('de001' in msg_l or 'invalid enc' in msg_l):
                 hint = (
-                    f'BillAvenue rejected the encrypted UAT/PROD MDM request (DE001 — Invalid ENC). '
-                    f'Open BBPS Console → BillAvenue Settings for {live.upper()}, re-paste the full Working Key '
+                    f'BillAvenue rejected the encrypted MDM request (DE001 — Invalid ENC). '
+                    f'Open BBPS Console → BillAvenue Settings for {sync_env_label}, re-paste the full Working Key '
                     f'(and Access Code / IV) from the BillAvenue portal for this institute, save, then retry Sync. '
-                    f'Existing {live.upper()} synced catalog remains usable.'
+                    f'Existing {sync_env_label} synced catalog remains usable.'
+                )
+            elif code == 'AUTH' or 'access denied' in msg_l:
+                hint = (
+                    f'BillAvenue denied MDM access (biller_info) for {sync_env_label}. '
+                    f'Open BBPS Console → BillAvenue Settings → {sync_env_label}: verify Access Code, Institute ID, '
+                    f'Working Key/IV, and Agent ID. Ask BillAvenue to enable MDM/biller_info for this institute. '
+                    f'Existing cached biller data remains usable.'
                 )
             else:
                 hint = (
@@ -3769,6 +3919,109 @@ def provider_float_settings_view(request):
     )
 
 
+@api_view(['GET'])
+@permission_classes([IsAuthenticated, IsAdmin])
+def catalog_visibility_summary_view(request):
+    """GET /api/bbps/admin/catalog-visibility/summary/"""
+    from apps.bbps.service_flow.catalog_visibility import catalog_visibility_summary
+
+    env_param = str(request.query_params.get('environment') or '').strip().lower()
+    live_mode = active_bbps_environment()
+    env = normalize_billavenue_mode(env_param) if env_param in ('uat', 'prod') else live_mode
+    return Response(
+        {
+            'success': True,
+            'data': catalog_visibility_summary(env),
+            'message': 'Catalog visibility summary',
+            'errors': [],
+        },
+        status=200,
+    )
+
+
+@api_view(['GET'])
+@permission_classes([IsAuthenticated, IsAdmin])
+def catalog_visibility_preview_view(request):
+    """GET /api/bbps/admin/catalog-visibility/preview/?cash_only_for_users=true"""
+    from apps.bbps.service_flow.catalog_visibility import preview_cash_only_toggle
+
+    env_param = str(request.query_params.get('environment') or '').strip().lower()
+    live_mode = active_bbps_environment()
+    env = normalize_billavenue_mode(env_param) if env_param in ('uat', 'prod') else live_mode
+    raw = request.query_params.get('cash_only_for_users')
+    if raw is None:
+        return Response(
+            {
+                'success': False,
+                'data': None,
+                'message': 'cash_only_for_users query param is required',
+                'errors': {'cash_only_for_users': ['This field is required.']},
+            },
+            status=400,
+        )
+    enable = str(raw).strip().lower() in ('1', 'true', 'yes', 'on')
+    return Response(
+        {
+            'success': True,
+            'data': preview_cash_only_toggle(env, cash_only_for_users=enable),
+            'message': 'Catalog visibility preview',
+            'errors': [],
+        },
+        status=200,
+    )
+
+
+@api_view(['GET'])
+@permission_classes([IsAuthenticated, IsAdmin])
+def catalog_visibility_hidden_view(request):
+    """GET /api/bbps/admin/catalog-visibility/hidden/ — paginated hidden billers."""
+    from apps.bbps.service_flow.catalog_visibility import hidden_billers_queryset
+    from apps.bbps.service_flow.catalog_ux_settings import is_cash_only_for_users
+
+    env_param = str(request.query_params.get('environment') or '').strip().lower()
+    live_mode = active_bbps_environment()
+    env = normalize_billavenue_mode(env_param) if env_param in ('uat', 'prod') else live_mode
+    category = str(request.query_params.get('category') or '').strip() or None
+    q = str(request.query_params.get('q') or '').strip() or None
+    reason = str(request.query_params.get('reason') or '').strip() or None
+    try:
+        page = max(1, int(request.query_params.get('page') or 1))
+    except (TypeError, ValueError):
+        page = 1
+    try:
+        page_size = max(1, min(100, int(request.query_params.get('page_size') or 25)))
+    except (TypeError, ValueError):
+        page_size = 25
+
+    qs = hidden_billers_queryset(env, reason=reason, category=category, q=q)
+    total = qs.count()
+    start = (page - 1) * page_size
+    masters = list(qs[start : start + page_size])
+    cash_only = is_cash_only_for_users(env)
+    billers = CatalogVisibilityHiddenBillerSerializer(
+        masters, many=True, context={'cash_only': cash_only}
+    ).data
+    return Response(
+        {
+            'success': True,
+            'data': {
+                'billers': billers,
+                'environment': env,
+                'cash_only_for_users': bool(cash_only),
+                'pagination': {
+                    'page': page,
+                    'page_size': page_size,
+                    'total': total,
+                    'total_pages': (total + page_size - 1) // page_size if page_size else 1,
+                },
+            },
+            'message': 'Hidden billers retrieved',
+            'errors': [],
+        },
+        status=200,
+    )
+
+
 @api_view(['GET', 'PATCH'])
 @permission_classes([IsAuthenticated, IsAdmin])
 def catalog_ux_settings_view(request):
@@ -3815,6 +4068,7 @@ def catalog_ux_settings_view(request):
         cash_only_for_users=bool(cash_only),
         admin_user=request.user,
     )
+    _invalidate_bbps_user_catalog_cache()
     return Response(
         {
             'success': True,

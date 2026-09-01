@@ -16,7 +16,7 @@ import Badge from '../../common/Badge';
 import Button from '../../common/Button';
 import LoadingSpinner from '../../common/LoadingSpinner';
 import Tabs from '../../common/Tabs';
-import BbpsCashOnlyToggle from './BbpsCashOnlyToggle';
+import BbpsEnvPageShell from './BbpsEnvPageShell';
 
 const PAGE_SIZES = [25, 50, 100];
 
@@ -216,9 +216,9 @@ const BillerDrawer = ({ row, onClose }) => {
 
 /* ---------------- Directory ---------------- */
 
-const BillerDirectory = () => {
+const BillerDirectory = ({ lockedEnvironment = null, embedded = false }) => {
   const [searchParams, setSearchParams] = useSearchParams();
-  const [env, setEnv] = useState('');
+  const [env, setEnv] = useState(lockedEnvironment || '');
   const [liveMode, setLiveMode] = useState('');
   const [catalogCounts, setCatalogCounts] = useState(null);
   const [categories, setCategories] = useState([]);
@@ -272,22 +272,39 @@ const BillerDirectory = () => {
   }, []);
 
   useEffect(() => {
-    loadCategories('');
+    if (lockedEnvironment) setEnv(lockedEnvironment);
+  }, [lockedEnvironment]);
+
+  useEffect(() => {
+    loadCategories(lockedEnvironment || '');
+  }, [loadCategories, lockedEnvironment]);
+
+  useEffect(() => {
+    if (!rows.length) {
+      setMapStatus({});
+      return undefined;
+    }
+    const billerIds = rows.map((r) => r.biller_id).filter(Boolean);
+    if (!billerIds.length) return undefined;
+    let cancelled = false;
     (async () => {
-      const res = await billAvenueAdminAPI.listProviderBillerMaps();
-      if (res.success) {
-        const byBiller = {};
-        (res.data?.maps || []).forEach((m) => {
-          const key = String(m.biller_id || '');
-          if (!key) return;
-          const st = m.approval_status || 'pending';
-          // approved wins over pending for display
-          if (byBiller[key] !== 'approved') byBiller[key] = st;
-        });
-        setMapStatus(byBiller);
-      }
+      const res = await billAvenueAdminAPI.listProviderBillerMaps({
+        biller_ids: billerIds.join(','),
+      });
+      if (cancelled || !res.success) return;
+      const byBiller = {};
+      (res.data?.maps || []).forEach((m) => {
+        const key = String(m.biller_id || '');
+        if (!key) return;
+        const st = m.approval_status || 'pending';
+        if (byBiller[key] !== 'approved') byBiller[key] = st;
+      });
+      setMapStatus(byBiller);
     })();
-  }, [loadCategories]);
+    return () => {
+      cancelled = true;
+    };
+  }, [rows]);
 
   useEffect(() => {
     const params = { page, page_size: pageSize };
@@ -386,15 +403,11 @@ const BillerDirectory = () => {
 
   const isProdEnv = String(env).toLowerCase() === 'prod';
   const totalPages = pagination?.total_pages || 1;
+  const otherDirLink =
+    env === 'prod' ? '/admin/bbps/directory/uat' : '/admin/bbps/directory/production';
 
-  return (
-    <div className="space-y-4">
-      {isProdEnv && (
-        <div className="rounded-lg border border-emerald-300 dark:border-emerald-800 bg-emerald-50 dark:bg-emerald-950/40 px-4 py-2 text-xs font-semibold text-emerald-800 dark:text-emerald-300">
-          You are viewing the PRODUCTION catalog. Bulk actions here affect live retailers.
-        </div>
-      )}
-
+  const content = (
+  <div className="space-y-4">
       {notice && (
         <div
           className={`rounded-lg px-4 py-2.5 text-sm font-medium ${
@@ -407,22 +420,30 @@ const BillerDirectory = () => {
 
       <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
         <div>
-          <h2 className="text-lg font-bold text-slate-900 dark:text-slate-100">Biller Directory</h2>
-          <p className="text-sm text-slate-500 dark:text-slate-400">
-            {totals ? `${totals.total} billers · ${totals.visible} visible · ${totals.hidden} hidden` : 'Loading catalog…'}
-          </p>
+          {!lockedEnvironment ? (
+            <>
+              <h2 className="text-lg font-bold text-slate-900 dark:text-slate-100">Biller Directory</h2>
+              <p className="text-sm text-slate-500 dark:text-slate-400">
+                {totals ? `${totals.total} billers · ${totals.visible} visible · ${totals.hidden} hidden` : 'Loading catalog…'}
+              </p>
+            </>
+          ) : null}
         </div>
-        <Tabs
-          tabs={[
-            { id: 'uat', label: 'UAT', count: catalogCounts?.uat ?? undefined },
-            { id: 'prod', label: 'PROD', count: catalogCounts?.prod ?? undefined },
-          ]}
-          active={env || liveMode}
-          onChange={switchEnv}
-        />
+        {lockedEnvironment && !embedded ? (
+          <Link to={otherDirLink} className="text-sm font-medium text-blue-600 hover:underline dark:text-blue-400">
+            Switch to {env === 'prod' ? 'UAT' : 'Production'} directory
+          </Link>
+        ) : lockedEnvironment ? null : (
+          <Tabs
+            tabs={[
+              { id: 'uat', label: 'UAT', count: catalogCounts?.uat ?? undefined },
+              { id: 'prod', label: 'PROD', count: catalogCounts?.prod ?? undefined },
+            ]}
+            active={env || liveMode}
+            onChange={switchEnv}
+          />
+        )}
       </div>
-
-      <BbpsCashOnlyToggle environment={env || liveMode || 'uat'} />
 
       <div className="grid gap-4 lg:grid-cols-[230px_1fr]">
         {/* Category tree */}
@@ -627,6 +648,11 @@ const BillerDirectory = () => {
                           <Badge variant={r.is_active_local ? 'success' : 'default'} size="sm">
                             {r.is_active_local ? 'Visible' : 'Hidden'}
                           </Badge>
+                          {r.local_visibility_hold ? (
+                            <div className="mt-0.5 text-[10px] uppercase tracking-wide text-slate-500">
+                              {r.local_visibility_hold}
+                            </div>
+                          ) : null}
                         </td>
                         <td className="whitespace-nowrap px-3 py-2.5 text-xs text-slate-500 dark:text-slate-400">
                           {timeAgo(r.last_synced_at)}
@@ -687,6 +713,28 @@ const BillerDirectory = () => {
       <BillerDrawer row={drawerRow} onClose={() => setDrawerRow(null)} />
     </div>
   );
+
+  if (lockedEnvironment && !embedded) {
+    return (
+      <BbpsEnvPageShell
+        environment={lockedEnvironment}
+        title={`${isProdEnv ? 'Production' : 'UAT'} biller directory`}
+        subtitle={
+          totals
+            ? `${totals.total} MDM billers · ${totals.visible} locally visible · ${totals.hidden} hidden`
+            : 'Manage MDM billers, visibility, and bulk actions.'
+        }
+        breadcrumbs={[
+          { label: 'BBPS Console', to: '/admin/bbps' },
+          { label: `${isProdEnv ? 'Production' : 'UAT'} directory` },
+        ]}
+      >
+        {content}
+      </BbpsEnvPageShell>
+    );
+  }
+
+  return content;
 };
 
 export default BillerDirectory;

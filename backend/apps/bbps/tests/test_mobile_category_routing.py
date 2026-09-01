@@ -7,6 +7,11 @@ from apps.bbps.services import get_bill_categories, get_billers_by_category
 class BbpsMobileCategoryRoutingTests(TestCase):
     """Regression: BillAvenue Mobile maps to postpaid; prepaid stays disjoint."""
 
+    def setUp(self):
+        from django.core.cache import cache
+
+        cache.clear()
+
     def test_get_billers_by_category_mobile_postpaid_matches_mobile_biller_category(self):
         BbpsBillerMaster.objects.create(
             biller_id='OTME00000XX243',

@@ -59,6 +59,11 @@ def manageable_roles_for(parent_role: str | None) -> list[str]:
     return creatable_roles_for(parent_role)
 
 
+def assignable_roles_for_admin_change() -> list[str]:
+    """All commercial roles an Admin may assign via user profile role change."""
+    return list(HIERARCHY_ROLE_ORDER)
+
+
 def policy_snapshot() -> dict[str, list[str]]:
     """Serializable matrix for API clients."""
     return {role: creatable_roles_for(role) for role in HIERARCHY_ROLE_ORDER}

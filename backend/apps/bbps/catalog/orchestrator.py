@@ -13,7 +13,7 @@ from apps.bbps.catalog.env import active_bbps_environment
 from apps.bbps.catalog.mdm_parse import iter_billers_from_payload, mdm_field_str, upstream_response_code
 from apps.bbps.catalog.persist_biller import mark_unseen_billers_stale, persist_biller_from_mdm_row
 from apps.integrations.billavenue.client import BillAvenueClient
-from apps.integrations.billavenue.errors import BillAvenueClientError
+from apps.integrations.billavenue.errors import BillAvenueAuthError, BillAvenueClientError
 from apps.integrations.billavenue.registry import (
     get_billavenue_config_for_mode,
     normalize_billavenue_mode,
@@ -118,7 +118,14 @@ class CatalogOrchestrator:
                 chunk_norm = ba_client.biller_info(payload).normalized
             except BillAvenueClientError as exc:
                 msg = str(exc or '')
-                if 'code=205' in msg and payload.get('agentId'):
+                msg_low = msg.lower()
+                should_retry_without_agent = payload.get('agentId') and (
+                    'code=205' in msg
+                    or 'access denied' in msg_low
+                    or 'unauthorized access' in msg_low
+                    or isinstance(exc, BillAvenueAuthError)
+                )
+                if should_retry_without_agent:
                     payload_retry = dict(payload)
                     payload_retry.pop('agentId', None)
                     retry_without_agent_used = True

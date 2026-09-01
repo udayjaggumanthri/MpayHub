@@ -28,6 +28,122 @@ from apps.bbps.receipt_context import build_bill_payment_receipt_context
 from apps.users.identity import public_display_code
 
 
+def _prefetched_latest_attempt(obj):
+    attempts = getattr(obj, 'prefetched_attempts', None)
+    if attempts is not None:
+        return attempts[0] if attempts else None
+    return obj.attempts.filter(is_deleted=False).order_by('-created_at').first()
+
+
+def _attempt_request_payload(obj) -> dict:
+    attempt = _prefetched_latest_attempt(obj)
+    payload = getattr(attempt, 'request_payload', None) if attempt else None
+    return payload if isinstance(payload, dict) else {}
+
+
+class BillPaymentListSerializer(serializers.ModelSerializer):
+    """Lightweight list serializer — no per-row MDM or receipt context queries."""
+
+    bconnect_txn_id = serializers.SerializerMethodField()
+    approval_ref_number = serializers.SerializerMethodField()
+    ccf_amount = serializers.SerializerMethodField()
+    biller_name = serializers.SerializerMethodField()
+    input_params = serializers.SerializerMethodField()
+    customer_details = serializers.SerializerMethodField()
+    mobile = serializers.SerializerMethodField()
+    card_last4 = serializers.SerializerMethodField()
+    payment_mode = serializers.SerializerMethodField()
+    init_channel = serializers.SerializerMethodField()
+    agent_user_code = serializers.SerializerMethodField()
+    agent_name = serializers.SerializerMethodField()
+    agent_role = serializers.SerializerMethodField()
+
+    class Meta:
+        model = BillPayment
+        fields = [
+            'id', 'biller', 'biller_id', 'biller_name', 'bill_type', 'amount', 'charge',
+            'total_deducted', 'status', 'service_id', 'request_id',
+            'failure_reason', 'created_at',
+            'bconnect_txn_id', 'approval_ref_number', 'ccf_amount',
+            'input_params', 'customer_details', 'mobile', 'card_last4',
+            'payment_mode', 'init_channel',
+            'agent_user_code', 'agent_name', 'agent_role',
+        ]
+        read_only_fields = fields
+
+    def get_bconnect_txn_id(self, obj):
+        attempt = _prefetched_latest_attempt(obj)
+        return str(getattr(attempt, 'txn_ref_id', '') or '')
+
+    def get_approval_ref_number(self, obj):
+        attempt = _prefetched_latest_attempt(obj)
+        return str(getattr(attempt, 'approval_ref_number', '') or '')
+
+    def get_ccf_amount(self, obj):
+        return str(getattr(obj, 'charge', '') or '0')
+
+    def get_biller_name(self, obj):
+        stored = str(obj.biller or '').strip()
+        biller_id = str(obj.biller_id or '').strip()
+        if stored and stored != biller_id:
+            return stored
+        return stored or biller_id
+
+    def get_input_params(self, obj):
+        rows = _attempt_request_payload(obj).get('input_params')
+        return rows if isinstance(rows, list) else []
+
+    def get_customer_details(self, obj):
+        payload = _attempt_request_payload(obj)
+        details = payload.get('customer_details')
+        return details if isinstance(details, dict) else {}
+
+    def get_mobile(self, obj):
+        payload = _attempt_request_payload(obj)
+        details = payload.get('customer_details') if isinstance(payload.get('customer_details'), dict) else {}
+        return str(
+            details.get('Mobile Number')
+            or details.get('mobile')
+            or payload.get('mobile')
+            or ''
+        ).strip()
+
+    def get_card_last4(self, obj):
+        payload = _attempt_request_payload(obj)
+        details = payload.get('customer_details') if isinstance(payload.get('customer_details'), dict) else {}
+        return str(
+            details.get('Card Last4 Digits')
+            or details.get('Card Last 4 Digits')
+            or payload.get('card_last4')
+            or ''
+        ).strip()
+
+    def get_payment_mode(self, obj):
+        attempt = _prefetched_latest_attempt(obj)
+        return str(getattr(attempt, 'payment_mode', '') or '').strip()
+
+    def get_init_channel(self, obj):
+        attempt = _prefetched_latest_attempt(obj)
+        return str(getattr(attempt, 'payment_channel', '') or '').strip()
+
+    def get_agent_user_code(self, obj):
+        u = getattr(obj, 'user', None)
+        return public_display_code(u) if u else ''
+
+    def get_agent_name(self, obj):
+        u = getattr(obj, 'user', None)
+        if not u:
+            return ''
+        prof = getattr(u, 'profile', None)
+        if prof and getattr(prof, 'full_name', None):
+            return str(prof.full_name).strip()
+        return (u.get_full_name() or '').strip()
+
+    def get_agent_role(self, obj):
+        u = getattr(obj, 'user', None)
+        return str(getattr(u, 'role', '') or '') if u else ''
+
+
 class BillPaymentSerializer(serializers.ModelSerializer):
     """Serializer for BillPayment model."""
 
@@ -67,7 +183,7 @@ class BillPaymentSerializer(serializers.ModelSerializer):
         ]
 
     def _latest_attempt(self, obj):
-        return obj.attempts.filter(is_deleted=False).order_by('-created_at').first()
+        return _prefetched_latest_attempt(obj)
 
     def get_bconnect_txn_id(self, obj):
         attempt = self._latest_attempt(obj)
@@ -573,9 +689,70 @@ class BbpsBillerMasterLiteSerializer(serializers.ModelSerializer):
         model = BbpsBillerMaster
         fields = [
             'id', 'environment', 'biller_id', 'biller_name', 'biller_category', 'biller_status',
-            'last_synced_at', 'is_active_local', 'source_type', 'last_sync_status',
+            'last_synced_at', 'is_active_local', 'local_visibility_hold', 'source_type', 'last_sync_status',
             'last_sync_error', 'soft_deleted_at', 'version',
         ]
+
+
+class BbpsBillerMasterDirectorySerializer(BbpsBillerMasterLiteSerializer):
+    partner_visible = serializers.SerializerMethodField()
+    cash_only_eligible = serializers.SerializerMethodField()
+    hidden_reasons = serializers.SerializerMethodField()
+    payment_channels_summary = serializers.SerializerMethodField()
+    payment_modes_summary = serializers.SerializerMethodField()
+
+    class Meta(BbpsBillerMasterLiteSerializer.Meta):
+        fields = BbpsBillerMasterLiteSerializer.Meta.fields + [
+            'partner_visible',
+            'cash_only_eligible',
+            'hidden_reasons',
+            'payment_channels_summary',
+            'payment_modes_summary',
+        ]
+
+    def _classification(self, obj) -> dict:
+        cache = self.context.setdefault('_visibility_cache', {})
+        if obj.pk in cache:
+            return cache[obj.pk]
+        from apps.bbps.service_flow.catalog_visibility import classify_biller_partner_visibility
+        from apps.bbps.service_flow.catalog_ux_settings import is_cash_only_for_users
+
+        channels = [
+            c for c in obj.payment_channels.all() if not c.is_deleted and c.is_active
+        ]
+        modes = [
+            m for m in obj.payment_modes.all() if not m.is_deleted and m.is_active
+        ]
+        cash_only = self.context.get('cash_only')
+        if cash_only is None:
+            cash_only = is_cash_only_for_users(getattr(obj, 'environment', None))
+        info = classify_biller_partner_visibility(
+            obj,
+            channel_limits=channels,
+            mode_limits=modes,
+            cash_only=cash_only,
+        )
+        cache[obj.pk] = info
+        return info
+
+    def get_partner_visible(self, obj):
+        return bool(self._classification(obj).get('partner_visible'))
+
+    def get_cash_only_eligible(self, obj):
+        return bool(self._classification(obj).get('cash_only_eligible'))
+
+    def get_hidden_reasons(self, obj):
+        return self._classification(obj).get('hidden_reasons') or []
+
+    def get_payment_channels_summary(self, obj):
+        return self._classification(obj).get('payment_channels_summary') or '—'
+
+    def get_payment_modes_summary(self, obj):
+        return self._classification(obj).get('payment_modes_summary') or '—'
+
+
+class CatalogVisibilityHiddenBillerSerializer(BbpsBillerMasterDirectorySerializer):
+    pass
 
 
 class BbpsBillerInputParamSerializer(serializers.ModelSerializer):

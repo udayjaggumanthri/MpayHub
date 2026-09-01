@@ -1,9 +1,11 @@
 """Unified query filters for enterprise reports."""
 from __future__ import annotations
 
+from datetime import datetime, time, timedelta
 from decimal import Decimal, InvalidOperation
 
 from django.db.models import Q, QuerySet
+from django.utils import timezone
 from django.utils.dateparse import parse_date
 
 from apps.authentication.models import User
@@ -18,15 +20,29 @@ def _norm_mobile(raw: str | None) -> str:
     return digits[-10:] if len(digits) >= 10 else digits
 
 
-def apply_date_filters(qs: QuerySet, request, field_prefix: str = '') -> QuerySet:
+def start_of_local_day(day):
+    naive = datetime.combine(day, time.min)
+    if timezone.is_naive(timezone.now()):
+        return naive
+    return timezone.make_aware(naive, timezone.get_current_timezone())
+
+
+def created_at_range_kwargs(date_from, date_to, field_prefix: str = '') -> dict:
+    """Timestamp range so `created_at` indexes can be used (not `created_at::date`)."""
     prefix = f'{field_prefix}__' if field_prefix else ''
+    kwargs = {}
+    if date_from:
+        kwargs[f'{prefix}created_at__gte'] = start_of_local_day(date_from)
+    if date_to:
+        kwargs[f'{prefix}created_at__lt'] = start_of_local_day(date_to + timedelta(days=1))
+    return kwargs
+
+
+def apply_date_filters(qs: QuerySet, request, field_prefix: str = '') -> QuerySet:
     date_from = parse_date((request.query_params.get('date_from') or '').strip())
     date_to = parse_date((request.query_params.get('date_to') or '').strip())
-    if date_from:
-        qs = qs.filter(**{f'{prefix}created_at__date__gte': date_from})
-    if date_to:
-        qs = qs.filter(**{f'{prefix}created_at__date__lte': date_to})
-    return qs
+    kwargs = created_at_range_kwargs(date_from, date_to, field_prefix)
+    return qs.filter(**kwargs) if kwargs else qs
 
 
 def apply_transaction_report_filters(qs: QuerySet, request, *, include_customer_mobile: bool = False) -> QuerySet:

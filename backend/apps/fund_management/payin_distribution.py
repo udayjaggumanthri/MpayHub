@@ -32,6 +32,52 @@ def _pct_amount(gross: Decimal, pct_val) -> Decimal:
     return money_q(gross * Decimal(str(pct_val)) / Decimal('100'))
 
 
+def _user_brief_for_api(user: Optional[User]) -> dict | None:
+    """JSON-safe upline user summary for admin API responses."""
+    if user is None:
+        return None
+    prof = getattr(user, 'profile', None)
+    name = ''
+    if prof and getattr(prof, 'full_name', None):
+        name = str(prof.full_name).strip()
+    if not name:
+        name = (
+            f"{getattr(user, 'first_name', '') or ''} {getattr(user, 'last_name', '') or ''}".strip()
+            or getattr(user, 'email', '') or ''
+            or str(user.pk)
+        )
+    return {
+        'id': user.pk,
+        'email': getattr(user, 'email', '') or '',
+        'role': getattr(user, 'role', '') or '',
+        'name': name,
+        'user_id': getattr(user, 'user_id', '') or getattr(user, 'member_id', '') or '',
+    }
+
+
+def serialize_payin_distribution_for_api(dist: dict | None) -> dict | None:
+    """
+    Strip non-JSON types from ``_compute_payin_distribution`` output for DRF responses.
+
+    Settlement code keeps User instances on the raw dict; admin previews must not.
+    """
+    if not dist:
+        return None
+    assign = dist.get('assign') or {}
+    return {
+        'snapshot': dist.get('snapshot'),
+        'lines': dist.get('lines'),
+        'net_credit': str(dist.get('net_credit', '')),
+        'total_deduction': str(dist.get('total_deduction', '')),
+        'gw': str(dist.get('gw', '')),
+        'ad_total': str(dist.get('ad_total', '')),
+        'sd_payout': str(dist.get('sd_payout', '')),
+        'md_payout': str(dist.get('md_payout', '')),
+        'dt_payout': str(dist.get('dt_payout', '')),
+        'assignments': {role: _user_brief_for_api(user) for role, user in assign.items()},
+    }
+
+
 def _compute_payin_distribution(
     package: PayInPackage,
     gross: Decimal,

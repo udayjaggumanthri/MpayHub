@@ -3,6 +3,8 @@ from __future__ import annotations
 
 from decimal import Decimal
 
+from django.urls import reverse
+
 from apps.fund_management.models import PayInPackage
 from apps.fund_management.package_gateways import (
     checkout_option_key as gateway_checkout_option_key,
@@ -67,13 +69,12 @@ def _serialize_qr_option(
     qr_image_url = ''
     if qr.qr_image:
         try:
-            url = qr.qr_image.url
-            if request and hasattr(request, 'build_absolute_uri'):
-                qr_image_url = request.build_absolute_uri(url)
-            else:
-                qr_image_url = url
+            qr_image_url = reverse('fund_management:pay-in-qr-account-image', kwargs={'qr_account_id': qr.pk})
         except Exception:
-            qr_image_url = ''
+            try:
+                qr_image_url = qr.qr_image.url
+            except Exception:
+                qr_image_url = ''
 
     per_txn_max = qr.max_per_txn
     effective_max = package.max_amount_per_txn

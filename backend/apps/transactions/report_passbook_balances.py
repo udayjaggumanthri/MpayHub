@@ -65,15 +65,30 @@ def passbook_balance_map(
     if debit_only:
         qs = qs.filter(debit_amount__gt=Decimal('0'))
 
-    qs = qs.only('service_id', 'user_id', 'opening_balance', 'closing_balance', 'created_at').order_by(
-        '-created_at'
-    )
-
+    key_set = set(keys)
     out: dict[BalanceKey, PassbookEntry] = {}
-    for pe in qs:
-        key: BalanceKey = (str(pe.service_id or ''), int(pe.user_id))
-        if key in keys and key not in out:
-            out[key] = pe
+
+    from django.db import connection
+
+    if connection.vendor == 'postgresql':
+        entries = (
+            qs.only('service_id', 'user_id', 'opening_balance', 'closing_balance', 'created_at')
+            .order_by('service_id', 'user_id', '-created_at')
+            .distinct('service_id', 'user_id')
+        )
+        for pe in entries:
+            key: BalanceKey = (str(pe.service_id or ''), int(pe.user_id))
+            if key in key_set:
+                out[key] = pe
+    else:
+        qs = qs.only('service_id', 'user_id', 'opening_balance', 'closing_balance', 'created_at').order_by(
+            '-created_at'
+        )
+        for pe in qs:
+            key = (str(pe.service_id or ''), int(pe.user_id))
+            if key in key_set and key not in out:
+                out[key] = pe
+
     return {k: BalancePair.from_entry(out.get(k)) for k in keys}
 
 

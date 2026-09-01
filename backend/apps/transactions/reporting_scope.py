@@ -4,6 +4,7 @@ Query helpers for self vs downline (team) reporting.
 from __future__ import annotations
 
 from django.db.models import Q
+from django.core.cache import cache
 from rest_framework.exceptions import PermissionDenied
 
 from apps.authentication.models import User
@@ -38,7 +39,14 @@ def is_platform_report_scope(request) -> bool:
         return False
 
 
-def team_transaction_user_ids(viewer: User) -> frozenset[int]:
+TEAM_TXN_IDS_CACHE_TTL = 60
+
+
+def _team_txn_ids_cache_key(user_pk: int) -> str:
+    return f'users:team_txn_ids:{user_pk}'
+
+
+def _team_transaction_user_ids_uncached(viewer: User) -> frozenset[int]:
     """
     User PKs whose activity is visible in *team* scope for Transaction / PassbookEntry.
 
@@ -61,6 +69,28 @@ def team_transaction_user_ids(viewer: User) -> frozenset[int]:
         # Not used — caller uses Q() for all users.
         return frozenset()
     return frozenset()
+
+
+def team_transaction_user_ids(viewer: User) -> frozenset[int]:
+    """
+    User PKs whose activity is visible in *team* scope for Transaction / PassbookEntry.
+
+    Downline only: the viewer's own transactions are never included (use scope=self for that).
+
+    - Super Distributor: all users in subtree (recursive subordinates).
+    - Master Distributor: Distributor + Retailer subordinates only (hired under this MD).
+    - Distributor: Retailer subordinates only.
+    - Admin: not used here — ``transaction_user_q`` uses ``~Q(user=viewer)`` for team scope.
+    """
+    if not viewer or not getattr(viewer, 'pk', None):
+        return frozenset()
+    key = _team_txn_ids_cache_key(int(viewer.pk))
+    cached = cache.get(key)
+    if cached is not None:
+        return frozenset(cached)
+    ids = _team_transaction_user_ids_uncached(viewer)
+    cache.set(key, list(ids), timeout=TEAM_TXN_IDS_CACHE_TTL)
+    return ids
 
 
 def commission_team_source_user_ids(viewer: User) -> list[int] | None:
@@ -122,8 +152,17 @@ def commission_ledger_q_for_team(request) -> Q:
     return Q(meta__source_user_id__in=ids)
 
 
+def direct_subordinate_id_set(manager: User) -> frozenset[int]:
+    """Immediate child user PKs for a manager (batch-friendly)."""
+    if not manager:
+        return frozenset()
+    return frozenset(
+        UserHierarchy.objects.filter(parent_user=manager).values_list('child_user_id', flat=True)
+    )
+
+
 def is_direct_subordinate(manager: User, subject: User) -> bool:
     """True if subject is an immediate child of manager in UserHierarchy."""
     if not manager or not subject:
         return False
-    return UserHierarchy.objects.filter(parent_user=manager, child_user=subject).exists()
+    return int(subject.pk) in direct_subordinate_id_set(manager)

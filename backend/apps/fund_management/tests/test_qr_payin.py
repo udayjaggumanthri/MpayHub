@@ -316,3 +316,35 @@ class QrPayInTests(TestCase):
         )
         lm.refresh_from_db()
         self.assertEqual(lm.receipt_image.size, original_len)
+
+    def test_qr_operation_detail_includes_json_safe_approval_preview(self):
+        from django.urls import reverse
+        from rest_framework.test import APIClient
+
+        lm = submit_qr_payin(
+            user=self.user,
+            package_id=self.package.id,
+            qr_account_id=self.qr.id,
+            contact_id=self.contact.id,
+            amount=Decimal('1000'),
+            utr='DETAILUTR1',
+            payment_date='2026-08-28',
+            receipt_file=_receipt(),
+        )
+        client = APIClient()
+        client.force_authenticate(user=self.admin)
+        url = reverse('admin_panel:qr-operations-detail', kwargs={'pk': lm.pk})
+        response = client.get(url)
+        self.assertEqual(response.status_code, 200)
+        payload = response.json()
+        self.assertTrue(payload.get('success'))
+        data = payload.get('data') or {}
+        preview = data.get('approval_preview')
+        self.assertIsInstance(preview, dict)
+        self.assertIn('snapshot', preview)
+        self.assertIn('assignments', preview)
+        for role, brief in (preview.get('assignments') or {}).items():
+            if brief is not None:
+                self.assertIsInstance(brief, dict)
+                self.assertIn('id', brief)
+                self.assertNotIn('password', brief)

@@ -10,6 +10,13 @@ from apps.core.maintenance_mode import get_status
 
 @api_view(['GET'])
 @permission_classes([AllowAny])
+def health_view(request):
+    """Lightweight liveness probe for monitoring and load balancers."""
+    return Response({'status': 'ok', 'service': 'mpayhub-api'}, status=status.HTTP_200_OK)
+
+
+@api_view(['GET'])
+@permission_classes([AllowAny])
 def appearance_status_view(request):
     """
     Public branding and theme settings for login and app bootstrap.

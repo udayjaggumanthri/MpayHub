@@ -11,6 +11,14 @@ export const formatCurrency = (amount) => {
   }).format(amount);
 };
 
+/** Format numeric API decimals for <input type="number"> (2 dp by default). */
+export const formatDecimalInput = (value, decimals = 2) => {
+  if (value === null || value === undefined || value === '') return '';
+  const n = Number(value);
+  if (Number.isNaN(n)) return String(value);
+  return n.toFixed(decimals);
+};
+
 // Format date and time
 export const formatDateTime = (date) => {
   if (!date) return '';

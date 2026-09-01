@@ -269,18 +269,35 @@ class UserHierarchy(BaseModel):
     @classmethod
     def get_subordinates(cls, user):
         """
-        Get all subordinate users (direct and indirect).
+        Get all subordinate users (direct and indirect) via iterative BFS.
+
+        Same return semantics as the former recursive walk: a list of User
+        objects, breadth-first, excluding ``user`` itself. Cycle-safe.
         """
-        subordinates = []
-        direct_children = cls.objects.filter(parent_user=user).select_related('child_user')
-        
-        for hierarchy in direct_children:
-            child = hierarchy.child_user
-            subordinates.append(child)
-            # Recursively get children of children
-            subordinates.extend(cls.get_subordinates(child))
-        
-        return subordinates
+        user_id = getattr(user, 'pk', None)
+        if not user_id:
+            return []
+        seen: set[int] = set()
+        ordered_ids: list[int] = []
+        frontier = [user_id]
+        while frontier:
+            child_ids = list(
+                cls.objects.filter(parent_user_id__in=frontier).values_list(
+                    'child_user_id', flat=True
+                )
+            )
+            next_frontier: list[int] = []
+            for cid in child_ids:
+                if cid is None or cid in seen or cid == user_id:
+                    continue
+                seen.add(cid)
+                ordered_ids.append(cid)
+                next_frontier.append(cid)
+            frontier = next_frontier
+        if not ordered_ids:
+            return []
+        by_id = User.objects.in_bulk(ordered_ids)
+        return [by_id[i] for i in ordered_ids if i in by_id]
 
 
 class UserRoleHistory(models.Model):

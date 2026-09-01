@@ -696,7 +696,7 @@ const AppRoutes = () => {
       />
 
       <Route path="/admin/bbps-ops" element={<Navigate to="/admin/bbps/ops" replace />} />
-      <Route path="/admin/bbps-governance" element={<Navigate to="/admin/bbps/catalog" replace />} />
+      <Route path="/admin/bbps-governance" element={<Navigate to="/admin/bbps/sync" replace />} />
       <Route
         path="/admin/bbps-governance/biller/:billerPk"
         element={

@@ -10,11 +10,37 @@ from rest_framework.response import Response
 
 from apps.core.financial_access import assert_can_pay_in
 from apps.core.maintenance_mode import MODULE_PAY_IN, assert_module_available
-from apps.core.permissions import IsAdmin
-from apps.fund_management.models import LoadMoney
+from apps.fund_management.models import LoadMoney, PayInQrAccount
+from apps.fund_management.package_qr_accounts import list_checkout_qr_for_package
+from apps.fund_management.qr_image import qr_image_file_response
 from apps.fund_management.serializers import LoadMoneySerializer
 from apps.fund_management.serializers_qr import PayInQrSubmitSerializer
 from apps.fund_management.services_qr import submit_qr_payin
+from apps.fund_management.services import get_user_accessible_packages
+
+
+def _user_can_view_qr_account(user, qr_account_id: int) -> bool:
+    if getattr(user, 'role', None) == 'Admin':
+        return True
+    for package in get_user_accessible_packages(user):
+        for qr in list_checkout_qr_for_package(package):
+            if qr.pk == qr_account_id:
+                return True
+    return False
+
+
+@api_view(['GET'])
+@permission_classes([IsAuthenticated])
+def pay_in_qr_account_image_view(request, qr_account_id: int):
+    """GET QR image for checkout (JWT required — use AuthenticatedImage on frontend)."""
+    assert_can_pay_in(request.user)
+    assert_module_available(MODULE_PAY_IN)
+    qr = PayInQrAccount.objects.filter(pk=qr_account_id, is_deleted=False, status='active').first()
+    if not qr or not qr.qr_image:
+        raise Http404
+    if not _user_can_view_qr_account(request.user, qr_account_id):
+        raise Http404
+    return qr_image_file_response(qr.qr_image, download_name=f'qr-{qr.pk}.png')
 
 
 @api_view(['POST'])

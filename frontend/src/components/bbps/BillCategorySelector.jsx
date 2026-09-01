@@ -2,6 +2,7 @@ import React, { useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { bbpsAPI } from '../../services/api';
 import { buildCategoryCatalog } from '../../constants/bbpsCanonicalCategories';
+import { prefetchBillerList } from '../../utils/bbpsCatalogCache';
 import SelectField from '../common/SelectField';
 import {
   FaCreditCard,
@@ -60,22 +61,32 @@ const BillCategorySelector = ({
   viewMode: controlledViewMode,
   onViewModeChange,
   scrollCategoriesOnly = false,
+  apiCategories: apiCategoriesProp,
+  catalogUpdating = false,
 }) => {
   const navigate = useNavigate();
-  const [apiCategories, setApiCategories] = useState([]);
+  const [fetchedCategories, setFetchedCategories] = useState([]);
   const [selectedSlug, setSelectedSlug] = useState('');
   const [internalViewMode, setInternalViewMode] = useState('grid');
   const viewMode = controlledViewMode || internalViewMode;
   const setViewMode = onViewModeChange || setInternalViewMode;
+  const catalogFromParent = apiCategoriesProp !== undefined;
+  const apiCategories = catalogFromParent ? (apiCategoriesProp || []) : fetchedCategories;
 
   useEffect(() => {
+    if (catalogFromParent) return undefined;
+    let cancelled = false;
     const loadCategories = async () => {
       const res = await bbpsAPI.getCategories();
+      if (cancelled) return;
       const rows = Array.isArray(res.data?.categories) ? res.data.categories : [];
-      setApiCategories(rows);
+      setFetchedCategories(rows);
     };
     loadCategories();
-  }, []);
+    return () => {
+      cancelled = true;
+    };
+  }, [catalogFromParent]);
 
   const catalog = useMemo(() => buildCategoryCatalog(apiCategories), [apiCategories]);
 
@@ -92,9 +103,20 @@ const BillCategorySelector = ({
     [orderedCategories]
   );
 
+  const prefetchCategory = (category) => {
+    const slug = category?.apiSlug || category?.primarySlug || category;
+    if (!slug) return;
+    prefetchBillerList(slug, bbpsAPI.getBillers);
+    if (category?.primarySlug && category.primarySlug !== slug) {
+      prefetchBillerList(category.primarySlug, bbpsAPI.getBillers);
+    }
+  };
+
   const handleCategorySelect = (slug) => {
     if (!slug) return;
     setSelectedSlug(slug);
+    const row = catalog.find((item) => item.primarySlug === slug);
+    prefetchCategory(row || slug);
     navigate(`/bill-payments/pay/${slug}`);
   };
 
@@ -107,6 +129,9 @@ const BillCategorySelector = ({
       <button
         key={category.primarySlug}
         type="button"
+        onPointerDown={() => prefetchCategory(category)}
+        onMouseEnter={() => prefetchCategory(category)}
+        onFocus={() => prefetchCategory(category)}
         onClick={() => handleCategorySelect(category.primarySlug)}
         className={`group relative w-full overflow-hidden rounded-xl border text-left transition-all focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 focus-visible:ring-offset-2 ${
           isList ? 'flex items-center gap-3 px-3 py-2.5 sm:px-4 sm:py-3' : 'flex min-h-[5.25rem] flex-col items-center justify-center px-2 py-3 sm:min-h-[5.5rem] sm:py-3.5'
@@ -160,7 +185,7 @@ const BillCategorySelector = ({
       </div>
       <div className="flex items-center justify-between gap-2 sm:justify-end sm:gap-3 sm:pb-0.5">
         <span className="text-xs font-medium text-slate-500 dark:text-slate-400 tabular-nums" aria-live="polite">
-          {categoryCountLabel}
+          {catalogUpdating ? 'Updating catalog…' : categoryCountLabel}
         </span>
         <div className="inline-flex shrink-0 rounded-lg border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800/50 p-0.5">
         <button
@@ -203,7 +228,7 @@ const BillCategorySelector = ({
   );
 
   const emptyState =
-    orderedCategories.length === 0 ? (
+    orderedCategories.length === 0 && !catalogUpdating ? (
       <div className="rounded-lg border border-dashed border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800/50 px-4 py-8 text-center text-sm text-slate-600 dark:text-slate-400">
         <p className="font-medium text-slate-700 dark:text-slate-300">No categories found</p>
         <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">Try choosing another category from the dropdown above.</p>

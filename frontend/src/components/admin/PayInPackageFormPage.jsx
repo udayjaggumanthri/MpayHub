@@ -50,7 +50,7 @@ const PayInPackageFormPage = () => {
     const lowMax = payoutSlabForm.low_max_amount || '24999';
     const lowC = payoutSlabForm.low_charge || '7';
     const highC = payoutSlabForm.high_charge || '15';
-    const nextMin = (parseFloat(lowMax, 10) + 0.0001).toFixed(4);
+    const nextMin = (parseFloat(lowMax, 10) + 0.01).toFixed(2);
     return [
       { sort_order: 0, min_amount: '0', max_amount: String(lowMax), flat_charge: String(lowC) },
       { sort_order: 1, min_amount: nextMin, max_amount: '', flat_charge: String(highC) },
@@ -152,7 +152,7 @@ const PayInPackageFormPage = () => {
       parseFloat(packageForm.super_distributor_pct || 0) +
       parseFloat(packageForm.master_distributor_pct || 0) +
       parseFloat(packageForm.distributor_pct || 0)
-    ).toFixed(4);
+    ).toFixed(2);
   }, [packageForm, selectedGatewayRows, selectedQrRows]);
 
   const addGatewayFromPicker = () => {
@@ -246,7 +246,7 @@ const PayInPackageFormPage = () => {
       const next = [...rows];
       const lastMax = next.length ? next[next.length - 1].max_amount : '0';
       const minStart =
-        lastMax === '' || lastMax == null ? '0' : (parseFloat(lastMax, 10) + 0.0001).toFixed(4);
+        lastMax === '' || lastMax == null ? '0' : (parseFloat(lastMax, 10) + 0.01).toFixed(2);
       next.push({ sort_order: next.length, min_amount: minStart, max_amount: '', flat_charge: '7' });
       return next;
     });
@@ -429,11 +429,12 @@ const PayInPackageFormPage = () => {
                         <span className="mb-1 font-medium text-slate-600 dark:text-slate-400">Fee %</span>
                         <input
                           type="number"
-                          step="0.0001"
+                          step="0.01"
                           min={g.charge_rate || 0}
                           className="w-full rounded border px-2 py-1.5 text-sm sm:w-24"
                           value={g.gateway_fee_pct}
                           onChange={(e) => setGatewayFee(g.id, e.target.value)}
+                          onWheel={(e) => e.currentTarget.blur()}
                         />
                         <span className="mt-0.5 text-[10px] text-slate-500">Min {g.charge_rate ?? 0}%</span>
                       </label>
@@ -502,11 +503,12 @@ const PayInPackageFormPage = () => {
                         <span className="mb-1 font-medium text-slate-600 dark:text-slate-400">Fee %</span>
                         <input
                           type="number"
-                          step="0.0001"
+                          step="0.01"
                           min={q.charge_rate || 0}
                           className="w-full rounded border px-2 py-1.5 text-sm sm:w-24"
                           value={q.gateway_fee_pct}
                           onChange={(e) => setQrFee(q.id, e.target.value)}
+                          onWheel={(e) => e.currentTarget.blur()}
                         />
                         <span className="mt-0.5 text-[10px] text-slate-500">Min {q.charge_rate ?? 0}%</span>
                       </label>
@@ -560,23 +562,24 @@ const PayInPackageFormPage = () => {
             <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
               <Input
                 type="number"
+                step="0.01"
                 label="Min Amount"
                 value={packageForm.min_amount}
                 onChange={(e) => setPackageForm((p) => ({ ...p, min_amount: e.target.value }))}
               />
               <Input
                 type="number"
+                step="0.01"
                 label="Max Amount / Txn"
                 value={packageForm.max_amount_per_txn}
                 onChange={(e) => setPackageForm((p) => ({ ...p, max_amount_per_txn: e.target.value }))}
               />
               <Input
                 type="number"
+                step="1"
                 label="Sort Order"
                 value={packageForm.sort_order}
                 onChange={(e) => setPackageForm((p) => ({ ...p, sort_order: e.target.value }))}
-                className="[appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none [-moz-appearance:textfield]"
-                onWheel={(e) => e.currentTarget.blur()}
               />
             </div>
           </Card>
@@ -587,7 +590,7 @@ const PayInPackageFormPage = () => {
                 <div key={f.key}>
                   <Input
                     type="number"
-                    step="0.0001"
+                    step="0.01"
                     min="0"
                     label={f.label}
                     value={packageForm[f.key]}

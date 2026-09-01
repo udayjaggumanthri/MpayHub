@@ -87,9 +87,8 @@ export const roleMenus = {
       path: '/admin/bbps',
       icon: 'profile',
       submenu: [
-        { name: 'Overview', path: '/admin/bbps' },
-        { name: 'Biller Directory', path: '/admin/bbps/directory' },
-        { name: 'Catalog & Sync', path: '/admin/bbps/catalog' },
+        { name: 'Overview', path: '/admin/bbps', exactEnd: true },
+        { name: 'Catalog', path: '/admin/bbps/catalog' },
         { name: 'Provider Float', path: '/admin/bbps/float' },
         { name: 'Ops Tools', path: '/admin/bbps/ops' },
         { name: 'BillAvenue Settings', path: '/admin/bbps/settings' },

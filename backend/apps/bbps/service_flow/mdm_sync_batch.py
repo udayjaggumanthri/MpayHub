@@ -17,7 +17,7 @@ from django.utils import timezone
 from apps.bbps.catalog.env import active_bbps_environment, biller_master_qs_for_env, catalog_counts_by_environment
 from apps.bbps.models import BbpsSyncUsageLog
 from apps.bbps.service_flow.biller_sync import sync_biller_info
-from apps.integrations.billavenue.errors import BillAvenueClientError, BillAvenueEntitlementError
+from apps.integrations.billavenue.errors import BillAvenueAuthError, BillAvenueClientError, BillAvenueEntitlementError
 from apps.integrations.billavenue.registry import (
     get_active_billavenue_config,
     get_billavenue_config_for_mode,
@@ -152,6 +152,11 @@ def run_mdm_sync_batch(
         )
         if callable(invalidate_cache):
             invalidate_cache()
+        from apps.bbps.service_flow.catalog_visibility import apply_cash_only_visibility_for_env
+        from apps.bbps.service_flow.catalog_ux_settings import is_cash_only_for_users
+
+        if is_cash_only_for_users(sync_env):
+            out['visibility_apply'] = apply_cash_only_visibility_for_env(sync_env)
         out = dict(out or {})
         out['quota'] = sync_quota_snapshot(sync_env)
         out['request_id'] = request_id
@@ -173,7 +178,26 @@ def run_mdm_sync_batch(
                 'mdm_cached_count': cached_count,
                 'quota': sync_quota_snapshot(sync_env),
                 'request_id': request_id,
+                'environment': sync_env,
+            },
+        ) from exc
+    except BillAvenueAuthError as exc:
+        BbpsSyncUsageLog.objects.filter(is_deleted=False, usage_date=usage_date, environment=sync_env).update(
+            last_status='failed',
+            last_error=str(exc),
+        )
+        msg = str(exc or '')
+        cached_count = biller_master_qs_for_env(sync_env).count()
+        raise MdmSyncBatchError(
+            msg,
+            code='AUTH',
+            data={
+                'billavenue_code': 'PP001',
+                'mdm_cached_count': cached_count,
+                'quota': sync_quota_snapshot(sync_env),
+                'request_id': request_id,
                 'biller_ids': ids,
+                'environment': sync_env,
             },
         ) from exc
     except BillAvenueClientError as exc:
@@ -190,8 +214,10 @@ def run_mdm_sync_batch(
             code = '205'
         elif 'code=202' in msg or 'de202' in low:
             code = '202'
-        elif 'missing responsecode' in low or 'missing responseCode' in msg:
+        elif 'missing responsecode' in low or 'missing responsecode' in msg:
             code = 'PARSE'
+        elif 'access denied' in low or 'unauthorized access' in low:
+            code = 'AUTH'
         if code:
             cached_count = biller_master_qs_for_env(sync_env).count()
             raise MdmSyncBatchError(
@@ -203,6 +229,7 @@ def run_mdm_sync_batch(
                     'quota': sync_quota_snapshot(sync_env),
                     'request_id': request_id,
                     'biller_ids': ids,
+                    'environment': sync_env,
                 },
             ) from exc
         raise

@@ -2,10 +2,12 @@
 from __future__ import annotations
 
 import csv
+import hashlib
 from decimal import ROUND_HALF_UP, Decimal
 from typing import Any, Iterable
 
-from django.db.models import Count, QuerySet, Sum
+from django.core.cache import cache
+from django.db.models import Count, Max, Min, QuerySet, Sum
 
 from apps.authentication.models import User
 from apps.fund_management.models import LoadMoney, Payout
@@ -31,7 +33,7 @@ from apps.transactions.report_passbook_balances import (
     payin_balance_map_for_transactions,
     payout_balance_map,
 )
-from apps.transactions.reporting_scope import is_direct_subordinate
+from apps.transactions.reporting_scope import direct_subordinate_id_set
 from apps.transactions.service_name_map import service_display_name
 
 
@@ -70,12 +72,73 @@ def operational_status_financial_summary(qs: QuerySet, *, amount_field: str = 'a
         'by_status': {
             k: {'amount': money_str(v['amount']), 'count': v['count']} for k, v in out.items()
         },
-        'total_count': qs.count(),
+        'total_count': sum(v['count'] for v in out.values()),
     }
+
+
+REPORT_SUMMARY_CACHE_TIMEOUT = 30
+
+
+def report_summary_cache_key(request, kind: str, scope: str) -> str:
+    parts = []
+    for key in sorted(request.query_params.keys()):
+        if key in ('page', 'page_size', 'include_summary'):
+            continue
+        for val in request.query_params.getlist(key):
+            parts.append(f'{key}={val}')
+    digest = hashlib.sha256('&'.join(parts).encode('utf-8')).hexdigest()[:20]
+    uid = getattr(request.user, 'pk', 'anon')
+    return f'report:summary:{kind}:{scope}:{uid}:{digest}'
+
+
+def cached_report_financial_summary(
+    qs: QuerySet,
+    request,
+    kind: str,
+    scope: str,
+    *,
+    amount_field: str = 'amount',
+) -> dict[str, Any]:
+    """30s cache of full-range pay-in/payout summary so the list page is not recosted."""
+    key = report_summary_cache_key(request, kind, scope)
+    cached = cache.get(key)
+    if cached is not None:
+        return cached
+    summary = operational_status_financial_summary(qs, amount_field=amount_field)
+    cache.set(key, summary, timeout=REPORT_SUMMARY_CACHE_TIMEOUT)
+    return summary
 
 
 def _agent_for_transaction(t: Transaction) -> User | None:
     return t.agent_user or t.user
+
+
+def _batch_commission_breakdown(viewer, service_ids: list[str]) -> dict[str, list[dict[str, Any]]]:
+    if not service_ids:
+        return {}
+    grouped: dict[str, list[dict[str, Any]]] = {}
+    for row in CommissionLedger.objects.filter(
+        reference_service_id__in=service_ids,
+        user=viewer,
+    ).values('reference_service_id', 'amount', 'role_at_time', 'meta'):
+        sid = str(row.get('reference_service_id') or '')
+        bucket = grouped.setdefault(sid, [])
+        if len(bucket) < 50:
+            bucket.append(row)
+    return grouped
+
+
+def _direct_subordinate_for_users(viewer, users: list[User | None]) -> dict[int, bool | None]:
+    role = getattr(viewer, 'role', '') or ''
+    if role != 'Super Distributor':
+        return {}
+    direct_ids = direct_subordinate_id_set(viewer)
+    out: dict[int, bool | None] = {}
+    for user in users:
+        if user is None:
+            continue
+        out[int(user.pk)] = int(user.pk) in direct_ids
+    return out
 
 
 def payin_rows_for_transactions(
@@ -91,6 +154,7 @@ def payin_rows_for_transactions(
         )
     }
     balance_map = payin_balance_map_for_transactions(transactions)
+    direct_flags = _direct_subordinate_for_users(viewer, [t.user for t in transactions])
     out = []
     for t in transactions:
         lm = lm_map.get(t.service_id)
@@ -215,9 +279,7 @@ def payin_rows_for_transactions(
                 'closing_balance': closing_balance,
                 'fee_breakdown_snapshot': fee_breakdown_snapshot,
                 'agent_details': agent_row_from_user(actor),
-                'direct_subordinate': is_direct_subordinate(viewer, row_user)
-                if getattr(viewer, 'role', '') == 'Super Distributor'
-                else None,
+                'direct_subordinate': direct_flags.get(int(row_user.pk)) if row_user else None,
             }
         )
     return out
@@ -231,6 +293,8 @@ def payout_rows_for_transactions(request, transactions: list[Transaction]) -> li
         for p in Payout.objects.filter(transaction_id__in=ids).select_related('bank_account', 'user')
     }
     balance_map = payout_balance_map(transactions)
+    commission_by_sid = _batch_commission_breakdown(viewer, ids)
+    direct_flags = _direct_subordinate_for_users(viewer, [t.user for t in transactions])
     out = []
     for t in transactions:
         p = po_map.get(t.service_id)
@@ -242,14 +306,7 @@ def payout_rows_for_transactions(request, transactions: list[Transaction]) -> li
             acct_masked = f"****{acct[-4:]}" if len(acct) >= 4 else '****'
         actor = _agent_for_transaction(t)
         row_user = t.user
-        breakdown: list[dict[str, Any]] = []
-        if p:
-            breakdown = list(
-                CommissionLedger.objects.filter(
-                    reference_service_id=p.transaction_id,
-                    user=viewer,
-                ).values('amount', 'role_at_time', 'meta')[:50]
-            )
+        breakdown = commission_by_sid.get(str(t.service_id or ''), [])
         balances = balance_fields_for_key(
             balance_map, str(t.service_id or ''), int(getattr(t, 'user_id', 0) or 0)
         )
@@ -279,9 +336,7 @@ def payout_rows_for_transactions(request, transactions: list[Transaction]) -> li
                     for x in breakdown
                 ],
                 'agent_details': agent_row_from_user(actor),
-                'direct_subordinate': is_direct_subordinate(viewer, row_user)
-                if getattr(viewer, 'role', '') == 'Super Distributor'
-                else None,
+                'direct_subordinate': direct_flags.get(int(row_user.pk)) if row_user else None,
             }
         )
     return out
@@ -297,6 +352,7 @@ def bbps_rows_for_transactions(
     ids = [tx.service_id for tx in transactions]
     bp_map = {b.service_id: b for b in BillPayment.objects.filter(service_id__in=ids)}
     balance_map = bbps_balance_map(transactions)
+    direct_flags = _direct_subordinate_for_users(viewer, [t.user for t in transactions])
     out = []
     for idx, t in enumerate(transactions, start=1):
         bp = bp_map.get(t.service_id)
@@ -328,15 +384,18 @@ def bbps_rows_for_transactions(
                 'opening_balance': balances['opening_balance'],
                 'closing_balance': balances['closing_balance'],
                 'agent_details': agent_row_from_user(actor),
-                'direct_subordinate': is_direct_subordinate(viewer, row_user)
-                if getattr(viewer, 'role', '') == 'Super Distributor'
-                else None,
+                'direct_subordinate': direct_flags.get(int(row_user.pk)) if row_user else None,
             }
         )
     return out
 
 
-def payin_rows_from_load_money(request, items: list[LoadMoney]) -> list[dict[str, Any]]:
+def payin_rows_from_load_money(
+    request,
+    items: list[LoadMoney],
+    *,
+    include_heavy_fields: bool = False,
+) -> list[dict[str, Any]]:
     """Platform pay-in report rows from LoadMoney (matches dashboard counts)."""
     viewer = request.user
     balance_map = payin_balance_map_for_load_money(items)
@@ -404,7 +463,7 @@ def payin_rows_from_load_money(request, items: list[LoadMoney]) -> list[dict[str
         utr_val = (getattr(lm, 'utr', None) or '').strip()
         submitted_amount = getattr(lm, 'submitted_amount', None)
         reject_reason = (getattr(lm, 'reject_reason', None) or lm.failure_reason or '').strip()
-        receipt_details = build_payin_receipt_context(lm, request=request)
+        receipt_details = build_payin_receipt_context(lm, request=request) if include_heavy_fields else {}
 
         tid = lm.transaction_id
         out.append(
@@ -429,8 +488,8 @@ def payin_rows_from_load_money(request, items: list[LoadMoney]) -> list[dict[str
                 'qr_account_name': qr_account_name,
                 'submitted_amount': money_str(submitted_amount) if submitted_amount is not None else '',
                 'reject_reason': reject_reason,
-                'receipt_details': receipt_details,
-                'proof_receipt_url': receipt_details.get('proof_receipt_url') or '',
+                'receipt_details': receipt_details if include_heavy_fields else None,
+                'proof_receipt_url': (receipt_details.get('proof_receipt_url') or '') if include_heavy_fields else '',
                 'reference': gateway_transaction_id or provider_payment_id or '',
                 'provider_order_id': provider_order_id,
                 'provider_payment_id': provider_payment_id,
@@ -438,7 +497,7 @@ def payin_rows_from_load_money(request, items: list[LoadMoney]) -> list[dict[str
                 'bank_txn_id': provider_payment_id or gateway_transaction_id or '',
                 'card_last4': card_last4,
                 'gateway_utr': bank_ref_for_utr,
-                'gateway_payment_meta': gateway_meta,
+                'gateway_payment_meta': gateway_meta if include_heavy_fields else {},
                 'package_id': lm.package_id if lm.package_id else None,
                 'package_code': package_code,
                 'package_display_name': package_display_name,
@@ -456,6 +515,7 @@ def payin_rows_from_load_money(request, items: list[LoadMoney]) -> list[dict[str
 def payout_rows_from_payout(request, items: list[Payout]) -> list[dict[str, Any]]:
     viewer = request.user
     balance_map = payout_balance_map(items)
+    commission_by_sid = _batch_commission_breakdown(viewer, [str(p.transaction_id or '') for p in items])
     out = []
     for p in items:
         bank_name = ''
@@ -465,13 +525,7 @@ def payout_rows_from_payout(request, items: list[Payout]) -> list[dict[str, Any]
             acct = p.bank_account.account_number or ''
             acct_masked = f"****{acct[-4:]}" if len(acct) >= 4 else '****'
         actor = p.user
-        breakdown: list[dict[str, Any]] = []
-        breakdown = list(
-            CommissionLedger.objects.filter(
-                reference_service_id=p.transaction_id,
-                user=viewer,
-            ).values('amount', 'role_at_time', 'meta')[:50]
-        )
+        breakdown = commission_by_sid.get(str(p.transaction_id or ''), [])
         balances = balance_fields_for_key(balance_map, str(p.transaction_id or ''), int(p.user_id))
         out.append(
             {
@@ -551,13 +605,28 @@ def passbook_period_header(entries_qs: QuerySet) -> dict[str, Any]:
     agg = entries_qs.aggregate(
         total_credits=Sum('credit_amount'),
         total_debits=Sum('debit_amount'),
+        first_at=Min('created_at'),
+        last_at=Max('created_at'),
     )
-    first = entries_qs.order_by('created_at').first()
-    last = entries_qs.order_by('-created_at').first()
     credits = agg.get('total_credits') or Decimal('0')
     debits = agg.get('total_debits') or Decimal('0')
-    ob = first.opening_balance if first else Decimal('0')
-    cb = last.closing_balance if last else ob
+    first_at = agg.get('first_at')
+    last_at = agg.get('last_at')
+    ob = Decimal('0')
+    cb = ob
+    if first_at is not None:
+        rows = list(
+            entries_qs.filter(created_at__in={first_at, last_at}).only(
+                'created_at', 'opening_balance', 'closing_balance'
+            )
+        )
+        by_ts = {}
+        for row in rows:
+            by_ts.setdefault(row.created_at, row)
+        first = by_ts.get(first_at)
+        last = by_ts.get(last_at) or first
+        ob = first.opening_balance if first else Decimal('0')
+        cb = last.closing_balance if last else ob
     return {
         'opening_balance': money_str(ob),
         'total_credits': money_str(credits),
@@ -568,6 +637,7 @@ def passbook_period_header(entries_qs: QuerySet) -> dict[str, Any]:
 
 def passbook_rows(request, entries: list[PassbookEntry]) -> list[dict[str, Any]]:
     viewer = request.user
+    direct_flags = _direct_subordinate_for_users(viewer, [e.user for e in entries])
     rows = []
     for e in entries:
         init = e.initiator_user
@@ -595,9 +665,7 @@ def passbook_rows(request, entries: list[PassbookEntry]) -> list[dict[str, Any]]
                     or getattr(e.user, 'member_id', None)
                     or ''
                 ),
-                'direct_subordinate': is_direct_subordinate(viewer, e.user)
-                if getattr(viewer, 'role', '') == 'Super Distributor'
-                else None,
+                'direct_subordinate': direct_flags.get(int(e.user_id)) if e.user_id else None,
             }
         )
     return rows

@@ -2,18 +2,20 @@ import React, { useCallback, useEffect, useState } from 'react';
 import { bbpsAPI } from '../../../services/api';
 
 /**
- * Shared toggle for BBPS catalog cash-only user mode (per UAT/PROD environment).
+ * Cash-only toggle for the live partner catalog (UAT or Production per Partners use).
  */
-const BbpsCashOnlyToggle = ({ environment, className = '' }) => {
+const BbpsCashOnlyToggle = ({ environment, liveModeLabel = '', onUpdated, className = '' }) => {
   const [enabled, setEnabled] = useState(false);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
+  const [successMsg, setSuccessMsg] = useState('');
 
   const load = useCallback(async () => {
     if (!environment) return;
     setLoading(true);
     setError('');
+    setSuccessMsg('');
     const res = await bbpsAPI.getCatalogUxSettings(environment);
     setLoading(false);
     if (res.success) {
@@ -32,6 +34,7 @@ const BbpsCashOnlyToggle = ({ environment, className = '' }) => {
     const next = !enabled;
     setSaving(true);
     setError('');
+    setSuccessMsg('');
     const res = await bbpsAPI.updateCatalogUxSettings({
       environment,
       cash_only_for_users: next,
@@ -39,10 +42,14 @@ const BbpsCashOnlyToggle = ({ environment, className = '' }) => {
     setSaving(false);
     if (res.success) {
       setEnabled(Boolean(res.data?.cash_only_for_users));
+      setSuccessMsg('Partner catalog cache refreshed. Users may need one page refresh.');
+      onUpdated?.(Boolean(res.data?.cash_only_for_users));
     } else {
       setError(res.message || 'Could not update setting');
     }
   };
+
+  const envLabel = liveModeLabel || (environment === 'prod' ? 'Production' : 'UAT');
 
   return (
     <div
@@ -58,9 +65,11 @@ const BbpsCashOnlyToggle = ({ environment, className = '' }) => {
           ) : null}
         </p>
         <p className="text-xs text-emerald-800/80 dark:text-emerald-300/80 mt-0.5">
-          Users see only cash-capable billers. Payment method is hidden; Cash (AGT) is used automatically.
+          Applies to live partner catalog ({envLabel}). Users see only billers with AGT channel and Cash
+          mode; payment method is hidden and Cash (AGT) is used automatically.
         </p>
         {error ? <p className="text-xs text-red-600 mt-1">{error}</p> : null}
+        {successMsg ? <p className="text-xs text-emerald-700 dark:text-emerald-300 mt-1">{successMsg}</p> : null}
       </div>
       <button
         type="button"
