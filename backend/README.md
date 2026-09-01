@@ -58,15 +58,25 @@ Backend URL: `http://127.0.0.1:8000`
 
 ## Dependency Management
 
-This project now uses one dependency file:
+| File | Use |
+|------|-----|
+| `requirements-prod.txt` | **Production VPS** — Django, Gunicorn, Redis client, Postgres, integrations |
+| `requirements-dev.txt` | Local dev — prod deps + pytest, lint, debug toolbar |
+| `requirements.txt` | Alias for `requirements-dev.txt` (backward compatible) |
 
-- `requirements.txt`: single source for runtime, production server, development, and test tooling
-
-Install command (all environments):
+Production install:
 
 ```bash
-pip install -r requirements.txt
+pip install -r requirements-prod.txt
 ```
+
+Local / CI install:
+
+```bash
+pip install -r requirements-dev.txt
+```
+
+When `REDIS_URL` is set in `.env`, install and run **redis-server** on the host (login/session/cache depend on it).
 
 ## Environment Variables
 
@@ -95,7 +105,7 @@ After server start:
 Install dependencies:
 
 ```bash
-pip install -r requirements.txt
+pip install -r requirements-prod.txt
 ```
 
 Use:

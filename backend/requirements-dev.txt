@@ -1,0 +1,20 @@
+# mPayHub — development & test tooling (not needed on production VPS)
+# Local dev:
+#   pip install -r requirements-dev.txt
+
+-r requirements-prod.txt
+
+# REPL / debugging
+ipython>=8.17.0
+django-debug-toolbar>=4.2.0
+django-extensions>=3.2.0
+
+# Formatting & lint
+black>=23.11.0
+flake8>=6.1.0
+pylint>=3.0.0
+
+# Tests
+pytest>=7.4.3
+pytest-django>=4.7.0
+pytest-cov>=4.1.0
