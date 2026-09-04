@@ -188,6 +188,23 @@ def run_mdm_sync_batch(
         )
         msg = str(exc or '')
         cached_count = biller_master_qs_for_env(sync_env).count()
+        ba_request_id = str(getattr(exc, 'billavenue_request_id', '') or '').strip()
+        ba_raw_denial = ''
+        if ba_request_id:
+            try:
+                from apps.bbps.models import BbpsApiAuditLog
+
+                audit = (
+                    BbpsApiAuditLog.objects.filter(request_id=ba_request_id, endpoint_name='biller_info')
+                    .order_by('-created_at')
+                    .first()
+                )
+                if audit:
+                    meta = audit.response_meta if isinstance(audit.response_meta, dict) else {}
+                    norm = meta.get('normalized') if isinstance(meta.get('normalized'), dict) else {}
+                    ba_raw_denial = str(norm.get('raw') or audit.error_message or '')[:500]
+            except Exception:
+                logger.exception('Failed to load BillAvenue audit raw denial for request_id=%s', ba_request_id)
         raise MdmSyncBatchError(
             msg,
             code='AUTH',
@@ -196,6 +213,8 @@ def run_mdm_sync_batch(
                 'mdm_cached_count': cached_count,
                 'quota': sync_quota_snapshot(sync_env),
                 'request_id': request_id,
+                'billavenue_request_id': ba_request_id,
+                'ba_raw_denial': ba_raw_denial,
                 'biller_ids': ids,
                 'environment': sync_env,
             },

@@ -1,16 +1,12 @@
 /**
- * PM2 — MpayHub production (backend + frontend).
+ * PM2 — MpayHub production (localhost-only apps; nginx terminates TLS).
  *
- *   cd ~/MpayHub
- *   pm2 start ecosystem.config.cjs
- *   pm2 save
+ *   Domain / IP → nginx :80/:443
+ *     /        → 127.0.0.1:3002  (frontend)
+ *     /api/    → 127.0.0.1:8002  (backend)
+ *     /media/  → backend/media/
  *
- * Nginx (partner.mpayhub.in) proxies:
- *   /      → localhost:3001 (frontend)
- *   /api/  → localhost:8000 (backend)
- *
- * If you use systemd mpayhub instead, stop PM2 backend:
- *   pm2 delete mpayhub-backend && sudo systemctl start mpayhub
+ * Frontend must be built with REACT_APP_API_BASE_URL=/api (same-origin).
  */
 const path = require('path');
 

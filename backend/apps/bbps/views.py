@@ -3091,12 +3091,30 @@ def sync_billers_view(request):
                     f'Existing {sync_env_label} synced catalog remains usable.'
                 )
             elif code == 'AUTH' or 'access denied' in msg_l:
+                ba_rid = str((data or {}).get('billavenue_request_id') or '').strip()
+                ba_raw = str((data or {}).get('ba_raw_denial') or '').strip()
+                # Prefer plain text for operators; strip crude HTML if BA returned an Access Denied page.
+                if ba_raw and '<' in ba_raw:
+                    import re
+                    from html import unescape
+
+                    ba_raw = re.sub(r'<[^>]+>', ' ', unescape(ba_raw))
+                    ba_raw = re.sub(r'\s+', ' ', ba_raw).strip()
+                ba_raw = ba_raw[:280]
                 hint = (
                     f'BillAvenue denied MDM access (biller_info) for {sync_env_label}. '
                     f'Open BBPS Console → BillAvenue Settings → {sync_env_label}: verify Access Code, Institute ID, '
-                    f'Working Key/IV, and Agent ID. Ask BillAvenue to enable MDM/biller_info for this institute. '
+                    f'Working Key/IV, and Agent ID. Ask BillAvenue to enable MDM/biller_info for this institute '
+                    f'and whitelist this server outbound IP. '
                     f'Existing cached biller data remains usable.'
                 )
+                if ba_rid:
+                    hint += f' BillAvenue requestId={ba_rid}.'
+                if ba_raw:
+                    hint += f' BA response: {ba_raw}'
+                data['hint'] = hint
+                data['billavenue_request_id'] = ba_rid
+                data['ba_raw_denial'] = ba_raw
             else:
                 hint = (
                     f'BillAvenue blocked live MDM call for this {live.upper()} config/agent at this moment. '

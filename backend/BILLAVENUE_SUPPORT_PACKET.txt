@@ -1,0 +1,59 @@
+BillAvenue UAT vs PROD — clear finding (same VPS IP)
+====================================================
+Outbound IP from this server: 103.127.146.47
+Tested: 2026-09-03 (server local)
+
+SAME CODE · SAME SERVER · SAME OUTBOUND IP
+-----------------------------------------
+Only BillAvenue environment / institute differs.
+
+
+UAT (works for bill fetch)
+--------------------------
+Base URL:      https://stgapi.billavenue.com
+Institute ID:  PI39
+Access Code:   **************CCXK
+Agent ID:      CC01CC01513515340681
+Working Key:   decrypt OK
+
+Live results from this VPS:
+  bill_fetch   → ACCEPTED by BillAvenue (business error E008 Initiating channel required)
+                 = IP + credentials are valid on UAT (not Access Denied)
+  biller_info  → ACCEPTED when entitled (business codes like E019); earlier MDM sync
+                 also succeeded (requestId 1D0FDHLO3Y1IEFJN3MBFISPPZ6562460158 → 000)
+
+
+PROD (Access Denied)
+--------------------
+Base URL:      https://api.billavenue.com
+Institute ID:  RS18
+Access Code:   **************SZOI
+Agent ID:      CC01RS18AGTBBH294611
+Working Key:   decrypt OK (same INTEGRATION_SECRET_KEY as UAT; dump credentials intact)
+
+Live results from this VPS (ALL Access Denied):
+  bill_fetch   requestId=MQKGLN0WPCBGUF71C6Z6SQM3P6Z62460201
+  biller_info  requestId=8YRUIDGMWPHUAHC0WNMRTIF39ZZ62460201
+  txn_status   requestId=STEVKM48WTDJIOYQW96KPEUFDUG62460201
+
+BA HTML body:
+  "Unauthorized Access Detected — Please make sure you have access privilege for this module."
+
+
+Conclusion for BillAvenue support
+---------------------------------
+1) IP 103.127.146.47 is clearly allowed on UAT (stgapi / institute PI39).
+2) The same IP is NOT accepted on PROD (api.billavenue.com / institute RS18).
+3) This is NOT an application credential decrypt bug — prod Working Key decrypts fine.
+4) Please whitelist 103.127.146.47 for PRODUCTION institute RS18
+   (payment/fetch AND MDM mdmRequestNew), or confirm prod institute/agent entitlement.
+
+Ask BillAvenue explicitly:
+  "UAT PI39 works from 103.127.146.47; PROD RS18 returns Unauthorized Access
+   for bill_fetch and biller_info. Please enable this IP on production api.billavenue.com
+   for institute RS18 / agent CC01RS18AGTBBH294611."
+
+Re-test after BA confirms:
+  cd /root/MpayHub/backend && source venv/bin/activate
+  python manage.py billavenue_health --env prod
+  python manage.py billavenue_health --env uat
