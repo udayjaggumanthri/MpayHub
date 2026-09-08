@@ -92,6 +92,7 @@ const Dashboard = () => {
   const [qrStats, setQrStats] = useState(null);
   const [userCensus, setUserCensus] = useState(null);
   const isOperator = isAdminUser(user);
+  const showNetworkCensus = Boolean(user?.role) && user.role !== 'Retailer';
 
   useEffect(() => {
     if (!adminOps) return undefined;
@@ -105,6 +106,10 @@ const Dashboard = () => {
   }, [adminOps]);
 
   useEffect(() => {
+    if (!showNetworkCensus) {
+      setUserCensus(null);
+      return undefined;
+    }
     let mounted = true;
     usersAPI.getUserStats().then((res) => {
       if (!mounted) return;
@@ -122,7 +127,7 @@ const Dashboard = () => {
     return () => {
       mounted = false;
     };
-  }, [user?.id, user?.role]);
+  }, [user?.id, user?.role, showNetworkCensus]);
 
   const quickActions = useMemo(() => {
     if (adminOps) {
@@ -313,7 +318,7 @@ const Dashboard = () => {
             </div>
           </Card>
 
-          {userCensus ? (
+          {showNetworkCensus && userCensus ? (
             <section aria-labelledby="dash-users-heading" className="-mt-4">
               <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
                 <h2
