@@ -8,13 +8,14 @@ from django.db import transaction
 from django.utils import timezone
 from rest_framework.exceptions import PermissionDenied, ValidationError
 
+from apps.core.roles import is_platform_operator
 from apps.aeps.models import AepsAccessRequest, AepsEntitlement, AepsMerchantProfile
 from apps.core.financial_access import FINANCIAL_TX_BLOCKED_ROLES
 from apps.core.utils import encrypt_secret_payload
 
 
 def _require_admin(actor) -> None:
-    if getattr(actor, 'role', None) != 'Admin':
+    if not is_platform_operator(actor):
         raise PermissionDenied('Only Admin can manage AEPS entitlements.')
 
 

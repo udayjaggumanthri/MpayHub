@@ -146,9 +146,38 @@ USE_TZ = True
 STATIC_URL = '/static/'
 STATIC_ROOT = BASE_DIR / 'staticfiles'
 
-# Media files
+# Media files (same-origin /media/ — nginx proxies to Gunicorn)
 MEDIA_URL = '/media/'
 MEDIA_ROOT = BASE_DIR / 'media'
+
+# Optional private S3 for media (shared bucket; prefix isolates UAT vs prod).
+# When USE_S3=False, Django FileSystemStorage under MEDIA_ROOT is used.
+USE_S3 = config('USE_S3', default=False, cast=bool)
+AWS_ACCESS_KEY_ID = config('AWS_ACCESS_KEY_ID', default='')
+AWS_SECRET_ACCESS_KEY = config('AWS_SECRET_ACCESS_KEY', default='')
+AWS_STORAGE_BUCKET_NAME = config('AWS_STORAGE_BUCKET_NAME', default='')
+AWS_S3_REGION_NAME = config('AWS_S3_REGION_NAME', default='ap-south-1')
+AWS_S3_MEDIA_PREFIX = config('AWS_S3_MEDIA_PREFIX', default='').strip().strip('/')
+AWS_S3_SIGNATURE_VERSION = config('AWS_S3_SIGNATURE_VERSION', default='s3v4')
+AWS_S3_FILE_OVERWRITE = False
+AWS_DEFAULT_ACL = None
+AWS_QUERYSTRING_AUTH = False
+# Leave empty — MediaStorage.url() always returns MEDIA_URL paths.
+AWS_S3_CUSTOM_DOMAIN = config('AWS_S3_CUSTOM_DOMAIN', default='')
+
+if USE_S3:
+    if not AWS_STORAGE_BUCKET_NAME:
+        raise ValueError('USE_S3=True requires AWS_STORAGE_BUCKET_NAME')
+    if not AWS_S3_MEDIA_PREFIX:
+        raise ValueError('USE_S3=True requires AWS_S3_MEDIA_PREFIX (e.g. uat or prod)')
+    STORAGES = {
+        'default': {
+            'BACKEND': 'apps.core.storage.MediaStorage',
+        },
+        'staticfiles': {
+            'BACKEND': 'django.contrib.staticfiles.storage.StaticFilesStorage',
+        },
+    }
 
 # Default primary key field type
 DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'

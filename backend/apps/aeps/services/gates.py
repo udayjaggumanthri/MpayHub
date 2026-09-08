@@ -4,6 +4,7 @@ from __future__ import annotations
 from django.utils import timezone
 from rest_framework.exceptions import PermissionDenied
 
+from apps.core.roles import is_platform_operator
 from apps.core.financial_access import FINANCIAL_TX_BLOCKED_ROLES
 from apps.core.maintenance_mode import MODULE_AEPS, assert_module_available
 
@@ -92,7 +93,7 @@ def assert_daily_2fa(merchant) -> None:
 def me_status_payload(user) -> dict:
     from apps.aeps.models import AepsAccessRequest, AepsDaily2FA
 
-    is_admin = getattr(user, 'role', None) == 'Admin'
+    is_admin = is_platform_operator(user)
     can_trade = user_may_trade_aeps(user)
     ent = get_entitlement(user)
     merchant = get_merchant(user)

@@ -201,9 +201,15 @@ class PayInQrAccountViewSet(viewsets.ModelViewSet):
         )
 
     def destroy(self, request, *args, **kwargs):
+        from apps.core.media_files import clear_image_field
+
         instance = self.get_object()
+        # Soft-delete hides the account; remove QR image from storage (local/S3)
+        # so orphaned objects do not accumulate. Receipts on LoadMoney are kept for audit.
+        if instance.qr_image:
+            clear_image_field(instance, 'qr_image', save=False)
         instance.is_deleted = True
-        instance.save(update_fields=['is_deleted', 'updated_at'])
+        instance.save(update_fields=['qr_image', 'is_deleted', 'updated_at'])
         return Response({'success': True, 'data': None, 'message': 'QR account removed', 'errors': []})
 
     @action(detail=True, methods=['get'], url_path='qr-image')

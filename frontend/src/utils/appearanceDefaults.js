@@ -1,4 +1,5 @@
 export const DEFAULT_LOGO_SRC = `${process.env.PUBLIC_URL || ''}/images/logo.png`;
+export const DEFAULT_ICON_SRC = `${process.env.PUBLIC_URL || ''}/images/mpayhub-icon.png`;
 export const DEFAULT_SITE_TITLE = 'mPayHub';
 export const DEFAULT_LOGIN_WELCOME_HEADING = 'WELCOME TO';
 export const DEFAULT_LOGIN_TAGLINE = 'Driven by trust, Built for Scale';

@@ -60,8 +60,17 @@ EMAIL_HOST_USER = config('EMAIL_HOST_USER', default='')
 EMAIL_HOST_PASSWORD = config('EMAIL_HOST_PASSWORD', default='')
 DEFAULT_FROM_EMAIL = config('DEFAULT_FROM_EMAIL', default=EMAIL_HOST_USER)
 
-# Static files serving
-STATICFILES_STORAGE = 'whitenoise.storage.CompressedManifestStaticFilesStorage'
+# Static files serving (whitenoise). Django 4.2+: STORAGES and STATICFILES_STORAGE are exclusive.
+_WHITENOISE_STORAGE = 'whitenoise.storage.CompressedManifestStaticFilesStorage'
+if USE_S3:
+    STORAGES = {
+        **STORAGES,
+        'staticfiles': {
+            'BACKEND': _WHITENOISE_STORAGE,
+        },
+    }
+else:
+    STATICFILES_STORAGE = _WHITENOISE_STORAGE
 
 # Logging - More detailed in production
 LOGGING['handlers']['file'] = {

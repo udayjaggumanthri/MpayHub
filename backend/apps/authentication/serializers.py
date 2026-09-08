@@ -60,6 +60,16 @@ class LoginSerializer(serializers.Serializer):
                 code=ACCESS_CODE_USER_DISABLED,
             )
 
+        from apps.core.portal_access import (
+            test_usage_block_detail,
+            user_may_login_under_test_mode,
+        )
+        from rest_framework.exceptions import PermissionDenied
+
+        if not user_may_login_under_test_mode(user):
+            detail = test_usage_block_detail()
+            raise PermissionDenied(detail)
+
         attrs['user'] = user
         return attrs
 
@@ -209,13 +219,15 @@ class UserSerializer(serializers.ModelSerializer):
             'id', 'user_id', 'legacy_user_id', 'member_number', 'member_id', 'display_code',
             'phone', 'email', 'first_name', 'last_name',
             'role', 'is_active', 'is_restricted', 'payments_locked',
-            'pay_in_allowed_when_disabled', 'allow_concurrent_sessions', 'access', 'profile',
+            'pay_in_allowed_when_disabled', 'allow_concurrent_sessions', 'is_test_user',
+            'access', 'profile',
             'created_at', 'onboarding', 'kyc_verification', 'profile_sync_pending',
         ]
         read_only_fields = [
             'id', 'user_id', 'legacy_user_id', 'member_number', 'member_id', 'display_code',
             'created_at', 'is_restricted', 'payments_locked',
-            'pay_in_allowed_when_disabled', 'allow_concurrent_sessions', 'access',
+            'pay_in_allowed_when_disabled', 'allow_concurrent_sessions', 'is_test_user',
+            'access',
             'kyc_verification', 'profile', 'profile_sync_pending',
         ]
 
@@ -257,6 +269,8 @@ class UserSerializer(serializers.ModelSerializer):
         return [serialize_pending_audit(row) for row in pending[:5]]
 
     def get_onboarding(self, obj):
+        from apps.core.roles import is_platform_operator
+
         kyc = self._kyc_for_user(obj)
         pan_ok = bool(kyc and kyc.pan_verified)
         ad_ok = bool(kyc and kyc.aadhaar_verified)
@@ -268,6 +282,13 @@ class UserSerializer(serializers.ModelSerializer):
             kyc and status == 'awaiting_approval' and provider_complete
         )
         has_mpin = bool(obj.mpin_hash)
+        must_change = bool(getattr(obj, 'must_change_password', False))
+        operator = is_platform_operator(obj)
+        if operator:
+            # Operators: KYC/MPIN optional — portal ready once password onboarding is done.
+            account_ready = not must_change
+        else:
+            account_ready = kyc_complete and has_mpin
         return {
             'kyc_status': status,
             'kyc_complete': kyc_complete,
@@ -277,8 +298,10 @@ class UserSerializer(serializers.ModelSerializer):
             'pan_verified': pan_ok,
             'aadhaar_verified': ad_ok,
             'mpin_set': has_mpin,
-            'account_ready': kyc_complete and has_mpin,
-            'must_change_password': bool(getattr(obj, 'must_change_password', False)),
+            'account_ready': account_ready,
+            'must_change_password': must_change,
+            'kyc_optional': operator,
+            'mpin_optional': operator,
         }
 
 

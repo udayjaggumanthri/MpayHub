@@ -38,6 +38,7 @@ def generate_service_id(transaction_type):
 
 def _role_user_id_prefix(role: str) -> str:
     role_prefix_map = {
+        'Super Admin': 'SA',
         'Admin': 'ADMIN',
         'Super Distributor': 'SD',
         'Master Distributor': 'MD',

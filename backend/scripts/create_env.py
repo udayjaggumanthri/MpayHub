@@ -1,30 +1,32 @@
 """
-Script to create .env file with database configuration.
+Helper to create a starter backend/.env from placeholders.
+
+Prefer copying .env.example instead:
+  cp .env.example .env
+
+This script never embeds real passwords. Edit .env after generation.
 """
-import os
 from pathlib import Path
 
-# Get the backend directory
 BASE_DIR = Path(__file__).resolve().parent.parent
 
-# .env file content
 env_content = """# Django Settings
 DJANGO_ENV=development
 SECRET_KEY=django-insecure-change-this-to-a-secure-key-in-production-min-50-chars
 DEBUG=True
 
-# Database Configuration - Using DATABASE_URL
-DATABASE_URL=postgresql://postgres:StrongPass%40123@localhost:5432/mpayhub
+# Database — use placeholders only; copy real values from your secrets store
+DATABASE_URL=postgresql://postgres:postgres@127.0.0.1:5432/mpayhub
 
 # Alternative: Individual Database Settings (if not using DATABASE_URL)
 # DB_NAME=mpayhub
 # DB_USER=postgres
-# DB_PASSWORD=StrongPass@123
-# DB_HOST=localhost
+# DB_PASSWORD=postgres
+# DB_HOST=127.0.0.1
 # DB_PORT=5432
 USE_SQLITE=False
 
-# Encryption Key (32 characters - change this in production)
+# Encryption Key (change in production; see .env.example for MPIN / INTEGRATION keys)
 ENCRYPTION_KEY=your-32-character-encryption-key-here-change-in-production
 
 # CORS Settings
@@ -55,11 +57,11 @@ BANK_VALIDATION_API_KEY=your-bank-validation-key
 BANK_VALIDATION_API_URL=https://api.bank-validation.example.com
 """
 
-# Write .env file
 env_file = BASE_DIR / '.env'
-with open(env_file, 'w') as f:
-    f.write(env_content)
+if env_file.exists():
+    raise SystemExit(f'{env_file} already exists — refuse to overwrite. Edit it or remove it first.')
 
-print(f".env file created successfully at {env_file}")
-print("\nNote: The .env file contains your database credentials.")
-print("Make sure it's in your .gitignore (it should be by default).")
+env_file.write_text(env_content)
+print(f'.env file created at {env_file}')
+print('Prefer maintaining secrets via .env.example + your password manager.')
+print('Ensure .env stays gitignored.')

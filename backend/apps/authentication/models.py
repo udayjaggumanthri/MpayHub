@@ -43,6 +43,7 @@ class User(AbstractUser, TimestampedModel):
     Custom User model extending Django's AbstractUser.
     """
     ROLE_CHOICES = [
+        ('Super Admin', 'Super Admin'),
         ('Admin', 'Admin'),
         ('Super Distributor', 'Super Distributor'),
         ('Master Distributor', 'Master Distributor'),
@@ -106,6 +107,11 @@ class User(AbstractUser, TimestampedModel):
         default=False,
         db_index=True,
         help_text='When True, user may keep multiple active sessions (admin exception).',
+    )
+    is_test_user = models.BooleanField(
+        default=False,
+        db_index=True,
+        help_text='When Test usage mode is on, only Super Admin and test users may log in.',
     )
     last_login = models.DateTimeField(null=True, blank=True)
     

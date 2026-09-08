@@ -41,9 +41,9 @@ export function normalizeAuthUser(raw) {
   const name =
     fullName ||
     (typeof raw.name === 'string' ? raw.name.trim() : '') ||
-    raw.email ||
+    resolveDisplayCode(raw) ||
     raw.phone ||
-    'User';
+    'there';
 
   const displayCode = resolveDisplayCode(raw);
   const memberId = resolveMemberId(raw);
@@ -66,6 +66,7 @@ export function normalizeAuthUser(raw) {
     is_restricted: Boolean(raw.is_restricted),
     payments_locked: Boolean(raw.payments_locked),
     pay_in_allowed_when_disabled: Boolean(raw.pay_in_allowed_when_disabled),
+    is_test_user: Boolean(raw.is_test_user),
     access: raw.access && typeof raw.access === 'object' ? raw.access : null,
     profile: raw.profile && typeof raw.profile === 'object' ? raw.profile : null,
     kyc_verification:

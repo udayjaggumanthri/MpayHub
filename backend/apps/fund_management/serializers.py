@@ -5,6 +5,7 @@ from decimal import Decimal
 
 from rest_framework import serializers
 
+from apps.core.roles import is_platform_operator
 from apps.core.utils import validate_mpin
 from apps.fund_management.models import LoadMoney, PayInPackage, Payout
 from apps.fund_management.payin_rail_labels import payin_collection_method_label, payin_is_qr_rail
@@ -212,7 +213,7 @@ class LoadMoneySerializer(serializers.ModelSerializer):
         raw = obj.fee_breakdown_snapshot if isinstance(obj.fee_breakdown_snapshot, dict) else {}
         request = self.context.get('request')
         user = getattr(request, 'user', None) if request else None
-        if user and getattr(user, 'is_authenticated', False) and getattr(user, 'role', None) == 'Admin':
+        if user and getattr(user, 'is_authenticated', False) and is_platform_operator(user):
             return raw
         return {}
 

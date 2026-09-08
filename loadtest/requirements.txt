@@ -1,1 +1,13 @@
+# =============================================================================
+# mPayHub load testing (Locust) — separate from the Django backend
+# =============================================================================
+# Install on your workstation (not required on the API VPS):
+#   cd loadtest
+#   python -m venv .venv && source .venv/bin/activate
+#   pip install -r requirements.txt
+#
+# See ../docs/LOAD_TEST_GUIDE.md before pointing Locust at a live environment.
+# Prefer UAT. Never run aggressive stress tests against production without approval.
+# =============================================================================
+
 locust>=2.20.0

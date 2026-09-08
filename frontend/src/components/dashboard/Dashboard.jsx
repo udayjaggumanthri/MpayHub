@@ -5,9 +5,10 @@ import { useWallet } from '../../context/WalletContext';
 import {
   canViewCommissionWallet,
   isAdminOperationalIsolationRole,
+  isAdminUser,
   isFinancialTxBlockedRole,
 } from '../../utils/rolePermissions';
-import { reportsAPI, adminAPI } from '../../services/api';
+import { reportsAPI, adminAPI, usersAPI } from '../../services/api';
 import { formatCurrency } from '../../utils/formatters';
 import WalletCard from './WalletCard';
 import AnnouncementBanner from './AnnouncementBanner';
@@ -28,6 +29,7 @@ import {
   FaBullhorn,
   FaChartLine,
   FaQrcode,
+  FaUsers,
 } from 'react-icons/fa6';
 
 function periodDatesForInterval(interval) {
@@ -88,6 +90,8 @@ const Dashboard = () => {
     gateway: '',
   }));
   const [qrStats, setQrStats] = useState(null);
+  const [userCensus, setUserCensus] = useState(null);
+  const isOperator = isAdminUser(user);
 
   useEffect(() => {
     if (!adminOps) return undefined;
@@ -99,6 +103,26 @@ const Dashboard = () => {
       mounted = false;
     };
   }, [adminOps]);
+
+  useEffect(() => {
+    let mounted = true;
+    usersAPI.getUserStats().then((res) => {
+      if (!mounted) return;
+      if (res.success && res.data) {
+        setUserCensus({
+          total: Number(res.data.total) || 0,
+          active: Number(res.data.active) || 0,
+          disabled: Number(res.data.disabled) || 0,
+          restricted: Number(res.data.restricted) || 0,
+        });
+      } else {
+        setUserCensus(null);
+      }
+    });
+    return () => {
+      mounted = false;
+    };
+  }, [user?.id, user?.role]);
 
   const quickActions = useMemo(() => {
     if (adminOps) {
@@ -240,6 +264,21 @@ const Dashboard = () => {
     <>
       <AnnouncementBanner />
       <KycProfileSyncAlert className="mx-auto mb-6 max-w-7xl" />
+      {user?.onboarding?.kyc_optional && !user?.onboarding?.kyc_complete ? (
+        <div className="mx-auto mb-6 max-w-7xl rounded-lg border border-indigo-200 bg-indigo-50 px-4 py-3 text-sm text-indigo-900 dark:border-indigo-900/40 dark:bg-indigo-950/30 dark:text-indigo-100">
+          KYC and MPIN are optional for your role. You can use the admin portal now and complete
+          them later from Profile if you want — they are never required.
+        </div>
+      ) : null}
+      {user?.onboarding?.mpin_optional &&
+      user?.onboarding?.kyc_optional &&
+      user?.onboarding?.kyc_complete &&
+      !user?.onboarding?.mpin_set ? (
+        <div className="mx-auto mb-6 max-w-7xl rounded-lg border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-800 dark:border-slate-700 dark:bg-slate-900/40 dark:text-slate-200">
+          MPIN is optional. Set or reset it anytime from Profile (including via OTP) if you want an
+          extra login step later.
+        </div>
+      ) : null}
         <div className="mx-auto max-w-7xl space-y-10 pb-10">
           <Card className="border border-slate-200/90 dark:border-slate-700/90 shadow-sm" padding="lg">
             <div
@@ -273,6 +312,56 @@ const Dashboard = () => {
               ) : null}
             </div>
           </Card>
+
+          {userCensus ? (
+            <section aria-labelledby="dash-users-heading" className="-mt-4">
+              <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
+                <h2
+                  id="dash-users-heading"
+                  className="flex items-center gap-2 text-sm font-semibold tracking-tight text-slate-900 dark:text-slate-100"
+                >
+                  <FaUsers className="text-slate-400" size={14} aria-hidden />
+                  {isOperator ? 'Platform users' : 'Your network'}
+                </h2>
+                <button
+                  type="button"
+                  onClick={() => navigate('/user-management/users')}
+                  className="inline-flex items-center gap-1 text-xs font-semibold text-indigo-600 hover:text-indigo-800 dark:text-indigo-400 dark:hover:text-indigo-300"
+                >
+                  Open directory
+                  <FiChevronRight size={14} aria-hidden />
+                </button>
+              </div>
+              <div className="flex flex-wrap gap-2">
+                {[
+                  { label: 'Total', value: userCensus.total, status: null },
+                  { label: 'Active', value: userCensus.active, status: 'active' },
+                  { label: 'Disabled', value: userCensus.disabled, status: 'disabled' },
+                  ...(isOperator
+                    ? [{ label: 'Restricted', value: userCensus.restricted, status: 'restricted' }]
+                    : []),
+                ].map((chip) => (
+                  <button
+                    key={chip.label}
+                    type="button"
+                    onClick={() =>
+                      navigate(
+                        chip.status
+                          ? `/user-management/users?account_status=${chip.status}`
+                          : '/user-management/users',
+                      )
+                    }
+                    className="inline-flex items-center gap-2 rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-xs font-semibold text-slate-700 shadow-sm transition hover:border-indigo-200 hover:bg-indigo-50/60 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-300 dark:hover:border-indigo-800 dark:hover:bg-indigo-950/40"
+                  >
+                    <span>{chip.label}</span>
+                    <span className="rounded-md bg-slate-100 px-1.5 py-0.5 tabular-nums text-[11px] text-slate-800 dark:bg-slate-800 dark:text-slate-200">
+                      {chip.value}
+                    </span>
+                  </button>
+                ))}
+              </div>
+            </section>
+          ) : null}
 
           {/* 1 — Wallets & commission */}
           <section aria-labelledby="dash-wallets-heading">

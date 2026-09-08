@@ -9,6 +9,7 @@ from rest_framework.decorators import api_view, permission_classes
 from rest_framework.permissions import AllowAny, IsAuthenticated
 from rest_framework.response import Response
 
+from apps.core.roles import is_platform_operator
 from apps.aeps.models import AepsAccessRequest, AepsEntitlement, AepsMerchantProfile, AepsProviderConfig, AepsReconBatch
 from apps.aeps.services import entitlement as entitlement_svc
 from apps.aeps.services import onboarding as onboarding_svc
@@ -86,7 +87,7 @@ def _exc_exchange(exc):
 
 
 def _require_admin(request):
-    return getattr(request.user, 'role', None) == 'Admin'
+    return is_platform_operator(request.user)
 
 
 def _geo(request):

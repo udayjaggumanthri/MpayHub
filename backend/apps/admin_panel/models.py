@@ -49,8 +49,10 @@ class Announcement(BaseModel):
         return f"{label} - {self.priority}"
 
     def delete(self, *args, **kwargs):
+        from apps.core.media_files import discard_stored_file
+
         if self.image:
-            self.image.delete(save=False)
+            discard_stored_file(self.image)
         super().delete(*args, **kwargs)
 
 

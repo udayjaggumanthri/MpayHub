@@ -62,6 +62,16 @@ class PayInQrAccountSerializer(serializers.ModelSerializer):
             except Exception:
                 return ''
 
+    def update(self, instance, validated_data):
+        from apps.core.media_files import delete_replaced_file
+
+        old_name = instance.qr_image.name if instance.qr_image else ''
+        instance = super().update(instance, validated_data)
+        new_name = instance.qr_image.name if instance.qr_image else ''
+        if 'qr_image' in validated_data:
+            delete_replaced_file(old_name, new_name)
+        return instance
+
 
 class PayInQrSubmitSerializer(serializers.Serializer):
     package_id = serializers.IntegerField(min_value=1)

@@ -9,6 +9,7 @@ from typing import Any, Iterable
 from django.core.cache import cache
 from django.db.models import Count, Max, Min, QuerySet, Sum
 
+from apps.core.roles import is_platform_operator
 from apps.authentication.models import User
 from apps.fund_management.models import LoadMoney, Payout
 from apps.fund_management.payin_rail_labels import (
@@ -240,7 +241,7 @@ def payin_rows_for_transactions(
         card_last4 = (t.card_last4 or '').strip() or card_last4_from_payment_meta(gateway_meta)
 
         # Commission / fee-split snapshot: Admin-only (avoid leaking upline splits via API).
-        if getattr(viewer, 'role', None) != 'Admin':
+        if not is_platform_operator(viewer):
             fee_breakdown_snapshot = None
 
         row_user = t.user
@@ -452,7 +453,7 @@ def payin_rows_from_load_money(
                 bank_ref_for_utr = gateway_transaction_id
 
         card_last4 = card_last4_from_payment_meta(gateway_meta)
-        if getattr(viewer, 'role', None) != 'Admin':
+        if not is_platform_operator(viewer):
             fee_breakdown_snapshot = None
 
         qr_account_name = ''

@@ -148,7 +148,15 @@ export const AuthProvider = ({ children }) => {
               setUser(u);
               sessionStorage.setItem('mpayhub_user', JSON.stringify(u));
               setIsAuthenticated(true);
-              setMpinVerified(storedMpinVerified === 'true');
+              const operatorSkipMpin = Boolean(
+                u?.onboarding?.kyc_optional || u?.onboarding?.mpin_optional
+              );
+              if (operatorSkipMpin) {
+                setMpinVerified(true);
+                sessionStorage.setItem('mpayhub_mpin_verified', 'true');
+              } else {
+                setMpinVerified(storedMpinVerified === 'true');
+              }
               await loadSessionPolicy();
             }
           } else {
@@ -209,8 +217,15 @@ export const AuthProvider = ({ children }) => {
         applyMaintenanceFromPayload(result.data);
         sessionStorage.setItem('mpayhub_user', JSON.stringify(u));
         setIsAuthenticated(true);
-        setMpinVerified(false); // Session MPIN gate after account is fully ready
-        sessionStorage.removeItem('mpayhub_mpin_verified');
+        // Operators skip session MPIN; channel users still verify when MPIN is set.
+        const operatorSkipMpin = Boolean(u?.onboarding?.kyc_optional || u?.onboarding?.mpin_optional);
+        if (operatorSkipMpin) {
+          setMpinVerified(true);
+          sessionStorage.setItem('mpayhub_mpin_verified', 'true');
+        } else {
+          setMpinVerified(false);
+          sessionStorage.removeItem('mpayhub_mpin_verified');
+        }
         sessionStorage.removeItem(SESSION_POST_MPIN_ANNOUNCE);
         await loadSessionPolicy();
         return { success: true, user: u };
@@ -221,7 +236,9 @@ export const AuthProvider = ({ children }) => {
         message: parsed?.message || 'Login failed',
         errorTitle: parsed?.title,
         errorVariant: parsed?.variant,
+        errorCode: result.errorCode || parsed?.variant,
         errors: result.errors,
+        title: result.title || result.error?.title,
       };
     } catch (error) {
       return {

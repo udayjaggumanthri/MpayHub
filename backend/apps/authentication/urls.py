@@ -19,6 +19,7 @@ urlpatterns = [
     path('my-activity/export/', views.my_activity_export_view, name='my-activity-export'),
     path('my-activity/', views.my_activity_view, name='my-activity'),
     path('me/', views.current_user_view, name='current-user'),
+    path('me/permissions/', views.me_permissions_view, name='me-permissions'),
     path('me/profile-sync/pending/', views.profile_sync_pending_view, name='profile-sync-pending'),
     path('profile-sync/confirm/', views.profile_sync_confirm_view, name='profile-sync-confirm'),
     path('profile-sync/decline/', views.profile_sync_decline_view, name='profile-sync-decline'),

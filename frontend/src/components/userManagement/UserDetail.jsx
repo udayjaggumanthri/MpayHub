@@ -35,6 +35,7 @@ import DeleteUserConfirmModal from './DeleteUserConfirmModal';
 import AccessStatusBadges from './AccessStatusBadges';
 import AccountAccessSummary from './AccountAccessSummary';
 import { formatAdminAccessSuccessMessage } from '../../utils/accessControl';
+import { isAdminUser, isSuperAdminUser } from '../../utils/rolePermissions';
 import HierarchyCard from './HierarchyCard';
 import PointOfContactCard from './PointOfContactCard';
 import KycVerificationPanel from '../onboarding/KycVerificationPanel';
@@ -68,7 +69,8 @@ const UserDetail = () => {
   const { userId } = useParams();
   const navigate = useNavigate();
   const { user: currentUser } = useAuth();
-  const isAdmin = currentUser?.role === 'Admin';
+  const isAdmin = isAdminUser(currentUser);
+  const isSuperAdmin = isSuperAdminUser(currentUser);
   const currentUserId = currentUser?.id;
 
   const [user, setUser] = useState(null);
@@ -81,7 +83,12 @@ const UserDetail = () => {
   const [roleMessage, setRoleMessage] = useState('');
 
   const [contactEditing, setContactEditing] = useState(false);
-  const [contactDraft, setContactDraft] = useState({ email: '', phone: '' });
+  const [contactDraft, setContactDraft] = useState({
+    first_name: '',
+    last_name: '',
+    email: '',
+    phone: '',
+  });
   const [contactErrors, setContactErrors] = useState({});
   const [contactSaving, setContactSaving] = useState(false);
   const [contactMessage, setContactMessage] = useState('');
@@ -291,14 +298,24 @@ const UserDetail = () => {
   };
 
   const startContactEdit = () => {
-    setContactDraft({ email: user.email || '', phone: user.phone || '' });
+    setContactDraft({
+      first_name: user.first_name || '',
+      last_name: user.last_name || '',
+      email: user.email || '',
+      phone: user.phone || '',
+    });
     setContactErrors({});
     setContactMessage('');
     setContactEditing(true);
   };
 
   const cancelContactEdit = () => {
-    setContactDraft({ email: user.email || '', phone: user.phone || '' });
+    setContactDraft({
+      first_name: user.first_name || '',
+      last_name: user.last_name || '',
+      email: user.email || '',
+      phone: user.phone || '',
+    });
     setContactErrors({});
     setContactMessage('');
     setContactEditing(false);
@@ -307,6 +324,10 @@ const UserDetail = () => {
   const handleSaveContact = async () => {
     if (!user?.id) return;
     const errors = {};
+    const first = String(contactDraft.first_name || '').trim();
+    if (!first) {
+      errors.first_name = 'First name is required.';
+    }
     const emailValidation = validateEmail(contactDraft.email);
     if (!emailValidation.valid) {
       errors.email = emailValidation.message;
@@ -324,14 +345,21 @@ const UserDetail = () => {
     setContactMessage('');
     try {
       const res = await usersAPI.updateUserContact(user.id, {
+        first_name: first,
+        last_name: String(contactDraft.last_name || '').trim(),
         email: contactDraft.email.trim(),
         phone: contactDraft.phone.trim(),
       });
       const u = res.data?.user ?? res.data;
       if (res.success && u && u.id != null) {
         setUser(u);
-        setContactDraft({ email: u.email || '', phone: u.phone || '' });
-        setContactMessage('Contact details updated successfully.');
+        setContactDraft({
+          first_name: u.first_name || '',
+          last_name: u.last_name || '',
+          email: u.email || '',
+          phone: u.phone || '',
+        });
+        setContactMessage('Name and contact details updated successfully.');
         setContactEditing(false);
       } else {
         setContactMessage(res.message || 'Failed to update contact details.');
@@ -471,6 +499,10 @@ const UserDetail = () => {
     requestAccessChange('payments_lock_on', { payments_locked: true });
   };
 
+  const requestTestUserToggle = (checked) => {
+    applyAccessFlag({ is_test_user: Boolean(checked) });
+  };
+
   const handleKycDecision = async (decision) => {
     if (!isAdmin || !user?.id) return;
     if (String(user.id) === String(currentUserId)) return;
@@ -603,11 +635,11 @@ const UserDetail = () => {
                     <p className="text-sm text-indigo-900 dark:text-indigo-300">
                       {contactEditing
                         ? 'Updating mobile changes how this user signs in. They will use the new number with their existing password or MPIN.'
-                        : 'Administrators can update this user\'s email and mobile number.'}
+                        : "Administrators can update this user's name, email, and mobile number."}
                     </p>
                     {!contactEditing ? (
                       <Button variant="outline" size="sm" onClick={startContactEdit} icon={FaPenToSquare} iconPosition="left">
-                        Edit contact
+                        Edit details
                       </Button>
                     ) : (
                       <div className="flex gap-2">
@@ -630,9 +662,56 @@ const UserDetail = () => {
                   <div>
                     <div className="flex items-center gap-2 text-slate-500 dark:text-slate-400 text-xs font-semibold uppercase tracking-wide mb-2">
                       <FaUser size={12} />
-                      Full Name
+                      First name
                     </div>
-                    <p className="text-lg font-semibold text-slate-900 dark:text-slate-100 capitalize">{fullName}</p>
+                    {contactEditing && isAdmin && !isSelf ? (
+                      <div>
+                        <input
+                          type="text"
+                          value={contactDraft.first_name}
+                          onChange={(e) => {
+                            setContactDraft((d) => ({ ...d, first_name: e.target.value }));
+                            setContactErrors((err) => ({ ...err, first_name: undefined }));
+                          }}
+                          className="w-full rounded-xl border border-slate-200 dark:border-slate-700 px-3 py-2 text-sm capitalize focus:border-indigo-300 focus:ring-2 focus:ring-indigo-500/20"
+                          autoComplete="off"
+                        />
+                        {contactErrors.first_name && (
+                          <p className="mt-1 text-xs text-red-600 dark:text-red-400">{contactErrors.first_name}</p>
+                        )}
+                      </div>
+                    ) : (
+                      <p className="text-lg font-semibold text-slate-900 dark:text-slate-100 capitalize">
+                        {user.first_name || '—'}
+                      </p>
+                    )}
+                  </div>
+                  <div>
+                    <div className="flex items-center gap-2 text-slate-500 dark:text-slate-400 text-xs font-semibold uppercase tracking-wide mb-2">
+                      <FaUser size={12} />
+                      Last name
+                    </div>
+                    {contactEditing && isAdmin && !isSelf ? (
+                      <div>
+                        <input
+                          type="text"
+                          value={contactDraft.last_name}
+                          onChange={(e) => {
+                            setContactDraft((d) => ({ ...d, last_name: e.target.value }));
+                            setContactErrors((err) => ({ ...err, last_name: undefined }));
+                          }}
+                          className="w-full rounded-xl border border-slate-200 dark:border-slate-700 px-3 py-2 text-sm capitalize focus:border-indigo-300 focus:ring-2 focus:ring-indigo-500/20"
+                          autoComplete="off"
+                        />
+                        {contactErrors.last_name && (
+                          <p className="mt-1 text-xs text-red-600 dark:text-red-400">{contactErrors.last_name}</p>
+                        )}
+                      </div>
+                    ) : (
+                      <p className="text-lg font-semibold text-slate-900 dark:text-slate-100 capitalize">
+                        {user.last_name || '—'}
+                      </p>
+                    )}
                   </div>
                   <div>
                     <div className="flex items-center gap-2 text-slate-500 dark:text-slate-400 text-xs font-semibold uppercase tracking-wide mb-2">
@@ -1102,6 +1181,23 @@ const UserDetail = () => {
                         </span>
                       </span>
                     </label>
+                    {isSuperAdmin ? (
+                      <label className="flex items-start gap-3 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50/80 dark:bg-slate-800/50 px-4 py-3 text-sm text-slate-700 dark:text-slate-300 cursor-pointer">
+                        <input
+                          type="checkbox"
+                          className="mt-0.5 h-4 w-4 rounded border-slate-300 dark:border-slate-600 text-indigo-600 dark:text-indigo-400 focus:ring-indigo-500"
+                          checked={Boolean(user.is_test_user)}
+                          disabled={accessControlsSaving || activeStatusSaving}
+                          onChange={(e) => requestTestUserToggle(e.target.checked)}
+                        />
+                        <span>
+                          <span className="font-medium text-slate-900 dark:text-slate-100">Test user</span>
+                          <span className="block text-xs text-slate-500 dark:text-slate-400 mt-0.5">
+                            Allowed to sign in while Test usage mode is enabled.
+                          </span>
+                        </span>
+                      </label>
+                    ) : null}
                     {accessControlsMessage && (
                       <p className={`text-sm ${accessControlsMessage.includes('updated') ? 'text-emerald-700 dark:text-emerald-300' : 'text-red-600 dark:text-red-400'}`}>
                         {accessControlsMessage}

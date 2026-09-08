@@ -206,14 +206,18 @@ def send_otp_view(request):
                     'errors': []
                 }, status=status.HTTP_404_NOT_FOUND)
             if purpose == 'mpin-reset' and not target.mpin_hash:
-                return Response({
-                    'success': False,
-                    'data': None,
-                    'message': (
-                        'MPIN is not set on this account. Complete onboarding first or contact support.'
-                    ),
-                    'errors': [],
-                }, status=status.HTTP_400_BAD_REQUEST)
+                from apps.core.roles import is_platform_operator
+
+                # Channel users must finish onboarding first; operators may set MPIN later via OTP.
+                if not is_platform_operator(target):
+                    return Response({
+                        'success': False,
+                        'data': None,
+                        'message': (
+                            'MPIN is not set on this account. Complete onboarding first or contact support.'
+                        ),
+                        'errors': [],
+                    }, status=status.HTTP_400_BAD_REQUEST)
         
         channel = serializer.validated_data.get('channel', 'sms')
         try:
@@ -676,6 +680,26 @@ def current_user_view(request):
         'message': 'User retrieved successfully',
         'errors': []
     }, status=status.HTTP_200_OK)
+
+
+@api_view(['GET'])
+@permission_classes([IsAuthenticated])
+def me_permissions_view(request):
+    """
+    Enabled module codes for the current user.
+    GET /api/auth/me/permissions/
+    """
+    from apps.core.module_permissions import permissions_payload_for_user
+
+    return Response(
+        {
+            'success': True,
+            'data': permissions_payload_for_user(request.user),
+            'message': 'OK',
+            'errors': [],
+        },
+        status=status.HTTP_200_OK,
+    )
 
 
 @api_view(['POST'])

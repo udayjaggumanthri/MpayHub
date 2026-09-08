@@ -19,6 +19,7 @@ if TYPE_CHECKING:
 
 # Display prefixes for the new public display_code (role-facing).
 ROLE_DISPLAY_PREFIX = {
+    'Super Admin': 'SA',
     'Admin': 'A',
     'Super Distributor': 'SD',
     'Master Distributor': 'MD',

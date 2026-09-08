@@ -136,12 +136,16 @@ def update_config(*, changed_by, patch: dict, request=None) -> dict[str, Any]:
 
     if patch.get('remove_logo'):
         if config.logo:
-            config.logo.delete(save=False)
+            from apps.core.media_files import discard_stored_file
+
+            discard_stored_file(config.logo)
             config.logo = None
             update_fields.append('logo')
     elif 'logo' in patch and patch['logo'] is not None:
+        from apps.core.media_files import discard_stored_file
+
         if config.logo:
-            config.logo.delete(save=False)
+            discard_stored_file(config.logo)
         config.logo = patch['logo']
         update_fields.append('logo')
 

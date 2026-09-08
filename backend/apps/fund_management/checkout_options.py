@@ -69,7 +69,9 @@ def _serialize_qr_option(
     qr_image_url = ''
     if qr.qr_image:
         try:
-            qr_image_url = reverse('fund_management:pay-in-qr-account-image', kwargs={'qr_account_id': qr.pk})
+            qr_image_url = reverse(
+                'fund_management:pay-in-qr-account-image', kwargs={'qr_account_id': qr.pk}
+            )
         except Exception:
             try:
                 qr_image_url = qr.qr_image.url

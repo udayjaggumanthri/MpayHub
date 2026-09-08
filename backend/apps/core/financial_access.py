@@ -20,6 +20,7 @@ from apps.core.access_catalog import (
 # Platform operator roles — may manage users/reports but must not use agent wallets (pay-in, payout, BBPS).
 FINANCIAL_TX_BLOCKED_ROLES = frozenset(
     {
+        'Super Admin',
         'Admin',
     }
 )

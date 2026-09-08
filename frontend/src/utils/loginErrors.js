@@ -57,6 +57,19 @@ export function parseLoginFailure(result) {
     return { ...DISABLED_COPY, variant: 'disabled' };
   }
 
+  if (code === ACCESS_CODES.TEST_USAGE_MODE) {
+    const title =
+      result.title ||
+      result.error?.title ||
+      result.errorTitle ||
+      'Test usage mode';
+    const message =
+      stripErrorFieldPrefix(result.message) ||
+      messageForAccessCode(code) ||
+      'The portal is currently in test usage mode. Contact your administrator.';
+    return { title, message, variant: 'generic' };
+  }
+
   const parts = flattenErrorStrings(result.errors).map(stripErrorFieldPrefix);
   const cleanMessage = stripErrorFieldPrefix(result.message);
   const blob = [cleanMessage, ...parts].filter(Boolean).join(' ');

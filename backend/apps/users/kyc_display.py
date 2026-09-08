@@ -5,6 +5,7 @@ from __future__ import annotations
 
 from django.utils import timezone
 
+from apps.core.roles import is_platform_operator
 from apps.integrations.kyc.profile_sync import parse_kyc_dob
 
 
@@ -347,6 +348,6 @@ def build_kyc_verification_payload(kyc) -> dict | None:
 def viewer_may_see_full_kyc_verification(viewer, target_user) -> bool:
     if viewer is None or not getattr(viewer, 'is_authenticated', False):
         return False
-    if getattr(viewer, 'role', None) == 'Admin' or getattr(viewer, 'is_superuser', False):
+    if is_platform_operator(viewer) or getattr(viewer, 'is_superuser', False):
         return True
     return viewer.pk == target_user.pk

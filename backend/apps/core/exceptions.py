@@ -92,12 +92,21 @@ def custom_exception_handler(exc, context):
         if is_access_error_detail(detail):
             code = str(detail.get('code'))
             message = str(detail.get('message') or 'Access denied.')
-            return _api_error_response(
-                message=message,
-                errors=[{'code': code, 'message': message}],
-                code=code,
-                http_status=status.HTTP_403_FORBIDDEN,
-            )
+            payload = {
+                'success': False,
+                'data': None,
+                'message': message,
+                'errors': [{'code': code, 'message': message}],
+                'error': {
+                    'code': code,
+                    'trace_id': uuid.uuid4().hex,
+                    'retryable': False,
+                },
+            }
+            if detail.get('title'):
+                payload['error']['title'] = str(detail['title'])
+                payload['title'] = str(detail['title'])
+            return Response(payload, status=status.HTTP_403_FORBIDDEN)
 
     if response is None:
         if isinstance(exc, InsufficientBalance):

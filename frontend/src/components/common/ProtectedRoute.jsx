@@ -57,7 +57,11 @@ const ProtectedRoute = ({ children, requireMPIN = true, blockFinancialTransactio
     }
   }
 
-  if (ob && !ob.account_ready) {
+  // Operators with optional KYC/MPIN are not hard-blocked into KYC/MPIN setup
+  // and never need a session MPIN challenge to use the portal.
+  const skipOperatorGates = Boolean(ob?.kyc_optional || ob?.mpin_optional);
+
+  if (ob && !ob.account_ready && !skipOperatorGates) {
     const allowedDuringOnboarding =
       onOnboardingRoute || onProfileDuringOnboarding || onDigilockerCallback;
     if (!allowedDuringOnboarding) {
@@ -66,7 +70,15 @@ const ProtectedRoute = ({ children, requireMPIN = true, blockFinancialTransactio
     }
   }
 
-  if (ob?.account_ready && requireMPIN && !mpinVerified && path !== '/mpin-verification') {
+  const needsSessionMpin =
+    !skipOperatorGates &&
+    ob?.account_ready &&
+    requireMPIN &&
+    !mpinVerified &&
+    path !== '/mpin-verification' &&
+    Boolean(ob?.mpin_set);
+
+  if (needsSessionMpin) {
     return <Navigate to="/mpin-verification" replace />;
   }
 

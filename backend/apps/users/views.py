@@ -36,10 +36,11 @@ from apps.users.services import (
     get_viewable_user_ids,
 )
 from apps.users.hierarchy_policy import (
-    assignable_roles_for_admin_change,
+    assignable_roles_for_change,
     creatable_roles_for,
     policy_snapshot,
 )
+from apps.core.roles import ROLE_SUPER_ADMIN, is_platform_operator, is_super_admin
 from apps.wallets.views import build_wallet_summary
 
 logger = logging.getLogger(__name__)
@@ -70,34 +71,44 @@ class UserViewSet(viewsets.ModelViewSet):
             return UserUpdateSerializer
         return UserListSerializer
     
-    def get_queryset(self):
-        """Filter users based on hierarchy."""
+    def _scoped_users_queryset(self, *, apply_list_filters: bool = True):
+        """
+        Users visible to the current actor.
+
+        When apply_list_filters is False, returns the full visible set (for stats).
+        When True, applies role + account_status query params (for list).
+        """
         user = self.request.user
-        
-        # Admin can see all users
-        if user.role == 'Admin':
+
+        if is_platform_operator(user):
             queryset = User.objects.all()
+            if not is_super_admin(user):
+                queryset = queryset.exclude(role=ROLE_SUPER_ADMIN)
         else:
             queryset = User.objects.filter(id__in=get_viewable_user_ids(user))
-        
-        # Filter by role if provided
+
+        if not apply_list_filters:
+            return queryset
+
         role = self.request.query_params.get('role')
         if role and role.lower() != 'all':
             queryset = queryset.filter(role=role)
 
-        # Admin: filter by account status (active / disabled)
-        if getattr(user, 'role', None) == 'Admin':
-            acct = (self.request.query_params.get('account_status') or '').strip().lower()
-            if acct == 'active':
-                queryset = queryset.filter(is_active=True)
-            elif acct in ('inactive', 'disabled'):
-                queryset = queryset.filter(is_active=False)
-            elif acct == 'restricted':
-                queryset = queryset.filter(is_restricted=True)
-            elif acct == 'payments_locked':
-                queryset = queryset.filter(payments_locked=True)
+        acct = (self.request.query_params.get('account_status') or '').strip().lower()
+        if acct == 'active':
+            queryset = queryset.filter(is_active=True)
+        elif acct in ('inactive', 'disabled'):
+            queryset = queryset.filter(is_active=False)
+        elif acct == 'restricted':
+            queryset = queryset.filter(is_restricted=True)
+        elif acct == 'payments_locked':
+            queryset = queryset.filter(payments_locked=True)
 
         return queryset.select_related('profile', 'kyc')
+
+    def get_queryset(self):
+        """Filter users based on hierarchy + optional list filters."""
+        return self._scoped_users_queryset(apply_list_filters=True)
     
     def list(self, request, *args, **kwargs):
         """List users with custom response format."""
@@ -234,7 +245,7 @@ class UserViewSet(viewsets.ModelViewSet):
     @action(detail=True, methods=['post'])
     def verify_pan(self, request, pk=None):
         """Verify PAN for a user (Admin only; requires explicit name as per PAN)."""
-        if getattr(request.user, 'role', None) != 'Admin' and not getattr(request.user, 'is_superuser', False):
+        if not is_platform_operator(request.user) and not getattr(request.user, 'is_superuser', False):
             return Response({
                 'success': False,
                 'data': None,
@@ -296,7 +307,7 @@ class UserViewSet(viewsets.ModelViewSet):
         instance = self.get_object()
         
         # Check permissions - Admin, or any user in the requester's subtree (direct/indirect)
-        if request.user.role != 'Admin':
+        if not is_platform_operator(request.user):
             subordinate_ids = {u.id for u in get_subordinates(request.user)}
             if instance.id not in subordinate_ids:
                 return Response({
@@ -400,10 +411,37 @@ class UserViewSet(viewsets.ModelViewSet):
             'errors': [],
         }, status=status.HTTP_200_OK)
 
+    @action(detail=False, methods=['get'], url_path='stats')
+    def stats(self, request):
+        """
+        Aggregate counts for the viewer's full visible user set (no list filters).
+        Scope matches get_queryset without role/search/account_status.
+        """
+        qs = self._scoped_users_queryset(apply_list_filters=False)
+        by_role_rows = qs.values('role').annotate(count=models.Count('id')).order_by('role')
+        by_role = {row['role'] or 'Unknown': row['count'] for row in by_role_rows}
+        data = {
+            'total': qs.count(),
+            'active': qs.filter(is_active=True).count(),
+            'disabled': qs.filter(is_active=False).count(),
+            'restricted': qs.filter(is_restricted=True).count(),
+            'payments_locked': qs.filter(payments_locked=True).count(),
+            'by_role': by_role,
+        }
+        return Response(
+            {
+                'success': True,
+                'data': data,
+                'message': 'User stats retrieved successfully',
+                'errors': [],
+            },
+            status=status.HTTP_200_OK,
+        )
+
     @action(detail=False, methods=['get'], url_path='assignable-roles')
     def assignable_roles(self, request):
         """All roles an Admin may assign when changing a user's role."""
-        if getattr(request.user, 'role', None) != 'Admin':
+        if not is_platform_operator(request.user):
             return Response(
                 {
                     'success': False,
@@ -416,7 +454,7 @@ class UserViewSet(viewsets.ModelViewSet):
         return Response(
             {
                 'success': True,
-                'data': {'roles': assignable_roles_for_admin_change()},
+                'data': {'roles': assignable_roles_for_change(request.user)},
                 'message': 'Assignable roles retrieved successfully',
                 'errors': [],
             },
@@ -426,7 +464,7 @@ class UserViewSet(viewsets.ModelViewSet):
     @action(detail=True, methods=['get'], url_path='wallets')
     def user_wallets(self, request, pk=None):
         """Admin-only: read wallet balances for any user."""
-        if getattr(request.user, 'role', None) != 'Admin':
+        if not is_platform_operator(request.user):
             return Response(
                 {
                     'success': False,
@@ -449,8 +487,8 @@ class UserViewSet(viewsets.ModelViewSet):
 
     @action(detail=True, methods=['patch'], url_path='contact')
     def update_contact(self, request, pk=None):
-        """Admin-only: update another user's mobile (login) and email."""
-        if getattr(request.user, 'role', None) != 'Admin':
+        """Admin-only: update another user's name, mobile (login), and email."""
+        if not is_platform_operator(request.user):
             return Response(
                 {
                     'success': False,
@@ -474,7 +512,7 @@ class UserViewSet(viewsets.ModelViewSet):
         serializer = AdminUserContactSerializer(
             instance,
             data=request.data,
-            partial=False,
+            partial=True,
             context=self.get_serializer_context(),
         )
         if not serializer.is_valid():
@@ -484,6 +522,21 @@ class UserViewSet(viewsets.ModelViewSet):
                     'data': None,
                     'message': 'Invalid contact details',
                     'errors': serializer.errors,
+                },
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        # Email and phone remain required for this endpoint
+        if 'email' not in serializer.validated_data or 'phone' not in serializer.validated_data:
+            return Response(
+                {
+                    'success': False,
+                    'data': None,
+                    'message': 'Email and phone are required.',
+                    'errors': {
+                        k: ['This field is required.']
+                        for k in ('email', 'phone')
+                        if k not in serializer.validated_data
+                    },
                 },
                 status=status.HTTP_400_BAD_REQUEST,
             )
@@ -502,7 +555,7 @@ class UserViewSet(viewsets.ModelViewSet):
     @action(detail=True, methods=['patch'], url_path='role')
     def change_role(self, request, pk=None):
         """Admin-only: promote/demote user role with hierarchy checks."""
-        if getattr(request.user, 'role', None) != 'Admin':
+        if not is_platform_operator(request.user):
             return Response(
                 {
                     'success': False,
@@ -555,7 +608,7 @@ class UserViewSet(viewsets.ModelViewSet):
     @action(detail=True, methods=['post'], url_path='kyc-approval')
     def kyc_approval(self, request, pk=None):
         """Admin-only: approve or reject KYC after provider verification."""
-        if getattr(request.user, 'role', None) != 'Admin':
+        if not is_platform_operator(request.user):
             return Response(
                 {
                     'success': False,
@@ -606,7 +659,7 @@ class UserViewSet(viewsets.ModelViewSet):
     @action(detail=True, methods=['patch'], url_path='active-status')
     def set_active_status(self, request, pk=None):
         """Admin-only: enable or disable login / API access for a user (is_active)."""
-        if getattr(request.user, 'role', None) != 'Admin':
+        if not is_platform_operator(request.user):
             return Response(
                 {
                     'success': False,
@@ -661,7 +714,7 @@ class UserViewSet(viewsets.ModelViewSet):
     @action(detail=True, methods=['patch'], url_path='access-controls')
     def set_access_controls(self, request, pk=None):
         """Admin-only: restrict, lock payments, disable, or allow pay-in when disabled."""
-        if getattr(request.user, 'role', None) != 'Admin':
+        if not is_platform_operator(request.user):
             return Response(
                 {
                     'success': False,

@@ -7,6 +7,7 @@ from rest_framework.decorators import api_view, permission_classes
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 
+from apps.core.roles import is_platform_operator
 from apps.authentication.models import User, UserSession
 from apps.core.permissions import IsAdmin
 from apps.session_security.constants import IDLE_TIMEOUT_MAX, IDLE_TIMEOUT_MIN
@@ -113,7 +114,7 @@ def audit_logs_view(request):
     Admin role only. Non-admins must use /api/auth/my-activity/.
     """
     # Defense in depth beyond IsAdmin
-    if getattr(request.user, 'role', None) != 'Admin':
+    if not is_platform_operator(request.user):
         return Response(
             {
                 'success': False,
@@ -149,7 +150,7 @@ def audit_logs_view(request):
 @permission_classes([IsAuthenticated, IsAdmin])
 def audit_logs_export_view(request):
     """GET /api/admin/session-security/audit-logs/export/?... → .xlsx"""
-    if getattr(request.user, 'role', None) != 'Admin':
+    if not is_platform_operator(request.user):
         return Response(
             {
                 'success': False,

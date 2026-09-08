@@ -13,6 +13,7 @@ ACCESS_CODE_ROLE_FINANCIAL_BLOCKED = 'ROLE_FINANCIAL_BLOCKED'
 ACCESS_CODE_USER_DISABLED = 'USER_DISABLED'
 ACCESS_CODE_USER_RESTRICTED = 'USER_RESTRICTED'
 ACCESS_CODE_USER_PAYMENTS_LOCKED = 'USER_PAYMENTS_LOCKED'
+ACCESS_CODE_TEST_USAGE_MODE = 'TEST_USAGE_MODE'
 
 ALL_ACCESS_CODES = frozenset(
     {
@@ -20,6 +21,7 @@ ALL_ACCESS_CODES = frozenset(
         ACCESS_CODE_USER_DISABLED,
         ACCESS_CODE_USER_RESTRICTED,
         ACCESS_CODE_USER_PAYMENTS_LOCKED,
+        ACCESS_CODE_TEST_USAGE_MODE,
     }
 )
 
@@ -49,6 +51,10 @@ _CATALOG: dict[str, dict[str, str]] = {
         ),
         'title': 'Payments locked',
     },
+    ACCESS_CODE_TEST_USAGE_MODE: {
+        'message': 'The portal is currently in test usage mode. Contact your administrator.',
+        'title': 'Test usage mode',
+    },
 }
 
 
@@ -63,12 +69,15 @@ def title_for_code(code: str) -> str:
     return _CATALOG.get(code or '', {}).get('title', 'Access limited')
 
 
-def access_error_detail(code: str, message: str | None = None) -> dict[str, str]:
+def access_error_detail(code: str, message: str | None = None, title: str | None = None) -> dict[str, str]:
     """DRF PermissionDenied detail shape consumed by the global exception handler."""
-    return {
+    detail = {
         'code': code,
         'message': message or user_message_for_code(code),
     }
+    if title or title_for_code(code):
+        detail['title'] = title or title_for_code(code)
+    return detail
 
 
 def is_access_error_detail(detail: Any) -> bool:

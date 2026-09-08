@@ -10,6 +10,7 @@ from rest_framework.decorators import api_view, permission_classes
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 
+from apps.core.roles import is_platform_operator
 from apps.core.exceptions import InsufficientBalance, TransactionFailed
 from apps.core.financial_access import assert_can_pay_in, assert_can_pay_out
 from apps.core.maintenance_mode import (
@@ -294,7 +295,7 @@ def pay_in_packages_view(request):
     all_param = request.query_params.get('all', '').lower() == 'true'
     user_role = (getattr(request.user, 'role', None) or '').strip()
     
-    if all_param and user_role == 'Admin':
+    if all_param and is_platform_operator(user_role):
         pkgs = list_active_pay_in_packages()
     else:
         pkgs = get_user_accessible_packages(request.user)
@@ -642,7 +643,7 @@ def user_packages_view(request, user_id):
     try:
         requester_role = (getattr(request.user, 'role', None) or '').strip()
 
-        if requester_role != 'Admin':
+        if not is_platform_operator(requester_role):
             return Response(
                 {'success': False, 'data': None, 'message': 'Permission denied.', 'errors': []},
                 status=status.HTTP_403_FORBIDDEN,
@@ -826,7 +827,7 @@ def set_default_package_view(request):
     Only one package can be default at a time.
     """
     requester_role = (getattr(request.user, 'role', None) or '').strip()
-    if requester_role != 'Admin':
+    if not is_platform_operator(requester_role):
         return Response(
             {'success': False, 'data': None, 'message': 'Admin access required.', 'errors': []},
             status=status.HTTP_403_FORBIDDEN,
@@ -883,7 +884,7 @@ def clear_default_package_view(request):
     No package will be auto-assigned to new users.
     """
     requester_role = (getattr(request.user, 'role', None) or '').strip()
-    if requester_role != 'Admin':
+    if not is_platform_operator(requester_role):
         return Response(
             {'success': False, 'data': None, 'message': 'Admin access required.', 'errors': []},
             status=status.HTTP_403_FORBIDDEN,

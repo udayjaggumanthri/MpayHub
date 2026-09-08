@@ -9,6 +9,7 @@ export const ACCESS_CODES = {
   USER_DISABLED: 'USER_DISABLED',
   USER_RESTRICTED: 'USER_RESTRICTED',
   USER_PAYMENTS_LOCKED: 'USER_PAYMENTS_LOCKED',
+  TEST_USAGE_MODE: 'TEST_USAGE_MODE',
 };
 
 export const ACCESS_ERROR_MESSAGES = {
@@ -20,6 +21,8 @@ export const ACCESS_ERROR_MESSAGES = {
     'Your account is restricted to read-only access. This action is not available.',
   [ACCESS_CODES.USER_PAYMENTS_LOCKED]:
     'Payments are locked on your account. You may still use pay-in and reports where allowed.',
+  [ACCESS_CODES.TEST_USAGE_MODE]:
+    'The portal is currently in test usage mode. Contact your administrator.',
 };
 
 export const ACCESS_ERROR_TITLES = {
@@ -27,6 +30,7 @@ export const ACCESS_ERROR_TITLES = {
   [ACCESS_CODES.USER_DISABLED]: 'Account disabled',
   [ACCESS_CODES.USER_RESTRICTED]: 'Read-only account',
   [ACCESS_CODES.USER_PAYMENTS_LOCKED]: 'Payments locked',
+  [ACCESS_CODES.TEST_USAGE_MODE]: 'Test usage mode',
 };
 
 /** Admin confirm-dialog presets (loosely coupled — UI imports by action key). */

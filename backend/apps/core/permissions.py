@@ -37,19 +37,43 @@ class IsRole(permissions.BasePermission):
 
 
 class IsAdmin(permissions.BasePermission):
-    """Permission to check if user is Admin."""
-    
+    """
+    Platform operator gate (Admin or Super Admin).
+
+    Name kept as IsAdmin so existing view decorators stay valid.
+    """
+
     def has_permission(self, request, view):
-        return request.user and request.user.is_authenticated and request.user.role == 'Admin'
+        from apps.core.roles import is_platform_operator
+
+        return (
+            request.user
+            and request.user.is_authenticated
+            and is_platform_operator(request.user)
+        )
+
+
+class IsSuperAdmin(permissions.BasePermission):
+    """Super Admin only (vendor / developer operator)."""
+
+    def has_permission(self, request, view):
+        from apps.core.roles import is_super_admin
+
+        return (
+            request.user
+            and request.user.is_authenticated
+            and is_super_admin(request.user)
+        )
 
 
 class IsMasterDistributorOrAbove(permissions.BasePermission):
-    """Permission for Master Distributor and above (includes Super Distributor and Admin)."""
+    """Permission for Master Distributor and above (includes Super Distributor and operators)."""
 
     def has_permission(self, request, view):
         if not request.user or not request.user.is_authenticated:
             return False
         return request.user.role in [
+            'Super Admin',
             'Admin',
             'Super Distributor',
             'Master Distributor',
@@ -63,6 +87,7 @@ class IsDistributorOrAbove(permissions.BasePermission):
         if not request.user or not request.user.is_authenticated:
             return False
         return request.user.role in [
+            'Super Admin',
             'Admin',
             'Super Distributor',
             'Master Distributor',
@@ -80,21 +105,24 @@ class IsHierarchy(permissions.BasePermission):
         if not request.user or not request.user.is_authenticated:
             return False
         
-        # Admin can access everything
-        if request.user.role == 'Admin':
+        from apps.core.roles import is_platform_operator
+
+        # Platform operators can access everything
+        if is_platform_operator(request.user):
             return True
-        
+
         # For other roles, check is done at object level
         return True
-    
+
     def has_object_permission(self, request, view, obj):
         if not request.user or not request.user.is_authenticated:
             return False
-        
-        # Admin can access everything
-        if request.user.role == 'Admin':
+
+        from apps.core.roles import is_platform_operator
+
+        if is_platform_operator(request.user):
             return True
-        
+
         # Check if object has a user attribute
         if hasattr(obj, 'user'):
             target_user = obj.user
@@ -102,5 +130,5 @@ class IsHierarchy(permissions.BasePermission):
             target_user = obj.created_by
         else:
             return False
-        
+
         return can_parent_create_child(request.user.role, target_user.role)

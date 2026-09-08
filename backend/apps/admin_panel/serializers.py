@@ -117,13 +117,21 @@ class AnnouncementSerializer(serializers.ModelSerializer):
         return super().create(validated_data)
 
     def update(self, instance, validated_data):
+        from apps.core.media_files import delete_replaced_file, discard_stored_file
+
         remove = validated_data.pop('remove_image', False)
         if isinstance(remove, str):
             remove = remove.lower() in ('true', '1', 'yes')
+        old_name = instance.image.name if instance.image else ''
         if remove and instance.image:
-            instance.image.delete(save=False)
+            discard_stored_file(instance.image)
             validated_data['image'] = None
-        return super().update(instance, validated_data)
+            old_name = ''
+        instance = super().update(instance, validated_data)
+        if 'image' in validated_data and not remove:
+            new_name = instance.image.name if instance.image else ''
+            delete_replaced_file(old_name, new_name)
+        return instance
 
 
 class PaymentGatewaySerializer(serializers.ModelSerializer):

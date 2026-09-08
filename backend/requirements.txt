@@ -1,10 +1,16 @@
-# mPayHub backend dependencies
+# =============================================================================
+# mPayHub backend — default install target
+# =============================================================================
+# Prefer an explicit file when you know the environment:
 #
-# Production VPS (Gunicorn + PostgreSQL + Redis):
-#   pip install -r requirements-prod.txt
+#   Production / UAT (Gunicorn + PostgreSQL + Redis):
+#     pip install -r requirements-prod.txt
 #
-# Local development (includes tests, lint, debug toolbar):
-#   pip install -r requirements-dev.txt
+#   Local development (tests, lint, debug toolbar):
+#     pip install -r requirements-dev.txt
 #
-# This file keeps backward compatibility — same as requirements-dev.txt:
+# This file is an alias of requirements-dev.txt for backward compatibility
+# with docs and scripts that run: pip install -r requirements.txt
+# =============================================================================
+
 -r requirements-dev.txt

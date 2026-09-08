@@ -2,13 +2,12 @@
 URL configuration for mPayhub project.
 """
 from django.conf import settings
-from django.conf.urls.static import static
 from django.contrib import admin
 from django.http import JsonResponse
 from django.urls import path, include, re_path
-from django.views.static import serve as static_serve
 from drf_spectacular.views import SpectacularAPIView, SpectacularSwaggerView
 
+from apps.core.media_views import media_serve_view
 from apps.core.views import health_view
 
 
@@ -20,7 +19,8 @@ def api_root(_request):
 urlpatterns = [
     path('', api_root),
     path('api/health/', health_view, name='api-health'),
-    path('admin/', admin.site.urls),
+    # Product React admin lives at /admin/* (nginx → SPA). Django Admin is under /django-admin/.
+    path('django-admin/', admin.site.urls),
 
     # API Documentation
     path('api/schema/', SpectacularAPIView.as_view(), name='schema'),
@@ -45,16 +45,12 @@ urlpatterns = [
     path('api/system/', include('apps.core.urls')),
 ]
 
-# django.conf.urls.static.static() is a no-op when DEBUG=False — serve MEDIA explicitly
-# so Gunicorn :8002 can deliver QR/receipt files for the split UI (:3002) deploy.
+# Serve MEDIA via default_storage (local or S3). nginx must proxy /media/ → Gunicorn.
 _media_url = (settings.MEDIA_URL or '/media/').lstrip('/')
 urlpatterns += [
     re_path(
         rf'^{_media_url}(?P<path>.*)$',
-        static_serve,
-        {'document_root': settings.MEDIA_ROOT},
+        media_serve_view,
+        name='media-serve',
     ),
 ]
-
-if settings.DEBUG:
-    urlpatterns += static(settings.MEDIA_URL, document_root=settings.MEDIA_ROOT)

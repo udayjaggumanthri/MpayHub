@@ -74,3 +74,19 @@ class PlatformAppearanceUpdateSerializer(serializers.Serializer):
         except Exception:
             raise serializers.ValidationError('Invalid or corrupted image.')
         return value
+
+
+class PortalAccessUpdateSerializer(serializers.Serializer):
+    """Super Admin PATCH body for test usage mode."""
+
+    test_usage_mode_enabled = serializers.BooleanField(required=False)
+    test_usage_title = serializers.CharField(required=False, allow_blank=True, max_length=200)
+    test_usage_message = serializers.CharField(required=False, allow_blank=True, max_length=5000)
+
+
+class RoleModulePermissionUpdateSerializer(serializers.Serializer):
+    """Super Admin PATCH body for one role × module toggle."""
+
+    role = serializers.CharField(max_length=20)
+    module_code = serializers.CharField(max_length=64)
+    enabled = serializers.BooleanField()

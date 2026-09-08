@@ -1,6 +1,12 @@
-# mPayHub — development & test tooling (not needed on production VPS)
-# Local dev:
+# =============================================================================
+# mPayHub — development & test tooling
+# =============================================================================
+# Local machine (includes everything in requirements-prod.txt):
+#   pip install --upgrade pip
 #   pip install -r requirements-dev.txt
+#
+# Production / UAT VPS should use requirements-prod.txt only (smaller install).
+# =============================================================================
 
 -r requirements-prod.txt
 

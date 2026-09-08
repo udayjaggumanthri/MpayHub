@@ -3,6 +3,7 @@ from __future__ import annotations
 
 from django.db.models import QuerySet
 
+from apps.core.roles import is_platform_operator
 from apps.bbps.models import BillPayment
 from apps.fund_management.models import LoadMoney, Payout
 from apps.transactions.report_filters import apply_operational_report_filters
@@ -54,7 +55,7 @@ def user_scope_payin_load_money_queryset(request) -> QuerySet:
         role = getattr(user, 'role', None)
         if role not in TEAM_SCOPE_ROLES:
             raise PermissionDenied('Team report scope is not enabled for your role.')
-        if role == 'Admin':
+        if is_platform_operator(role):
             qs = qs.exclude(user=user)
         else:
             ids = team_transaction_user_ids(user)

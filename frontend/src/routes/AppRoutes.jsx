@@ -62,6 +62,9 @@ import SmsSettings from '../components/admin/SmsSettings';
 import BbpsBillerDetails from '../components/admin/BbpsBillerDetails';
 import BbpsConsole from '../components/admin/bbps/BbpsConsole';
 import MaintenanceMode from '../components/admin/MaintenanceMode';
+import TestUsageMode from '../components/admin/TestUsageMode';
+import RolesPermissions from '../components/admin/RolesPermissions';
+import SuperAdminRoute from '../components/common/SuperAdminRoute';
 import AppearanceSettings from '../components/admin/AppearanceSettings';
 import UserManagementSettings from '../components/admin/UserManagementSettings';
 import WalletAdjustments from '../components/admin/WalletAdjustments';
@@ -481,6 +484,34 @@ const AppRoutes = () => {
             <AdminRoute>
               <Layout>
                 <MaintenanceMode />
+              </Layout>
+            </AdminRoute>
+          </ProtectedRoute>
+        }
+      />
+
+      {/* Super Admin - Test usage mode */}
+      <Route
+        path="/admin/test-usage"
+        element={
+          <ProtectedRoute>
+            <SuperAdminRoute>
+              <Layout>
+                <TestUsageMode />
+              </Layout>
+            </SuperAdminRoute>
+          </ProtectedRoute>
+        }
+      />
+
+      {/* Roles & permissions — Admin can view; Super Admin edits */}
+      <Route
+        path="/admin/roles-permissions"
+        element={
+          <ProtectedRoute>
+            <AdminRoute>
+              <Layout>
+                <RolesPermissions />
               </Layout>
             </AdminRoute>
           </ProtectedRoute>

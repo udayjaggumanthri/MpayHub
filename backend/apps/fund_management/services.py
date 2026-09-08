@@ -11,6 +11,7 @@ from django.conf import settings
 from django.db import IntegrityError
 from django.db import transaction as db_transaction
 
+from apps.core.roles import is_platform_operator
 from apps.admin_panel.models import PaymentGateway, PayoutGateway
 from apps.bank_accounts.models import BankAccount
 from apps.contacts.models import Contact
@@ -174,7 +175,7 @@ def payin_quote_api_payload_for_user(user, q: dict) -> dict:
     Commission line-items, hierarchy notes, and aggregate deduction fields are Admin-only.
     Non-admins still receive net_credit (and empty lines/breakdown) so checkout can proceed.
     """
-    if getattr(user, 'role', None) == 'Admin':
+    if is_platform_operator(user):
         return {
             'breakdown': q['snapshot'],
             'lines': q['lines'],
@@ -367,7 +368,7 @@ def create_payin_order(
         response['mock'] = True
         response['message'] = 'Mock provider: call POST /fund-management/pay-in/complete-mock/ with transaction_id'
 
-    if getattr(user, 'role', None) != 'Admin':
+    if not is_platform_operator(user):
         response['fee_preview'] = {}
 
     try:
@@ -882,7 +883,7 @@ def get_user_accessible_packages(user: User):
 
     # Admin users can access all packages
     user_role = (getattr(user, 'role', None) or '').strip()
-    if user_role == 'Admin':
+    if is_platform_operator(user_role):
         return _with_links(PayInPackage.objects.filter(is_active=True, is_deleted=False))
 
     # Check explicit assignments
@@ -1002,7 +1003,7 @@ def can_user_assign_package(assigner: User, package_id: int) -> bool:
     Only Admin may assign pay-in packages to users (package definition + assignment).
     """
     assigner_role = (getattr(assigner, 'role', None) or '').strip()
-    if assigner_role != 'Admin':
+    if not is_platform_operator(assigner_role):
         return False
     return PayInPackage.objects.filter(id=package_id, is_active=True, is_deleted=False).exists()
 
@@ -1016,7 +1017,7 @@ def is_user_in_downline(senior: User, junior: User) -> bool:
         return False
     
     senior_role = (getattr(senior, 'role', None) or '').strip()
-    if senior_role == 'Admin':
+    if is_platform_operator(senior_role):
         return True  # Admin can assign to anyone
 
     # Walk up the junior's parent chain
@@ -1069,7 +1070,7 @@ def assign_package_to_user(
 
     # Check target is in assigner's downline
     assigner_role = (getattr(assigner, 'role', None) or '').strip()
-    if assigner_role != 'Admin' and not is_user_in_downline(assigner, target_user):
+    if not is_platform_operator(assigner_role) and not is_user_in_downline(assigner, target_user):
         return {
             'success': False,
             'message': 'You can only assign packages to users in your downline.',
@@ -1131,7 +1132,7 @@ def remove_package_assignment(
     if not assignment:
         return {'success': False, 'message': 'Assignment not found.'}
 
-    can_remove = remover_role == 'Admin'
+    can_remove = is_platform_operator(remover_role)
 
     if not can_remove:
         return {
@@ -1204,6 +1205,6 @@ def get_assignable_packages_for_user(assigner: User):
     Non-admin callers should not use assignment flows; returns empty queryset.
     """
     assigner_role = (getattr(assigner, 'role', None) or '').strip()
-    if assigner_role != 'Admin':
+    if not is_platform_operator(assigner_role):
         return PayInPackage.objects.none()
     return PayInPackage.objects.filter(is_active=True, is_deleted=False).order_by('sort_order', 'display_name')

@@ -181,6 +181,78 @@ class PlatformAppearanceConfig(models.Model):
         super().save(*args, **kwargs)
 
     def delete(self, *args, **kwargs):
+        from apps.core.media_files import discard_stored_file
+
         if self.logo:
-            self.logo.delete(save=False)
+            discard_stored_file(self.logo)
         super().delete(*args, **kwargs)
+
+
+class PortalAccessConfig(models.Model):
+    """
+    Singleton portal login gate (pk=1).
+    When test_usage_mode_enabled is True, only Super Admin and is_test_user accounts may log in.
+    """
+
+    SINGLETON_PK = 1
+
+    test_usage_mode_enabled = models.BooleanField(default=False, db_index=True)
+    test_usage_title = models.CharField(max_length=200, blank=True, default='Test usage mode')
+    test_usage_message = models.TextField(
+        blank=True,
+        default='The portal is currently in test usage mode. Contact your administrator.',
+    )
+    updated_by = models.ForeignKey(
+        'authentication.User',
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        related_name='portal_access_config_updates',
+    )
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        db_table = 'portal_access_config'
+        verbose_name = 'Portal access config'
+        verbose_name_plural = 'Portal access config'
+
+    def __str__(self):
+        return 'Portal access config'
+
+    def save(self, *args, **kwargs):
+        self.pk = self.SINGLETON_PK
+        super().save(*args, **kwargs)
+
+
+class AppModule(models.Model):
+    """Named portal module used for role × module permission matrix."""
+
+    code = models.CharField(max_length=64, unique=True, db_index=True)
+    name = models.CharField(max_length=120)
+    group = models.CharField(max_length=64, blank=True, default='')
+    sort_order = models.PositiveIntegerField(default=0, db_index=True)
+    is_active = models.BooleanField(default=True)
+
+    class Meta:
+        db_table = 'app_modules'
+        ordering = ['sort_order', 'code']
+
+    def __str__(self):
+        return f'{self.code} ({self.name})'
+
+
+class RoleModulePermission(models.Model):
+    """Per-role enable flag for an AppModule."""
+
+    role = models.CharField(max_length=20, db_index=True)
+    module_code = models.CharField(max_length=64, db_index=True)
+    enabled = models.BooleanField(default=True)
+
+    class Meta:
+        db_table = 'role_module_permissions'
+        unique_together = [('role', 'module_code')]
+        ordering = ['role', 'module_code']
+
+    def __str__(self):
+        state = 'on' if self.enabled else 'off'
+        return f'{self.role} / {self.module_code} = {state}'

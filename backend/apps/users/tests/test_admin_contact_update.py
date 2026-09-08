@@ -46,6 +46,20 @@ class AdminContactUpdateApiTests(TestCase):
         self.assertEqual(self.retailer.email, payload['email'])
         self.assertEqual(self.retailer.phone, payload['phone'])
 
+    def test_admin_can_update_name_for_another_user(self):
+        self.client.force_authenticate(user=self.admin)
+        payload = {
+            'first_name': 'Priya',
+            'last_name': 'Sharma',
+            'email': self.retailer.email,
+            'phone': self.retailer.phone,
+        }
+        r = self.client.patch(self._url(self.retailer.pk), payload, format='json')
+        self.assertEqual(r.status_code, 200, r.content)
+        self.retailer.refresh_from_db()
+        self.assertEqual(self.retailer.first_name, 'Priya')
+        self.assertEqual(self.retailer.last_name, 'Sharma')
+
     def test_duplicate_phone_rejected(self):
         self.client.force_authenticate(user=self.admin)
         r = self.client.patch(

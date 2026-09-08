@@ -8,6 +8,7 @@ from rest_framework.decorators import action, api_view, parser_classes, permissi
 from rest_framework.parsers import FormParser, JSONParser, MultiPartParser
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
+from apps.core.roles import is_platform_operator
 from apps.admin_panel.models import Announcement, PaymentGateway, PayoutGateway, PayoutSlabConfig, SmtpConfig
 from apps.admin_panel.serializers import (
     AnnouncementSerializer,
@@ -19,7 +20,7 @@ from apps.admin_panel.serializers import (
     SmtpSecretUpdateSerializer,
     SmtpTestEmailSerializer,
 )
-from apps.core.permissions import IsAdmin
+from apps.core.permissions import IsAdmin, IsSuperAdmin
 from apps.fund_management.models import PayInPackage
 from apps.fund_management.services import quote_payin
 
@@ -44,7 +45,7 @@ class AnnouncementViewSet(viewsets.ModelViewSet):
         user = self.request.user
         base = Announcement.objects.all()
 
-        if user.role != 'Admin':
+        if not is_platform_operator(user):
             role = user.role
             return base.filter(
                 is_active=True,
@@ -1765,6 +1766,126 @@ def appearance_config_view(request):
             'success': True,
             'data': {'appearance': appearance},
             'message': 'Appearance settings updated',
+            'errors': [],
+        },
+        status=status.HTTP_200_OK,
+    )
+
+
+@api_view(['GET', 'PATCH'])
+@permission_classes([IsAuthenticated, IsSuperAdmin])
+def test_usage_config_view(request):
+    """
+    Super Admin only: test usage mode configuration.
+    GET/PATCH /api/admin/test-usage/
+    """
+    from apps.core.portal_access import portal_access_status, update_portal_access
+    from apps.core.serializers import PortalAccessUpdateSerializer
+
+    if request.method == 'GET':
+        return Response(
+            {
+                'success': True,
+                'data': {'portal_access': portal_access_status(include_internal=True)},
+                'message': 'OK',
+                'errors': [],
+            },
+            status=status.HTTP_200_OK,
+        )
+
+    ser = PortalAccessUpdateSerializer(data=request.data, partial=True)
+    if not ser.is_valid():
+        return Response(
+            {
+                'success': False,
+                'data': None,
+                'message': 'Invalid input',
+                'errors': ser.errors,
+            },
+            status=status.HTTP_400_BAD_REQUEST,
+        )
+    data = update_portal_access(changed_by=request.user, patch=ser.validated_data)
+    return Response(
+        {
+            'success': True,
+            'data': {'portal_access': data},
+            'message': 'Test usage settings updated',
+            'errors': [],
+        },
+        status=status.HTTP_200_OK,
+    )
+
+
+@api_view(['GET', 'PATCH'])
+@permission_classes([IsAuthenticated, IsAdmin])
+def roles_permissions_view(request):
+    """
+    Role × module matrix. GET: operators. PATCH: Super Admin only.
+    GET/PATCH /api/admin/roles-permissions/
+    """
+    from apps.core.module_permissions import matrix_snapshot, seed_modules_and_permissions, set_role_module_enabled
+    from apps.core.roles import is_super_admin
+    from apps.core.serializers import RoleModulePermissionUpdateSerializer
+
+    # Ensure seed exists so matrix is never empty on first visit
+    if not matrix_snapshot().get('modules'):
+        seed_modules_and_permissions()
+
+    if request.method == 'GET':
+        return Response(
+            {
+                'success': True,
+                'data': matrix_snapshot(),
+                'message': 'OK',
+                'errors': [],
+            },
+            status=status.HTTP_200_OK,
+        )
+
+    if not is_super_admin(request.user):
+        return Response(
+            {
+                'success': False,
+                'data': None,
+                'message': 'Only Super Admin may edit role permissions.',
+                'errors': [],
+            },
+            status=status.HTTP_403_FORBIDDEN,
+        )
+
+    ser = RoleModulePermissionUpdateSerializer(data=request.data)
+    if not ser.is_valid():
+        return Response(
+            {
+                'success': False,
+                'data': None,
+                'message': 'Invalid input',
+                'errors': ser.errors,
+            },
+            status=status.HTTP_400_BAD_REQUEST,
+        )
+    try:
+        set_role_module_enabled(
+            actor=request.user,
+            role=ser.validated_data['role'],
+            module_code=ser.validated_data['module_code'],
+            enabled=ser.validated_data['enabled'],
+        )
+    except ValueError as exc:
+        return Response(
+            {
+                'success': False,
+                'data': None,
+                'message': str(exc),
+                'errors': [],
+            },
+            status=status.HTTP_400_BAD_REQUEST,
+        )
+    return Response(
+        {
+            'success': True,
+            'data': matrix_snapshot(),
+            'message': 'Permission updated',
             'errors': [],
         },
         status=status.HTTP_200_OK,

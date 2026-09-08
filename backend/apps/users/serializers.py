@@ -3,6 +3,7 @@ Serializers for users app.
 """
 from django.core.exceptions import ObjectDoesNotExist
 from rest_framework import serializers
+from apps.core.roles import is_platform_operator
 from apps.authentication.models import User
 from apps.users.services import assert_admin_may_deactivate_user
 from apps.users.models import UserProfile, KYC, UserHierarchy
@@ -292,7 +293,7 @@ class UserUpdateSerializer(serializers.ModelSerializer):
         """Credential and account state changes are Admin-only (prevents hierarchy takeover)."""
         request = self.context.get('request')
         user = getattr(request, 'user', None) if request else None
-        if user and user.is_authenticated and getattr(user, 'role', None) != 'Admin':
+        if user and user.is_authenticated and not is_platform_operator(user):
             for field in ('password', 'mpin', 'is_active', 'email'):
                 if field in attrs:
                     raise serializers.ValidationError(
@@ -346,11 +347,23 @@ class UserUpdateSerializer(serializers.ModelSerializer):
 
 
 class AdminUserContactSerializer(serializers.ModelSerializer):
-    """Admin-only: update login mobile and email on an existing user."""
+    """Admin-only: update name, login mobile, and email on an existing user."""
+
+    first_name = serializers.CharField(max_length=100, required=False, allow_blank=False)
+    last_name = serializers.CharField(max_length=100, required=False, allow_blank=True)
 
     class Meta:
         model = User
-        fields = ['email', 'phone']
+        fields = ['first_name', 'last_name', 'email', 'phone']
+
+    def validate_first_name(self, value):
+        name = str(value or '').strip()
+        if not name:
+            raise serializers.ValidationError('First name is required.')
+        return name
+
+    def validate_last_name(self, value):
+        return str(value or '').strip()
 
     def validate_phone(self, value):
         phone = str(value).strip()
@@ -369,9 +382,21 @@ class AdminUserContactSerializer(serializers.ModelSerializer):
         return email
 
     def update(self, instance, validated_data):
+        if 'first_name' in validated_data:
+            instance.first_name = validated_data['first_name']
+        if 'last_name' in validated_data:
+            instance.last_name = validated_data['last_name']
         instance.email = validated_data['email']
         instance.phone = validated_data['phone']
-        instance.save(update_fields=['email', 'phone', 'updated_at'])
+        instance.save(update_fields=['first_name', 'last_name', 'email', 'phone', 'updated_at'])
+        try:
+            profile = instance.profile
+        except ObjectDoesNotExist:
+            profile = None
+        if profile is not None:
+            profile.first_name = instance.first_name or profile.first_name
+            profile.last_name = instance.last_name if 'last_name' in validated_data else profile.last_name
+            profile.save(update_fields=['first_name', 'last_name', 'updated_at'])
         return instance
 
 
@@ -406,7 +431,7 @@ class UserListSerializer(serializers.ModelSerializer):
             'id', 'user_id', 'legacy_user_id', 'member_number', 'member_id', 'display_code',
             'phone', 'email', 'first_name', 'last_name',
             'role', 'is_active', 'is_restricted', 'payments_locked',
-            'pay_in_allowed_when_disabled', 'profile', 'kyc', 'mpin_configured', 'created_at',
+            'pay_in_allowed_when_disabled', 'is_test_user', 'profile', 'kyc', 'mpin_configured', 'created_at',
         ]
         read_only_fields = [
             'id', 'user_id', 'legacy_user_id', 'member_number', 'member_id', 'display_code', 'created_at',
@@ -444,6 +469,7 @@ class UserAccessControlsSerializer(serializers.Serializer):
     is_restricted = serializers.BooleanField(required=False)
     payments_locked = serializers.BooleanField(required=False)
     pay_in_allowed_when_disabled = serializers.BooleanField(required=False)
+    is_test_user = serializers.BooleanField(required=False)
 
     def validate(self, attrs):
         if not attrs:
@@ -476,13 +502,13 @@ class UserDetailSerializer(serializers.ModelSerializer):
             'id', 'user_id', 'legacy_user_id', 'member_number', 'member_id', 'display_code',
             'phone', 'email', 'first_name', 'last_name',
             'role', 'is_active', 'is_restricted', 'payments_locked',
-            'pay_in_allowed_when_disabled', 'allow_concurrent_sessions', 'profile', 'kyc',
+            'pay_in_allowed_when_disabled', 'allow_concurrent_sessions', 'is_test_user', 'profile', 'kyc',
             'kyc_verification', 'hierarchy_lineage', 'point_of_contact', 'mpin_configured',
             'profile_sync_audits', 'created_at', 'updated_at',
         ]
         read_only_fields = [
             'id', 'user_id', 'legacy_user_id', 'member_number', 'member_id', 'display_code',
-            'created_at', 'updated_at', 'allow_concurrent_sessions',
+            'created_at', 'updated_at', 'allow_concurrent_sessions', 'is_test_user',
             'hierarchy_lineage', 'point_of_contact', 'kyc_verification',
             'profile_sync_audits',
         ]
@@ -495,7 +521,7 @@ class UserDetailSerializer(serializers.ModelSerializer):
         return (
             request
             and getattr(request.user, 'is_authenticated', False)
-            and getattr(request.user, 'role', None) == 'Admin'
+            and is_platform_operator(request.user)
         )
 
     def get_mpin_configured(self, obj):

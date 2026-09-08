@@ -9,6 +9,7 @@ from __future__ import annotations
 from copy import deepcopy
 from decimal import Decimal
 
+from apps.core.roles import is_platform_operator
 from apps.wallets.portfolio import (
     NETWORK_WALLET_TYPES,
     network_wallet_user_counts,
@@ -32,7 +33,7 @@ def present_wallet_summary_for_viewer(user, personal_summary: dict) -> dict:
     """
     summary = deepcopy(personal_summary or {})
     role = getattr(user, 'role', None) or ''
-    if role != 'Admin':
+    if not is_platform_operator(role):
         return summary
 
     totals = sum_network_wallet_balances(wallet_types=NETWORK_WALLET_TYPES)

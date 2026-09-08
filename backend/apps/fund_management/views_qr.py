@@ -8,6 +8,7 @@ from rest_framework.parsers import FormParser, MultiPartParser
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 
+from apps.core.roles import is_platform_operator
 from apps.core.financial_access import assert_can_pay_in
 from apps.core.maintenance_mode import MODULE_PAY_IN, assert_module_available
 from apps.fund_management.models import LoadMoney, PayInQrAccount
@@ -20,7 +21,7 @@ from apps.fund_management.services import get_user_accessible_packages
 
 
 def _user_can_view_qr_account(user, qr_account_id: int) -> bool:
-    if getattr(user, 'role', None) == 'Admin':
+    if is_platform_operator(user):
         return True
     for package in get_user_accessible_packages(user):
         for qr in list_checkout_qr_for_package(package):
@@ -103,14 +104,17 @@ def pay_in_qr_receipt_view(request, transaction_id: str):
     )
     if not lm or not lm.receipt_image:
         raise Http404
-    is_admin = getattr(request.user, 'role', None) == 'Admin'
+    is_admin = is_platform_operator(request.user)
     if not is_admin and lm.user_id != request.user.id:
         raise Http404
     try:
+        from apps.core.media_cache import MEDIA_CACHE_CONTROL
+
         fh = lm.receipt_image.open('rb')
         name = lm.receipt_image.name.rsplit('/', 1)[-1] if lm.receipt_image.name else 'receipt.jpg'
         content_type = mimetypes.guess_type(name)[0] or 'image/jpeg'
         response = FileResponse(fh, content_type=content_type)
+        response['Cache-Control'] = MEDIA_CACHE_CONTROL
         if request.GET.get('download') in ('1', 'true', 'yes'):
             if not name.lower().endswith(('.jpg', '.jpeg', '.png', '.webp')):
                 name = f'receipt-{transaction_id}.jpg'

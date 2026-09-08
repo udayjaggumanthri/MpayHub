@@ -2,9 +2,24 @@
 
 Complete step-by-step guide for load testing **mPayHub** using **Locust**, tailored to your setup:
 
-- **Production:** `partner.mpayhub.in` → nginx → Gunicorn (5 workers) → Django → PostgreSQL
-- **External APIs:** Cashfree (KYC), BillAvenue (BBPS), Razorpay/PayU (pay-in) — **IP whitelisted on current server only**
-- **Tool:** Locust (runs on your **local machine** or any PC — does **not** need IP whitelisting)
+- **Production:** `partner.mpayhub.in` → nginx → Gunicorn → Django → PostgreSQL
+- **UAT:** `partner-uat.mpayhub.in` (prefer this target for experiments)
+- **External APIs:** Cashfree (KYC), BillAvenue (BBPS), Razorpay/PayU (pay-in) — often IP-whitelisted per server
+- **Tool:** Locust (runs on your **local machine** or any PC)
+
+### Install Locust (workstation)
+
+```bash
+cd loadtest
+python3 -m venv .venv && source .venv/bin/activate
+pip install -r requirements.txt
+```
+
+See [../loadtest/requirements.txt](../loadtest/requirements.txt). Locust is **not** part of `backend/requirements-prod.txt`.
+
+**Warning:** Do not run aggressive stress tests against production without explicit approval. Prefer UAT.
+
+Parent docs: [../README.md](../README.md)
 
 ---
 

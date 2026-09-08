@@ -17,6 +17,7 @@ ACCESS_CONTROL_FIELDS = (
     'is_restricted',
     'payments_locked',
     'pay_in_allowed_when_disabled',
+    'is_test_user',
 )
 from apps.users.models import UserProfile, KYC, UserHierarchy, KycVerificationAttempt, UserRoleHistory
 from apps.core.utils import validate_pan, validate_aadhaar
@@ -43,8 +44,12 @@ def apply_user_access_controls(*, actor: User, target: User, patch: dict) -> Use
 
     When re-enabling (is_active=True), clears pay_in_allowed_when_disabled.
     """
-    if getattr(actor, 'role', None) != 'Admin':
+    from apps.core.roles import ROLE_ADMIN, ROLE_SUPER_ADMIN, is_platform_operator, is_super_admin
+
+    if not is_platform_operator(actor):
         raise ValueError('Only administrators may change user access controls.')
+    if not is_super_admin(actor) and target.role == ROLE_SUPER_ADMIN:
+        raise ValueError('You cannot change access controls for a Super Admin account.')
 
     before = _access_controls_snapshot(target)
     update_fields: list[str] = []
@@ -60,8 +65,10 @@ def apply_user_access_controls(*, actor: User, target: User, patch: dict) -> Use
             if 'pay_in_allowed_when_disabled' not in patch:
                 update_fields.append('pay_in_allowed_when_disabled')
 
-    for field in ('is_restricted', 'payments_locked', 'pay_in_allowed_when_disabled'):
+    for field in ('is_restricted', 'payments_locked', 'pay_in_allowed_when_disabled', 'is_test_user'):
         if field in patch:
+            if field == 'is_test_user' and not is_super_admin(actor):
+                raise ValueError('Only Super Admin may change test-user flags.')
             setattr(target, field, bool(patch[field]))
             update_fields.append(field)
 
@@ -108,36 +115,58 @@ def apply_user_access_controls(*, actor: User, target: User, patch: dict) -> Use
 
 def assert_admin_may_deactivate_user(*, actor: User, target: User) -> None:
     """
-    Enforce safe deactivation: no self-lockout, keep at least one active Admin or superuser.
+    Enforce safe deactivation: no self-lockout, keep at least one active Admin or Super Admin.
     Raises ValueError with a user-facing message on violation.
     """
-    if getattr(actor, 'role', None) != 'Admin':
+    from apps.core.roles import ROLE_ADMIN, ROLE_SUPER_ADMIN, is_platform_operator, is_super_admin
+
+    if not is_platform_operator(actor):
         raise ValueError('Only administrators may disable user accounts.')
     if target.pk == actor.pk:
         raise ValueError('You cannot disable your own account.')
-    if target.is_superuser or target.role == 'Admin':
+    if not is_super_admin(actor) and target.role == ROLE_SUPER_ADMIN:
+        raise ValueError('You cannot disable a Super Admin account.')
+    if target.is_superuser or target.role in (ROLE_ADMIN, ROLE_SUPER_ADMIN):
         others = (
             User.objects.filter(is_active=True)
             .exclude(pk=target.pk)
-            .filter(Q(is_superuser=True) | Q(role='Admin'))
+            .filter(Q(is_superuser=True) | Q(role__in=[ROLE_ADMIN, ROLE_SUPER_ADMIN]))
         )
         if not others.exists():
             raise ValueError('Cannot disable the last active administrator account.')
+        if target.role == ROLE_SUPER_ADMIN:
+            sa_left = (
+                User.objects.filter(role=ROLE_SUPER_ADMIN, is_active=True)
+                .exclude(pk=target.pk)
+                .count()
+            )
+            if sa_left < 1:
+                raise ValueError('Cannot disable the last active Super Admin.')
 
 
 def assert_admin_may_delete_user(*, actor: User, target: User) -> None:
     """
-    Enforce safe permanent deletion: admin only, no self-delete, keep at least one admin,
+    Enforce safe permanent deletion: operator only, no self-delete, keep at least one operator,
     and no users with active subordinates in the hierarchy.
     """
-    if getattr(actor, 'role', None) != 'Admin' and not getattr(actor, 'is_superuser', False):
+    from apps.core.roles import ROLE_ADMIN, ROLE_SUPER_ADMIN, is_platform_operator, is_super_admin
+
+    if not is_platform_operator(actor) and not getattr(actor, 'is_superuser', False):
         raise ValueError('Only administrators may delete user accounts.')
     if target.pk == actor.pk:
         raise ValueError('You cannot delete your own account.')
-    if target.is_superuser or target.role == 'Admin':
-        others = User.objects.filter(Q(is_superuser=True) | Q(role='Admin')).exclude(pk=target.pk)
+    if not is_super_admin(actor) and target.role == ROLE_SUPER_ADMIN:
+        raise ValueError('You cannot delete a Super Admin account.')
+    if target.is_superuser or target.role in (ROLE_ADMIN, ROLE_SUPER_ADMIN):
+        others = User.objects.filter(
+            Q(is_superuser=True) | Q(role__in=[ROLE_ADMIN, ROLE_SUPER_ADMIN])
+        ).exclude(pk=target.pk)
         if not others.exists():
             raise ValueError('Cannot delete the last administrator account.')
+        if target.role == ROLE_SUPER_ADMIN:
+            sa_left = User.objects.filter(role=ROLE_SUPER_ADMIN).exclude(pk=target.pk).count()
+            if sa_left < 1:
+                raise ValueError('Cannot delete the last Super Admin.')
     if UserHierarchy.objects.filter(parent_user=target, is_deleted=False).exists():
         raise ValueError(
             'Cannot delete a user who has subordinates. Reassign or delete their downline users first.'
@@ -471,9 +500,11 @@ def create_user(user_data, created_by):
     from apps.fund_management.services import auto_assign_default_package, assign_package_to_user
 
     creator_role = (getattr(created_by, 'role', None) or '').strip()
-    package_ids = user_data.get('package_ids', []) if creator_role == 'Admin' else []
+    from apps.core.roles import is_platform_operator
+
+    package_ids = user_data.get('package_ids', []) if is_platform_operator(created_by) else []
     if package_ids:
-        # Assign specific packages passed during user creation (Admin only)
+        # Assign specific packages passed during user creation (operators only)
         for pkg_id in package_ids:
             assign_package_to_user(
                 assigner=created_by,
@@ -484,8 +515,8 @@ def create_user(user_data, created_by):
         # Auto-assign default package for new users
         auto_assign_default_package(user, assigner=created_by)
 
-    # Optional AEPS entitlement at create (Admin only; no hierarchy inheritance)
-    if creator_role == 'Admin' and user_data.get('enable_aeps'):
+    # Optional AEPS entitlement at create (operators only; no hierarchy inheritance)
+    if is_platform_operator(created_by) and user_data.get('enable_aeps'):
         try:
             from apps.aeps.services.entitlement import enable_entitlement
 
@@ -846,14 +877,20 @@ def self_service_verify_aadhaar_otp_only(user, otp_code):
 
 
 def setup_initial_mpin(user, mpin, confirm_mpin):
-    """First-time MPIN after Admin-approved KYC (hierarchy-onboarded users)."""
+    """First-time MPIN after Admin-approved KYC (hierarchy-onboarded users).
+
+    Platform operators may set MPIN without verified KYC (KYC is optional for them).
+    """
+    from apps.core.roles import is_platform_operator
+
     if user.mpin_hash:
         raise ValueError('MPIN is already set. Use profile or support to reset.')
-    kyc = KYC.objects.filter(user=user).first()
-    if not kyc or kyc.verification_status != 'verified':
-        raise ValueError(
-            'KYC must be approved by an administrator before setting MPIN.'
-        )
+    if not is_platform_operator(user):
+        kyc = KYC.objects.filter(user=user).first()
+        if not kyc or kyc.verification_status != 'verified':
+            raise ValueError(
+                'KYC must be approved by an administrator before setting MPIN.'
+            )
     mpin = str(mpin).strip()
     confirm_mpin = str(confirm_mpin).strip()
     if len(mpin) != 6 or not mpin.isdigit():
@@ -1021,25 +1058,51 @@ def build_user_lineage(user: User) -> dict:
 @transaction.atomic
 def admin_change_user_role(*, actor: User, target: User, new_role: str) -> User:
     """
-    Admin-only role change with hierarchy safety checks.
+    Platform-operator role change with hierarchy safety checks.
 
+    Super Admin may assign any role (including Super Admin / Admin).
+    Admin may only assign channel roles and cannot target Super Admin users.
     Recomputes only display_code from immutable member_number.
     Never changes id, member_number, member_id, or legacy user_id.
     """
-    if getattr(actor, 'role', None) != 'Admin':
+    from apps.core.roles import (
+        ROLE_ADMIN,
+        ROLE_SUPER_ADMIN,
+        is_platform_operator,
+        is_super_admin,
+    )
+    from apps.users.hierarchy_policy import assignable_roles_for_change
+
+    if not is_platform_operator(actor):
         raise ValueError('Only administrators may change user roles.')
     if actor.pk == target.pk:
         raise ValueError('You cannot change your own role from this screen.')
-    valid_roles = [c[0] for c in User.ROLE_CHOICES]
-    if new_role not in valid_roles:
-        raise ValueError('Invalid role.')
+
+    allowed = assignable_roles_for_change(actor)
+    if new_role not in allowed:
+        raise ValueError('You are not allowed to assign that role.')
+
+    # Admin cannot view/edit Super Admin targets
+    if not is_super_admin(actor) and target.role == ROLE_SUPER_ADMIN:
+        raise ValueError('You cannot change a Super Admin account.')
 
     target = User.objects.select_for_update().get(pk=target.pk)
     if target.role == new_role:
         return target
 
-    if target.role == 'Admin' and new_role != 'Admin':
-        others = User.objects.filter(role='Admin', is_active=True).exclude(pk=target.pk).count()
+    # Last active Super Admin guard
+    if target.role == ROLE_SUPER_ADMIN and new_role != ROLE_SUPER_ADMIN:
+        others = (
+            User.objects.filter(role=ROLE_SUPER_ADMIN, is_active=True)
+            .exclude(pk=target.pk)
+            .count()
+        )
+        if others < 1:
+            raise ValueError('Cannot demote the only active Super Admin.')
+
+    # Last active Admin guard
+    if target.role == ROLE_ADMIN and new_role != ROLE_ADMIN:
+        others = User.objects.filter(role=ROLE_ADMIN, is_active=True).exclude(pk=target.pk).count()
         if others < 1:
             raise ValueError('Cannot demote the only active administrator.')
 
@@ -1052,7 +1115,7 @@ def admin_change_user_role(*, actor: User, target: User, new_role: str) -> User:
                 f'under role {new_role}. Reassign or remove subordinates first.'
             )
 
-    # Admin manual role change ignores upline onboarding rules — only downline validity is checked above.
+    # Manual role change ignores upline onboarding rules — only downline validity is checked above.
     old_role = target.role
     old_display = (getattr(target, 'display_code', None) or '') or ''
     # Ensure member identity exists (backfill should have run; allocate only if missing).

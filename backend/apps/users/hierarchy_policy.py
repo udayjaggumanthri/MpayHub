@@ -6,38 +6,72 @@ This module governs direct onboarding (create) and role-change validation only.
 """
 from __future__ import annotations
 
-from typing import FrozenSet
+from typing import Any, FrozenSet
 
-# Ordered from top to bottom of the commercial hierarchy.
-HIERARCHY_ROLE_ORDER: tuple[str, ...] = (
-    'Admin',
-    'Super Distributor',
-    'Master Distributor',
-    'Distributor',
-    'Retailer',
+from apps.core.roles import (
+    CHANNEL_ROLES,
+    HIERARCHY_ROLE_ORDER,
+    ROLE_ADMIN,
+    ROLE_DISTRIBUTOR,
+    ROLE_MASTER_DISTRIBUTOR,
+    ROLE_RETAILER,
+    ROLE_SUPER_ADMIN,
+    ROLE_SUPER_DISTRIBUTOR,
+    is_platform_operator,
+    is_super_admin,
 )
+
+# Re-export order for callers that imported from this module.
+__all__ = [
+    'HIERARCHY_ROLE_ORDER',
+    'CREATABLE_CHILD_ROLES',
+    'creatable_roles_for',
+    'can_parent_create_child',
+    'manageable_roles_for',
+    'assignable_roles_for_change',
+    'assignable_roles_for_admin_change',
+    'policy_snapshot',
+]
 
 # Roles each parent role may onboard as direct reports.
 CREATABLE_CHILD_ROLES: dict[str, FrozenSet[str]] = {
-    'Admin': frozenset({
-        'Super Distributor',
-        'Master Distributor',
-        'Distributor',
-        'Retailer',
-    }),
-    'Super Distributor': frozenset({
-        'Master Distributor',
-        'Distributor',
-        'Retailer',
-    }),
-    'Master Distributor': frozenset({
-        'Distributor',
-        'Retailer',
-    }),
-    'Distributor': frozenset({
-        'Retailer',
-    }),
-    'Retailer': frozenset(),
+    ROLE_SUPER_ADMIN: frozenset(
+        {
+            ROLE_SUPER_ADMIN,
+            ROLE_ADMIN,
+            ROLE_SUPER_DISTRIBUTOR,
+            ROLE_MASTER_DISTRIBUTOR,
+            ROLE_DISTRIBUTOR,
+            ROLE_RETAILER,
+        }
+    ),
+    ROLE_ADMIN: frozenset(
+        {
+            ROLE_SUPER_DISTRIBUTOR,
+            ROLE_MASTER_DISTRIBUTOR,
+            ROLE_DISTRIBUTOR,
+            ROLE_RETAILER,
+        }
+    ),
+    ROLE_SUPER_DISTRIBUTOR: frozenset(
+        {
+            ROLE_MASTER_DISTRIBUTOR,
+            ROLE_DISTRIBUTOR,
+            ROLE_RETAILER,
+        }
+    ),
+    ROLE_MASTER_DISTRIBUTOR: frozenset(
+        {
+            ROLE_DISTRIBUTOR,
+            ROLE_RETAILER,
+        }
+    ),
+    ROLE_DISTRIBUTOR: frozenset(
+        {
+            ROLE_RETAILER,
+        }
+    ),
+    ROLE_RETAILER: frozenset(),
 }
 
 
@@ -59,9 +93,31 @@ def manageable_roles_for(parent_role: str | None) -> list[str]:
     return creatable_roles_for(parent_role)
 
 
+def assignable_roles_for_change(actor: Any = None) -> list[str]:
+    """
+    Roles the actor may assign via profile promote/demote.
+
+    Super Admin: Super Admin + Admin + channel.
+    Admin: channel roles only (cannot promote to Admin or Super Admin).
+    """
+    if is_super_admin(actor):
+        return list(HIERARCHY_ROLE_ORDER)
+    if is_platform_operator(actor) or (isinstance(actor, str) and actor == ROLE_ADMIN):
+        # Admin actor — channel only
+        return [r for r in HIERARCHY_ROLE_ORDER if r in CHANNEL_ROLES]
+    # Legacy no-arg call: treat as Admin (channel-only) — safer than including Admin
+    if actor is None:
+        return [r for r in HIERARCHY_ROLE_ORDER if r in CHANNEL_ROLES]
+    return creatable_roles_for(getattr(actor, 'role', None) if not isinstance(actor, str) else actor)
+
+
 def assignable_roles_for_admin_change() -> list[str]:
-    """All commercial roles an Admin may assign via user profile role change."""
-    return list(HIERARCHY_ROLE_ORDER)
+    """
+    Deprecated alias — returns channel roles only (Admin-safe list).
+
+    Prefer ``assignable_roles_for_change(actor)``.
+    """
+    return [r for r in HIERARCHY_ROLE_ORDER if r in CHANNEL_ROLES]
 
 
 def policy_snapshot() -> dict[str, list[str]]:

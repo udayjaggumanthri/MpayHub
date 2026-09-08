@@ -1,4 +1,4 @@
-"""Admin role change — full promote/demote between Admin and Retailer."""
+"""Admin / Super Admin role change — promote/demote rules."""
 from django.contrib.auth import get_user_model
 from django.test import TestCase
 
@@ -10,6 +10,16 @@ User = get_user_model()
 
 class AdminRoleChangeTests(TestCase):
     def setUp(self):
+        self.super_admin = User.objects.create_user(
+            phone='9111111100',
+            email='sa-role@test.com',
+            password='pass123',
+            role='Super Admin',
+            user_id='LEGACYSAROLE',
+            member_number=900,
+            member_id='MPH000900',
+            display_code='SA000900',
+        )
         self.admin = User.objects.create_user(
             phone='9111111101',
             email='admin-role@test.com',
@@ -50,14 +60,23 @@ class AdminRoleChangeTests(TestCase):
         )
         self.assertEqual(updated.role, 'Super Distributor')
 
-    def test_admin_promotes_retailer_to_admin(self):
+    def test_admin_cannot_promote_retailer_to_admin(self):
+        with self.assertRaises(ValueError) as ctx:
+            admin_change_user_role(
+                actor=self.admin,
+                target=self.retailer,
+                new_role='Admin',
+            )
+        self.assertIn('not allowed', str(ctx.exception).lower())
+
+    def test_super_admin_can_promote_retailer_to_admin(self):
         updated = admin_change_user_role(
-            actor=self.admin,
+            actor=self.super_admin,
             target=self.retailer,
             new_role='Admin',
         )
         self.assertEqual(updated.role, 'Admin')
-        admin_change_user_role(actor=self.admin, target=updated, new_role='Retailer')
+        admin_change_user_role(actor=self.super_admin, target=updated, new_role='Retailer')
 
     def test_admin_cannot_demote_with_invalid_subordinates(self):
         distributor, _ = create_user(

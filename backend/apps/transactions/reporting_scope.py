@@ -7,11 +7,13 @@ from django.db.models import Q
 from django.core.cache import cache
 from rest_framework.exceptions import PermissionDenied
 
+from apps.core.roles import is_platform_operator
 from apps.authentication.models import User
 from apps.users.models import UserHierarchy
 
 TEAM_SCOPE_ROLES = frozenset(
     {
+        'Super Admin',
         'Admin',
         'Super Distributor',
         'Master Distributor',
@@ -26,7 +28,7 @@ VALID_REPORT_SCOPES = frozenset({'self', 'team', 'platform'})
 def get_report_scope(request) -> str:
     raw = (request.query_params.get('scope') or 'self').strip().lower()
     if raw == 'platform':
-        if (getattr(request.user, 'role', None) or '') != 'Admin':
+        if not is_platform_operator(request.user):
             raise PermissionDenied('Platform report scope is only available to Admin users.')
         return 'platform'
     return raw if raw in ('self', 'team') else 'self'
@@ -65,7 +67,7 @@ def _team_transaction_user_ids_uncached(viewer: User) -> frozenset[int]:
         return frozenset(s.pk for s in subs if getattr(s, 'role', '') in ('Distributor', 'Retailer'))
     if role == 'Distributor':
         return frozenset(s.pk for s in subs if getattr(s, 'role', '') == 'Retailer')
-    if role == 'Admin':
+    if is_platform_operator(role):
         # Not used — caller uses Q() for all users.
         return frozenset()
     return frozenset()
@@ -99,7 +101,7 @@ def commission_team_source_user_ids(viewer: User) -> list[int] | None:
     None = Admin (no extra constraint).
     """
     role = getattr(viewer, 'role', None) or ''
-    if role == 'Admin':
+    if is_platform_operator(role):
         return None
     subs = UserHierarchy.get_subordinates(viewer)
     if role == 'Super Distributor':
@@ -120,7 +122,7 @@ def transaction_user_q(request) -> Q:
     role = getattr(user, 'role', None)
     if role not in TEAM_SCOPE_ROLES:
         raise PermissionDenied('Team report scope is not enabled for your role.')
-    if role == 'Admin':
+    if is_platform_operator(role):
         # Team = platform activity excluding the admin's own wallet rows.
         return ~Q(user=user)
     ids = team_transaction_user_ids(user)
@@ -142,7 +144,7 @@ def commission_ledger_q_for_team(request) -> Q:
     role = getattr(user, 'role', None)
     if role not in TEAM_SCOPE_ROLES:
         raise PermissionDenied('Team report scope is not enabled for your role.')
-    if role == 'Admin':
+    if is_platform_operator(role):
         return Q()
     ids = commission_team_source_user_ids(user)
     if ids is None:

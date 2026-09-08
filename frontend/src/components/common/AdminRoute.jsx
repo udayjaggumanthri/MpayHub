@@ -1,9 +1,11 @@
 import React from 'react';
 import { Navigate, useLocation } from 'react-router-dom';
 import { useAuth } from '../../context/AuthContext';
+import { isAdminUser } from '../../utils/rolePermissions';
 
 /**
- * Restricts children to users with role Admin (matches backend IsAdmin).
+ * Restricts children to platform operators (Admin or Super Admin).
+ * Matches backend IsAdmin / is_platform_operator.
  * Use inside ProtectedRoute so the user is authenticated first.
  */
 const AdminRoute = ({ children }) => {
@@ -21,7 +23,7 @@ const AdminRoute = ({ children }) => {
     );
   }
 
-  if (!user || user.role !== 'Admin') {
+  if (!user || !isAdminUser(user)) {
     return (
       <Navigate
         to="/dashboard"

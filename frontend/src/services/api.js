@@ -317,6 +317,7 @@ const handleError = (error) => {
       error: errMeta,
       traceId: errMeta?.trace_id || null,
       errorCode: accessCode || errMeta?.code || null,
+      title: apiError.title || errMeta?.title || null,
       retryable: isRetryable,
     };
     const accessParsed = parseApiAccessError(result);
@@ -817,6 +818,19 @@ export const usersAPI = {
   },
 
   /**
+   * Scoped user census (full visible set, independent of list filters)
+   * GET /api/users/stats/
+   */
+  getUserStats: async () => {
+    try {
+      const response = await apiClient.get('/users/stats/');
+      return extractData(response);
+    } catch (error) {
+      return handleError(error);
+    }
+  },
+
+  /**
    * Create User
    * POST /api/users/
    */
@@ -881,11 +895,14 @@ export const usersAPI = {
   },
 
   /**
-   * PATCH /api/users/{id}/contact/ — Admin only; update another user's email and mobile.
+   * PATCH /api/users/{id}/contact/ — Admin only; update name, email, and mobile.
    */
-  updateUserContact: async (userId, { email, phone }) => {
+  updateUserContact: async (userId, { first_name, last_name, email, phone }) => {
     try {
-      const response = await apiClient.patch(`/users/${userId}/contact/`, { email, phone });
+      const payload = { email, phone };
+      if (first_name !== undefined) payload.first_name = first_name;
+      if (last_name !== undefined) payload.last_name = last_name;
+      const response = await apiClient.patch(`/users/${userId}/contact/`, payload);
       return extractData(response);
     } catch (error) {
       return handleError(error);
@@ -3264,6 +3281,51 @@ export const adminAPI = {
   updateMaintenanceConfig: async (payload) => {
     try {
       const response = await apiClient.patch('/admin/maintenance/', payload);
+      return extractData(response);
+    } catch (error) {
+      return handleError(error);
+    }
+  },
+
+  getTestUsageConfig: async () => {
+    try {
+      const response = await apiClient.get('/admin/test-usage/');
+      return extractData(response);
+    } catch (error) {
+      return handleError(error);
+    }
+  },
+
+  updateTestUsageConfig: async (payload) => {
+    try {
+      const response = await apiClient.patch('/admin/test-usage/', payload);
+      return extractData(response);
+    } catch (error) {
+      return handleError(error);
+    }
+  },
+
+  getRolesPermissions: async () => {
+    try {
+      const response = await apiClient.get('/admin/roles-permissions/');
+      return extractData(response);
+    } catch (error) {
+      return handleError(error);
+    }
+  },
+
+  updateRolePermission: async (payload) => {
+    try {
+      const response = await apiClient.patch('/admin/roles-permissions/', payload);
+      return extractData(response);
+    } catch (error) {
+      return handleError(error);
+    }
+  },
+
+  getMyPermissions: async () => {
+    try {
+      const response = await apiClient.get('/auth/me/permissions/');
       return extractData(response);
     } catch (error) {
       return handleError(error);

@@ -194,9 +194,12 @@ def reset_mpin(phone, otp_code, new_mpin, *, otp_record=None):
         raise InvalidCredentials("User not found.")
 
     if not user.mpin_hash:
-        raise InvalidCredentials(
-            "MPIN is not set on this account. Complete onboarding or contact support."
-        )
+        from apps.core.roles import is_platform_operator
+
+        if not is_platform_operator(user):
+            raise InvalidCredentials(
+                "MPIN is not set on this account. Complete onboarding or contact support."
+            )
 
     user.set_mpin(new_mpin)
     user.save(update_fields=['mpin_hash', 'updated_at'])

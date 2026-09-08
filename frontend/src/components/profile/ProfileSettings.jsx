@@ -41,6 +41,9 @@ const ProfileSettings = () => {
   const [errors, setErrors] = useState({});
   const [successMessage, setSuccessMessage] = useState('');
 
+  const mpinOptional = Boolean(user?.onboarding?.mpin_optional || user?.onboarding?.kyc_optional);
+  const mpinConfigured = Boolean(user?.onboarding?.mpin_set);
+
   const loadWallets = useCallback(async () => {
     setWalletsLoading(true);
     try {
@@ -166,7 +169,7 @@ const ProfileSettings = () => {
   const handleMPINChange = async () => {
     const newErrors = {};
 
-    if (!mpinData.currentMPIN) {
+    if (mpinConfigured && !mpinData.currentMPIN) {
       newErrors.currentMPIN = 'Current MPIN is required';
     }
 
@@ -186,19 +189,27 @@ const ProfileSettings = () => {
 
     setLoading(true);
     try {
-      const res = await authAPI.changeMPIN({
-        current_mpin: mpinData.currentMPIN,
-        new_mpin: mpinData.newMPIN,
-      });
+      let res;
+      if (!mpinConfigured && mpinOptional) {
+        res = await authAPI.setupOnboardingMPIN(mpinData.newMPIN, mpinData.confirmMPIN);
+      } else {
+        res = await authAPI.changeMPIN({
+          current_mpin: mpinData.currentMPIN,
+          new_mpin: mpinData.newMPIN,
+        });
+      }
       if (res.success) {
-        setSuccessMessage('MPIN changed successfully!');
+        setSuccessMessage(
+          mpinConfigured ? 'MPIN changed successfully!' : 'MPIN set successfully (optional).'
+        );
         setMpinData({ currentMPIN: '', newMPIN: '', confirmMPIN: '' });
+        if (typeof refreshUser === 'function') await refreshUser();
         setTimeout(() => setSuccessMessage(''), 3000);
       } else {
-        setErrors({ general: res.message || 'Failed to change MPIN.' });
+        setErrors({ general: res.message || 'Failed to update MPIN.' });
       }
     } catch (error) {
-      setErrors({ general: 'Failed to change MPIN. Please try again.' });
+      setErrors({ general: 'Failed to update MPIN. Please try again.' });
     } finally {
       setLoading(false);
     }
@@ -206,14 +217,19 @@ const ProfileSettings = () => {
 
   const ob = user?.onboarding;
   const showCommissionWallet = user?.role && user.role !== 'Retailer';
-  const showProfitWallet = user?.role?.toLowerCase() === 'admin';
+  const showProfitWallet =
+    user?.role?.toLowerCase() === 'admin' || user?.role === 'Super Admin';
 
   const tabs = [
     { id: 'profile', name: 'Profile', icon: FiUser },
     { id: 'verification', name: 'Verification', icon: FiShield },
     { id: 'activity', name: 'My activity', icon: FiActivity },
     { id: 'password', name: 'Change Password', icon: FiLock },
-    { id: 'mpin', name: 'Change MPIN', icon: FiKey },
+    {
+      id: 'mpin',
+      name: mpinConfigured ? 'Change MPIN' : mpinOptional ? 'Set MPIN (optional)' : 'Change MPIN',
+      icon: FiKey,
+    },
   ];
 
   return (
@@ -617,25 +633,37 @@ const ProfileSettings = () => {
           {activeTab === 'mpin' && (
             <div className="space-y-6">
               <div className="flex flex-wrap items-center justify-between gap-3 mb-6">
-                <h3 className="text-xl font-bold text-gray-900 dark:text-slate-100">Change MPIN</h3>
+                <div>
+                  <h3 className="text-xl font-bold text-gray-900 dark:text-slate-100">
+                    {mpinConfigured ? 'Change MPIN' : 'Set MPIN'}
+                  </h3>
+                  {mpinOptional ? (
+                    <p className="mt-1 text-sm text-slate-600 dark:text-slate-400">
+                      MPIN is optional for Admin / Super Admin. You can skip it and still use the
+                      portal. Set or reset via OTP anytime if you prefer.
+                    </p>
+                  ) : null}
+                </div>
                 <button
                   type="button"
                   onClick={() => navigate('/forgot-mpin')}
                   className="text-sm font-medium text-indigo-600 dark:text-indigo-400 hover:text-indigo-800 dark:hover:text-indigo-200"
                 >
-                  Forgot MPIN? Reset via OTP
+                  {mpinConfigured ? 'Forgot MPIN? Reset via OTP' : 'Set MPIN via OTP'}
                 </button>
               </div>
 
               <div className="space-y-4">
-                <MpinInput
-                  variant="single"
-                  label="Current MPIN"
-                  value={mpinData.currentMPIN}
-                  onChange={(value) => setMpinData({ ...mpinData, currentMPIN: value })}
-                  placeholder="000000"
-                  error={errors.currentMPIN}
-                />
+                {mpinConfigured ? (
+                  <MpinInput
+                    variant="single"
+                    label="Current MPIN"
+                    value={mpinData.currentMPIN}
+                    onChange={(value) => setMpinData({ ...mpinData, currentMPIN: value })}
+                    placeholder="000000"
+                    error={errors.currentMPIN}
+                  />
+                ) : null}
                 <MpinInput
                   variant="single"
                   label="New MPIN (6 digits)"
@@ -658,7 +686,11 @@ const ProfileSettings = () => {
                   disabled={loading}
                   className="w-full px-6 py-3 bg-blue-600 text-white rounded-lg font-semibold hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
                 >
-                  {loading ? 'Changing MPIN...' : 'Change MPIN'}
+                  {loading
+                    ? 'Saving…'
+                    : mpinConfigured
+                      ? 'Change MPIN'
+                      : 'Set MPIN (optional)'}
                 </button>
               </div>
             </div>
