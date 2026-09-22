@@ -20,12 +20,62 @@ const defaultForm = () => ({
   user_theme_toggle_enabled: false,
 });
 
+const LogoUploadRow = ({
+  label,
+  hint,
+  preview,
+  previewBgClass,
+  onFileChange,
+  onRemove,
+  fallback,
+}) => (
+  <div>
+    <label className="mb-1 block text-sm font-medium text-gray-700 dark:text-slate-300">
+      {label}
+    </label>
+    {hint ? (
+      <p className="mb-2 text-xs text-gray-500 dark:text-slate-400">{hint}</p>
+    ) : null}
+    <div className="flex flex-wrap items-center gap-4">
+      <div
+        className={`flex h-20 w-40 items-center justify-center rounded-lg border border-gray-200 p-2 dark:border-slate-600 ${previewBgClass}`}
+      >
+        {preview ? (
+          <img src={preview} alt={`${label} preview`} className="max-h-full max-w-full object-contain" />
+        ) : (
+          fallback
+        )}
+      </div>
+      <div className="space-y-2">
+        <input
+          type="file"
+          accept="image/jpeg,image/png,image/webp,image/gif"
+          onChange={onFileChange}
+          className="block text-sm text-gray-600 dark:text-slate-300"
+        />
+        {preview ? (
+          <button
+            type="button"
+            onClick={onRemove}
+            className="text-sm font-semibold text-red-600 hover:underline dark:text-red-400"
+          >
+            Remove logo
+          </button>
+        ) : null}
+      </div>
+    </div>
+  </div>
+);
+
 const AppearanceSettings = () => {
   const { refreshAppearance } = useAppearance();
   const [form, setForm] = useState(defaultForm);
   const [logoPreview, setLogoPreview] = useState(null);
   const [logoFile, setLogoFile] = useState(null);
   const [removeLogo, setRemoveLogo] = useState(false);
+  const [logoDarkPreview, setLogoDarkPreview] = useState(null);
+  const [logoDarkFile, setLogoDarkFile] = useState(null);
+  const [removeLogoDark, setRemoveLogoDark] = useState(false);
   const [meta, setMeta] = useState({ updated_at: null, updated_by: null });
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -48,6 +98,9 @@ const AppearanceSettings = () => {
     setLogoPreview(normalized.logoUrl);
     setLogoFile(null);
     setRemoveLogo(false);
+    setLogoDarkPreview(normalized.logoDarkUrl);
+    setLogoDarkFile(null);
+    setRemoveLogoDark(false);
     setMeta({ updated_at: raw?.updated_at || null, updated_by: raw?.updated_by || null });
   }, []);
 
@@ -75,6 +128,14 @@ const AppearanceSettings = () => {
     setLogoPreview(URL.createObjectURL(file));
   };
 
+  const handleLogoDarkChange = (event) => {
+    const file = event.target.files?.[0];
+    if (!file) return;
+    setLogoDarkFile(file);
+    setRemoveLogoDark(false);
+    setLogoDarkPreview(URL.createObjectURL(file));
+  };
+
   const handleSave = async () => {
     setSaving(true);
     setError('');
@@ -91,6 +152,8 @@ const AppearanceSettings = () => {
     fd.append('user_theme_toggle_enabled', form.user_theme_toggle_enabled ? 'true' : 'false');
     if (removeLogo) fd.append('remove_logo', 'true');
     if (logoFile) fd.append('logo', logoFile);
+    if (removeLogoDark) fd.append('remove_logo_dark', 'true');
+    if (logoDarkFile) fd.append('logo_dark', logoDarkFile);
 
     const res = await adminAPI.patchAppearanceConfig(fd);
     setSaving(false);
@@ -136,49 +199,44 @@ const AppearanceSettings = () => {
         </div>
       ) : null}
 
-      <Card title="Branding" subtitle="Logo and site title shown across the application.">
-        <div className="space-y-4">
+      <Card title="Branding" subtitle="Logos and site title shown across the application.">
+        <div className="space-y-6">
           <Input
             label="Site title"
             value={form.site_title}
             onChange={(e) => setForm({ ...form, site_title: e.target.value })}
             placeholder="mPayHub"
           />
-          <div>
-            <label className="mb-2 block text-sm font-medium text-gray-700 dark:text-slate-300">
-              Application logo
-            </label>
-            <div className="flex flex-wrap items-center gap-4">
-              <div className="flex h-20 w-40 items-center justify-center rounded-lg border border-gray-200 bg-gray-50 p-2 dark:border-slate-600 dark:bg-slate-800">
-                {logoPreview ? (
-                  <img src={logoPreview} alt="Logo preview" className="max-h-full max-w-full object-contain" />
-                ) : (
-                  <BrandingLogo className="max-h-full max-w-full object-contain" />
-                )}
-              </div>
-              <div className="space-y-2">
-                <input
-                  type="file"
-                  accept="image/jpeg,image/png,image/webp,image/gif"
-                  onChange={handleLogoChange}
-                  className="block text-sm text-gray-600 dark:text-slate-300"
-                />
-                {logoPreview ? (
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setRemoveLogo(true);
-                      setLogoFile(null);
-                      setLogoPreview(null);
-                    }}
-                    className="text-sm font-semibold text-red-600 hover:underline dark:text-red-400"
-                  >
-                    Remove logo
-                  </button>
-                ) : null}
-              </div>
-            </div>
-          </div>
+          <LogoUploadRow
+            label="Light theme logo"
+            hint="Used on light backgrounds (header in light mode, login page)."
+            preview={logoPreview}
+            previewBgClass="bg-gray-50 dark:bg-slate-800"
+            onFileChange={handleLogoChange}
+            onRemove={() => {
+              setRemoveLogo(true);
+              setLogoFile(null);
+              setLogoPreview(null);
+            }}
+            fallback={<BrandingLogo forceTheme="light" className="max-h-full max-w-full object-contain" />}
+          />
+          <LogoUploadRow
+            label="Dark theme logo"
+            hint="Optional. Shown in the header when dark mode is active. Falls back to the light logo if empty."
+            preview={logoDarkPreview}
+            previewBgClass="bg-slate-900"
+            onFileChange={handleLogoDarkChange}
+            onRemove={() => {
+              setRemoveLogoDark(true);
+              setLogoDarkFile(null);
+              setLogoDarkPreview(null);
+            }}
+            fallback={
+              <span className="px-2 text-center text-xs text-slate-400">
+                No dark logo — light logo will be used
+              </span>
+            }
+          />
         </div>
       </Card>
 

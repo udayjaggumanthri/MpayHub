@@ -81,6 +81,30 @@ export const aepsAPI = {
   acknowledge: (merchantTranId, body = {}) =>
     wrap(client.post(`/aeps/transactions/${encodeURIComponent(merchantTranId)}/acknowledge/`, body)),
   reportsSummary: (params) => wrap(client.get('/aeps/reports/summary/', { params })),
+  exportTransactionsCsv: async (params = {}) => {
+    try {
+      const response = await client.get('/aeps/reports/export.csv', {
+        params,
+        responseType: 'blob',
+      });
+      return { success: true, data: response.data };
+    } catch (error) {
+      const data = error.response?.data;
+      let message = error.message || 'Export failed';
+      if (data instanceof Blob) {
+        try {
+          const text = await data.text();
+          const parsed = JSON.parse(text);
+          message = parsed.message || message;
+        } catch {
+          /* ignore */
+        }
+      } else if (data?.message) {
+        message = data.message;
+      }
+      return { success: false, message };
+    }
+  },
   adminProviderGet: (environment) =>
     wrap(client.get('/aeps/admin/provider-config/', { params: environment ? { environment } : undefined })),
   adminProviderSave: (body) => wrap(client.patch('/aeps/admin/provider-config/', body)),

@@ -43,6 +43,7 @@ class KYC(BaseModel):
     Lifecycle:
       pending → (PAN + Aadhaar provider-verified) → awaiting_approval
       → Admin approve → verified | Admin reject → rejected
+      → rejected (or Admin re-KYC) → pending (user resubmits) → awaiting_approval …
     Account readiness (onboarding.kyc_complete / account_ready) requires verified.
     """
     VERIFICATION_STATUS_CHOICES = [
@@ -144,6 +145,7 @@ class KycApprovalAudit(BaseModel):
     DECISION_CHOICES = [
         ('approve', 'Approve'),
         ('reject', 'Reject'),
+        ('request_resubmit', 'Request resubmit'),
     ]
 
     user = models.ForeignKey(User, on_delete=models.CASCADE, related_name='kyc_approval_audits')

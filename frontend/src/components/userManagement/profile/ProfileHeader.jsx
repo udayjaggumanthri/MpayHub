@@ -16,7 +16,7 @@ const roleBadgeClass = (role) => {
 /**
  * Compact enterprise profile header (back, name, role, status).
  */
-const ProfileHeader = ({ fullName, user, onBack }) => (
+const ProfileHeader = ({ fullName, user, onBack, actions = null }) => (
   <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
     <div className="flex items-center gap-4">
       <button
@@ -36,6 +36,7 @@ const ProfileHeader = ({ fullName, user, onBack }) => (
       </div>
     </div>
     <div className="flex flex-wrap items-center gap-2 sm:justify-end">
+      {actions}
       <span
         className={`inline-flex items-center gap-2 rounded-lg px-3 py-1.5 text-sm font-semibold ${roleBadgeClass(
           user?.role

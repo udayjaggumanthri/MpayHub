@@ -118,12 +118,20 @@ def transaction_user_q(request) -> Q:
     scope = get_report_scope(request)
     user = request.user
     if scope == 'self':
+        # Admin / Super Admin logins share one platform treasury passbook.
+        if is_platform_operator(user):
+            from apps.fund_management.platform_settlement import wallet_user_for_viewer
+            return Q(user=wallet_user_for_viewer(user))
         return Q(user=user)
     role = getattr(user, 'role', None)
     if role not in TEAM_SCOPE_ROLES:
         raise PermissionDenied('Team report scope is not enabled for your role.')
     if is_platform_operator(role):
-        # Team = platform activity excluding the admin's own wallet rows.
+        # Team = channel activity only (exclude every operator login wallet).
+        from apps.fund_management.platform_settlement import platform_operator_user_ids
+        op_ids = platform_operator_user_ids()
+        if op_ids:
+            return ~Q(user_id__in=op_ids)
         return ~Q(user=user)
     ids = team_transaction_user_ids(user)
     if not ids:

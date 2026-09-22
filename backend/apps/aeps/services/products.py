@@ -48,9 +48,27 @@ ACK_PATHS = {
     'CD_OTP': ACK_CD_OTP,
 }
 
+# Enquiry products have no Fingpay acknowledgement API — never call ack_cw for them.
+ACKABLE_PRODUCTS = frozenset({'CW', 'AP', 'CD', 'CD_OTP'})
+PRODUCT_LABELS = {
+    'CW': 'Cash Withdrawal',
+    'BE': 'Balance Enquiry',
+    'MS': 'Mini Statement',
+    'AP': 'Aadhaar Pay',
+    'CD': 'Cash Deposit',
+    'CD_OTP': 'Cash Deposit (OTP)',
+    '2FA': 'Daily 2FA',
+}
+
 
 def _path_from_client(client, key: str, fallback: str) -> str:
     return client.endpoint(key, fallback) if client else fallback
+
+
+def product_ack_allowed(product: str, *, otp_mode: bool = False) -> bool:
+    if otp_mode:
+        return True
+    return str(product or '').upper() in ACKABLE_PRODUCTS
 
 
 def status_path_for_product(product: str, *, otp_mode: bool = False, client=None) -> str:
@@ -64,6 +82,8 @@ def status_path_for_product(product: str, *, otp_mode: bool = False, client=None
 def ack_path_for_product(product: str, *, otp_mode: bool = False, client=None) -> str:
     if otp_mode or product == 'CD_OTP':
         return _path_from_client(client, 'ack_cd_otp', ACK_CD_OTP)
+    if not product_ack_allowed(product):
+        return ''
     key = ACK_PATH_KEYS.get(product, 'ack_cw')
     return _path_from_client(client, key, ACK_PATHS.get(product, ACK_CW))
 
@@ -427,6 +447,15 @@ def twofa_request_body(
 
 def _create_pending_txn(*, user, merchant, product, amount, payload, latitude, longitude, ip) -> AepsTransaction:
     aadhaar = payload.get('aadhaarNumber') or payload.get('adhaarNumber') or ''
+    bank_iin = str(payload.get('nationalBankIdentificationNumber') or payload.get('iin') or '')
+    bank_name = str(payload.get('bankName') or payload.get('bank_name') or '').strip()
+    if bank_iin and not bank_name:
+        cached = (
+            AepsBankIinCache.objects.filter(iin=bank_iin, is_active=True)
+            .values_list('bank_name', flat=True)
+            .first()
+        )
+        bank_name = str(cached or '')
     return AepsTransaction.objects.create(
         user=user,
         merchant=merchant,
@@ -434,8 +463,8 @@ def _create_pending_txn(*, user, merchant, product, amount, payload, latitude, l
         product=product,
         status='initiated',
         amount=Decimal(str(payload.get('transactionAmount') or payload.get('amount') or amount or 0)),
-        bank_iin=str(payload.get('nationalBankIdentificationNumber') or payload.get('iin') or ''),
-        bank_name=str(payload.get('bankName') or ''),
+        bank_iin=bank_iin,
+        bank_name=bank_name[:120],
         masked_aadhaar=mask_aadhaar(aadhaar),
         customer_mobile=str(payload.get('mobileNumber') or ''),
         latitude=latitude,
@@ -535,14 +564,26 @@ def _run_product(
             )[:500]
             txn.save()
             return {'transaction': serialize_txn(txn), 'needs_status_check': False, 'error': txn.response_message}
+        if status_code == 404 or 'HTTP 404' in err:
+            txn.status = 'failed'
+            txn.response_code = '404'
+            label = PRODUCT_LABELS.get(product, product)
+            txn.response_message = (
+                f'{label} is not available on Fingpay for this account/path (HTTP 404). '
+                'This is not fingerprint, location, hash, or IP. '
+                f'Tapits must publish or enable the Simple API endpoint. {_provider_support_context(merchant)}'
+            )[:500]
+            txn.save()
+            return {'transaction': serialize_txn(txn), 'needs_status_check': False, 'error': txn.response_message}
+        # Network / timeout — keep pending so status-check can still resolve
         txn.status = 'timeout'
         txn.response_message = err
         txn.save()
         return {'transaction': serialize_txn(txn), 'needs_status_check': True, 'error': err}
 
     data = resp.get('data') if isinstance(resp.get('data'), dict) else {}
-    apply_provider_result(txn, resp, data)
-    if txn.status == 'success':
+    apply_provider_result(txn, resp, data, exchange_key='original')
+    if txn.status == 'success' and product_ack_allowed(product):
         try:
             acknowledge_transaction(txn)
         except Exception as ack_exc:
@@ -574,16 +615,40 @@ def _provider_support_context(merchant=None) -> str:
     return '; '.join(parts)
 
 
+def _envelope_code(resp: dict) -> str:
+    """Prefer statusCode; fall back to apiStatusCode used by some status-check APIs."""
+    for key in ('statusCode', 'apiStatusCode'):
+        raw = resp.get(key)
+        if raw is not None and str(raw).strip() and str(raw) not in ('None',):
+            return str(raw).strip()
+    return ''
+
+
+def _envelope_message(resp: dict) -> str:
+    for key in ('message', 'apiStatusMessage'):
+        raw = resp.get(key)
+        if raw is not None and str(raw).strip():
+            return str(raw).strip()
+    return ''
+
+
 def _identity_reject_message(resp: dict, merchant=None) -> str:
     """Map Fingpay identity / product-disabled codes to actionable UI text."""
-    code = str(resp.get('statusCode') or '')
-    msg = str(resp.get('message') or '')
+    code = _envelope_code(resp)
+    msg = _envelope_message(resp)
     msg_l = msg.lower()
     login = str(getattr(merchant, 'merchant_login_id', '') or '').strip()
     who = login or 'this merchant'
     ctx = _provider_support_context(merchant)
 
-    # 10027 is reused: daily product limits AND merchant AEPS-disabled. Match the text.
+    # Min amount (also uses 10027) — not a product disable.
+    if 'minimum limit' in msg_l or 'min limit' in msg_l or 'amount is less than' in msg_l:
+        return (
+            f'{msg} ({code or "10027"}). '
+            'Increase the amount and retry. This is not an IP, hash, fingerprint, or URL issue.'
+        )[:500]
+
+    # 10027 is reused: daily product limits AND merchant/product-disabled. Match the text.
     if 'daily limit' in msg_l or 'exceeded daily limit' in msg_l:
         product_hint = ''
         if 'balance inquir' in msg_l:
@@ -596,8 +661,26 @@ def _identity_reject_message(resp: dict, merchant=None) -> str:
             'This is not an IP, hash, fingerprint, or URL issue.'
         )[:500]
 
+    # Product-specific disables (do not claim "all AEPS" is off).
+    if 'aadharpay' in msg_l or 'aadhaar pay' in msg_l or 'aadhaarpay' in msg_l:
+        if 'disabled' in msg_l or code == '10027':
+            return (
+                f'Aadhaar Pay is temporarily disabled for {who} ({code or "10027"}). '
+                'Other AEPS products (withdraw, balance, mini statement) may still work. '
+                'Ask Tapits to enable Aadhaar Pay on fpaepsservice for this merchant. '
+                f'Support context: {ctx or "see Admin → AEPS Provider"}.'
+            )[:500]
+
+    if 'cash deposit' in msg_l and ('disabled' in msg_l or code == '10027'):
+        return (
+            f'Cash Deposit is temporarily disabled for {who} ({code or "10027"}). '
+            'Ask Tapits to enable Cash Deposit on fpaepsservice. '
+            f'Support context: {ctx or "see Admin → AEPS Provider"}.'
+        )[:500]
+
     if 'aeps services is temporarily disabled' in msg_l or (
         code == '10027' and 'disabled' in msg_l and 'limit' not in msg_l
+        and 'aadhar' not in msg_l and 'cash deposit' not in msg_l
     ):
         return (
             f'Fingpay disabled AEPS for {who} (10027). '
@@ -612,6 +695,14 @@ def _identity_reject_message(resp: dict, merchant=None) -> str:
             'Admin: Reset PIN / Re-sync onboarding (Simple create on fingpayap), then retry on '
             'fingpayap.tapits.in/fpaepsservice (not fpuat). '
             f'{ctx}'
+        )[:500]
+
+    # Status-check / product APIs sometimes say merchant not active for CD only.
+    if code == '10005' and 'not active' in msg_l:
+        return (
+            f'This AEPS product is not active for {who} on Fingpay (10005: {msg}). '
+            'Balance enquiry may still work. Ask Tapits to activate Cash Deposit / the product '
+            f'on fpaepsservice. Support context: {ctx or "see Admin → AEPS Provider"}.'
         )[:500]
 
     if code == '10005' and (
@@ -704,8 +795,10 @@ def explain_provider_failure(resp: dict, data: dict, merchant=None) -> str:
         return identity
 
     data = data if isinstance(data, dict) else {}
-    inner_code = str(data.get('responseCode') or '')
-    inner_msg = str(data.get('responseMessage') or data.get('errorMessage') or '')
+    inner_code = str(data.get('responseCode') or data.get('errorCode') or '')
+    inner_msg = str(
+        data.get('responseMessage') or data.get('errorMessage') or data.get('hindiErrorMessage') or ''
+    )
 
     biometric = _biometric_reject_message(inner_code, inner_msg)
     if biometric:
@@ -713,16 +806,67 @@ def explain_provider_failure(resp: dict, data: dict, merchant=None) -> str:
 
     if inner_msg:
         return (f'{inner_msg} ({inner_code})' if inner_code else inner_msg)[:500]
-    return str(resp.get('message') or '')[:500]
+    envelope = _envelope_message(resp)
+    return envelope[:500] if envelope else ''
 
 
-def apply_provider_result(txn: AepsTransaction, resp: dict, data: dict) -> None:
-    txn.response_code = str(data.get('responseCode') or resp.get('statusCode') or '')
-    txn.response_message = explain_provider_failure(resp, data, getattr(txn, 'merchant', None))[:500]
-    txn.fp_transaction_id = str(
+def _merge_provider_meta(prior: dict | None, scrubbed: dict, *, exchange_key: str) -> dict:
+    """Keep CD OTP step flags and prior exchanges; nest the latest Fingpay payload."""
+    prior = prior if isinstance(prior, dict) else {}
+    scrubbed = scrubbed if isinstance(scrubbed, dict) else {}
+    out = dict(prior)
+    for key in ('cd_otp_mode', 'cd_otp_step', 'generate_response', 'validate_response'):
+        if key in prior and key not in scrubbed:
+            out[key] = prior[key]
+    # Preserve first product call under original_exchange when status-check overwrites.
+    if exchange_key == 'status_check' and prior and 'original_exchange' not in prior:
+        prior_copy = {k: v for k, v in prior.items() if k not in ('status_check',)}
+        if prior_copy:
+            out['original_exchange'] = prior_copy
+    out[exchange_key] = scrubbed
+    # Flat convenience fields from scrubbed envelope (latest wins for UI).
+    for k, v in scrubbed.items():
+        if k.startswith('_'):
+            continue
+        out[k] = v
+    return out
+
+
+def apply_provider_result(
+    txn: AepsTransaction,
+    resp: dict,
+    data: dict,
+    *,
+    exchange_key: str = 'original',
+) -> None:
+    data = data if isinstance(data, dict) else {}
+    resp = resp if isinstance(resp, dict) else {}
+    prior_meta = txn.provider_meta if isinstance(txn.provider_meta, dict) else {}
+    prior_rrn = str(txn.bank_rrn or '')
+    prior_fp = str(txn.fp_transaction_id or '')
+    prior_msg = str(txn.response_message or '')
+    prior_code = str(txn.response_code or '')
+
+    explained = explain_provider_failure(resp, data, getattr(txn, 'merchant', None))
+    new_code = str(
+        data.get('responseCode')
+        or data.get('errorCode')
+        or _envelope_code(resp)
+        or ''
+    )
+    new_rrn = str(data.get('bankRRN') or data.get('bankRrn') or data.get('rrn') or '')
+    new_fp = str(
         data.get('fpTransactionId') or data.get('fingpayTransactionId') or data.get('fpTxnId') or ''
     )
-    txn.bank_rrn = str(data.get('bankRRN') or data.get('bankRrn') or data.get('rrn') or '')
+
+    # Never blank prior RRN / message when status-check returns empty failure.
+    txn.response_code = new_code or prior_code
+    if explained:
+        txn.response_message = explained[:500]
+    elif not prior_msg:
+        txn.response_message = ''
+    txn.fp_transaction_id = new_fp or prior_fp
+    txn.bank_rrn = new_rrn or prior_rrn
     if data.get('bankName'):
         txn.bank_name = str(data.get('bankName'))[:120]
     bal = _parse_balance_amount(data)
@@ -731,14 +875,36 @@ def apply_provider_result(txn: AepsTransaction, resp: dict, data: dict) -> None:
     rows = _parse_mini_statement(data)
     if rows is not None:
         txn.mini_statement = rows
-    txn.provider_meta = scrub_sensitive(resp)
+    txn.provider_meta = _merge_provider_meta(prior_meta, scrub_sensitive(resp), exchange_key=exchange_key)
+
+    api_status_false = resp.get('apiStatus') is False
+    envelope_code = _envelope_code(resp)
 
     if _is_success(resp, data):
         txn.status = 'success'
-    elif str(data.get('transactionStatusCode') or '') == 'FP009' or str(resp.get('statusCode')) in ('', 'None'):
+    elif api_status_false or (
+        envelope_code
+        and envelope_code not in ('', 'None', '10000')
+        and not data
+        and resp.get('status') is not True
+    ):
+        # Status-check style: {apiStatus:false, apiStatusCode:10005, data:null}
+        txn.status = 'failed'
+        if not txn.response_message:
+            txn.response_message = (
+                explained or _envelope_message(resp) or f'Provider rejected ({envelope_code})'
+            )[:500]
+    elif str(data.get('transactionStatusCode') or '') == 'FP009' or (
+        str(resp.get('statusCode')) in ('', 'None')
+        and not envelope_code
+        and not api_status_false
+        and resp.get('status') is not False
+    ):
         txn.status = 'pending'
     elif txn.response_code in ('91', '52', '08') and not txn.bank_rrn:
         txn.status = 'pending'
+    elif resp.get('status') is False or (envelope_code and envelope_code not in ('10000',)):
+        txn.status = 'failed'
     else:
         txn.status = 'failed'
     txn.save()
@@ -749,8 +915,16 @@ def acknowledge_transaction(txn: AepsTransaction, *, otp_mode: bool = False) -> 
 
     if txn.acknowledged or txn.status != 'success':
         return
+    if not product_ack_allowed(txn.product, otp_mode=otp_mode):
+        # Enquiry products — treat as acknowledged locally without calling Fingpay.
+        txn.acknowledged = True
+        txn.acknowledged_at = timezone.now()
+        txn.save(update_fields=['acknowledged', 'acknowledged_at', 'updated_at'])
+        return
     client = get_fingpay_client()
     path = ack_path_for_product(txn.product, otp_mode=otp_mode, client=client)
+    if not path:
+        return
     ack_key = 'ack_cd_otp' if (otp_mode or txn.product == 'CD_OTP') else ACK_PATH_KEYS.get(txn.product, 'ack_cw')
     body = {
         'merchantTransactionId': txn.merchant_tran_id,
@@ -802,8 +976,10 @@ def status_check(*, user, merchant_tran_id: str, otp_mode: bool = False) -> dict
     except Exception as exc:
         raise ValidationError({'code': 'PROVIDER_REJECTED', 'message': str(exc)}) from exc
     data = resp.get('data') if isinstance(resp.get('data'), dict) else {}
-    apply_provider_result(txn, resp, data)
-    if txn.status == 'success':
+    apply_provider_result(txn, resp, data, exchange_key='status_check')
+    if txn.status == 'success' and product_ack_allowed(
+        txn.product, otp_mode=otp_mode or txn.product == 'CD_OTP'
+    ):
         try:
             acknowledge_transaction(txn, otp_mode=otp_mode or txn.product == 'CD_OTP')
         except Exception:
@@ -882,10 +1058,21 @@ def cash_deposit_otp_generate(*, user, payload: dict, latitude, longitude, ip: s
             endpoint_key='cd_otp_generate',
         )
     except Exception as exc:
+        from apps.integrations.fingpay.client import FingpayClientError
+
+        err = str(exc)
+        status_code = getattr(exc, 'status_code', None) if isinstance(exc, FingpayClientError) else None
+        if status_code == 404 or 'HTTP 404' in err:
+            err = (
+                'Cash Deposit OTP is not available on Fingpay for this account/path (HTTP 404). '
+                'This is not fingerprint or location. Tapits must publish the Simple CD OTP URL. '
+                f'{_provider_support_context(merchant)}'
+            )
         txn.status = 'failed'
-        txn.response_message = str(exc)[:500]
+        txn.response_code = str(status_code or '')
+        txn.response_message = err[:500]
         txn.save()
-        raise ValidationError({'code': 'PROVIDER_REJECTED', 'message': str(exc)}) from exc
+        raise ValidationError({'code': 'PROVIDER_REJECTED', 'message': err[:500]}) from exc
     data = resp.get('data') if isinstance(resp.get('data'), dict) else {}
     ok = bool(resp.get('status') is True or str(resp.get('statusCode')) == '10000')
     txn.fp_transaction_id = str(
@@ -970,7 +1157,7 @@ def cash_deposit_otp_submit(*, user, merchant_tran_id: str, latitude, longitude)
         txn.save()
         return {'transaction': serialize_txn(txn), 'needs_status_check': True, 'error': str(exc)}
     data = resp.get('data') if isinstance(resp.get('data'), dict) else {}
-    apply_provider_result(txn, resp, data)
+    apply_provider_result(txn, resp, data, exchange_key='original')
     meta = dict(txn.provider_meta or {})
     meta['cd_otp_mode'] = True
     meta['cd_otp_step'] = 'completed'
@@ -1053,18 +1240,63 @@ def list_banks(list_type: str = 'aeps', *, auto_sync: bool = True):
     return rows
 
 
+def _resolve_bank_name(txn: AepsTransaction) -> str:
+    """Prefer stored name; fall back to IIN cache and backfill empty rows."""
+    name = str(getattr(txn, 'bank_name', '') or '').strip()
+    iin = str(getattr(txn, 'bank_iin', '') or '').strip()
+    if name or not iin:
+        return name
+    cached = (
+        AepsBankIinCache.objects.filter(iin=iin, is_active=True)
+        .values_list('bank_name', flat=True)
+        .first()
+    )
+    resolved = str(cached or '').strip()
+    if resolved and getattr(txn, 'pk', None):
+        try:
+            AepsTransaction.objects.filter(pk=txn.pk).update(bank_name=resolved[:120])
+            txn.bank_name = resolved[:120]
+        except Exception:
+            pass
+    return resolved
+
+
 def serialize_txn(txn: AepsTransaction) -> dict:
     meta = txn.provider_meta if isinstance(txn.provider_meta, dict) else {}
+    otp_mode = bool(meta.get('cd_otp_mode'))
+    product = str(txn.product or '').upper()
+    # Prefer nested original/status_check data for balance/statement UI fallbacks.
+    provider_data = {}
+    for key in ('original', 'original_exchange', 'status_check'):
+        block = meta.get(key)
+        if isinstance(block, dict):
+            nested = block.get('data')
+            if isinstance(nested, dict) and nested:
+                provider_data = nested
+                break
+    if not provider_data and isinstance(meta.get('data'), dict):
+        provider_data = meta.get('data') or {}
+    # Strip noisy debug keys from a shallow copy for the API.
+    safe_data = {}
+    if isinstance(provider_data, dict):
+        for k, v in provider_data.items():
+            if k in ('pidData', 'PidData', 'hmac', 'skey', 'encryptedPID'):
+                continue
+            safe_data[k] = v
+    bank_name = _resolve_bank_name(txn)
+    if not bank_name and isinstance(safe_data, dict):
+        bank_name = str(safe_data.get('bankName') or safe_data.get('bank_name') or '').strip()
     return {
         'id': txn.pk,
         'merchant_tran_id': txn.merchant_tran_id,
         'product': txn.product,
+        'product_label': PRODUCT_LABELS.get(product, product),
         'status': txn.status,
         'amount': str(txn.amount),
         'fee_amount': str(txn.fee_amount),
         'commission_amount': str(txn.commission_amount),
         'bank_iin': txn.bank_iin,
-        'bank_name': txn.bank_name,
+        'bank_name': bank_name,
         'masked_aadhaar': txn.masked_aadhaar,
         'customer_mobile': txn.customer_mobile,
         'fp_transaction_id': txn.fp_transaction_id,
@@ -1074,7 +1306,11 @@ def serialize_txn(txn: AepsTransaction) -> dict:
         'balance_amount': str(txn.balance_amount) if txn.balance_amount is not None else None,
         'mini_statement': txn.mini_statement or [],
         'acknowledged': txn.acknowledged,
-        'cd_otp_mode': bool(meta.get('cd_otp_mode')),
+        'ack_allowed': product_ack_allowed(product, otp_mode=otp_mode)
+        and txn.status == 'success'
+        and not txn.acknowledged,
+        'cd_otp_mode': otp_mode,
         'cd_otp_step': meta.get('cd_otp_step') or '',
+        'provider_data': safe_data,
         'created_at': txn.created_at.isoformat() if txn.created_at else None,
     }

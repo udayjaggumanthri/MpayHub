@@ -570,6 +570,28 @@ export const authAPI = {
   },
 
   /**
+   * After Admin rejection: clear KYC and restart submission.
+   * POST /api/auth/onboarding/kyc/resubmit/
+   */
+  resubmitOnboardingKyc: async (notes = '') => {
+    try {
+      const response = await apiClient.post('/auth/onboarding/kyc/resubmit/', {
+        notes: notes || '',
+      });
+      const result = extractData(response);
+      if (result.success && result.data?.user) {
+        sessionStorage.setItem(
+          'mpayhub_user',
+          JSON.stringify(normalizeAuthUser(result.data.user))
+        );
+      }
+      return result;
+    } catch (error) {
+      return handleError(error);
+    }
+  },
+
+  /**
    * KYC step 1: verify PAN. POST /api/auth/onboarding/kyc/pan/
    */
   verifyOnboardingPan: async (pan, name) => {
@@ -578,6 +600,26 @@ export const authAPI = {
         pan: String(pan ?? '').toUpperCase().trim(),
         name: String(name ?? '').trim(),
       });
+      const result = extractData(response);
+      if (result.success && result.data?.user) {
+        sessionStorage.setItem(
+          'mpayhub_user',
+          JSON.stringify(normalizeAuthUser(result.data.user))
+        );
+      }
+      return result;
+    } catch (error) {
+      return handleError(error);
+    }
+  },
+
+  /**
+   * Recover DigiLocker sessions that authenticated but never marked KYC complete.
+   * POST /api/auth/onboarding/kyc/digilocker/finalize-pending/
+   */
+  finalizePendingDigilockerKyc: async () => {
+    try {
+      const response = await apiClient.post('/auth/onboarding/kyc/digilocker/finalize-pending/');
       const result = extractData(response);
       if (result.success && result.data?.user) {
         sessionStorage.setItem(
@@ -934,8 +976,9 @@ export const usersAPI = {
   },
 
   /**
-   * Admin only: approve or reject KYC after provider verification.
+   * Admin only: approve, reject, or request re-KYC after provider verification.
    * POST /api/users/{id}/kyc-approval/
+   * decision: approve | reject | request_resubmit
    */
   decideKycApproval: async (userId, decision, notes = '') => {
     try {
@@ -1101,16 +1144,44 @@ export const walletsAPI = {
   },
 
   /**
-   * Transfer main → BBPS wallet (MPIN required)
-   * POST /api/wallets/transfer-to-bbps/
+   * Distributed Balance ledger (Admin)
+   * GET /api/wallets/distributed/ledger/
    */
-  transferMainToBbps: async ({ amount, mpin }) => {
+  getDistributedLedger: async (params = {}) => {
     try {
-      const response = await apiClient.post('/wallets/transfer-to-bbps/', { amount, mpin });
+      const response = await apiClient.get('/wallets/distributed/ledger/', { params });
       return extractData(response);
     } catch (error) {
       return handleError(error);
     }
+  },
+
+  /**
+   * Network under a manager (Admin)
+   * GET /api/wallets/distributed/network/{userId}/
+   */
+  getDistributedNetwork: async (userId, params = {}) => {
+    try {
+      const response = await apiClient.get(`/wallets/distributed/network/${userId}/`, { params });
+      return extractData(response);
+    } catch (error) {
+      return handleError(error);
+    }
+  },
+
+  /**
+   * Removed: main → BBPS transfer (single-wallet consolidation).
+   * Backend returns HTTP 410; kept so stale callers get a clear error.
+   */
+  transferMainToBbps: async () => {
+    return {
+      success: false,
+      message:
+        'Main-to-BBPS wallet transfer was removed. Bill payments use your main wallet.',
+      status: 410,
+      data: null,
+      errors: [],
+    };
   },
 };
 
@@ -2453,12 +2524,53 @@ export const reportsAPI = {
   },
 
   /**
-   * Get Commission Report
+   * Get Commission Report (legacy alias)
    * GET /api/reports/commission/
    */
   getCommissionReport: async (params = {}) => {
     try {
       const response = await apiClient.get('/reports/commission/', { params });
+      return extractData(response);
+    } catch (error) {
+      return handleError(error);
+    }
+  },
+
+  /**
+   * Unified Revenue & Commission report
+   * GET /api/reports/revenue/
+   */
+  getRevenueReport: async (params = {}) => {
+    try {
+      const response = await apiClient.get('/reports/revenue/', { params });
+      return extractData(response);
+    } catch (error) {
+      return handleError(error);
+    }
+  },
+
+  /**
+   * Revenue summary metric tiles
+   * GET /api/reports/revenue/summary/
+   */
+  getRevenueSummary: async (params = {}) => {
+    try {
+      const response = await apiClient.get('/reports/revenue/summary/', { params });
+      return extractData(response);
+    } catch (error) {
+      return handleError(error);
+    }
+  },
+
+  /**
+   * Per-transaction revenue split
+   * GET /api/reports/revenue/breakdown/<service_id>/
+   */
+  getRevenueBreakdown: async (serviceId) => {
+    try {
+      const response = await apiClient.get(
+        `/reports/revenue/breakdown/${encodeURIComponent(serviceId)}/`
+      );
       return extractData(response);
     } catch (error) {
       return handleError(error);
@@ -2474,6 +2586,32 @@ export const reportsAPI = {
       const response = await apiClient.get('/reports/dashboard/transaction-status-counts/', {
         params,
       });
+      return extractData(response);
+    } catch (error) {
+      return handleError(error);
+    }
+  },
+
+  /**
+   * Recent operational transactions for the dashboard widget.
+   * GET /api/reports/dashboard/recent/
+   */
+  getDashboardRecentTransactions: async (params = {}) => {
+    try {
+      const response = await apiClient.get('/reports/dashboard/recent/', { params });
+      return extractData(response);
+    } catch (error) {
+      return handleError(error);
+    }
+  },
+
+  /**
+   * Credits / debits / count for the dashboard summary widget.
+   * GET /api/reports/dashboard/summary/
+   */
+  getDashboardTodaysSummary: async (params = {}) => {
+    try {
+      const response = await apiClient.get('/reports/dashboard/summary/', { params });
       return extractData(response);
     } catch (error) {
       return handleError(error);

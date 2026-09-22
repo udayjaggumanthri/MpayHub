@@ -4,6 +4,7 @@ export const DEFAULT_MAINTENANCE = {
   payout: { enabled: true, message: '' },
   bbps: { enabled: true, message: '' },
   aeps: { enabled: false, message: '' },
+  cms: { enabled: false, message: '' },
 };
 
 export function normalizeMaintenance(raw) {
@@ -24,6 +25,7 @@ export function normalizeMaintenance(raw) {
     payout: pick('payout', true),
     bbps: pick('bbps', true),
     aeps: pick('aeps', false),
+    cms: pick('cms', false),
     updated_at: raw.updated_at || null,
     reason_internal: raw.reason_internal || '',
     updated_by: raw.updated_by || null,
@@ -68,6 +70,12 @@ export const MODULE_META = {
     title: 'AEPS paused',
     reportLabel: 'AEPS reports',
     reportPath: '/aeps/reports',
+  },
+  cms: {
+    label: 'CMS',
+    title: 'CMS paused',
+    reportLabel: 'CMS reports',
+    reportPath: '/cms/reports',
   },
 };
 

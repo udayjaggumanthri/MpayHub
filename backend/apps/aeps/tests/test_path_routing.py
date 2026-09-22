@@ -244,6 +244,42 @@ class ProviderFailureMessageTests(SimpleTestCase):
         self.assertIn('disabled AEPS', msg)
         self.assertIn('Tapits must enable', msg)
 
+    def test_10027_aadhaar_pay_disabled_is_product_specific(self):
+        from apps.aeps.services.products import explain_provider_failure
+
+        resp = {
+            'status': False,
+            'statusCode': 10027,
+            'message': 'Aadharpay services is temporarily disabled, please contact the distributor',
+        }
+        msg = explain_provider_failure(resp, {})
+        self.assertIn('Aadhaar Pay is temporarily disabled', msg)
+        self.assertNotIn('disabled AEPS', msg)
+        self.assertIn('Other AEPS products', msg)
+
+    def test_api_status_10005_merchant_not_active(self):
+        from apps.aeps.services.products import explain_provider_failure
+
+        resp = {
+            'data': None,
+            'apiStatus': False,
+            'apiStatusCode': 10005,
+            'apiStatusMessage': 'Merchant is not active.',
+        }
+        msg = explain_provider_failure(resp, {})
+        self.assertIn('not active', msg.lower())
+        self.assertIn('10005', msg)
+
+    def test_be_ack_not_allowed(self):
+        from apps.aeps.services.products import product_ack_allowed
+
+        self.assertFalse(product_ack_allowed('BE'))
+        self.assertFalse(product_ack_allowed('MS'))
+        self.assertTrue(product_ack_allowed('CW'))
+        self.assertTrue(product_ack_allowed('AP'))
+        self.assertTrue(product_ack_allowed('CD'))
+        self.assertTrue(product_ack_allowed('CD', otp_mode=True))
+
 
 class _FakeTxn:
     def __init__(self):
@@ -257,6 +293,17 @@ class _FakeTxn:
         self.mini_statement = []
         self.provider_meta = {}
         self.status = 'initiated'
+        self.product = 'CW'
+        self.acknowledged = False
+        self.merchant_tran_id = 'TXN1'
+        self.amount = 100
+        self.fee_amount = 0
+        self.commission_amount = 0
+        self.bank_iin = ''
+        self.masked_aadhaar = ''
+        self.customer_mobile = ''
+        self.created_at = None
+        self.pk = 1
 
     def save(self, **kwargs):
         pass
@@ -320,6 +367,31 @@ class ApplyProviderResultTests(SimpleTestCase):
         }
         apply_provider_result(txn, resp, data)
         self.assertEqual(txn.mini_statement, [line])
+
+    def test_status_check_preserves_original_meta_and_marks_failed(self):
+        from apps.aeps.services.products import apply_provider_result
+
+        txn = _FakeTxn()
+        txn.product = 'CD'
+        txn.provider_meta = {
+            'cd_otp_mode': False,
+            'message': 'first call',
+            'data': {'responseCode': '00'},
+        }
+        txn.response_message = 'first call'
+        txn.bank_rrn = 'OLD_RRN'
+        resp = {
+            'data': None,
+            'apiStatus': False,
+            'apiStatusCode': 10005,
+            'apiStatusMessage': 'Merchant is not active.',
+        }
+        apply_provider_result(txn, resp, {}, exchange_key='status_check')
+        self.assertEqual(txn.status, 'failed')
+        self.assertIn('not active', txn.response_message.lower())
+        self.assertEqual(txn.bank_rrn, 'OLD_RRN')
+        self.assertIn('original_exchange', txn.provider_meta)
+        self.assertIn('status_check', txn.provider_meta)
 
     def test_mini_statement_balance_used_when_balance_amount_missing(self):
         from decimal import Decimal

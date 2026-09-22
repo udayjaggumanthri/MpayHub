@@ -50,6 +50,10 @@ from apps.transactions.report_api import (
 from apps.core.permissions import IsAdmin
 from apps.transactions.analytics_summary import get_gateway_analytics_summary
 from apps.transactions.dashboard_stats import get_dashboard_transaction_status
+from apps.transactions.dashboard_home import (
+    get_recent_dashboard_transactions,
+    get_todays_summary,
+)
 
 
 def _audit_report_view(request, report_type: str, scope: str = ''):
@@ -254,6 +258,46 @@ def _report_page_params(request):
         page = 1
     page = max(1, page)
     return page, page_size
+
+
+@api_view(['GET'])
+@permission_classes([IsAuthenticated])
+def dashboard_recent_transactions_view(request):
+    """
+    Last few operational transactions for the signed-in user's dashboard widget.
+    Operators see platform-wide activity. GET /api/reports/dashboard/recent/
+    """
+    limit = request.query_params.get('limit') or 8
+    data = get_recent_dashboard_transactions(request.user, limit=limit)
+    return Response(
+        {
+            'success': True,
+            'data': data,
+            'message': 'OK',
+            'errors': [],
+        },
+        status=status.HTTP_200_OK,
+    )
+
+
+@api_view(['GET'])
+@permission_classes([IsAuthenticated])
+def dashboard_todays_summary_view(request):
+    """
+    Credits / debits / transaction count for the dashboard summary widget.
+    GET /api/reports/dashboard/summary/?interval=daily|weekly|monthly
+    """
+    interval = (request.query_params.get('interval') or 'daily').strip().lower()
+    data = get_todays_summary(request.user, interval=interval)
+    return Response(
+        {
+            'success': True,
+            'data': data,
+            'message': 'OK',
+            'errors': [],
+        },
+        status=status.HTTP_200_OK,
+    )
 
 
 @api_view(['GET'])
@@ -514,8 +558,11 @@ def commission_report_view(request):
             status=status.HTTP_403_FORBIDDEN,
         )
 
+    from apps.fund_management.platform_settlement import ledger_user_for_viewer, wallet_user_for_viewer
+
+    owner = ledger_user_for_viewer(request.user)
     ledger_qs = (
-        CommissionLedger.objects.filter(user=request.user)
+        CommissionLedger.objects.filter(user=owner)
         .filter(ledger_extra)
         .order_by('-created_at')
     )
@@ -524,8 +571,9 @@ def commission_report_view(request):
     page, page_size = _report_page_params(request)
     ledger_count = ledger_qs.count()
 
+    wallet_owner = wallet_user_for_viewer(request.user)
     try:
-        commission_wallet = Wallet.objects.get(user=request.user, wallet_type='commission')
+        commission_wallet = Wallet.objects.get(user=wallet_owner, wallet_type='commission')
         transactions = WalletTransaction.objects.filter(
             wallet=commission_wallet,
             transaction_type='credit',
@@ -541,7 +589,9 @@ def commission_report_view(request):
             total_commission = ledger_total
         else:
             total_commission = transactions.aggregate(s=Sum('amount'))['s'] or Decimal('0')
-        current_balance = commission_wallet.balance
+        # Post-consolidation: earnings live on main; commission wallet may be archived at 0.
+        main_w = Wallet.objects.filter(user=wallet_owner, wallet_type='main').first()
+        current_balance = main_w.balance if main_w else Decimal('0')
 
         from apps.wallets.serializers import WalletTransactionSerializer
 
@@ -589,6 +639,7 @@ def commission_report_view(request):
         end = start + page_size
         ledger_slice = list(ledger_qs[start:end])
         ledger_ser = CommissionLedgerSerializer(ledger_slice, many=True)
+        main_w = Wallet.objects.filter(user=wallet_owner, wallet_type='main').first()
         return Response(
             {
                 'success': True,
@@ -600,9 +651,9 @@ def commission_report_view(request):
                     'page': page,
                     'page_size': page_size,
                     'summary': {
-                        'total_commission': '0.0000',
+                        'total_commission': str(ledger_total),
                         'ledger_total': str(ledger_total),
-                        'current_balance': '0.0000',
+                        'current_balance': str(main_w.balance if main_w else Decimal('0')),
                         'count': 0,
                         'ledger_count': ledger_count,
                     },
@@ -877,8 +928,11 @@ def commission_report_export_csv(request):
             {'success': False, 'data': None, 'message': str(e.detail if hasattr(e, 'detail') else e), 'errors': []},
             status=status.HTTP_403_FORBIDDEN,
         )
+    from apps.fund_management.platform_settlement import ledger_user_for_viewer
+
+    owner = ledger_user_for_viewer(request.user)
     ledger_qs = (
-        CommissionLedger.objects.filter(user=request.user)
+        CommissionLedger.objects.filter(user=owner)
         .filter(ledger_extra)
         .order_by('-created_at')
     )

@@ -7,7 +7,7 @@ from typing import Any
 
 from django.core.cache import cache
 
-CACHE_KEY = 'platform_appearance_status_v1'
+CACHE_KEY = 'platform_appearance_status_v2'
 CACHE_TTL_SECONDS = 8
 
 DEFAULT_SITE_TITLE = 'mPayHub'
@@ -35,13 +35,16 @@ def get_config():
 def invalidate_cache() -> None:
     cache.delete(f'{CACHE_KEY}_public')
     cache.delete(f'{CACHE_KEY}_admin')
+    # Legacy keys from v1
+    cache.delete('platform_appearance_status_v1_public')
+    cache.delete('platform_appearance_status_v1_admin')
 
 
-def _logo_url(config, request=None) -> str | None:
-    if not config.logo:
+def _field_logo_url(file_field, request=None) -> str | None:
+    if not file_field:
         return None
     try:
-        url = config.logo.url
+        url = file_field.url
     except Exception:
         return None
     if request:
@@ -63,7 +66,8 @@ def _updated_by_dict(user) -> dict | None:
 def _build_status_dict(config, *, include_internal: bool = False, request=None) -> dict[str, Any]:
     out: dict[str, Any] = {
         'site_title': (config.site_title or '').strip() or DEFAULT_SITE_TITLE,
-        'logo_url': _logo_url(config, request),
+        'logo_url': _field_logo_url(config.logo, request),
+        'logo_dark_url': _field_logo_url(getattr(config, 'logo_dark', None), request),
         'login_welcome_heading': (config.login_welcome_heading or '').strip() or DEFAULT_LOGIN_WELCOME_HEADING,
         'login_tagline': (config.login_tagline or '').strip() or DEFAULT_LOGIN_TAGLINE,
         'login_footer_note': (config.login_footer_note or '').strip(),
@@ -77,6 +81,7 @@ def _build_status_dict(config, *, include_internal: bool = False, request=None) 
 
     if include_internal:
         out['has_logo'] = bool(config.logo)
+        out['has_logo_dark'] = bool(getattr(config, 'logo_dark', None))
         out['updated_by'] = _updated_by_dict(config.updated_by)
 
     return out
@@ -99,6 +104,23 @@ def get_status(*, include_internal: bool = False, use_cache: bool = True, reques
         cache.set(cache_key, status, CACHE_TTL_SECONDS)
 
     return status
+
+
+def _apply_logo_patch(config, patch: dict, *, field: str, remove_key: str, update_fields: list) -> None:
+    from apps.core.media_files import discard_stored_file
+
+    if patch.get(remove_key):
+        current = getattr(config, field, None)
+        if current:
+            discard_stored_file(current)
+            setattr(config, field, None)
+            update_fields.append(field)
+    elif field in patch and patch[field] is not None:
+        current = getattr(config, field, None)
+        if current:
+            discard_stored_file(current)
+        setattr(config, field, patch[field])
+        update_fields.append(field)
 
 
 def update_config(*, changed_by, patch: dict, request=None) -> dict[str, Any]:
@@ -134,20 +156,10 @@ def update_config(*, changed_by, patch: dict, request=None) -> dict[str, Any]:
         config.user_theme_toggle_enabled = bool(patch['user_theme_toggle_enabled'])
         update_fields.append('user_theme_toggle_enabled')
 
-    if patch.get('remove_logo'):
-        if config.logo:
-            from apps.core.media_files import discard_stored_file
-
-            discard_stored_file(config.logo)
-            config.logo = None
-            update_fields.append('logo')
-    elif 'logo' in patch and patch['logo'] is not None:
-        from apps.core.media_files import discard_stored_file
-
-        if config.logo:
-            discard_stored_file(config.logo)
-        config.logo = patch['logo']
-        update_fields.append('logo')
+    _apply_logo_patch(config, patch, field='logo', remove_key='remove_logo', update_fields=update_fields)
+    _apply_logo_patch(
+        config, patch, field='logo_dark', remove_key='remove_logo_dark', update_fields=update_fields
+    )
 
     if changed_by is not None:
         config.updated_by = changed_by

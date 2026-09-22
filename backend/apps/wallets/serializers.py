@@ -10,16 +10,27 @@ from apps.core.utils import validate_mpin
 
 class WalletSerializer(serializers.ModelSerializer):
     """Serializer for Wallet model."""
-    
+
+    available_balance = serializers.SerializerMethodField()
+
     class Meta:
         model = Wallet
-        fields = ['id', 'wallet_type', 'balance', 'created_at', 'updated_at']
-        read_only_fields = ['id', 'balance', 'created_at', 'updated_at']
+        fields = [
+            'id', 'wallet_type', 'balance', 'held_balance',
+            'available_balance', 'is_archived', 'created_at', 'updated_at',
+        ]
+        read_only_fields = [
+            'id', 'balance', 'held_balance', 'available_balance',
+            'is_archived', 'created_at', 'updated_at',
+        ]
+
+    def get_available_balance(self, obj):
+        return f'{obj.available_balance:.4f}'
 
 
 class WalletTransactionSerializer(serializers.ModelSerializer):
     """Serializer for WalletTransaction model."""
-    
+
     class Meta:
         model = WalletTransaction
         fields = [
@@ -30,15 +41,13 @@ class WalletTransactionSerializer(serializers.ModelSerializer):
 
 
 class WalletListSerializer(serializers.Serializer):
-    """Serializer for listing all wallets of a user."""
+    """Serializer for listing wallets of a user (main is the only live balance)."""
     main = WalletSerializer()
-    commission = WalletSerializer(required=False)
-    bbps = WalletSerializer()
-    profit = WalletSerializer(required=False)
+    distributed = serializers.DictField(required=False)
 
 
 class MainToBbpsTransferSerializer(serializers.Serializer):
-    """Move funds from main wallet to BBPS wallet (MPIN required)."""
+    """Deprecated: main→BBPS transfer removed after wallet consolidation."""
 
     amount = serializers.DecimalField(max_digits=12, decimal_places=2, min_value=Decimal('0.01'))
     mpin = serializers.CharField(write_only=True, max_length=6, min_length=6)

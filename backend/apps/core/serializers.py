@@ -26,10 +26,12 @@ class SystemMaintenanceUpdateSerializer(serializers.Serializer):
     payout_enabled = serializers.BooleanField(required=False)
     bbps_enabled = serializers.BooleanField(required=False)
     aeps_enabled = serializers.BooleanField(required=False)
+    cms_enabled = serializers.BooleanField(required=False)
     pay_in_message = serializers.CharField(required=False, allow_blank=True, max_length=2000)
     payout_message = serializers.CharField(required=False, allow_blank=True, max_length=2000)
     bbps_message = serializers.CharField(required=False, allow_blank=True, max_length=2000)
     aeps_message = serializers.CharField(required=False, allow_blank=True, max_length=2000)
+    cms_message = serializers.CharField(required=False, allow_blank=True, max_length=2000)
     reason_internal = serializers.CharField(required=False, allow_blank=True, max_length=5000)
 
 
@@ -47,6 +49,8 @@ class PlatformAppearanceUpdateSerializer(serializers.Serializer):
     user_theme_toggle_enabled = serializers.BooleanField(required=False)
     logo = serializers.ImageField(required=False, allow_null=True)
     remove_logo = serializers.BooleanField(required=False, default=False)
+    logo_dark = serializers.ImageField(required=False, allow_null=True)
+    remove_logo_dark = serializers.BooleanField(required=False, default=False)
 
     def validate_user_theme_toggle_enabled(self, value):
         return _coerce_bool(value)
@@ -54,7 +58,16 @@ class PlatformAppearanceUpdateSerializer(serializers.Serializer):
     def validate_remove_logo(self, value):
         return _coerce_bool(value)
 
+    def validate_remove_logo_dark(self, value):
+        return _coerce_bool(value)
+
     def validate_logo(self, value):
+        return self._validate_image(value)
+
+    def validate_logo_dark(self, value):
+        return self._validate_image(value)
+
+    def _validate_image(self, value):
         if not value:
             return value
         if value.size > MAX_IMAGE_BYTES:

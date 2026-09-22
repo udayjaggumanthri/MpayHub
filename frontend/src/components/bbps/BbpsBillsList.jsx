@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useCallback, useRef, useMemo } from 'react';
 import { useLocation, useNavigate, useSearchParams } from 'react-router-dom';
 import { FiDownload } from 'react-icons/fi';
-import { bbpsAPI } from '../../services/api';
+import { bbpsAPI, reportsAPI } from '../../services/api';
 import { formatCurrency, formatDateTime } from '../../utils/formatters';
 import { balanceFromRow, formatReportBalance } from '../../utils/reportBalanceDisplay';
 import { useAuth } from '../../context/AuthContext';
@@ -11,7 +11,9 @@ import {
   parseDrillDownSearchParams,
   statusForReportApi,
 } from '../../utils/dashboardDrillDown';
+import { reportPeriodFilterDates } from '../../utils/reportPeriodRange';
 import Card from '../common/Card';
+import ReportSummaryPeriodToggle from '../common/ReportSummaryPeriodToggle';
 import {
   FaCircleCheck,
   FaClock,
@@ -45,18 +47,26 @@ const EMPTY_FILTERS = {
   dateTo: '',
 };
 
-function mergeDrillDownFilters(drillDown) {
-  if (!drillDown?.hasDrillDown) return { ...EMPTY_FILTERS };
-  let status = drillDown.filters.status;
-  if (status === 'FAILURE') status = 'FAILURE';
-  else if (status === 'SUCCESS' || status === 'PENDING') status = status;
-  else status = 'ALL';
-  return {
-    ...EMPTY_FILTERS,
-    status,
-    dateFrom: drillDown.filters.dateFrom || '',
-    dateTo: drillDown.filters.dateTo || '',
-  };
+function mergeDrillDownFilters(drillDown, { defaultPeriodDates = false } = {}) {
+  const base = !drillDown?.hasDrillDown
+    ? { ...EMPTY_FILTERS }
+    : {
+        ...EMPTY_FILTERS,
+        status:
+          (() => {
+            let status = drillDown.filters.status;
+            if (status === 'FAILURE') return 'FAILURE';
+            if (status === 'SUCCESS' || status === 'PENDING') return status;
+            return 'ALL';
+          })(),
+        dateFrom: drillDown.filters.dateFrom || '',
+        dateTo: drillDown.filters.dateTo || '',
+        serviceId: drillDown.filters.serviceId || '',
+      };
+  if (defaultPeriodDates && !base.dateFrom && !base.dateTo) {
+    return { ...base, ...reportPeriodFilterDates('day') };
+  }
+  return base;
 }
 
 /**
@@ -88,7 +98,11 @@ const BbpsBillsList = ({
   const navigate = useNavigate();
   const [searchParams, setSearchParams] = useSearchParams();
   const drillDown = useMemo(() => parseDrillDownSearchParams(searchParams), [searchParams]);
-  const initialFilters = useMemo(() => mergeDrillDownFilters(drillDown), [drillDown]);
+  const isEmbedded = variant === 'embedded';
+  const initialFilters = useMemo(
+    () => mergeDrillDownFilters(drillDown, { defaultPeriodDates: false }),
+    [drillDown]
+  );
 
   const autoOpenDoneRef = useRef(false);
   const fetchIdRef = useRef(0);
@@ -112,16 +126,18 @@ const BbpsBillsList = ({
     return defaultScope;
   });
   const [showDashboardBanner, setShowDashboardBanner] = useState(drillDown.fromDashboard);
+  const [summaryPeriod, setSummaryPeriod] = useState('day');
+  const [summary, setSummary] = useState({ success: 0, pending: 0, failure: 0 });
+  const [summaryRefreshing, setSummaryRefreshing] = useState(false);
 
   const selectedIdentity = deriveReceiptIdentity(selectedTransaction || {});
   const showAgentColumn = listScope === 'platform' || listScope === 'team';
-  const isEmbedded = variant === 'embedded';
 
   const userId = user?.id ?? user?.user_id;
   const userRole = user?.role;
 
   useEffect(() => {
-    const next = mergeDrillDownFilters(drillDown);
+    const next = mergeDrillDownFilters(drillDown, { defaultPeriodDates: false });
     setFilters((prev) => (filtersEqual(prev, next) ? prev : next));
     setAppliedFilters((prev) => (filtersEqual(prev, next) ? prev : next));
     if (drillDown.scope === DRILLDOWN_SCOPE_PLATFORM && isAdminUser(user)) {
@@ -129,7 +145,39 @@ const BbpsBillsList = ({
     }
     setShowDashboardBanner(drillDown.fromDashboard);
     if (drillDown.hasDrillDown) setShowFilters(true);
-  }, [drillDown, userId, userRole]);
+  }, [drillDown, userId, userRole, isEmbedded, user]);
+
+  const loadStatusSummary = useCallback(async () => {
+    if (!isEmbedded) return;
+    setSummaryRefreshing(true);
+    try {
+      const dates = reportPeriodFilterDates(summaryPeriod);
+      const params = {
+        scope: listScope,
+        page: 1,
+        page_size: 1,
+        date_from: dates.dateFrom,
+        date_to: dates.dateTo,
+      };
+      const result = await reportsAPI.getBBPSReport(params);
+      if (!result.success) return;
+      const by = result.data?.summary?.by_status || {};
+      const parseAmt = (x) => parseFloat(x || '0') || 0;
+      setSummary({
+        success: parseAmt(by.SUCCESS?.amount),
+        pending: parseAmt(by.PENDING?.amount) + parseAmt(by.PENDING_REVIEW?.amount),
+        failure: parseAmt(by.FAILED?.amount) + parseAmt(by.FAILURE?.amount),
+      });
+    } catch {
+      /* keep prior */
+    } finally {
+      setSummaryRefreshing(false);
+    }
+  }, [isEmbedded, summaryPeriod, listScope]);
+
+  useEffect(() => {
+    loadStatusSummary();
+  }, [loadStatusSummary]);
 
   const buildListParams = useCallback(() => {
     const params = { page, page_size: pageSize, scope: listScope };
@@ -246,12 +294,22 @@ const BbpsBillsList = ({
   };
 
   const clearFilters = () => {
+    setSummaryPeriod('day');
     const cleared = { ...EMPTY_FILTERS };
     setFilters(cleared);
     setPage(1);
     setAppliedFilters(cleared);
     setSearchParams({});
     setShowDashboardBanner(false);
+  };
+
+  const changeSummaryPeriod = (period) => {
+    if (!period || period === summaryPeriod) return;
+    setSummaryPeriod(period);
+    const dates = reportPeriodFilterDates(period);
+    setFilters((prev) => ({ ...prev, ...dates }));
+    setAppliedFilters((prev) => ({ ...prev, ...dates }));
+    setPage(1);
   };
 
   const handleViewDetails = async (transaction) => {
@@ -281,27 +339,42 @@ const BbpsBillsList = ({
   useEffect(() => {
     if (autoOpenDoneRef.current) return;
     if (loading || !transactions.length) return;
-    const ref = location.state?.openReceipt;
-    if (!ref) return;
 
     let target = null;
-    if (ref.paymentId != null) {
-      target = transactions.find((t) => String(t.id) === String(ref.paymentId));
+    const ref = location.state?.openReceipt;
+    if (ref) {
+      if (ref.paymentId != null) {
+        target = transactions.find((t) => String(t.id) === String(ref.paymentId));
+      }
+      if (!target && ref.serviceId) {
+        target = transactions.find((t) => String(t.serviceId || '') === String(ref.serviceId));
+      }
+      if (!target && ref.requestId) {
+        target = transactions.find((t) => String(t.requestId || '') === String(ref.requestId));
+      }
     }
-    if (!target && ref.serviceId) {
-      target = transactions.find((t) => String(t.serviceId || '') === String(ref.serviceId));
+
+    if (!target && drillDown.openReceipt && drillDown.filters.serviceId) {
+      const sid = String(drillDown.filters.serviceId);
+      target = transactions.find((t) => String(t.serviceId || '') === sid);
     }
-    if (!target && ref.requestId) {
-      target = transactions.find((t) => String(t.requestId || '') === String(ref.requestId));
-    }
+
     if (!target) return;
 
     autoOpenDoneRef.current = true;
     handleViewDetails(target);
-    if (!isEmbedded) {
+    if (!isEmbedded && location.state?.openReceipt) {
       navigate('/bill-payments/my-bills', { replace: true, state: null });
     }
-  }, [loading, transactions, location.state, navigate, isEmbedded]);
+  }, [
+    loading,
+    transactions,
+    location.state,
+    navigate,
+    isEmbedded,
+    drillDown.openReceipt,
+    drillDown.filters.serviceId,
+  ]);
 
   const downloadReceipt = (txn, { mobile = false } = {}) => {
     if (!txn) return;
@@ -394,6 +467,40 @@ const BbpsBillsList = ({
       {headerRow}
       {scopeToggle}
 
+      {isEmbedded ? (
+        <div className="mb-1 space-y-3">
+          <ReportSummaryPeriodToggle
+            period={summaryPeriod}
+            onChange={changeSummaryPeriod}
+            refreshing={summaryRefreshing}
+          />
+          <div
+            className={`grid grid-cols-1 sm:grid-cols-3 gap-3 transition-opacity ${
+              summaryRefreshing ? 'opacity-70' : ''
+            }`}
+          >
+            <div className="bg-green-50 dark:bg-green-950/40 border-2 border-green-200 dark:border-green-800 rounded-lg p-4">
+              <p className="text-sm text-gray-600 dark:text-slate-400 mb-1">SUCCESS</p>
+              <p className="text-2xl font-bold text-green-600 dark:text-green-400">
+                {formatCurrency(summary.success)}
+              </p>
+            </div>
+            <div className="bg-yellow-50 dark:bg-yellow-950/40 border-2 border-yellow-200 dark:border-yellow-800 rounded-lg p-4">
+              <p className="text-sm text-gray-600 dark:text-slate-400 mb-1">PENDING</p>
+              <p className="text-2xl font-bold text-yellow-600 dark:text-yellow-400">
+                {formatCurrency(summary.pending)}
+              </p>
+            </div>
+            <div className="bg-red-50 dark:bg-red-950/40 border-2 border-red-200 dark:border-red-800 rounded-lg p-4">
+              <p className="text-sm text-gray-600 dark:text-slate-400 mb-1">FAILURE</p>
+              <p className="text-2xl font-bold text-red-600 dark:text-red-400">
+                {formatCurrency(summary.failure)}
+              </p>
+            </div>
+          </div>
+        </div>
+      ) : null}
+
       <CollapsibleReportFilters
         open={showFilters}
         onOpenChange={setShowFilters}
@@ -468,13 +575,16 @@ const BbpsBillsList = ({
           </div>
         ) : (
           <div className={isRefreshing ? 'opacity-60 pointer-events-none' : ''}>
-          <div className="overflow-x-auto -mx-4 sm:mx-0">
+          <div className="overflow-x-auto -mx-2 sm:mx-0">
             <div className="inline-block min-w-full align-middle">
-              <table className="min-w-full divide-y divide-gray-200 dark:divide-slate-700">
+              <table className="min-w-[1280px] w-full divide-y divide-gray-200 dark:divide-slate-700 whitespace-nowrap">
                 <thead className="bg-gray-50 dark:bg-slate-800/50">
                   <tr>
                     <th className="px-3 py-3 text-left text-xs font-medium text-gray-500 dark:text-slate-400 uppercase tracking-wider">
                       S.No
+                    </th>
+                    <th className="px-3 py-3 text-left text-xs font-medium text-gray-500 dark:text-slate-400 uppercase tracking-wider">
+                      Transaction Date
                     </th>
                     <th className="px-3 py-3 text-left text-xs font-medium text-gray-500 dark:text-slate-400 uppercase tracking-wider">
                       Transaction ID
@@ -502,9 +612,6 @@ const BbpsBillsList = ({
                     <th className="px-3 py-3 text-left text-xs font-medium text-gray-500 dark:text-slate-400 uppercase tracking-wider">
                       Charges
                     </th>
-                    <th className="px-3 py-3 text-left text-xs font-medium text-gray-500 dark:text-slate-400 uppercase tracking-wider">
-                      Transaction Date
-                    </th>
                     <th className="px-3 py-3 text-right text-xs font-medium text-gray-500 dark:text-slate-400 uppercase tracking-wider">
                       Opening balance
                     </th>
@@ -522,47 +629,45 @@ const BbpsBillsList = ({
                 <tbody className="bg-white dark:bg-slate-900 divide-y divide-gray-200 dark:divide-slate-700">
                   {transactions.map((txn, index) => (
                     <tr key={txn.id} className="hover:bg-gray-50 dark:hover:bg-slate-800 transition-colors">
-                      <td className="px-3 py-4 whitespace-nowrap text-sm text-gray-900 dark:text-slate-100">{(page - 1) * pageSize + index + 1}</td>
-                      <td className="px-3 py-4 whitespace-nowrap">
+                      <td className="px-3 py-2.5 whitespace-nowrap text-sm text-gray-900 dark:text-slate-100">{(page - 1) * pageSize + index + 1}</td>
+                      <td className="px-3 py-2.5 whitespace-nowrap text-sm text-gray-900 dark:text-slate-100">
+                        {formatDateTime(txn.date)}
+                      </td>
+                      <td className="px-3 py-2.5 whitespace-nowrap">
                         <div className="text-sm font-medium text-blue-600 dark:text-blue-400">{txn.serviceId || txn.id}</div>
                       </td>
-                      <td className="px-3 py-4 whitespace-nowrap">
+                      <td className="px-3 py-2.5 whitespace-nowrap">
                         <div className="text-sm text-gray-900 dark:text-slate-100 font-mono">{txn.requestId || 'N/A'}</div>
                       </td>
                       {showAgentColumn && (
-                        <td className="px-3 py-4 whitespace-nowrap text-sm text-gray-900 dark:text-slate-100">
-                          <div className="font-medium">{txn.agentUserCode || txn.agentName || '—'}</div>
-                          {txn.agentRole && <div className="text-xs text-gray-500 dark:text-slate-400">{txn.agentRole}</div>}
+                        <td className="px-3 py-2.5 whitespace-nowrap text-sm text-gray-900 dark:text-slate-100">
+                          {[txn.agentUserCode || txn.agentName, txn.agentRole].filter(Boolean).join(' · ') || '—'}
                         </td>
                       )}
-                      <td className="px-3 py-4 whitespace-nowrap text-sm font-bold text-gray-900 dark:text-slate-100">
+                      <td className="px-3 py-2.5 whitespace-nowrap text-sm font-bold text-gray-900 dark:text-slate-100">
                         {formatCurrency(txn.amount + (txn.charge || 0))}
                       </td>
-                      <td className="px-3 py-4 whitespace-nowrap text-sm font-semibold text-gray-900 dark:text-slate-100">
+                      <td className="px-3 py-2.5 whitespace-nowrap text-sm font-semibold text-gray-900 dark:text-slate-100">
                         {formatCurrency(txn.amount)}
                       </td>
-                      <td className="px-3 py-4 whitespace-nowrap text-sm text-gray-900 dark:text-slate-100">
+                      <td className="px-3 py-2.5 whitespace-nowrap text-sm text-gray-900 dark:text-slate-100">
                         {txn.billType || 'N/A'}
                       </td>
-                      <td className="px-3 py-4 whitespace-nowrap">
-                        <div className="text-sm text-gray-900 dark:text-slate-100">
-                          <div className="font-medium">{txn.biller || 'N/A'}</div>
-                          {txn.billerId && <div className="text-xs text-gray-500 dark:text-slate-400">ID: {txn.billerId}</div>}
-                        </div>
+                      <td className="px-3 py-2.5 whitespace-nowrap text-sm text-gray-900 dark:text-slate-100">
+                        {[txn.biller || 'N/A', txn.billerId ? `ID: ${txn.billerId}` : null]
+                          .filter(Boolean)
+                          .join(' · ')}
                       </td>
-                      <td className="px-3 py-4 whitespace-nowrap text-sm text-gray-600 dark:text-slate-400">
+                      <td className="px-3 py-2.5 whitespace-nowrap text-sm text-gray-600 dark:text-slate-400">
                         {formatCurrency(txn.charge || 0)}
                       </td>
-                      <td className="px-3 py-4 whitespace-nowrap text-sm text-gray-900 dark:text-slate-100">
-                        {formatDateTime(txn.date)}
-                      </td>
-                      <td className="px-3 py-4 whitespace-nowrap text-sm text-gray-900 dark:text-slate-100 text-right">
+                      <td className="px-3 py-2.5 whitespace-nowrap text-sm text-gray-900 dark:text-slate-100 text-right">
                         {formatReportBalance(balanceFromRow(txn).opening)}
                       </td>
-                      <td className="px-3 py-4 whitespace-nowrap text-sm text-gray-900 dark:text-slate-100 text-right">
+                      <td className="px-3 py-2.5 whitespace-nowrap text-sm text-gray-900 dark:text-slate-100 text-right">
                         {formatReportBalance(balanceFromRow(txn).closing)}
                       </td>
-                      <td className="px-3 py-4 whitespace-nowrap">
+                      <td className="px-3 py-2.5 whitespace-nowrap">
                         <span
                           className={`inline-flex items-center space-x-1 px-2 py-1 rounded-full text-xs font-semibold border ${getStatusColor(
                             txn.status
@@ -572,7 +677,7 @@ const BbpsBillsList = ({
                           <span>{txn.status}</span>
                         </span>
                       </td>
-                      <td className="px-3 py-4 whitespace-nowrap text-center">
+                      <td className="px-3 py-2.5 whitespace-nowrap text-center">
                         <button
                           type="button"
                           onClick={() => handleViewDetails(txn)}

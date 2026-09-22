@@ -2,6 +2,7 @@ import React, { useState, useEffect, useCallback } from 'react';
 import { useParams, useNavigate, Link } from 'react-router-dom';
 import { usersAPI, fundManagementAPI } from '../../services/api';
 import aepsAPI from '../../modules/aeps/services/aepsApi';
+import cmsAPI from '../../modules/cms/services/cmsApi';
 import { formatUserId, formatCurrency } from '../../utils/formatters';
 import { validateEmail, validatePhone } from '../../utils/validators';
 import { useAuth } from '../../context/AuthContext';
@@ -26,6 +27,7 @@ import {
   FaPenToSquare,
   FaWallet,
   FaArrowsRotate,
+  FaNetworkWired,
 } from 'react-icons/fa6';
 import Button from '../common/Button';
 import Card from '../common/Card';
@@ -111,9 +113,12 @@ const UserDetail = () => {
   const [aepsEntitlement, setAepsEntitlement] = useState(null);
   const [aepsBusy, setAepsBusy] = useState(false);
   const [aepsMessage, setAepsMessage] = useState('');
+  const [cmsEntitlement, setCmsEntitlement] = useState(null);
+  const [cmsBusy, setCmsBusy] = useState(false);
+  const [cmsMessage, setCmsMessage] = useState('');
   const [packageMessage, setPackageMessage] = useState('');
 
-  const [userWallets, setUserWallets] = useState({ main: 0, commission: 0, bbps: 0, profit: 0 });
+  const [userWallets, setUserWallets] = useState({ main: 0, held: 0 });
   const [walletsLoading, setWalletsLoading] = useState(false);
   const [walletsError, setWalletsError] = useState('');
 
@@ -160,11 +165,10 @@ const UserDetail = () => {
       const res = await usersAPI.getUserWallets(userId);
       if (res.success && res.data?.wallets) {
         const w = res.data.wallets;
+        const main = w.main || {};
         setUserWallets({
-          main: parseFloat(w.main?.balance || w.main || 0) || 0,
-          commission: parseFloat(w.commission?.balance || w.commission || 0) || 0,
-          bbps: parseFloat(w.bbps?.balance || w.bbps || 0) || 0,
-          profit: parseFloat(w.profit?.balance || w.profit || 0) || 0,
+          main: parseFloat(main.balance || main || 0) || 0,
+          held: parseFloat(main.held_balance || 0) || 0,
         });
       } else {
         setWalletsError(res.message || 'Failed to load wallet balances.');
@@ -231,6 +235,9 @@ const UserDetail = () => {
     if (!isAdmin || !userId) return;
     aepsAPI.adminUserEntitlement(userId).then((res) => {
       if (res.success) setAepsEntitlement(res.data);
+    });
+    cmsAPI.adminUserEntitlement(userId).then((res) => {
+      if (res.success) setCmsEntitlement(res.data);
     });
   }, [isAdmin, userId]);
 
@@ -506,7 +513,12 @@ const UserDetail = () => {
   const handleKycDecision = async (decision) => {
     if (!isAdmin || !user?.id) return;
     if (String(user.id) === String(currentUserId)) return;
-    const notes = decision === 'reject' ? (kycRejectNotes || '').trim() : '';
+    const notes =
+      decision === 'reject'
+        ? (kycRejectNotes || '').trim()
+        : decision === 'request_resubmit'
+          ? 'Administrator requested re-KYC submission.'
+          : '';
     if (decision === 'reject' && !notes) {
       setKycDecisionMessage('Enter a rejection reason before rejecting KYC.');
       return;
@@ -518,7 +530,14 @@ const UserDetail = () => {
       if (res.success) {
         const u = res.data?.user ?? res.data;
         if (u && u.id != null) setUser(u);
-        setKycDecisionMessage(res.message || (decision === 'approve' ? 'KYC approved.' : 'KYC rejected.'));
+        setKycDecisionMessage(
+          res.message ||
+            (decision === 'approve'
+              ? 'KYC approved.'
+              : decision === 'request_resubmit'
+                ? 'Re-KYC requested.'
+                : 'KYC rejected.')
+        );
         setKycRejectOpen(false);
         setKycRejectNotes('');
       } else {
@@ -574,8 +593,10 @@ const UserDetail = () => {
         : 'Pending';
   const mpinOk = user.mpin_configured === true;
   const isSelf = String(user.id) === String(currentUserId);
-  const showCommissionWallet = user.role && user.role !== 'Retailer';
-  const showProfitWallet = user.role === 'Admin';
+  const canViewNetwork =
+    isAdmin &&
+    ['Super Distributor', 'Master Distributor', 'Distributor'].includes(user.role || '');
+
 
   return (
     <div className="min-h-[calc(100vh-6rem)] bg-gradient-to-b from-slate-50 dark:from-slate-900 via-white dark:via-slate-900 to-slate-50/80 dark:to-slate-900/80">
@@ -584,6 +605,19 @@ const UserDetail = () => {
           fullName={fullName}
           user={user}
           onBack={() => navigate(-1)}
+          actions={
+            canViewNetwork ? (
+              <Button
+                variant="outline"
+                size="sm"
+                icon={FaNetworkWired}
+                iconPosition="left"
+                onClick={() => navigate(`/wallets/distributed?manager=${user.id}`)}
+              >
+                View network
+              </Button>
+            ) : null
+          }
         />
 
         <div className="rounded-2xl border border-slate-200/90 dark:border-slate-700/90 bg-white dark:bg-slate-900 px-2 pt-1 shadow-sm ring-1 ring-slate-900/5">
@@ -801,35 +835,24 @@ const UserDetail = () => {
                   {walletsError && (
                     <p className="mb-4 text-sm text-red-600 dark:text-red-400">{walletsError}</p>
                   )}
-                  <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                     <div className="rounded-xl border border-blue-100 dark:border-blue-900 bg-blue-50/80 dark:bg-blue-950/40 p-4 text-center">
                       <p className="text-xs font-semibold uppercase tracking-wide text-slate-600 dark:text-slate-400 mb-1">Main Wallet</p>
                       <p className="text-xl font-bold text-blue-700 dark:text-blue-300 tabular-nums">
                         {walletsLoading ? '...' : formatCurrency(userWallets.main)}
                       </p>
-                    </div>
-                    {showCommissionWallet && (
-                      <div className="rounded-xl border border-emerald-100 dark:border-emerald-900 bg-emerald-50/80 dark:bg-emerald-950/40 p-4 text-center">
-                        <p className="text-xs font-semibold uppercase tracking-wide text-slate-600 dark:text-slate-400 mb-1">Commission Wallet</p>
-                        <p className="text-xl font-bold text-emerald-700 dark:text-emerald-300 tabular-nums">
-                          {walletsLoading ? '...' : formatCurrency(userWallets.commission)}
+                      {userWallets.held > 0 && (
+                        <p className="mt-1 text-xs text-amber-700 dark:text-amber-300">
+                          Held: {formatCurrency(userWallets.held)}
                         </p>
-                      </div>
-                    )}
-                    <div className="rounded-xl border border-amber-100 dark:border-amber-900 bg-amber-50/80 dark:bg-amber-950/40 p-4 text-center">
-                      <p className="text-xs font-semibold uppercase tracking-wide text-slate-600 dark:text-slate-400 mb-1">BBPS Wallet</p>
-                      <p className="text-xl font-bold text-amber-700 dark:text-amber-300 tabular-nums">
-                        {walletsLoading ? '...' : formatCurrency(userWallets.bbps)}
+                      )}
+                    </div>
+                    <div className="rounded-xl border border-emerald-100 dark:border-emerald-900 bg-emerald-50/80 dark:bg-emerald-950/40 p-4 text-center">
+                      <p className="text-xs font-semibold uppercase tracking-wide text-slate-600 dark:text-slate-400 mb-1">Earnings</p>
+                      <p className="text-sm font-medium text-emerald-700 dark:text-emerald-300">
+                        Commission &amp; service fees credit the main wallet
                       </p>
                     </div>
-                    {showProfitWallet && (
-                      <div className="rounded-xl border border-violet-100 dark:border-violet-900 bg-violet-50/80 dark:bg-violet-950/40 p-4 text-center">
-                        <p className="text-xs font-semibold uppercase tracking-wide text-slate-600 dark:text-slate-400 mb-1">Profit Wallet</p>
-                        <p className="text-xl font-bold text-violet-700 dark:text-violet-300 tabular-nums">
-                          {walletsLoading ? '...' : formatCurrency(userWallets.profit)}
-                        </p>
-                      </div>
-                    )}
                   </div>
                 </div>
               </Card>
@@ -947,7 +970,7 @@ const UserDetail = () => {
                         <p className="text-sm font-semibold text-amber-950 dark:text-amber-200">
                           {kycAwaiting
                             ? 'Documents verified — Admin approval required before this account becomes active.'
-                            : 'KYC was rejected. You may approve after review if documents are acceptable.'}
+                            : 'KYC was rejected. You may approve after review if documents are acceptable, or request a fresh submission.'}
                         </p>
                         <div className="flex flex-wrap gap-2">
                           <Button
@@ -976,6 +999,24 @@ const UserDetail = () => {
                               Reject
                             </Button>
                           ) : null}
+                          <Button
+                            onClick={() => {
+                              if (
+                                window.confirm(
+                                  'Request re-KYC? This clears verified documents and asks the user to submit again.'
+                                )
+                              ) {
+                                handleKycDecision('request_resubmit');
+                              }
+                            }}
+                            disabled={kycDecisionSaving}
+                            variant="outline"
+                            size="md"
+                            icon={FaArrowsRotate}
+                            iconPosition="left"
+                          >
+                            Request re-KYC
+                          </Button>
                         </div>
                         {kycRejectOpen ? (
                           <div className="space-y-2">
@@ -1004,13 +1045,43 @@ const UserDetail = () => {
                         {kycDecisionMessage ? (
                           <p
                             className={`text-sm ${
-                              /approv/i.test(kycDecisionMessage) && !/fail|cannot|required|error/i.test(kycDecisionMessage)
+                              /approv|re-kyc|resubmit/i.test(kycDecisionMessage) &&
+                              !/fail|cannot|required|error/i.test(kycDecisionMessage)
                                 ? 'text-emerald-700 dark:text-emerald-300'
                                 : 'text-slate-700 dark:text-slate-300'
                             }`}
                           >
                             {kycDecisionMessage}
                           </p>
+                        ) : null}
+                      </div>
+                    ) : null}
+                    {isAdmin && !isSelf && kycOk ? (
+                      <div className="mt-6 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50/80 dark:bg-slate-800/40 px-4 py-4 space-y-3">
+                        <p className="text-sm text-slate-700 dark:text-slate-300">
+                          KYC is verified. You can still force a fresh verification if documents need to be
+                          collected again.
+                        </p>
+                        <Button
+                          onClick={() => {
+                            if (
+                              window.confirm(
+                                'Request re-KYC for this verified user? They will need to submit documents again.'
+                              )
+                            ) {
+                              handleKycDecision('request_resubmit');
+                            }
+                          }}
+                          disabled={kycDecisionSaving}
+                          variant="outline"
+                          size="md"
+                          icon={FaArrowsRotate}
+                          iconPosition="left"
+                        >
+                          {kycDecisionSaving ? 'Saving…' : 'Request re-KYC'}
+                        </Button>
+                        {kycDecisionMessage ? (
+                          <p className="text-sm text-slate-700 dark:text-slate-300">{kycDecisionMessage}</p>
                         ) : null}
                       </div>
                     ) : null}
@@ -1408,6 +1479,75 @@ const UserDetail = () => {
                     </Button>
                   </div>
                   {aepsMessage ? <p className="text-sm text-slate-600 dark:text-slate-400">{aepsMessage}</p> : null}
+                </div>
+              </Card>
+            )}
+
+            {isAdmin && !isSelf && (
+              <Card>
+                <div className="px-6 py-4 border-b border-slate-100 dark:border-slate-800">
+                  <div className="flex items-center gap-3">
+                    <div className="h-10 w-10 rounded-xl bg-emerald-100 dark:bg-emerald-900/40 flex items-center justify-center">
+                      <FaBuilding className="text-emerald-600 dark:text-emerald-400" size={18} />
+                    </div>
+                    <div>
+                      <h2 className="text-lg font-bold text-slate-900 dark:text-slate-100">CMS access</h2>
+                      <p className="text-xs text-slate-500 dark:text-slate-400">
+                        Admin-only. Enabled users appear under CMS → Agents.
+                      </p>
+                    </div>
+                  </div>
+                </div>
+                <div className="p-6 space-y-3">
+                  <p className="text-sm text-slate-700 dark:text-slate-300">
+                    Status:{' '}
+                    <span className="font-semibold">
+                      {cmsEntitlement?.enabled ? 'Enabled' : 'Disabled'}
+                    </span>
+                    {cmsEntitlement?.bc_login_id
+                      ? ` · BC: ${cmsEntitlement.bc_login_id}`
+                      : ''}
+                    {cmsEntitlement?.agent_status
+                      ? ` · Agent: ${cmsEntitlement.agent_status}`
+                      : ''}
+                  </p>
+                  <div className="flex flex-wrap gap-2">
+                    <Button
+                      size="sm"
+                      variant="primary"
+                      disabled={cmsBusy || cmsEntitlement?.enabled}
+                      onClick={async () => {
+                        setCmsBusy(true);
+                        const res = await cmsAPI.adminEnable(user.id);
+                        setCmsMessage(res.success ? 'CMS enabled. Agent listed under CMS Agents.' : res.message);
+                        if (res.success) {
+                          const fresh = await cmsAPI.adminUserEntitlement(userId);
+                          if (fresh.success) setCmsEntitlement(fresh.data);
+                        }
+                        setCmsBusy(false);
+                      }}
+                    >
+                      Enable CMS
+                    </Button>
+                    <Button
+                      size="sm"
+                      variant="secondary"
+                      disabled={cmsBusy || !cmsEntitlement?.enabled}
+                      onClick={async () => {
+                        setCmsBusy(true);
+                        const res = await cmsAPI.adminDisable(user.id, 'Disabled from user profile');
+                        setCmsMessage(res.success ? 'CMS disabled. Module hidden for this user.' : res.message);
+                        if (res.success) {
+                          const fresh = await cmsAPI.adminUserEntitlement(userId);
+                          if (fresh.success) setCmsEntitlement(fresh.data);
+                        }
+                        setCmsBusy(false);
+                      }}
+                    >
+                      Disable CMS
+                    </Button>
+                  </div>
+                  {cmsMessage ? <p className="text-sm text-slate-600 dark:text-slate-400">{cmsMessage}</p> : null}
                 </div>
               </Card>
             )}

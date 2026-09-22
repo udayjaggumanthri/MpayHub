@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 from datetime import date, datetime
 from decimal import Decimal
 from uuid import UUID
@@ -39,6 +40,8 @@ from apps.integrations.models import BillAvenueConfig, BillAvenueModeChannelPoli
 from apps.transactions.agent_snapshot import passbook_initiator_db_fields, transaction_agent_db_fields
 from apps.transactions.models import PassbookEntry, Transaction
 from apps.wallets.models import Wallet
+
+logger = logging.getLogger(__name__)
 
 
 def _to_paise(amount) -> int:
@@ -283,10 +286,10 @@ def process_bill_payment_flow(*, user, bill_data: dict) -> dict:
     charge_info['shadow_mode'] = not bool(getattr(settings, 'BBPS_COMMISSION_FINANCIAL_IMPACT_ENABLED', False))
     total = charge_info['total_deducted']
 
-    bbps_wallet = Wallet.get_wallet(user, 'bbps')
-    if bbps_wallet.balance < total:
+    bbps_wallet = Wallet.get_wallet(user, 'main')
+    if bbps_wallet.available_balance < total:
         raise InsufficientBalance(
-            f'Insufficient BBPS wallet balance. Available: Rs {bbps_wallet.balance}, Required: Rs {total}'
+            f'Insufficient wallet balance. Available: Rs {bbps_wallet.available_balance}, Required: Rs {total}'
         )
 
     # Company BillAvenue float gate (admin-tracked). Blocks before any BA call / attempt create.
@@ -374,6 +377,15 @@ def process_bill_payment_flow(*, user, bill_data: dict) -> dict:
         ]
     )
 
+    # Hold funds on main wallet before calling the provider.
+    from apps.bbps.service_flow.user_wallet_settlement import (
+        place_payment_hold,
+        release_payment_hold,
+        settle_payment_hold,
+    )
+
+    place_payment_hold(attempt=attempt, amount=total)
+
     client = BBPSClient()
     ccf1 = compute_ccf1_if_required(biller=biller, amount_paise=_to_paise(amount))
     if ccf1:
@@ -401,41 +413,7 @@ def process_bill_payment_flow(*, user, bill_data: dict) -> dict:
         bill_payment.status = 'SUCCESS'
         bill_payment.save(update_fields=['status'])
 
-        opening_balance = bbps_wallet.balance
-        bbps_wallet.debit(total, reference=bill_payment.service_id)
-        closing_balance = bbps_wallet.balance
-
-        Transaction.objects.create(
-            user=user,
-            transaction_type='bbps',
-            amount=amount,
-            charge=charge_info['charge'],
-            status='SUCCESS',
-            service_id=bill_payment.service_id,
-            request_id=bill_payment.request_id,
-            bill_type=bill_data.get('bill_type', ''),
-            biller=bill_data.get('biller', ''),
-            service_family='bbps',
-            **transaction_agent_db_fields(user),
-        )
-
-        PassbookEntry.objects.create(
-            user=user,
-            wallet_type='bbps',
-            service='BBPS',
-            service_id=bill_payment.service_id,
-            description=(
-                f"PAID FOR {bill_data.get('bill_type', 'BILL PAYMENT')}, BILLER: {bill_data.get('biller', 'N/A')}, "
-                f"AMOUNT: {amount}, CHARGE: {charge_info['charge']}"
-            ),
-            debit_amount=total,
-            credit_amount=Decimal('0.00'),
-            opening_balance=opening_balance,
-            closing_balance=closing_balance,
-            service_charge=charge_info['charge'],
-            principal_amount=amount,
-            **passbook_initiator_db_fields(user),
-        )
+        settle_payment_hold(attempt=attempt, bill_data=bill_data)
 
         attempt.status = 'SUCCESS'
         attempt.txn_ref_id = payment_result.get('txn_ref_id') or ''
@@ -482,6 +460,7 @@ def process_bill_payment_flow(*, user, bill_data: dict) -> dict:
         payment_channel=str(bill_data.get('init_channel') or ''),
         message=failure_message,
     )
+    release_payment_hold(attempt=attempt, reason=failure_message)
     attempt.status = 'FAILED'
     attempt.last_error_message = failure_message
     attempt.response_payload = _json_safe(payment_result.get('response_payload') or {})

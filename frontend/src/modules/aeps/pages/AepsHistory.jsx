@@ -1,73 +1,121 @@
-import React, { useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useState } from 'react';
 import Card from '../../../components/common/Card';
 import Button from '../../../components/common/Button';
 import ReportDateRange from '../../../components/common/ReportDateRange';
+import ReportPagination from '../../../components/common/ReportPagination';
+import {
+  CollapsibleReportFilters,
+  ReportFilterField,
+  ReportFilterGrid,
+  FILTER_INPUT_CLASS,
+  FILTER_SELECT_CLASS,
+} from '../../../components/common/ReportFilterPanel';
+import { countActiveReportFilters } from '../../../utils/reportFilters';
 import aepsAPI from '../services/aepsApi';
-import { ReceiptCard } from './AepsProductPages';
+import AepsTransactionReceiptView from '../receipts/AepsTransactionReceiptView';
+import {
+  aepsAckAllowed,
+  aepsNeedsStatusCheck,
+  aepsProductLabel,
+  aepsStatusTone,
+  formatAepsAmount,
+  formatAepsDateTime,
+} from '../receipts/aepsReceiptFields';
+
+const EMPTY_FILTERS = {
+  product: '',
+  status: '',
+  search: '',
+  date_from: '',
+  date_to: '',
+};
+
+const StatusChip = ({ status }) => {
+  const tone = aepsStatusTone(status);
+  const cls =
+    tone === 'success'
+      ? 'bg-emerald-100 text-emerald-800 dark:bg-emerald-900/40 dark:text-emerald-200'
+      : tone === 'danger'
+        ? 'bg-red-100 text-red-800 dark:bg-red-900/40 dark:text-red-200'
+        : tone === 'pending'
+          ? 'bg-amber-100 text-amber-900 dark:bg-amber-900/40 dark:text-amber-200'
+          : 'bg-slate-100 text-slate-700 dark:bg-slate-800 dark:text-slate-300';
+  return (
+    <span className={`inline-flex rounded-full px-2 py-0.5 text-[11px] font-bold uppercase ${cls}`}>
+      {status || '—'}
+    </span>
+  );
+};
 
 const AepsHistory = () => {
   const [rows, setRows] = useState([]);
   const [total, setTotal] = useState(0);
   const [detail, setDetail] = useState(null);
   const [busy, setBusy] = useState(false);
-  const [filters, setFilters] = useState({
-    product: '',
-    status: '',
-    search: '',
-    date_from: '',
-    date_to: '',
-  });
+  const [loading, setLoading] = useState(false);
+  const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = useState(25);
+  const [filters, setFilters] = useState(EMPTY_FILTERS);
+  const [applied, setApplied] = useState(EMPTY_FILTERS);
 
-  const load = async () => {
+  const load = useCallback(async () => {
+    setLoading(true);
     const res = await aepsAPI.transactions({
-      product: filters.product || undefined,
-      status: filters.status || undefined,
-      search: filters.search || undefined,
-      date_from: filters.date_from || undefined,
-      date_to: filters.date_to || undefined,
-      limit: 100,
+      product: applied.product || undefined,
+      status: applied.status || undefined,
+      search: applied.search || undefined,
+      date_from: applied.date_from || undefined,
+      date_to: applied.date_to || undefined,
+      limit: pageSize,
+      offset: (page - 1) * pageSize,
     });
     if (res.success) {
       setRows(res.data?.results || []);
       setTotal(res.data?.total || 0);
     }
-  };
+    setLoading(false);
+  }, [applied, page, pageSize]);
 
   useEffect(() => {
     load();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [load]);
 
-  const exportCsv = () => {
-    const header = ['created_at', 'product', 'amount', 'balance_amount', 'status', 'bank_rrn', 'merchant_tran_id'];
-    const lines = [header.join(',')].concat(
-      rows.map((r) =>
-        [
-          r.created_at || '',
-          r.product || '',
-          r.amount ?? '',
-          r.balance_amount ?? '',
-          r.status || '',
-          r.bank_rrn || '',
-          r.merchant_tran_id || '',
-        ]
-          .map((c) => `"${String(c).replace(/"/g, '""')}"`)
-          .join(',')
-      )
-    );
-    const blob = new Blob([lines.join('\n')], { type: 'text/csv;charset=utf-8' });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = `aeps-history-${Date.now()}.csv`;
-    a.click();
-    URL.revokeObjectURL(url);
+  const applyFilters = () => {
+    setPage(1);
+    setApplied({ ...filters });
+  };
+
+  const resetFilters = () => {
+    setFilters(EMPTY_FILTERS);
+    setApplied(EMPTY_FILTERS);
+    setPage(1);
+  };
+
+  const exportCsv = async () => {
+    setBusy(true);
+    const res = await aepsAPI.exportTransactionsCsv({
+      product: applied.product || undefined,
+      status: applied.status || undefined,
+      search: applied.search || undefined,
+      date_from: applied.date_from || undefined,
+      date_to: applied.date_to || undefined,
+      limit: 5000,
+    });
+    if (res.success && res.data) {
+      const url = URL.createObjectURL(res.data);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `aeps-history-${Date.now()}.csv`;
+      a.click();
+      URL.revokeObjectURL(url);
+    }
+    setBusy(false);
   };
 
   const statusCheck = async (r) => {
     setBusy(true);
     const st = await aepsAPI.statusCheck(r.merchant_tran_id, {
-      otp_mode: r.product === 'CD_OTP',
+      otp_mode: Boolean(r.cd_otp_mode) || r.product === 'CD_OTP',
     });
     if (st.success) {
       setDetail(st.data?.transaction || st.data);
@@ -77,9 +125,10 @@ const AepsHistory = () => {
   };
 
   const acknowledge = async (r) => {
+    if (!aepsAckAllowed(r)) return;
     setBusy(true);
     const ack = await aepsAPI.acknowledge(r.merchant_tran_id, {
-      otp_mode: r.product === 'CD_OTP',
+      otp_mode: Boolean(r.cd_otp_mode) || r.product === 'CD_OTP',
     });
     if (ack.success) {
       setDetail(ack.data?.transaction || ack.data);
@@ -88,153 +137,160 @@ const AepsHistory = () => {
     setBusy(false);
   };
 
-  const formatBalance = (raw) => {
-    if (raw == null || raw === '') return '—';
-    const n = Number(String(raw).replace(/,/g, '').trim());
-    if (!Number.isFinite(n) || n < 0) return '—';
-    return `₹${n.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
-  };
-
   return (
-    <div className="space-y-4">
+    <div className="space-y-5">
       <header className="flex flex-wrap items-end justify-between gap-3">
         <div>
           <h2 className="text-xl font-bold text-slate-900 dark:text-slate-100">AEPS history</h2>
-          <p className="text-sm text-slate-500 dark:text-slate-400">Module-local only — not mixed with Pay-in/Payout/BBPS.</p>
+          <p className="text-sm text-slate-500 dark:text-slate-400">
+            Your AEPS transactions with branded receipts and export.
+          </p>
         </div>
-        <div className="flex gap-2">
-          <Button size="sm" variant="secondary" onClick={exportCsv}>
-            Export CSV
-          </Button>
-          <Button size="sm" variant="secondary" onClick={load}>
-            Refresh
-          </Button>
-        </div>
+        <Button size="sm" variant="secondary" loading={busy} onClick={exportCsv}>
+          Export CSV
+        </Button>
       </header>
 
-      <Card padding="sm" shadow="sm">
-        <div className="flex flex-wrap gap-2">
-          <select
-            className="rounded-lg border border-slate-200 dark:border-slate-700 px-3 py-2 text-sm"
-            value={filters.product}
-            onChange={(e) => setFilters({ ...filters, product: e.target.value })}
-          >
-            <option value="">All products</option>
-            {['CW', 'BE', 'MS', 'AP', 'CD', 'CD_OTP', 'EKY', '2FA'].map((p) => (
-              <option key={p} value={p}>
-                {p}
-              </option>
-            ))}
-          </select>
-          <select
-            className="rounded-lg border border-slate-200 dark:border-slate-700 px-3 py-2 text-sm"
-            value={filters.status}
-            onChange={(e) => setFilters({ ...filters, status: e.target.value })}
-          >
-            <option value="">All status</option>
-            {['success', 'failed', 'pending', 'timeout', 'reconciled'].map((s) => (
-              <option key={s} value={s}>
-                {s}
-              </option>
-            ))}
-          </select>
-          <div className="min-w-0 w-full sm:min-w-[280px] sm:flex-1">
+      <CollapsibleReportFilters
+        activeCount={countActiveReportFilters(applied)}
+        defaultOpen
+        onApply={applyFilters}
+        onClear={resetFilters}
+      >
+        <ReportFilterGrid>
+          <ReportFilterField label="Product">
+            <select
+              className={FILTER_SELECT_CLASS}
+              value={filters.product}
+              onChange={(e) => setFilters({ ...filters, product: e.target.value })}
+            >
+              <option value="">All products</option>
+              {['CW', 'BE', 'MS', 'AP', 'CD'].map((p) => (
+                <option key={p} value={p}>
+                  {aepsProductLabel(p)}
+                </option>
+              ))}
+            </select>
+          </ReportFilterField>
+          <ReportFilterField label="Status">
+            <select
+              className={FILTER_SELECT_CLASS}
+              value={filters.status}
+              onChange={(e) => setFilters({ ...filters, status: e.target.value })}
+            >
+              <option value="">All statuses</option>
+              {['success', 'failed', 'pending', 'timeout', 'initiated'].map((s) => (
+                <option key={s} value={s}>
+                  {s}
+                </option>
+              ))}
+            </select>
+          </ReportFilterField>
+          <ReportFilterField label="Search RRN / Txn ID" span={2}>
+            <input
+              className={FILTER_INPUT_CLASS}
+              value={filters.search}
+              onChange={(e) => setFilters({ ...filters, search: e.target.value })}
+              placeholder="RRN, merchant txn id, Fingpay id"
+            />
+          </ReportFilterField>
+          <ReportFilterField label="Date range" span={2}>
             <ReportDateRange
               idPrefix="aeps-history"
               dateFrom={filters.date_from}
               dateTo={filters.date_to}
-              fromLabel="From"
-              toLabel="To"
+              compact
               onChange={({ dateFrom, dateTo }) =>
-                setFilters({ ...filters, date_from: dateFrom, date_to: dateTo })
+                setFilters({ ...filters, date_from: dateFrom || '', date_to: dateTo || '' })
               }
             />
-          </div>
-          <input
-            className="rounded-lg border border-slate-200 dark:border-slate-700 px-3 py-2 text-sm"
-            placeholder="Search RRN / txn id"
-            value={filters.search}
-            onChange={(e) => setFilters({ ...filters, search: e.target.value })}
-          />
-          <Button size="sm" onClick={load}>
-            Apply
-          </Button>
-        </div>
-      </Card>
+          </ReportFilterField>
+        </ReportFilterGrid>
+      </CollapsibleReportFilters>
 
-      <div className="overflow-x-auto rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 shadow-sm">
+      <Card shadow="sm" className="overflow-x-auto">
         <table className="min-w-full text-left text-sm">
-          <thead className="bg-slate-50 dark:bg-slate-800/50 text-xs uppercase tracking-wide text-slate-500 dark:text-slate-400">
+          <thead className="bg-slate-50 text-xs uppercase text-slate-500 dark:bg-slate-800/50 dark:text-slate-400">
             <tr>
-              <th className="px-4 py-3">Time</th>
-              <th className="px-4 py-3">Product</th>
-              <th className="px-4 py-3">Amount</th>
-              <th className="px-4 py-3">Balance</th>
-              <th className="px-4 py-3">Status</th>
-              <th className="px-4 py-3">RRN</th>
-              <th className="px-4 py-3">Txn id</th>
-              <th className="px-4 py-3">Actions</th>
+              <th className="px-3 py-2">When</th>
+              <th className="px-3 py-2">Product</th>
+              <th className="px-3 py-2">Amount</th>
+              <th className="px-3 py-2">Status</th>
+              <th className="px-3 py-2">RRN</th>
+              <th className="px-3 py-2">Txn ID</th>
+              <th className="px-3 py-2">Actions</th>
             </tr>
           </thead>
           <tbody>
-            {rows.map((r) => (
-              <tr key={r.merchant_tran_id} className="border-t border-slate-100 dark:border-slate-800">
-                <td className="whitespace-nowrap px-4 py-3 text-slate-600 dark:text-slate-400">
-                  {r.created_at ? new Date(r.created_at).toLocaleString() : '—'}
-                </td>
-                <td className="px-4 py-3 font-medium">{r.product}</td>
-                <td className="px-4 py-3">₹{r.amount}</td>
-                <td className="px-4 py-3">{formatBalance(r.balance_amount)}</td>
-                <td className="px-4 py-3">{r.status}</td>
-                <td className="px-4 py-3 font-mono text-xs">{r.bank_rrn || '—'}</td>
-                <td className="px-4 py-3 font-mono text-xs">{r.merchant_tran_id}</td>
-                <td className="px-4 py-3">
-                  <div className="flex gap-2">
-                    <button
-                      type="button"
-                      className="text-xs font-semibold text-blue-700 dark:text-blue-300"
-                      onClick={() => setDetail(r)}
-                    >
-                      Detail
-                    </button>
-                    {['pending', 'timeout', 'initiated'].includes(r.status) ? (
-                      <button
-                        type="button"
-                        disabled={busy}
-                        className="text-xs font-semibold text-slate-700 dark:text-slate-300"
-                        onClick={() => statusCheck(r)}
-                      >
-                        Check
-                      </button>
-                    ) : null}
-                  </div>
-                </td>
-              </tr>
-            ))}
-            {!rows.length ? (
+            {loading ? (
               <tr>
-                <td colSpan={8} className="px-4 py-10 text-center text-slate-500 dark:text-slate-400">
-                  No AEPS transactions yet ({total} total).
+                <td colSpan={7} className="px-3 py-6 text-center text-slate-500">
+                  Loading…
                 </td>
               </tr>
-            ) : null}
+            ) : rows.length === 0 ? (
+              <tr>
+                <td colSpan={7} className="px-3 py-6 text-center text-slate-500">
+                  No transactions for these filters.
+                </td>
+              </tr>
+            ) : (
+              rows.map((r) => (
+                <tr key={r.merchant_tran_id} className="border-t border-slate-100 dark:border-slate-800">
+                  <td className="px-3 py-2 whitespace-nowrap">{formatAepsDateTime(r.created_at)}</td>
+                  <td className="px-3 py-2">{r.product_label || aepsProductLabel(r.product)}</td>
+                  <td className="px-3 py-2 tabular-nums">{formatAepsAmount(r.amount)}</td>
+                  <td className="px-3 py-2">
+                    <StatusChip status={r.status} />
+                  </td>
+                  <td className="px-3 py-2 font-mono text-xs">{r.bank_rrn || '—'}</td>
+                  <td className="px-3 py-2 font-mono text-xs">{r.merchant_tran_id}</td>
+                  <td className="px-3 py-2">
+                    <div className="flex flex-wrap gap-1">
+                      <Button size="sm" variant="secondary" onClick={() => setDetail(r)}>
+                        Receipt
+                      </Button>
+                      {aepsNeedsStatusCheck(r) ? (
+                        <Button size="sm" variant="secondary" loading={busy} onClick={() => statusCheck(r)}>
+                          Check
+                        </Button>
+                      ) : null}
+                    </div>
+                  </td>
+                </tr>
+              ))
+            )}
           </tbody>
         </table>
-      </div>
+        <ReportPagination
+          page={page}
+          pageSize={pageSize}
+          total={total}
+          loading={loading}
+          onPageChange={setPage}
+          onPageSizeChange={(size) => {
+            setPageSize(size);
+            setPage(1);
+          }}
+        />
+      </Card>
 
       {detail ? (
-        <div className="fixed inset-0 z-40 flex items-end justify-center bg-black/40 p-4 sm:items-center">
-          <Card className="max-h-[80vh] w-full max-w-lg overflow-auto" shadow="lg" title="Transaction detail">
-            <ReceiptCard
+        <div className="fixed inset-0 z-50 flex items-end justify-center bg-black/40 p-4 sm:items-center">
+          <div className="max-h-[90vh] w-full max-w-2xl overflow-y-auto rounded-2xl bg-white p-4 shadow-xl dark:bg-slate-900">
+            <div className="mb-3 flex items-center justify-between gap-2">
+              <h3 className="text-lg font-bold text-slate-900 dark:text-slate-100">Transaction receipt</h3>
+              <Button size="sm" variant="secondary" onClick={() => setDetail(null)}>
+                Close
+              </Button>
+            </div>
+            <AepsTransactionReceiptView
               result={detail}
-              onStatusCheck={statusCheck}
-              onAck={acknowledge}
               busy={busy}
+              onStatusCheck={statusCheck}
+              onAck={aepsAckAllowed(detail) ? acknowledge : undefined}
             />
-            <Button className="mt-3" variant="secondary" onClick={() => setDetail(null)}>
-              Close
-            </Button>
-          </Card>
+          </div>
         </div>
       ) : null}
     </div>

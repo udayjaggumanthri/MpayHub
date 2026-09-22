@@ -23,7 +23,7 @@ const PRODUCTS = [
   { to: '/aeps/mini-statement', title: 'Mini statement', desc: 'MS — recent txns' },
   { to: '/aeps/aadhaar-pay', title: 'Aadhaar Pay', desc: 'AP — collect payment' },
   { to: '/aeps/deposit', title: 'Cash deposit', desc: 'CD — bio or OTP' },
-  { to: '/aeps/history', title: 'History', desc: 'AEPS-only ledger' },
+  { to: '/aeps/reports', title: 'Reports', desc: 'AEPS transactions, filters, export & receipts' },
 ];
 
 const AepsOverview = ({ aepsStatus: status, refreshStatus }) => {

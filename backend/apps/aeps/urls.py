@@ -29,6 +29,7 @@ urlpatterns = [
     path('transactions/<str:merchant_tran_id>/status-check/', views.txn_status_check, name='aeps-txn-status'),
     path('transactions/<str:merchant_tran_id>/acknowledge/', views.txn_acknowledge, name='aeps-txn-ack'),
     path('reports/summary/', views.reports_summary, name='aeps-reports-summary'),
+    path('reports/export.csv', views.reports_export_csv, name='aeps-reports-export'),
     path('admin/provider-config/', views.admin_provider_config, name='aeps-admin-provider'),
     path('admin/provider-config/test/', views.admin_provider_test, name='aeps-admin-provider-test'),
     path('admin/debug-logs/', views.admin_debug_logs, name='aeps-admin-debug-logs'),

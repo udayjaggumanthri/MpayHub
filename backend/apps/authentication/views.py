@@ -41,7 +41,9 @@ from apps.users.services import (
     init_digilocker_aadhaar,
     poll_digilocker_status,
     complete_digilocker_aadhaar,
+    finalize_pending_digilocker_if_any,
     setup_initial_mpin,
+    user_resubmit_kyc,
 )
 from apps.core.exceptions import InvalidCredentials, InvalidMPIN, InvalidOTP
 
@@ -706,6 +708,39 @@ def me_permissions_view(request):
 @permission_classes([IsAuthenticated])
 @ratelimit(key='user', rate='5/m', method='POST')
 @ratelimit(key='ip', rate='15/m', method='POST')
+def onboarding_kyc_resubmit_view(request):
+    """
+    After Admin rejection, allow the user to clear KYC and start again.
+    POST /api/auth/onboarding/kyc/resubmit/
+    """
+    try:
+        user_resubmit_kyc(request.user, notes=(request.data.get('notes') or ''))
+    except ValueError as e:
+        return Response(
+            {
+                'success': False,
+                'data': None,
+                'message': str(e),
+                'errors': [],
+            },
+            status=status.HTTP_400_BAD_REQUEST,
+        )
+    request.user.refresh_from_db()
+    return Response(
+        {
+            'success': True,
+            'data': {'user': UserSerializer(request.user, context={'request': request}).data},
+            'message': 'KYC reset. Please submit your documents again for review.',
+            'errors': [],
+        },
+        status=status.HTTP_200_OK,
+    )
+
+
+@api_view(['POST'])
+@permission_classes([IsAuthenticated])
+@ratelimit(key='user', rate='5/m', method='POST')
+@ratelimit(key='ip', rate='15/m', method='POST')
 def onboarding_kyc_verify_pan_view(request):
     """Step 1: verify PAN only. POST /api/auth/onboarding/kyc/pan/"""
     serializer = OnboardingPANSerializer(data=request.data)
@@ -865,6 +900,52 @@ def onboarding_kyc_digilocker_complete_view(request):
         'message': 'Aadhaar verified. KYC is complete.',
         'errors': [],
     }, status=status.HTTP_200_OK)
+
+
+@api_view(['POST'])
+@permission_classes([IsAuthenticated])
+@ratelimit(key='user', rate='10/m', method='POST')
+@ratelimit(key='ip', rate='20/m', method='POST')
+def onboarding_kyc_digilocker_finalize_pending_view(request):
+    """
+    Recover when DigiLocker already authenticated but KYC was not marked verified.
+    POST /api/auth/onboarding/kyc/digilocker/finalize-pending/
+    """
+    try:
+        result = finalize_pending_digilocker_if_any(request.user)
+    except ValueError as e:
+        return Response(
+            {'success': False, 'data': None, 'message': str(e), 'errors': []},
+            status=status.HTTP_400_BAD_REQUEST,
+        )
+    u = User.objects.select_related('kyc').get(pk=request.user.pk)
+    if not result:
+        return Response(
+            {
+                'success': True,
+                'data': {'user': UserSerializer(u).data, 'finalized': False},
+                'message': 'No pending DigiLocker session to finalize.',
+                'errors': [],
+            },
+            status=status.HTTP_200_OK,
+        )
+    _kyc, kyc_details = result
+    response_data = {
+        'user': UserSerializer(u).data,
+        'kyc_details': kyc_details,
+        'finalized': True,
+    }
+    if isinstance(kyc_details, dict) and kyc_details.get('profile_sync'):
+        response_data['profile_sync'] = kyc_details['profile_sync']
+    return Response(
+        {
+            'success': True,
+            'data': response_data,
+            'message': 'Aadhaar verification finalized.',
+            'errors': [],
+        },
+        status=status.HTTP_200_OK,
+    )
 
 
 @api_view(['GET'])

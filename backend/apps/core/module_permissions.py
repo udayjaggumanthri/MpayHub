@@ -25,6 +25,7 @@ DEFAULT_MODULES: list[dict] = [
     {'code': 'notifications', 'name': 'Notifications', 'group': 'admin', 'sort_order': 110},
     {'code': 'bbps_console', 'name': 'BBPS Console', 'group': 'admin', 'sort_order': 120},
     {'code': 'aeps', 'name': 'AEPS', 'group': 'products', 'sort_order': 130},
+    {'code': 'cms', 'name': 'CMS', 'group': 'products', 'sort_order': 135},
     {'code': 'fund_management', 'name': 'Fund Management', 'group': 'products', 'sort_order': 140},
     {'code': 'bbps', 'name': 'BBPS', 'group': 'products', 'sort_order': 150},
     {'code': 'roles_permissions', 'name': 'Roles & permissions', 'group': 'super', 'sort_order': 200},
@@ -48,11 +49,13 @@ DEFAULT_ROLE_MODULES: dict[str, list[str]] = {
         'notifications',
         'bbps_console',
         'aeps',
+        'cms',
         'roles_permissions',  # view-only in UI; edit gated separately
     ],
     'Super Distributor': [
         'dashboard',
         'aeps',
+        'cms',
         'user_management',
         'fund_management',
         'bbps',
@@ -62,6 +65,7 @@ DEFAULT_ROLE_MODULES: dict[str, list[str]] = {
     'Master Distributor': [
         'dashboard',
         'aeps',
+        'cms',
         'user_management',
         'fund_management',
         'bbps',
@@ -71,6 +75,7 @@ DEFAULT_ROLE_MODULES: dict[str, list[str]] = {
     'Distributor': [
         'dashboard',
         'aeps',
+        'cms',
         'user_management',
         'fund_management',
         'bbps',
@@ -80,6 +85,7 @@ DEFAULT_ROLE_MODULES: dict[str, list[str]] = {
     'Retailer': [
         'dashboard',
         'aeps',
+        'cms',
         'fund_management',
         'bbps',
         'reports',
@@ -167,13 +173,49 @@ def has_module(user, code: str) -> bool:
     return code in enabled_modules_for_role(role)
 
 
+def _channel_product_entitlements(user) -> dict[str, bool]:
+    """Per-user AEPS/CMS entitlement (admins keep module visibility for ops)."""
+    from apps.core.roles import is_platform_operator
+
+    if is_platform_operator(user) or is_super_admin(user):
+        return {'aeps': True, 'cms': True}
+
+    aeps_ok = False
+    cms_ok = False
+    try:
+        from apps.aeps.services.gates import is_entitled as aeps_is_entitled
+
+        aeps_ok = bool(aeps_is_entitled(user))
+    except Exception:
+        aeps_ok = False
+    try:
+        from apps.cms.services.entitlement import is_entitled as cms_is_entitled
+
+        cms_ok = bool(cms_is_entitled(user))
+    except Exception:
+        cms_ok = False
+    return {'aeps': aeps_ok, 'cms': cms_ok}
+
+
 def permissions_payload_for_user(user) -> dict:
     role = getattr(user, 'role', None)
-    modules = enabled_modules_for_role(role)
+    modules = list(enabled_modules_for_role(role))
+    entitlements = _channel_product_entitlements(user)
+
+    # Hide product modules from channel users until Admin enables them on the profile.
+    if 'aeps' in modules and not entitlements['aeps']:
+        modules = [m for m in modules if m != 'aeps']
+    if 'cms' in modules and not entitlements['cms']:
+        modules = [m for m in modules if m != 'cms']
+
     return {
         'role': role,
         'modules': modules,
         'is_super_admin': is_super_admin(user),
+        'entitlements': {
+            'aeps': entitlements['aeps'],
+            'cms': entitlements['cms'],
+        },
     }
 
 

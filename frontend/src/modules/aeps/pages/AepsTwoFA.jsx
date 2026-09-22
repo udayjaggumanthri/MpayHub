@@ -116,7 +116,7 @@ const AepsTwoFA = ({ aepsStatus: status, refreshStatus }) => {
         <p className="text-xs font-semibold uppercase tracking-wide text-emerald-700 dark:text-emerald-300">2FA</p>
         <h2 className="mt-1 text-xl font-bold text-slate-900 dark:text-slate-100">Already verified today</h2>
         <p className="mt-2 text-sm text-slate-600 dark:text-slate-400">
-          You can run cash withdrawal, Aadhaar Pay, and cash deposit. Re-run only if Fingpay asks.
+          You can run cash withdrawal, Aadhaar Pay, and cash deposit. Re-run only if the network asks.
         </p>
         <div className="mt-4 flex flex-wrap gap-2">
           <Link

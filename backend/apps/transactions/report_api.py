@@ -603,7 +603,10 @@ def bbps_rows_from_bill_payment(
 
 def passbook_period_header(entries_qs: QuerySet) -> dict[str, Any]:
     """Summary across the full filtered passbook range (not just current page)."""
-    agg = entries_qs.aggregate(
+    # Drop select_related before .only() — Django raises FieldError when a
+    # related field is both select_related and deferred (passbook_view selects user).
+    base_qs = entries_qs.select_related(None)
+    agg = base_qs.aggregate(
         total_credits=Sum('credit_amount'),
         total_debits=Sum('debit_amount'),
         first_at=Min('created_at'),
@@ -617,7 +620,7 @@ def passbook_period_header(entries_qs: QuerySet) -> dict[str, Any]:
     cb = ob
     if first_at is not None:
         rows = list(
-            entries_qs.filter(created_at__in={first_at, last_at}).only(
+            base_qs.filter(created_at__in={first_at, last_at}).only(
                 'created_at', 'opening_balance', 'closing_balance'
             )
         )

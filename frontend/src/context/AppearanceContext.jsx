@@ -4,6 +4,7 @@ import {
   DEFAULT_APPEARANCE,
   normalizeAppearance,
   resolveLogoUrl,
+  resolveThemeLogoUrl,
 } from '../utils/appearanceDefaults';
 import { setBrandingLogoUrl } from '../utils/brandingLogo';
 
@@ -16,7 +17,7 @@ export function AppearanceProvider({ children }) {
   const applyAppearance = useCallback((raw) => {
     const next = normalizeAppearance(raw);
     setAppearance(next);
-    setBrandingLogoUrl(resolveLogoUrl(next.logoUrl));
+    setBrandingLogoUrl(resolveLogoUrl(next.logoUrl), next.logoDarkUrl || null);
     if (typeof document !== 'undefined') {
       document.title = next.siteTitle;
     }
@@ -54,6 +55,7 @@ export function AppearanceProvider({ children }) {
       loading,
       refreshAppearance,
       logoUrl: resolveLogoUrl(appearance.logoUrl),
+      logoDarkUrl: appearance.logoDarkUrl || null,
       siteTitle: appearance.siteTitle,
     }),
     [appearance, loading, refreshAppearance]
@@ -71,9 +73,10 @@ export function useAppearance() {
 }
 
 export function useBranding() {
-  const { appearance, logoUrl, siteTitle } = useAppearance();
+  const { appearance, logoUrl, logoDarkUrl, siteTitle } = useAppearance();
   return {
     logoUrl,
+    logoDarkUrl,
     siteTitle,
     loginWelcomeHeading: appearance.loginWelcomeHeading,
     loginTagline: appearance.loginTagline,
@@ -83,5 +86,11 @@ export function useBranding() {
     loginFooterRefundUrl: appearance.loginFooterRefundUrl,
     defaultTheme: appearance.defaultTheme,
     userThemeToggleEnabled: appearance.userThemeToggleEnabled,
+    resolveForTheme: (isDark) =>
+      resolveThemeLogoUrl({
+        logoUrl: appearance.logoUrl,
+        logoDarkUrl: appearance.logoDarkUrl,
+        isDark,
+      }),
   };
 }

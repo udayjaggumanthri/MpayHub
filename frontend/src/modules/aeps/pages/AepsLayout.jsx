@@ -26,7 +26,6 @@ const NAV = [
   { to: '/aeps/mini-statement', label: 'Mini stmt', group: 'trade' },
   { to: '/aeps/aadhaar-pay', label: 'Aadhaar Pay', group: 'trade' },
   { to: '/aeps/deposit', label: 'Deposit', group: 'trade' },
-  { to: '/aeps/history', label: 'History', group: 'ops' },
   { to: '/aeps/reports', label: 'Reports', group: 'ops' },
 ];
 
@@ -68,7 +67,7 @@ const AepsLayout = ({ children }) => {
 
   const nextHint = useMemo(() => {
     const n = status?.next_action;
-    if (n === 'admin_ops') return 'Configure Fingpay and enable AEPS for operators.';
+    if (n === 'admin_ops') return 'Configure AEPS provider settings and enable operators.';
     if (n === 'request_access') return 'Request AEPS access from Admin to begin.';
     if (n === 'await_approval') return 'Your access request is pending Admin approval.';
     if (n === 'onboarding') return 'Complete merchant onboarding next.';

@@ -1,8 +1,18 @@
-import React, { useState } from 'react';
-import { Link } from 'react-router-dom';
+import React, { useState, useEffect, useRef } from 'react';
+import { Link, useLocation } from 'react-router-dom';
 import { useAuth } from '../../context/AuthContext';
 import { useBranding } from '../../context/AppearanceContext';
-import { FaUser, FaRightFromBracket, FaClipboardList, FaGear, FaBars, FaXmark } from 'react-icons/fa6';
+import { useWallet } from '../../context/WalletContext';
+import { formatCurrency } from '../../utils/formatters';
+import {
+  FaUser,
+  FaRightFromBracket,
+  FaClipboardList,
+  FaGear,
+  FaBars,
+  FaXmark,
+  FaWallet,
+} from 'react-icons/fa6';
 import NotificationBell from '../dashboard/NotificationBell';
 import BrandingLogo from './BrandingLogo';
 import ThemeToggle from './ThemeToggle';
@@ -14,7 +24,45 @@ export const HEADER_HEIGHT_CLASS = 'h-16';
 const Header = ({ mobileMenuOpen = false, onToggleMobileMenu }) => {
   const { user, logout } = useAuth();
   const { siteTitle } = useBranding();
+  const { wallets, availableBalance, heldBalance, loading, refreshWallets } = useWallet();
+  const location = useLocation();
   const [showProfileMenu, setShowProfileMenu] = useState(false);
+  const lastRefreshAtRef = useRef(0);
+
+  const softRefresh = () => {
+    const now = Date.now();
+    if (now - lastRefreshAtRef.current < 8000) return;
+    lastRefreshAtRef.current = now;
+    refreshWallets();
+  };
+
+  // Soft-refresh balance when switching pages and when returning to the tab.
+  useEffect(() => {
+    if (!user) return undefined;
+    softRefresh();
+    return undefined;
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- throttle refresh on route change
+  }, [user, location.pathname]);
+
+  useEffect(() => {
+    if (!user) return undefined;
+    const onVisible = () => {
+      if (document.visibilityState === 'visible') softRefresh();
+    };
+    document.addEventListener('visibilitychange', onVisible);
+    const interval = window.setInterval(() => {
+      if (document.visibilityState === 'visible') softRefresh();
+    }, 45000);
+    return () => {
+      document.removeEventListener('visibilitychange', onVisible);
+      window.clearInterval(interval);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [user, refreshWallets]);
+
+  const displayBalance =
+    heldBalance > 0 && availableBalance != null ? availableBalance : wallets?.main ?? 0;
+  const showBalancePlaceholder = Boolean(loading && wallets == null);
 
   return (
     <header
@@ -31,20 +79,38 @@ const Header = ({ mobileMenuOpen = false, onToggleMobileMenu }) => {
           {mobileMenuOpen ? <FaXmark size={18} /> : <FaBars size={18} />}
         </button>
 
-        {/* Full brand — always visible in the header strip */}
+        {/* Full brand — room for a larger logo on phone/tablet (theme lives in the menu there) */}
         <Link
           to="/dashboard"
           className="flex min-w-0 flex-1 items-center justify-start rounded-xl transition-opacity hover:opacity-90 focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500"
           aria-label={`${siteTitle} home`}
         >
           <BrandingLogo
-            className="h-11 w-auto max-w-[min(100%,14rem)] object-contain object-left sm:h-12"
+            className="h-11 w-auto max-w-[min(100%,11rem)] object-contain object-left sm:h-12 sm:max-w-[min(100%,14rem)] md:h-[3.25rem] md:max-w-[min(100%,16rem)]"
             draggable={false}
           />
         </Link>
 
         <div className="ml-auto flex shrink-0 items-center gap-1 sm:gap-2">
-          <ThemeToggle />
+          {/* Desktop only — phone/tablet use Appearance in the side menu */}
+          <span className="hidden lg:inline-flex">
+            <ThemeToggle />
+          </span>
+
+          {user ? (
+            <Link
+              to="/reports/passbook"
+              title="Main wallet balance — open passbook"
+              className="inline-flex max-w-[8.5rem] items-center gap-1 rounded-full border border-emerald-200 bg-emerald-50 px-2 py-1.5 text-emerald-900 shadow-sm transition hover:bg-emerald-100 focus:outline-none focus-visible:ring-2 focus-visible:ring-emerald-500 dark:border-emerald-800 dark:bg-emerald-950/50 dark:text-emerald-100 dark:hover:bg-emerald-900/60 sm:max-w-none sm:gap-2 sm:px-3"
+              aria-label={`Wallet balance ${formatCurrency(displayBalance)}`}
+            >
+              <FaWallet className="h-3.5 w-3.5 shrink-0 text-emerald-600 dark:text-emerald-400" aria-hidden />
+              <span className="min-w-0 truncate text-xs font-bold tabular-nums sm:text-sm">
+                {showBalancePlaceholder ? '…' : formatCurrency(displayBalance)}
+              </span>
+            </Link>
+          ) : null}
+
           <NotificationBell />
 
           <div className="relative">
@@ -72,6 +138,9 @@ const Header = ({ mobileMenuOpen = false, onToggleMobileMenu }) => {
                       {user?.displayCode || user?.userId || user?.user_id || user?.memberId || '—'}
                     </p>
                     <p className="text-xs text-gray-500 dark:text-slate-400">{user?.role}</p>
+                    <p className="mt-1.5 text-xs font-semibold tabular-nums text-emerald-700 dark:text-emerald-300">
+                      Wallet {formatCurrency(displayBalance)}
+                    </p>
                   </div>
                   <Link
                     to="/profile"

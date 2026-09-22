@@ -5,19 +5,15 @@ from rest_framework import status
 from rest_framework.decorators import api_view, permission_classes
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
+from apps.core.permissions import IsAdmin
 from apps.wallets.models import Wallet, WalletTransaction
 from apps.transactions.models import PassbookEntry
 from apps.wallets.serializers import (
     WalletSerializer,
     WalletTransactionSerializer,
     WalletListSerializer,
-    MainToBbpsTransferSerializer,
 )
-from apps.wallets.services import transfer_main_to_bbps
 from apps.wallets.presentation import present_wallet_summary_for_viewer
-from apps.core.financial_access import assert_can_pay_out
-from apps.core.maintenance_mode import MODULE_BBPS, assert_module_available
-from apps.core.exceptions import InsufficientBalance
 
 
 def _normalize_wallet_type(raw_wallet_type: str) -> str:
@@ -75,59 +71,42 @@ def _passbook_rows_for_wallet_history(user, wallet_type: str, page: int, page_si
 def transfer_main_to_bbps_view(request):
     """
     POST /api/wallets/transfer-to-bbps/
-    Body: { "amount": "100.00", "mpin": "123456" }
+
+    Deprecated after single-wallet consolidation. Returns HTTP 410.
     """
-    assert_can_pay_out(request.user)
-    assert_module_available(MODULE_BBPS)
-    serializer = MainToBbpsTransferSerializer(data=request.data)
-    if not serializer.is_valid():
-        return Response(
-            {'success': False, 'data': None, 'message': 'Invalid input', 'errors': serializer.errors},
-            status=status.HTTP_400_BAD_REQUEST,
-        )
-    if not request.user.check_mpin(serializer.validated_data['mpin']):
-        return Response(
-            {
-                'success': False,
-                'data': None,
-                'message': 'Invalid MPIN',
-                'errors': {'mpin': ['Invalid MPIN']},
-            },
-            status=status.HTTP_400_BAD_REQUEST,
-        )
-    try:
-        out = transfer_main_to_bbps(request.user, serializer.validated_data['amount'])
-    except ValueError as e:
-        return Response(
-            {'success': False, 'data': None, 'message': str(e), 'errors': []},
-            status=status.HTTP_400_BAD_REQUEST,
-        )
-    except InsufficientBalance as e:
-        return Response(
-            {'success': False, 'data': None, 'message': str(e), 'errors': []},
-            status=status.HTTP_400_BAD_REQUEST,
-        )
     return Response(
         {
-            'success': True,
-            'data': out,
-            'message': 'Transferred to BBPS wallet',
-            'errors': [],
+            'success': False,
+            'data': None,
+            'message': (
+                'Main-to-BBPS wallet transfer has been removed. '
+                'All bill payments debit your main wallet directly.'
+            ),
+            'errors': [{'code': 'TRANSFER_REMOVED'}],
         },
-        status=status.HTTP_201_CREATED,
+        status=status.HTTP_410_GONE,
     )
 
 
 def build_wallet_summary(user):
-    """Return wallet balances keyed by type (main, commission, bbps, profit)."""
-    wallets = Wallet.objects.filter(user=user)
+    """
+    Return wallet balances for the viewer.
+
+    Live money is only on ``main``. Legacy keys are omitted so clients cannot
+    render separate BBPS / commission / profit cards.
+    """
+    wallets = Wallet.objects.filter(user=user, is_archived=False)
     wallet_dict = {wallet.wallet_type: WalletSerializer(wallet).data for wallet in wallets}
-    return {
-        'main': wallet_dict.get('main', {'balance': '0.00'}),
-        'commission': wallet_dict.get('commission', {'balance': '0.00'}),
-        'bbps': wallet_dict.get('bbps', {'balance': '0.00'}),
-        'profit': wallet_dict.get('profit', {'balance': '0.00'}),
-    }
+    main = wallet_dict.get('main')
+    if main is None:
+        main = {
+            'balance': '0.00',
+            'held_balance': '0.00',
+            'available_balance': '0.00',
+            'wallet_type': 'main',
+        }
+    return {'main': main}
+
 
 
 @api_view(['GET'])
@@ -137,10 +116,12 @@ def get_wallets_view(request):
     Get all wallets for the authenticated user.
     GET /api/wallets/
 
-    Admin viewers see main/bbps as live network totals (non-Admin users);
-    commission/profit remain personal. Money movement paths are unchanged.
+    Admin / Super Admin logins share the platform treasury Main wallet so every
+    operator sees the same balance; Distributed Balance is the channel network total.
     """
-    personal = build_wallet_summary(request.user)
+    from apps.fund_management.platform_settlement import wallet_user_for_viewer
+
+    personal = build_wallet_summary(wallet_user_for_viewer(request.user))
     wallet_data = present_wallet_summary_for_viewer(request.user, personal)
     return Response({
         'success': True,
@@ -222,3 +203,90 @@ def get_wallet_history_view(request, wallet_type):
             'message': 'Invalid wallet type',
             'errors': []
         }, status=status.HTTP_400_BAD_REQUEST)
+
+
+@api_view(['GET'])
+@permission_classes([IsAuthenticated, IsAdmin])
+def distributed_ledger_view(request):
+    """
+    GET /api/wallets/distributed/ledger/
+
+    Role-filterable list of channel users with Main wallet balances
+    (the Distributed Balance breakdown for Admin / Super Admin).
+    """
+    from apps.wallets.portfolio import list_distributed_ledger
+
+    try:
+        page = int(request.query_params.get('page', 1))
+    except (TypeError, ValueError):
+        page = 1
+    try:
+        page_size = int(request.query_params.get('page_size', 25))
+    except (TypeError, ValueError):
+        page_size = 25
+
+    include_ops = str(request.query_params.get('include_operators') or '').lower() in (
+        '1', 'true', 'yes',
+    )
+    data = list_distributed_ledger(
+        viewer=request.user,
+        role=(request.query_params.get('role') or '').strip() or None,
+        search=(request.query_params.get('search') or request.query_params.get('q') or '').strip() or None,
+        page=page,
+        page_size=page_size,
+        include_operators=include_ops,
+    )
+    return Response({
+        'success': True,
+        'data': data,
+        'message': 'Distributed ledger retrieved',
+        'errors': [],
+    }, status=status.HTTP_200_OK)
+
+
+@api_view(['GET'])
+@permission_classes([IsAuthenticated, IsAdmin])
+def distributed_network_view(request, user_id: int):
+    """
+    GET /api/wallets/distributed/network/<user_id>/
+
+    Users managed under a distributor / SD / MD (or any network-capable role),
+    with Main wallet balances.
+    """
+    from apps.wallets.portfolio import list_user_network_ledger
+
+    try:
+        page = int(request.query_params.get('page', 1))
+    except (TypeError, ValueError):
+        page = 1
+    try:
+        page_size = int(request.query_params.get('page_size', 25))
+    except (TypeError, ValueError):
+        page_size = 25
+
+    direct_only = str(request.query_params.get('direct_only') or '').lower() in (
+        '1', 'true', 'yes',
+    )
+    data = list_user_network_ledger(
+        manager_id=int(user_id),
+        viewer=request.user,
+        role=(request.query_params.get('role') or '').strip() or None,
+        search=(request.query_params.get('search') or request.query_params.get('q') or '').strip() or None,
+        page=page,
+        page_size=page_size,
+        direct_only=direct_only,
+    )
+    if data is None:
+        return Response({
+            'success': False,
+            'data': None,
+            'message': 'User not found',
+            'errors': [],
+        }, status=status.HTTP_404_NOT_FOUND)
+
+    return Response({
+        'success': True,
+        'data': data,
+        'message': 'Network ledger retrieved',
+        'errors': [],
+    }, status=status.HTTP_200_OK)

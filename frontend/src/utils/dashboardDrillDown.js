@@ -9,6 +9,8 @@ export const DRILLDOWN_QUERY_KEYS = {
   dateFrom: 'date_from',
   dateTo: 'date_to',
   scope: 'scope',
+  serviceId: 'service_id',
+  openReceipt: 'open_receipt',
 };
 
 export const DRILLDOWN_FROM_DASHBOARD = 'dashboard';
@@ -93,9 +95,11 @@ export function buildAllModulesDrillDownUrl({ status, dateFrom, dateTo }) {
  * @param {URLSearchParams | string} raw
  * @returns {{
  *   fromDashboard: boolean,
+ *   fromRevenue: boolean,
  *   moduleAll: boolean,
  *   scope: string,
- *   filters: { status: string, dateFrom: string, dateTo: string },
+ *   openReceipt: boolean,
+ *   filters: { status: string, dateFrom: string, dateTo: string, serviceId: string },
  *   hasDrillDown: boolean,
  * }}
  */
@@ -107,6 +111,10 @@ export function parseDrillDownSearchParams(raw) {
   const statusRaw = (params.get(DRILLDOWN_QUERY_KEYS.status) || '').trim().toUpperCase();
   const dateFrom = (params.get(DRILLDOWN_QUERY_KEYS.dateFrom) || '').trim();
   const dateTo = (params.get(DRILLDOWN_QUERY_KEYS.dateTo) || '').trim();
+  const serviceId = (params.get(DRILLDOWN_QUERY_KEYS.serviceId) || '').trim();
+  const openReceipt = ['1', 'true', 'yes'].includes(
+    (params.get(DRILLDOWN_QUERY_KEYS.openReceipt) || '').trim().toLowerCase()
+  );
 
   let status = 'ALL';
   if (statusRaw === 'FAILURE' || statusRaw === 'FAILED') status = 'FAILURE';
@@ -114,17 +122,21 @@ export function parseDrillDownSearchParams(raw) {
 
   const hasDrillDown = Boolean(
     from === DRILLDOWN_FROM_DASHBOARD ||
+      from === 'revenue' ||
       scope === DRILLDOWN_SCOPE_PLATFORM ||
       status !== 'ALL' ||
       dateFrom ||
-      dateTo
+      dateTo ||
+      serviceId
   );
 
   return {
     fromDashboard: from === DRILLDOWN_FROM_DASHBOARD,
+    fromRevenue: from === 'revenue',
     moduleAll: module === 'all',
     scope: scope === DRILLDOWN_SCOPE_PLATFORM ? DRILLDOWN_SCOPE_PLATFORM : '',
-    filters: { status, dateFrom, dateTo },
+    openReceipt,
+    filters: { status, dateFrom, dateTo, serviceId },
     hasDrillDown,
   };
 }

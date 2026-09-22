@@ -14,8 +14,9 @@ MODULE_PAY_IN = 'pay_in'
 MODULE_PAYOUT = 'payout'
 MODULE_BBPS = 'bbps'
 MODULE_AEPS = 'aeps'
+MODULE_CMS = 'cms'
 
-VALID_MODULES = frozenset({MODULE_PAY_IN, MODULE_PAYOUT, MODULE_BBPS, MODULE_AEPS})
+VALID_MODULES = frozenset({MODULE_PAY_IN, MODULE_PAYOUT, MODULE_BBPS, MODULE_AEPS, MODULE_CMS})
 
 ACCESS_CODE_MODULE_MAINTENANCE = 'MODULE_MAINTENANCE'
 
@@ -24,6 +25,7 @@ DEFAULT_MESSAGES = {
     MODULE_PAYOUT: 'Payout is temporarily unavailable due to maintenance. Please try again later.',
     MODULE_BBPS: 'BBPS is temporarily unavailable due to maintenance. Please try again later.',
     MODULE_AEPS: 'AEPS is temporarily unavailable due to maintenance. Please try again later.',
+    MODULE_CMS: 'CMS is temporarily unavailable due to maintenance. Please try again later.',
 }
 
 CACHE_KEY = 'system_maintenance_status_v1'
@@ -51,6 +53,7 @@ def get_config():
             'payout_enabled': True,
             'bbps_enabled': True,
             'aeps_enabled': False,
+            'cms_enabled': False,
         },
     )
     return config
@@ -66,6 +69,7 @@ def _build_status_dict(config, *, include_internal: bool = False) -> dict[str, A
     payout_msg = (config.payout_message or '').strip() or DEFAULT_MESSAGES[MODULE_PAYOUT]
     bbps_msg = (config.bbps_message or '').strip() or DEFAULT_MESSAGES[MODULE_BBPS]
     aeps_msg = (getattr(config, 'aeps_message', None) or '').strip() or DEFAULT_MESSAGES[MODULE_AEPS]
+    cms_msg = (getattr(config, 'cms_message', None) or '').strip() or DEFAULT_MESSAGES[MODULE_CMS]
 
     out: dict[str, Any] = {
         'pay_in': {
@@ -83,6 +87,10 @@ def _build_status_dict(config, *, include_internal: bool = False) -> dict[str, A
         'aeps': {
             'enabled': bool(getattr(config, 'aeps_enabled', False)),
             'message': aeps_msg,
+        },
+        'cms': {
+            'enabled': bool(getattr(config, 'cms_enabled', False)),
+            'message': cms_msg,
         },
         'updated_at': config.updated_at.isoformat() if config.updated_at else None,
     }
@@ -192,12 +200,14 @@ def update_config(*, changed_by, patch: dict) -> dict[str, Any]:
         'payout_enabled': MODULE_PAYOUT,
         'bbps_enabled': MODULE_BBPS,
         'aeps_enabled': MODULE_AEPS,
+        'cms_enabled': MODULE_CMS,
     }
     message_map = {
         MODULE_PAY_IN: 'pay_in_message',
         MODULE_PAYOUT: 'payout_message',
         MODULE_BBPS: 'bbps_message',
         MODULE_AEPS: 'aeps_message',
+        MODULE_CMS: 'cms_message',
     }
 
     update_fields = ['updated_at']

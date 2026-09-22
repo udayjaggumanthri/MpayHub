@@ -225,6 +225,118 @@ code {
   animation-delay: 1s;
 }
 
+/* Dashboard wallet / money-action micro-interactions */
+@keyframes mpay-shine {
+  0% {
+    transform: translateX(-130%) skewX(-18deg);
+  }
+  100% {
+    transform: translateX(230%) skewX(-18deg);
+  }
+}
+
+@keyframes mpay-soft-float {
+  0%,
+  100% {
+    transform: translateY(0);
+  }
+  50% {
+    transform: translateY(-3px);
+  }
+}
+
+@keyframes mpay-chevron-nudge {
+  0%,
+  100% {
+    transform: translateX(0);
+  }
+  50% {
+    transform: translateX(3px);
+  }
+}
+
+@keyframes mpay-wallet-glow {
+  0%,
+  100% {
+    opacity: 0.45;
+    transform: scale(1);
+  }
+  50% {
+    opacity: 0.8;
+    transform: scale(1.08);
+  }
+}
+
+@keyframes mpay-rise-in {
+  from {
+    opacity: 0;
+    transform: translateY(10px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.mpay-action-shine {
+  pointer-events: none;
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
+  border-radius: inherit;
+}
+
+.mpay-action-shine::after {
+  content: '';
+  position: absolute;
+  top: -20%;
+  left: 0;
+  width: 45%;
+  height: 140%;
+  background: linear-gradient(
+    90deg,
+    transparent,
+    rgba(255, 255, 255, 0.28),
+    transparent
+  );
+  transform: translateX(-130%) skewX(-18deg);
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  .group:hover .mpay-action-shine::after,
+  .group:focus-visible .mpay-action-shine::after {
+    animation: mpay-shine 0.9s ease-out;
+  }
+
+  .mpay-icon-float {
+    animation: mpay-soft-float 3.2s ease-in-out infinite;
+  }
+
+  .group:hover .mpay-chevron-nudge {
+    animation: mpay-chevron-nudge 0.7s ease-in-out infinite;
+  }
+
+  .mpay-wallet-orb {
+    animation: mpay-wallet-glow 4.5s ease-in-out infinite;
+  }
+
+  .mpay-rise-in {
+    animation: mpay-rise-in 0.45s ease-out both;
+  }
+
+  .mpay-rise-in-delay-1 {
+    animation-delay: 0.06s;
+  }
+
+  .mpay-rise-in-delay-2 {
+    animation-delay: 0.12s;
+  }
+
+  .mpay-rise-in-delay-3 {
+    animation-delay: 0.18s;
+  }
+}
+
 /* Hide browser number-input spinners platform-wide */
 input[type='number'] {
   -moz-appearance: textfield;

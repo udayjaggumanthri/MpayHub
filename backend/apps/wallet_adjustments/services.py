@@ -27,7 +27,9 @@ from apps.wallets.models import Wallet
 from apps.wallet_adjustments.exceptions import WalletAdjustmentError
 from apps.wallet_adjustments.models import WalletAdjustment
 
-ALLOWED_WALLET_TYPES = frozenset({'main', 'bbps'})
+ALLOWED_WALLET_TYPES = frozenset(
+    getattr(settings, 'WALLET_ADJUSTMENT_ALLOWED_TYPES', None) or {'main'}
+)
 ALLOWED_ADJUSTMENT_TYPES = frozenset({'CREDIT', 'DEBIT'})
 REASON_LABELS = dict(WalletAdjustment.REASON_CATEGORY_CHOICES)
 

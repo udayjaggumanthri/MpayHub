@@ -6,6 +6,7 @@ import Sidebar, {
 } from './Sidebar';
 import Header from './Header';
 import AccessBlockedAlert from './AccessBlockedAlert';
+import MobileBottomNav from './MobileBottomNav';
 
 const readCollapsedPreference = () => {
   try {
@@ -49,12 +50,13 @@ const Layout = ({ children }) => {
         <div
           className={`min-w-0 flex-1 transition-[margin] duration-300 ease-in-out ${contentOffsetClass}`}
         >
-          <main className="p-3 pb-6 sm:p-4 sm:pb-8 md:p-6 lg:p-8">
+          <main className="px-2 py-3 pb-24 sm:p-4 sm:pb-24 md:p-6 lg:p-8 lg:pb-8">
             <AccessBlockedAlert />
             {children}
           </main>
         </div>
       </div>
+      <MobileBottomNav />
     </div>
   );
 };

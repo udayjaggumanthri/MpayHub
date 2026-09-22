@@ -28,6 +28,7 @@ from apps.users.services import (
     admin_change_user_role,
     admin_approve_kyc,
     admin_reject_kyc,
+    admin_request_rekyc,
     apply_user_access_controls,
     create_user,
     delete_user_account,
@@ -103,6 +104,10 @@ class UserViewSet(viewsets.ModelViewSet):
             queryset = queryset.filter(is_restricted=True)
         elif acct == 'payments_locked':
             queryset = queryset.filter(payments_locked=True)
+
+        kyc_status = (self.request.query_params.get('kyc_status') or '').strip().lower()
+        if kyc_status in ('pending', 'awaiting_approval', 'verified', 'rejected'):
+            queryset = queryset.filter(kyc__verification_status=kyc_status)
 
         return queryset.select_related('profile', 'kyc')
 
@@ -427,6 +432,10 @@ class UserViewSet(viewsets.ModelViewSet):
             'restricted': qs.filter(is_restricted=True).count(),
             'payments_locked': qs.filter(payments_locked=True).count(),
             'by_role': by_role,
+            'kyc_awaiting_approval': qs.filter(kyc__verification_status='awaiting_approval').count(),
+            'kyc_rejected': qs.filter(kyc__verification_status='rejected').count(),
+            'kyc_pending': qs.filter(kyc__verification_status='pending').count(),
+            'kyc_verified': qs.filter(kyc__verification_status='verified').count(),
         }
         return Response(
             {
@@ -636,9 +645,12 @@ class UserViewSet(viewsets.ModelViewSet):
             if decision == 'approve':
                 admin_approve_kyc(actor=request.user, target_user=instance, notes=notes)
                 message = 'KYC approved. User can complete onboarding and activate their account.'
+            elif decision == 'request_resubmit':
+                admin_request_rekyc(actor=request.user, target_user=instance, notes=notes)
+                message = 'Re-KYC requested. The user must submit KYC documents again for review.'
             else:
                 admin_reject_kyc(actor=request.user, target_user=instance, notes=notes)
-                message = 'KYC rejected. User account remains inactive until KYC is approved.'
+                message = 'KYC rejected. The user can resubmit documents for a new review.'
         except ValueError as e:
             return Response(
                 {'success': False, 'data': None, 'message': str(e), 'errors': []},

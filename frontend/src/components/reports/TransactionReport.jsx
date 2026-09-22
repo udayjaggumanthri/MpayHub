@@ -29,6 +29,10 @@ import {
   ReportFilterGrid,
 } from '../common/ReportFilterPanel';
 import { countActiveReportFilters, filtersEqual } from '../../utils/reportFilters';
+import {
+  reportPeriodFilterDates,
+} from '../../utils/reportPeriodRange';
+import ReportSummaryPeriodToggle from '../common/ReportSummaryPeriodToggle';
 
 const DEFAULT_PAGE_SIZE = 25;
 
@@ -48,13 +52,17 @@ const EMPTY_FILTERS = {
   utr: '',
 };
 
+/** Keep drill-down dates when present; otherwise leave dates empty (all records). */
 function mergeDrillDownFilters(drillDown) {
-  if (!drillDown?.hasDrillDown) return { ...EMPTY_FILTERS };
+  if (!drillDown?.hasDrillDown) {
+    return { ...EMPTY_FILTERS };
+  }
   return {
     ...EMPTY_FILTERS,
     status: drillDown.filters.status,
-    dateFrom: drillDown.filters.dateFrom,
-    dateTo: drillDown.filters.dateTo,
+    dateFrom: drillDown.filters.dateFrom || '',
+    dateTo: drillDown.filters.dateTo || '',
+    serviceId: drillDown.filters.serviceId || '',
   };
 }
 
@@ -82,6 +90,7 @@ const TransactionReport = ({ type = 'all' }) => {
     pending: 0,
     failure: 0,
   });
+  const [summaryPeriod, setSummaryPeriod] = useState('day');
   const [detailRecord, setDetailRecord] = useState(null);
   const [receiptTxn, setReceiptTxn] = useState(null);
   const [helpTxnId, setHelpTxnId] = useState(null);
@@ -102,6 +111,22 @@ const TransactionReport = ({ type = 'all' }) => {
     window.history.replaceState({}, document.title, window.location.pathname + window.location.search);
     return undefined;
   }, [location.state, type]);
+
+  // Deep-link: ?open_receipt=1&service_id=… after list loads
+  const openReceiptDoneRef = useRef(false);
+  useEffect(() => {
+    if (type !== 'payin') return;
+    if (openReceiptDoneRef.current) return;
+    if (!drillDown.openReceipt || !drillDown.filters.serviceId) return;
+    if (loading || !transactions.length) return;
+    const sid = String(drillDown.filters.serviceId);
+    const match = transactions.find(
+      (t) => String(t.transactionId || t.service_id || '') === sid
+    );
+    if (!match) return;
+    openReceiptDoneRef.current = true;
+    openPayinReceipt(match);
+  }, [type, drillDown.openReceipt, drillDown.filters.serviceId, loading, transactions]);
 
   useEffect(() => {
     const next = mergeDrillDownFilters(drillDown);
@@ -352,11 +377,21 @@ const TransactionReport = ({ type = 'all' }) => {
   const clearDashboardDrillDown = () => {
     setSearchParams({});
     setShowDashboardBanner(false);
+    setSummaryPeriod('day');
     const cleared = { ...EMPTY_FILTERS };
     setFilters(cleared);
     setPage(1);
     setAppliedFilters(cleared);
     if (isAdminUser(user)) setReportScope('self');
+  };
+
+  const changeSummaryPeriod = (period) => {
+    if (!period || period === summaryPeriod) return;
+    setSummaryPeriod(period);
+    const dates = reportPeriodFilterDates(period);
+    setFilters((prev) => ({ ...prev, ...dates }));
+    setAppliedFilters((prev) => ({ ...prev, ...dates }));
+    setPage(1);
   };
 
   const openPayinReceipt = (txn) => {
@@ -396,7 +431,7 @@ const TransactionReport = ({ type = 'all' }) => {
   };
 
   return (
-    <div className="space-y-4 sm:space-y-6 px-4 sm:px-0">
+    <div className="space-y-4 sm:space-y-6">
       {showDashboardBanner && drillDown.fromDashboard && (
         <div className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-blue-200 dark:border-blue-800 bg-blue-50 dark:bg-blue-950/40 px-4 py-3 text-sm text-blue-900 dark:text-blue-300">
           <span>Filtered from dashboard portal activity (platform-wide).</span>
@@ -536,19 +571,36 @@ const TransactionReport = ({ type = 'all' }) => {
         )}
 
 
-        {/* Summary Cards */}
-        <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 mb-4">
-          <div className="bg-green-50 dark:bg-green-950/40 border-2 border-green-200 dark:border-green-800 rounded-lg p-4">
-            <p className="text-sm text-gray-600 dark:text-slate-400 mb-1">SUCCESS</p>
-            <p className="text-2xl font-bold text-green-600 dark:text-green-400">{formatCurrency(summary.success)}</p>
-          </div>
-          <div className="bg-yellow-50 dark:bg-yellow-950/40 border-2 border-yellow-200 dark:border-yellow-800 rounded-lg p-4">
-            <p className="text-sm text-gray-600 dark:text-slate-400 mb-1">PENDING</p>
-            <p className="text-2xl font-bold text-yellow-600 dark:text-yellow-400">{formatCurrency(summary.pending)}</p>
-          </div>
-          <div className="bg-red-50 dark:bg-red-950/40 border-2 border-red-200 dark:border-red-800 rounded-lg p-4">
-            <p className="text-sm text-gray-600 dark:text-slate-400 mb-1">FAILURE</p>
-            <p className="text-2xl font-bold text-red-600 dark:text-red-400">{formatCurrency(summary.failure)}</p>
+        {/* Summary Cards — period-scoped (default: today) */}
+        <div className="mb-4 space-y-3">
+          <ReportSummaryPeriodToggle
+            period={summaryPeriod}
+            onChange={changeSummaryPeriod}
+            refreshing={isRefreshing && hasLoadedOnce}
+          />
+          <div
+            className={`grid grid-cols-1 sm:grid-cols-3 gap-3 transition-opacity ${
+              isRefreshing && hasLoadedOnce ? 'opacity-70' : ''
+            }`}
+          >
+            <div className="bg-green-50 dark:bg-green-950/40 border-2 border-green-200 dark:border-green-800 rounded-lg p-4">
+              <p className="text-sm text-gray-600 dark:text-slate-400 mb-1">SUCCESS</p>
+              <p className="text-2xl font-bold text-green-600 dark:text-green-400">
+                {formatCurrency(summary.success)}
+              </p>
+            </div>
+            <div className="bg-yellow-50 dark:bg-yellow-950/40 border-2 border-yellow-200 dark:border-yellow-800 rounded-lg p-4">
+              <p className="text-sm text-gray-600 dark:text-slate-400 mb-1">PENDING</p>
+              <p className="text-2xl font-bold text-yellow-600 dark:text-yellow-400">
+                {formatCurrency(summary.pending)}
+              </p>
+            </div>
+            <div className="bg-red-50 dark:bg-red-950/40 border-2 border-red-200 dark:border-red-800 rounded-lg p-4">
+              <p className="text-sm text-gray-600 dark:text-slate-400 mb-1">FAILURE</p>
+              <p className="text-2xl font-bold text-red-600 dark:text-red-400">
+                {formatCurrency(summary.failure)}
+              </p>
+            </div>
           </div>
         </div>
 
@@ -706,12 +758,15 @@ const TransactionReport = ({ type = 'all' }) => {
         ) : (
           <div className={isRefreshing ? 'opacity-60 pointer-events-none' : ''}>
         {isLedgerStyle ? (
-          <div className="overflow-x-auto rounded-lg border border-gray-200 dark:border-slate-700">
-            <table className="w-full min-w-[1080px] border-collapse text-left">
+          <div className="-mx-2 overflow-x-auto rounded-none border-y border-gray-200 dark:border-slate-700 sm:mx-0 sm:rounded-lg sm:border">
+            <table className="w-full min-w-[1280px] border-collapse text-left whitespace-nowrap">
               <thead>
                 <tr className="border-b border-gray-200 dark:border-slate-700 bg-gray-50 dark:bg-slate-800/50">
                   <th className="px-3 py-3 text-xs font-semibold uppercase tracking-wide text-gray-600 dark:text-slate-400 sm:px-4">
                     S.No
+                  </th>
+                  <th className="px-3 py-3 text-xs font-semibold uppercase tracking-wide text-gray-600 dark:text-slate-400 sm:px-4">
+                    Transaction date
                   </th>
                   <th className="px-3 py-3 text-xs font-semibold uppercase tracking-wide text-gray-600 dark:text-slate-400 sm:px-4">
                     Transaction ID
@@ -758,9 +813,6 @@ const TransactionReport = ({ type = 'all' }) => {
                     Closing balance
                   </th>
                   <th className="px-3 py-3 text-xs font-semibold uppercase tracking-wide text-gray-600 dark:text-slate-400 sm:px-4">
-                    Transaction date
-                  </th>
-                  <th className="px-3 py-3 text-xs font-semibold uppercase tracking-wide text-gray-600 dark:text-slate-400 sm:px-4">
                     Status
                   </th>
                   <th className="px-3 py-3 text-center text-xs font-semibold uppercase tracking-wide text-gray-600 dark:text-slate-400 sm:px-4">
@@ -769,80 +821,88 @@ const TransactionReport = ({ type = 'all' }) => {
                 </tr>
               </thead>
               <tbody>
-                {transactions.map((txn, index) => (
+                {transactions.map((txn, index) => {
+                  const agentLabel = txn.detail?.agentDetails
+                    ? [
+                        txn.detail.agentDetails.user_code,
+                        txn.detail.agentDetails.name,
+                        txn.detail.agentDetails.mobile,
+                      ]
+                        .filter(Boolean)
+                        .join(' · ')
+                    : txn.detailLine1 || '—';
+                  const partyLabel = [
+                    txn.detailLine1,
+                    type === 'payout' ? txn.accountMasked : txn.detailLine2,
+                    type === 'payout' ? txn.detailLine2 : null,
+                  ]
+                    .filter(Boolean)
+                    .join(' · ');
+                  const railLabel = [
+                    txn.collectionRail === 'qr' ? 'Manual QR' : 'Gateway',
+                    txn.utr,
+                    txn.qrAccountName,
+                  ]
+                    .filter(Boolean)
+                    .join(' · ');
+                  const collectionLabel = [txn.paymentGatewayName, txn.railTypeLabel]
+                    .filter(Boolean)
+                    .join(' · ');
+                  return (
                   <tr key={txn.id} className="border-b border-gray-100 dark:border-slate-800 hover:bg-gray-50/80 dark:hover:bg-slate-800/80">
-                    <td className="px-3 py-3 text-sm text-gray-600 dark:text-slate-400 sm:px-4">{(page - 1) * pageSize + index + 1}</td>
-                    <td className="px-3 py-3 text-sm font-medium text-gray-900 dark:text-slate-100 sm:px-4">
-                      <span className="break-all">{txn.transactionId}</span>
+                    <td className="px-3 py-2.5 text-sm text-gray-600 dark:text-slate-400 sm:px-4">{(page - 1) * pageSize + index + 1}</td>
+                    <td className="px-3 py-2.5 text-sm text-gray-700 dark:text-slate-300 sm:px-4">
+                      {formatReportDateTime(txn.date)}
                     </td>
-                    <td className="px-3 py-3 text-sm text-gray-700 dark:text-slate-300 sm:px-4">
-                      <span className="break-all">{txn.requestId}</span>
+                    <td className="px-3 py-2.5 text-sm font-medium text-gray-900 dark:text-slate-100 sm:px-4">
+                      {txn.transactionId}
                     </td>
-                    <td className="px-3 py-3 text-sm text-gray-900 dark:text-slate-100 sm:px-4">
+                    <td className="px-3 py-2.5 text-sm text-gray-700 dark:text-slate-300 sm:px-4">
+                      {txn.requestId}
+                    </td>
+                    <td className="px-3 py-2.5 text-sm text-gray-900 dark:text-slate-100 sm:px-4">
                       {formatCurrency(txn.orderAmount)}
                     </td>
-                    <td className="px-3 py-3 text-sm text-gray-900 dark:text-slate-100 sm:px-4">
+                    <td className="px-3 py-2.5 text-sm text-gray-900 dark:text-slate-100 sm:px-4">
                       {formatCurrency(txn.billAmount)}
                     </td>
                     {type === 'payin' ? (
                       <>
-                        <td className="px-3 py-3 text-sm text-gray-800 dark:text-slate-200 sm:px-4">{txn.modeOfPayment}</td>
-                        <td className="px-3 py-3 text-sm text-gray-800 dark:text-slate-200 sm:px-4">
-                          <div className="font-medium">{txn.paymentGatewayName}</div>
-                          {txn.railTypeLabel ? (
-                            <div className="text-xs text-gray-500 dark:text-slate-400">{txn.railTypeLabel}</div>
-                          ) : null}
+                        <td className="px-3 py-2.5 text-sm text-gray-800 dark:text-slate-200 sm:px-4">{txn.modeOfPayment}</td>
+                        <td className="px-3 py-2.5 text-sm text-gray-800 dark:text-slate-200 sm:px-4">
+                          {collectionLabel || '—'}
                         </td>
-                        <td className="px-3 py-3 text-sm text-gray-800 dark:text-slate-200 sm:px-4">
-                          <div className="text-xs font-semibold uppercase text-gray-500 dark:text-slate-400">
-                            {txn.collectionRail === 'qr' ? 'Manual QR' : 'Gateway'}
-                          </div>
-                          {txn.utr ? <div className="font-mono text-xs break-all">{txn.utr}</div> : '—'}
-                          {txn.qrAccountName ? (
-                            <div className="text-xs text-gray-600 dark:text-slate-400">{txn.qrAccountName}</div>
-                          ) : null}
+                        <td className="px-3 py-2.5 text-sm font-mono text-gray-800 dark:text-slate-200 sm:px-4">
+                          {railLabel || '—'}
                         </td>
                       </>
                     ) : (
-                      <td className="px-3 py-3 text-sm text-gray-700 dark:text-slate-300 sm:px-4">{txn.category}</td>
+                      <td className="px-3 py-2.5 text-sm text-gray-700 dark:text-slate-300 sm:px-4">{txn.category}</td>
                     )}
-                    <td className="px-3 py-3 text-sm text-gray-700 dark:text-slate-300 sm:px-4">
-                      <div className="max-w-[200px] space-y-0.5">
-                        <p className="break-words text-xs leading-snug text-gray-600 dark:text-slate-400">{txn.detailLine1}</p>
-                        <p className="break-words font-medium leading-snug text-gray-900 dark:text-slate-100">
-                          {type === 'payout' ? txn.accountMasked : txn.detailLine2}
-                        </p>
-                        {type === 'payout' ? (
-                          <p className="break-words text-xs text-gray-500 dark:text-slate-400">{txn.detailLine2}</p>
-                        ) : null}
-                      </div>
+                    <td className="px-3 py-2.5 text-sm text-gray-700 dark:text-slate-300 sm:px-4">
+                      {partyLabel || '—'}
                     </td>
-                    <td className="px-3 py-3 text-sm text-gray-900 dark:text-slate-100 sm:px-4">
+                    <td className="px-3 py-2.5 text-sm text-gray-900 dark:text-slate-100 sm:px-4">
                       {formatCurrency(txn.charges)}
                     </td>
-                    <td className="px-3 py-3 text-xs text-gray-700 dark:text-slate-300 sm:px-4 max-w-[200px] break-words">
-                      {txn.detail?.agentDetails
-                        ? `${txn.detail.agentDetails.user_code || ''} · ${txn.detail.agentDetails.name || ''} · ${txn.detail.agentDetails.mobile || ''}`
-                        : txn.detailLine1}
+                    <td className="px-3 py-2.5 text-xs text-gray-700 dark:text-slate-300 sm:px-4">
+                      {agentLabel}
                     </td>
-                    <td className="px-3 py-3 text-right text-sm text-gray-900 dark:text-slate-100 sm:px-4">
+                    <td className="px-3 py-2.5 text-right text-sm text-gray-900 dark:text-slate-100 sm:px-4">
                       {formatReportBalance(balanceFromRow(txn).opening)}
                     </td>
-                    <td className="px-3 py-3 text-right text-sm text-gray-900 dark:text-slate-100 sm:px-4">
+                    <td className="px-3 py-2.5 text-right text-sm text-gray-900 dark:text-slate-100 sm:px-4">
                       {formatReportBalance(balanceFromRow(txn).closing)}
                     </td>
-                    <td className="px-3 py-3 text-sm whitespace-nowrap text-gray-700 dark:text-slate-300 sm:px-4">
-                      {formatReportDateTime(txn.date)}
-                    </td>
-                    <td className="px-3 py-3 sm:px-4">
-                      <div className="space-y-1">
+                    <td className="px-3 py-2.5 sm:px-4">
+                      <div className="inline-flex items-center gap-2">
                         {getStatusBadge(txn.status)}
                         {type === 'payin' &&
                         (txn.status || '').toUpperCase() === 'FAILED' &&
                         txn.collectionRail === 'qr' &&
                         txn.rejectReason ? (
                           <span
-                            className="inline-block max-w-[180px] truncate rounded-md border border-red-200 dark:border-red-800 bg-red-50 dark:bg-red-950/40 px-2 py-0.5 text-xs font-medium text-red-800 dark:text-red-300"
+                            className="inline-block max-w-[220px] truncate rounded-md border border-red-200 dark:border-red-800 bg-red-50 dark:bg-red-950/40 px-2 py-0.5 text-xs font-medium text-red-800 dark:text-red-300"
                             title={txn.rejectReason}
                           >
                             {txn.rejectReason}
@@ -850,7 +910,7 @@ const TransactionReport = ({ type = 'all' }) => {
                         ) : null}
                       </div>
                     </td>
-                    <td className="px-3 py-3 sm:px-4">
+                    <td className="px-3 py-2.5 sm:px-4">
                       <div className="flex items-center justify-center gap-1">
                         <button
                           type="button"
@@ -899,12 +959,13 @@ const TransactionReport = ({ type = 'all' }) => {
                       </div>
                     </td>
                   </tr>
-                ))}
+                  );
+                })}
               </tbody>
             </table>
           </div>
         ) : (
-          <div className="overflow-x-auto">
+          <div className="-mx-2 overflow-x-auto sm:mx-0">
             <table className="w-full border-collapse">
               <thead>
                 <tr className="bg-gray-50 dark:bg-slate-800/50 border-b border-gray-200 dark:border-slate-700">

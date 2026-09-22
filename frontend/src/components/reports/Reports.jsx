@@ -98,8 +98,12 @@ const Reports = () => {
   useEffect(() => {
     if (location.pathname === '/reports') {
       navigate('/reports/payin', { replace: true });
+      return;
     }
-  }, [location.pathname, navigate]);
+    if (location.pathname === '/reports/commission' && !showCommission) {
+      navigate('/reports/payin', { replace: true });
+    }
+  }, [location.pathname, navigate, showCommission]);
 
   const tabs = [
     { id: 'payin', name: 'Pay In', component: () => <TransactionReport type="payin" /> },
@@ -107,7 +111,7 @@ const Reports = () => {
     { id: 'bbps', name: 'BBPS', component: () => <BbpsBillsReport /> },
     { id: 'passbook', name: 'Passbook', component: () => <Passbook /> },
     ...(showCommission
-      ? [{ id: 'commission', name: 'Commission', component: () => <CommissionReport /> }]
+      ? [{ id: 'commission', name: 'Revenue', component: () => <CommissionReport /> }]
       : []),
   ];
 
@@ -117,16 +121,16 @@ const Reports = () => {
   };
 
   return (
-    <div className="space-y-6">
-      <div className="bg-white dark:bg-slate-900 rounded-xl shadow-sm border border-gray-200 dark:border-slate-700">
+    <div className="space-y-4 sm:space-y-6">
+      <div className="-mx-2 overflow-hidden rounded-none border-y border-gray-200 bg-white shadow-sm dark:border-slate-700 dark:bg-slate-900 sm:mx-0 sm:rounded-xl sm:border">
         <div className="border-b border-gray-200 dark:border-slate-700">
-          <nav className="flex flex-wrap -mb-px px-6">
+          <nav className="flex flex-nowrap -mb-px gap-0 overflow-x-auto px-2 sm:flex-wrap sm:px-6">
             {tabs.map((tab) => (
               <button
                 key={tab.id}
                 type="button"
                 onClick={() => selectTab(tab.id)}
-                className={`px-6 py-4 text-sm font-medium border-b-2 transition-colors ${
+                className={`shrink-0 px-3 py-3 text-sm font-medium border-b-2 transition-colors sm:px-6 sm:py-4 ${
                   activeTab === tab.id
                     ? 'border-blue-600 text-blue-600 dark:text-blue-400'
                     : 'border-transparent text-gray-500 dark:text-slate-400 hover:text-gray-700 dark:hover:text-slate-300 hover:border-gray-300 dark:hover:border-slate-600'
@@ -138,7 +142,7 @@ const Reports = () => {
           </nav>
         </div>
 
-        <div className="p-6">
+        <div className="px-2 py-3 sm:p-6">
           {showDrillDownHub ? (
             <DashboardDrillDownHub drillDown={drillDown} />
           ) : (

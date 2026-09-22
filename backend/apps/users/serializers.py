@@ -60,7 +60,13 @@ class KYCListSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = KYC
-        fields = ['pan_verified', 'aadhaar_verified', 'verification_status']
+        fields = [
+            'pan_verified',
+            'aadhaar_verified',
+            'verification_status',
+            'decided_at',
+            'decision_notes',
+        ]
         read_only_fields = fields
 
 
@@ -99,7 +105,7 @@ class KYCMaskedSerializer(serializers.ModelSerializer):
 class KycAdminDecisionSerializer(serializers.Serializer):
     """Admin body for POST .../users/{id}/kyc-approval/."""
 
-    decision = serializers.ChoiceField(choices=['approve', 'reject'])
+    decision = serializers.ChoiceField(choices=['approve', 'reject', 'request_resubmit'])
     notes = serializers.CharField(required=False, allow_blank=True, max_length=2000)
 
     def validate(self, attrs):

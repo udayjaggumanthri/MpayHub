@@ -55,6 +55,7 @@ INSTALLED_APPS = [
     'apps.fund_management',
     'apps.bbps',
     'apps.aeps',
+    'apps.cms',
     'apps.contacts',
     'apps.bank_accounts',
     'apps.transactions',
@@ -270,10 +271,11 @@ OTP_EXPIRY_MINUTES = 5
 OTP_LENGTH = 6
 
 # Wallet Settings
-WALLET_TYPES = ['main', 'commission', 'bbps']
+# Post-consolidation: only main is a live spendable wallet.
+WALLET_TYPES = ['main']
 # Max single admin adjustment amount (INR). Override via env WALLET_ADJUSTMENT_MAX_AMOUNT.
 WALLET_ADJUSTMENT_MAX_AMOUNT = config('WALLET_ADJUSTMENT_MAX_AMOUNT', default=100000, cast=float)
-WALLET_ADJUSTMENT_ALLOWED_TYPES = ['main', 'bbps']
+WALLET_ADJUSTMENT_ALLOWED_TYPES = ['main']
 
 # Pay-in: optional Django user id (pk) who receives 100% of platform gateway + admin shares (commission wallet).
 # If unset/invalid: split those amounts evenly across every active Admin; if no Admin users, first superuser gets 100%.

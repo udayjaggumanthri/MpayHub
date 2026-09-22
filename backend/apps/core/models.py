@@ -13,6 +13,11 @@ def platform_logo_upload_to(instance, filename):
     return f'branding/logo/{uuid.uuid4().hex}.{ext}'
 
 
+def platform_logo_dark_upload_to(instance, filename):
+    ext = filename.rsplit('.', 1)[-1].lower() if '.' in filename else 'bin'
+    return f'branding/logo-dark/{uuid.uuid4().hex}.{ext}'
+
+
 class TimestampedModel(models.Model):
     """Abstract model with created_at and updated_at timestamps."""
     
@@ -65,10 +70,12 @@ class SystemMaintenanceConfig(models.Model):
     payout_enabled = models.BooleanField(default=True, db_index=True)
     bbps_enabled = models.BooleanField(default=True, db_index=True)
     aeps_enabled = models.BooleanField(default=False, db_index=True)
+    cms_enabled = models.BooleanField(default=False, db_index=True)
     pay_in_message = models.TextField(blank=True, default='')
     payout_message = models.TextField(blank=True, default='')
     bbps_message = models.TextField(blank=True, default='')
     aeps_message = models.TextField(blank=True, default='')
+    cms_message = models.TextField(blank=True, default='')
     reason_internal = models.TextField(blank=True, default='')
     updated_by = models.ForeignKey(
         'authentication.User',
@@ -100,6 +107,7 @@ class SystemMaintenanceAuditLog(TimestampedModel):
         ('payout', 'Payout'),
         ('bbps', 'BBPS'),
         ('aeps', 'AEPS'),
+        ('cms', 'CMS'),
         ('all', 'All modules'),
     ]
 
@@ -146,6 +154,14 @@ class PlatformAppearanceConfig(models.Model):
         max_length=500,
         validators=[FileExtensionValidator(allowed_extensions=['jpg', 'jpeg', 'png', 'webp', 'gif'])],
     )
+    logo_dark = models.ImageField(
+        upload_to=platform_logo_dark_upload_to,
+        blank=True,
+        null=True,
+        max_length=500,
+        validators=[FileExtensionValidator(allowed_extensions=['jpg', 'jpeg', 'png', 'webp', 'gif'])],
+        help_text='Optional logo optimized for dark theme backgrounds.',
+    )
     login_welcome_heading = models.CharField(max_length=200, default='WELCOME TO')
     login_tagline = models.CharField(max_length=300, default='Driven by trust, Built for Scale')
     login_footer_note = models.TextField(blank=True, default='')
@@ -185,6 +201,8 @@ class PlatformAppearanceConfig(models.Model):
 
         if self.logo:
             discard_stored_file(self.logo)
+        if self.logo_dark:
+            discard_stored_file(self.logo_dark)
         super().delete(*args, **kwargs)
 
 

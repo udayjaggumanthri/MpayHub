@@ -588,6 +588,18 @@ class BbpsPaymentAttempt(BaseModel):
     commission_rule_code = models.CharField(max_length=80, blank=True, default='')
     commission_rule_snapshot = models.JSONField(default=dict, blank=True)
     commission_amount = models.DecimalField(max_digits=18, decimal_places=4, default=Decimal('0'))
+    wallet_hold_amount = models.DecimalField(
+        max_digits=18,
+        decimal_places=4,
+        default=Decimal('0'),
+        help_text='Amount currently held on the user main wallet for this attempt.',
+    )
+    wallet_settled_amount = models.DecimalField(
+        max_digits=18,
+        decimal_places=4,
+        default=Decimal('0'),
+        help_text='Amount settled (debited) from the user main wallet on SUCCESS.',
+    )
     settled_at = models.DateTimeField(null=True, blank=True)
 
     class Meta:

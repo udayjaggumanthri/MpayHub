@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import {
   constrainDmyInput,
   isoToDmy,
@@ -11,9 +11,28 @@ import {
 const inputClass =
   'w-full min-w-0 rounded-lg border bg-white dark:bg-slate-900 px-3 py-2.5 text-sm text-gray-900 dark:text-slate-100 focus:outline-none focus:ring-2 min-h-[44px]';
 
+function CalendarIcon({ className = 'h-5 w-5' }) {
+  return (
+    <svg className={className} fill="none" viewBox="0 0 24 24" stroke="currentColor" aria-hidden>
+      <path
+        strokeLinecap="round"
+        strokeLinejoin="round"
+        strokeWidth={2}
+        d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z"
+      />
+    </svg>
+  );
+}
+
+/**
+ * Text DD/MM/YYYY + reliable calendar open.
+ * Native picker is anchored to the full field (not a 44px tip), and the
+ * calendar control is a real button with a 44×44 hit target.
+ */
 function DateField({ id, label, isoValue, onDraftChange, sizeClass, compact = false }) {
   const [text, setText] = useState(() => isoToDmy(isoValue));
   const [localError, setLocalError] = useState('');
+  const dateRef = useRef(null);
 
   useEffect(() => {
     setText(isoToDmy(isoValue));
@@ -39,8 +58,8 @@ function DateField({ id, label, isoValue, onDraftChange, sizeClass, compact = fa
     onDraftChange('');
   };
 
-  const onCalendar = (e) => {
-    const iso = normalizeIsoDate(e.target.value);
+  const applyIso = (raw) => {
+    const iso = normalizeIsoDate(raw);
     if (!iso) {
       setLocalError('Date cannot be after today.');
       return;
@@ -48,6 +67,27 @@ function DateField({ id, label, isoValue, onDraftChange, sizeClass, compact = fa
     onDraftChange(iso);
     setText(isoToDmy(iso));
     setLocalError('');
+  };
+
+  const openCalendar = async (e) => {
+    e.preventDefault();
+    e.stopPropagation();
+    const el = dateRef.current;
+    if (!el) return;
+    try {
+      if (typeof el.showPicker === 'function') {
+        await el.showPicker();
+        return;
+      }
+    } catch {
+      /* fall through to click() */
+    }
+    try {
+      el.focus({ preventScroll: true });
+      el.click();
+    } catch {
+      /* ignore */
+    }
   };
 
   const invalid = Boolean(localError);
@@ -89,39 +129,45 @@ function DateField({ id, label, isoValue, onDraftChange, sizeClass, compact = fa
           aria-describedby={`${id}-hint`}
           aria-label={label || 'Date'}
         />
-        <span
-          className="pointer-events-none absolute inset-y-0 right-0 z-10 flex w-11 items-center justify-center text-gray-500 dark:text-slate-400"
-          aria-hidden
-        >
-          <svg className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-            <path
-              strokeLinecap="round"
-              strokeLinejoin="round"
-              strokeWidth={2}
-              d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z"
-            />
-          </svg>
-        </span>
-        {/* Native picker sits on the icon. It must be a real tappable control (not
-            sr-only / showPicker-from-button) or phones will ignore the tap. */}
+
+        {/* Full-field native input: used as showPicker() anchor so the popup
+            aligns under the control (not a tiny right-edge tip). */}
         <input
+          ref={dateRef}
           type="date"
           lang="en-IN"
+          tabIndex={-1}
           max={todayIsoDate()}
           min="2000-01-01"
           value={isoValue || ''}
-          onChange={onCalendar}
-          onClick={(e) => e.stopPropagation()}
-          aria-label={`${label || 'Date'} calendar`}
-          className="absolute inset-y-0 right-0 z-20 w-11 cursor-pointer opacity-0"
+          onChange={(e) => applyIso(e.target.value)}
+          aria-hidden
+          className="pointer-events-none absolute inset-0 h-full w-full opacity-0"
           style={{ fontSize: 16 }}
         />
+
+        <button
+          type="button"
+          onMouseDown={(e) => {
+            // Keep focus from jumping away before showPicker runs.
+            e.preventDefault();
+          }}
+          onClick={openCalendar}
+          className="absolute inset-y-0 right-0 z-30 flex w-12 items-center justify-center rounded-r-lg text-slate-500 transition hover:bg-slate-100 hover:text-slate-800 focus:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-blue-500 dark:text-slate-400 dark:hover:bg-slate-800 dark:hover:text-slate-200"
+          aria-label={`Open ${label || 'date'} calendar`}
+        >
+          <CalendarIcon />
+        </button>
       </div>
       {localError ? (
         <p id={`${id}-hint`} className="mt-1 text-xs text-red-600 dark:text-red-400">
           {localError}
         </p>
-      ) : compact ? null : (
+      ) : compact ? (
+        <span id={`${id}-hint`} className="sr-only">
+          Type DD/MM/YYYY or open the calendar.
+        </span>
+      ) : (
         <p id={`${id}-hint`} className="mt-1 text-xs text-gray-500 dark:text-slate-400">
           Type DD/MM/YYYY, or tap the calendar. Today or earlier.
         </p>
@@ -159,7 +205,7 @@ export default function ReportDateRange({
   }, [dateTo]);
 
   const fieldClass = compact
-    ? 'w-full min-w-0 rounded-md border bg-white dark:bg-slate-900 px-2 py-2 text-sm font-medium text-slate-800 dark:text-slate-200 shadow-sm focus:outline-none focus:ring-1 min-h-[44px]'
+    ? 'w-full min-w-0 rounded-lg border bg-white dark:bg-slate-900 px-3 py-2.5 text-sm font-medium text-slate-800 dark:text-slate-200 shadow-sm focus:outline-none focus:ring-2 min-h-[44px]'
     : inputClass;
 
   const emit = (from, to) => {
@@ -177,13 +223,14 @@ export default function ReportDateRange({
   };
 
   const orderError = rangeDateError(draftFrom, draftTo);
+  const hasLabels = Boolean(fromLabel || toLabel);
 
-  // applyInline turns Apply into a third column so it sits level with the
-  // fields; items-start stops it stretching past the hint text below them.
-  // Only worth it where the row has room, hence opt-in.
+  // Align Apply to the input baseline (under labels when present).
   const gridClass =
     showApply && applyInline
-      ? 'grid min-w-0 grid-cols-1 items-start gap-3 md:grid-cols-[minmax(0,1fr)_minmax(0,1fr)_auto]'
+      ? `grid min-w-0 grid-cols-1 gap-3 md:grid-cols-[minmax(0,1fr)_minmax(0,1fr)_auto] ${
+          hasLabels ? 'md:items-end' : 'md:items-center'
+        }`
       : 'grid min-w-0 grid-cols-1 gap-4 sm:grid-cols-2';
 
   return (
@@ -218,15 +265,18 @@ export default function ReportDateRange({
         <button
           type="button"
           onClick={commitToParent}
-          className={`inline-flex min-h-[44px] w-full items-center justify-center rounded-lg bg-blue-600 px-4 py-2.5 text-sm font-semibold text-white shadow-sm transition-colors hover:bg-blue-700 ${
-            applyInline ? 'md:w-auto' : 'sm:w-auto'
+          disabled={Boolean(orderError)}
+          className={`inline-flex min-h-[44px] w-full items-center justify-center rounded-lg bg-blue-600 px-4 py-2.5 text-sm font-semibold text-white shadow-sm transition-colors hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-50 ${
+            applyInline ? 'md:mb-0 md:w-auto md:self-end' : 'sm:w-auto'
           }`}
         >
           {applyLabel}
         </button>
       ) : null}
       {orderError ? (
-        <p className="w-full text-xs text-red-600 dark:text-red-400 sm:col-span-full">{orderError}</p>
+        <p className="w-full text-xs text-red-600 dark:text-red-400 sm:col-span-full md:col-span-full">
+          {orderError}
+        </p>
       ) : null}
     </div>
   );

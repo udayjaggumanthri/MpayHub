@@ -21,6 +21,11 @@ export function countActiveReportFilters(filters, options = {}) {
 
   let count = 0;
   Object.entries(filters || {}).forEach(([key, raw]) => {
+    // Booleans (e.g. includeLegacy) only count when true.
+    if (typeof raw === 'boolean') {
+      if (raw) count += 1;
+      return;
+    }
     const val = String(raw ?? '').trim();
     if (!val) return;
     if (key === statusKey && ignoreStatus.includes(val)) return;

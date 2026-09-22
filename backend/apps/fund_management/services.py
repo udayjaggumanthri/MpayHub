@@ -740,6 +740,21 @@ def process_payout(user, bank_account_id, amount, gateway_id=None, transfer_mode
             **passbook_initiator_db_fields(user),
         )
 
+        if charge_amt > 0:
+            try:
+                from apps.transactions.services.fee_settlement import settle_service_charge
+
+                settle_service_charge(
+                    payer=user,
+                    module='payout',
+                    service_id=payout.transaction_id,
+                    charge=charge_amt,
+                    principal=amount,
+                    meta={'transfer_mode': transfer_mode},
+                )
+            except Exception:
+                logger.exception('Payout fee settlement failed for %s', payout.transaction_id)
+
         logger.info(
             'payout completed',
             extra={

@@ -31,33 +31,57 @@ const OnboardingKYC = () => {
   const [profileSyncLoading, setProfileSyncLoading] = useState(false);
 
   useEffect(() => {
-    if (!user?.onboarding) {
-      setBootLoading(false);
-      return;
-    }
-    if (user.onboarding.kyc_complete) {
-      navigate('/onboarding/mpin-setup', { replace: true });
-      return;
-    }
-    // Provider documents done — stay on this page for Admin approval / rejection messaging.
-    if (user.onboarding.awaiting_admin_approval || user.onboarding.kyc_rejected) {
-      setBootLoading(false);
-      return;
-    }
-    if (user.onboarding.pan_verified) {
-      setStep(2);
-      if (user.kyc_verification?.pan && !panDetails) {
-        const kv = user.kyc_verification.pan;
-        setPanDetails({
-          pan: kv.pan,
-          name: kv.name,
-          date_of_birth: kv.date_of_birth,
-          pan_type: kv.pan_type,
-        });
+    let cancelled = false;
+    (async () => {
+      if (!user?.onboarding) {
+        setBootLoading(false);
+        return;
       }
-    }
-    setBootLoading(false);
-  }, [user, navigate, panDetails]);
+      if (user.onboarding.kyc_complete) {
+        navigate('/onboarding/mpin-setup', { replace: true });
+        return;
+      }
+      // DigiLocker may have succeeded while KYC mark failed — recover before showing step 2.
+      if (
+        user.onboarding.pan_verified &&
+        !user.onboarding.aadhaar_verified &&
+        !user.onboarding.awaiting_admin_approval &&
+        !user.onboarding.kyc_rejected
+      ) {
+        try {
+          const res = await authAPI.finalizePendingDigilockerKyc();
+          if (!cancelled && res.success && res.data?.finalized) {
+            await refreshUser();
+            setBootLoading(false);
+            return;
+          }
+        } catch {
+          /* fall through to normal KYC UI */
+        }
+      }
+      if (cancelled) return;
+      if (user.onboarding.awaiting_admin_approval || user.onboarding.kyc_rejected) {
+        setBootLoading(false);
+        return;
+      }
+      if (user.onboarding.pan_verified) {
+        setStep(2);
+        if (user.kyc_verification?.pan && !panDetails) {
+          const kv = user.kyc_verification.pan;
+          setPanDetails({
+            pan: kv.pan,
+            name: kv.name,
+            date_of_birth: kv.date_of_birth,
+            pan_type: kv.pan_type,
+          });
+        }
+      }
+      setBootLoading(false);
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [user, navigate, panDetails, refreshUser]);
 
   useEffect(() => {
     if (panName.trim()) return;
@@ -216,9 +240,44 @@ const OnboardingKYC = () => {
         >
           <div className="rounded-xl border border-red-200 dark:border-red-800 bg-red-50/70 dark:bg-red-950/40 px-4 py-4 space-y-3">
             <p className="text-sm text-red-900 dark:text-red-300">
-              Please contact your administrator or support for next steps. Your account will remain
-              inactive until KYC is approved.
+              You can correct your details and submit again. Your account stays inactive until KYC is
+              approved.
             </p>
+            {error ? (
+              <p className="text-sm text-red-700 dark:text-red-300" role="alert">
+                {error}
+              </p>
+            ) : null}
+            <Button
+              type="button"
+              variant="primary"
+              size="md"
+              fullWidth
+              loading={loading}
+              onClick={async () => {
+                setError('');
+                setLoading(true);
+                try {
+                  const res = await authAPI.resubmitOnboardingKyc();
+                  if (!res.success) {
+                    setError(res.message || 'Could not start resubmission.');
+                    return;
+                  }
+                  await refreshUser();
+                  setStep(1);
+                  setPan('');
+                  setPanName('');
+                  setAadhaar('');
+                  setPanDetails(null);
+                } catch {
+                  setError('Could not start resubmission. Please try again.');
+                } finally {
+                  setLoading(false);
+                }
+              }}
+            >
+              Resubmit KYC documents
+            </Button>
             <Button type="button" variant="outline" size="md" fullWidth onClick={() => refreshUser()}>
               Refresh status
             </Button>

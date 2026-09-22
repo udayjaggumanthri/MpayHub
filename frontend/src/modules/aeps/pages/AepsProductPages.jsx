@@ -3,8 +3,17 @@ import { Link } from 'react-router-dom';
 import Card from '../../../components/common/Card';
 import Button from '../../../components/common/Button';
 import Input from '../../../components/common/Input';
+import { useAuth } from '../../../context/AuthContext';
 import aepsAPI from '../services/aepsApi';
 import { captureMantraFingerprint, getBrowserGeo } from '../services/mantraRd';
+import AepsTransactionReceiptView from '../receipts/AepsTransactionReceiptView';
+import {
+  aepsAckAllowed,
+  aepsBalanceLabel,
+  aepsNeedsStatusCheck,
+  normalizeAepsTxn,
+} from '../receipts/aepsReceiptFields';
+import { isAepsOperatorRole, sanitizeAepsUserMessage } from '../utils/aepsUserCopy';
 
 const maskAadhaarDisplay = (v) => {
   const d = String(v || '').replace(/\D/g, '');
@@ -12,38 +21,16 @@ const maskAadhaarDisplay = (v) => {
   return `${'X'.repeat(Math.max(0, d.length - 4))}${d.slice(-4)}`;
 };
 
-const formatAepsBalance = (raw) => {
-  if (raw == null || raw === '') return null;
-  const n = Number(String(raw).replace(/,/g, '').trim());
-  if (!Number.isFinite(n) || n < 0) return null;
-  return `₹${n.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
-};
-
-const aepsBalanceLabel = (txn) => {
-  if (!txn) return null;
-  const data = txn.provider_meta?.data || {};
-  return (
-    formatAepsBalance(txn.balance_amount) ||
-    formatAepsBalance(data.balanceAmount) ||
-    formatAepsBalance(data.bankAccountBalance) ||
-    formatAepsBalance(data.miniStatementBalance)
-  );
-};
-
-const aepsStatementRows = (txn) => {
-  const data = txn?.provider_meta?.data || {};
-  const candidates = [
-    txn?.mini_statement,
-    data.miniStatementStructureModel,
-    data.miniOffusStatementStructureModel,
-    data.miniStatement,
-    data.statement,
-  ];
-  for (const c of candidates) {
-    if (Array.isArray(c) && c.length) return c;
-  }
-  return [];
-};
+/** @deprecated Prefer AepsTransactionReceiptView — kept for import compatibility. */
+export const ReceiptCard = ({ result, onStatusCheck, onAck, busy, onDoAnother }) => (
+  <AepsTransactionReceiptView
+    result={result}
+    onStatusCheck={onStatusCheck}
+    onAck={onAck}
+    onDoAnother={onDoAnother}
+    busy={busy}
+  />
+);
 
 const GateCard = ({ title, text, to }) => (
   <Card className="text-center" shadow="sm">
@@ -57,93 +44,26 @@ const GateCard = ({ title, text, to }) => (
   </Card>
 );
 
-export const ReceiptCard = ({ result, onStatusCheck, onAck, busy }) => {
-  if (!result) return null;
-  const txn = result.transaction || result;
-  const rows = aepsStatementRows(txn);
-  const balanceLabel = aepsBalanceLabel(txn);
-  const isMini = txn.product === 'MS';
-  const isEnquiry = txn.product === 'BE' || isMini;
-
+const OutcomeModal = ({ open, onClose, children }) => {
+  if (!open) return null;
   return (
-    <Card title="Receipt" shadow="sm" className="space-y-3">
-      {balanceLabel ? (
-        <div className="rounded-xl bg-emerald-50 px-4 py-3 ring-1 ring-emerald-100 dark:bg-emerald-950/40 dark:ring-emerald-900">
-          <p className="text-[10px] font-semibold uppercase tracking-wide text-emerald-700 dark:text-emerald-300">
-            Available balance
-          </p>
-          <p className="mt-0.5 text-2xl font-bold tabular-nums text-emerald-900 dark:text-emerald-100">
-            {balanceLabel}
-          </p>
+    <div className="fixed inset-0 z-[60] flex items-end justify-center bg-black/50 p-3 sm:items-center sm:p-6">
+      <div
+        role="dialog"
+        aria-modal="true"
+        className="max-h-[92vh] w-full max-w-2xl overflow-y-auto rounded-2xl bg-white p-4 shadow-2xl dark:bg-slate-900 sm:p-5"
+      >
+        <div className="mb-3 flex items-center justify-between gap-2">
+          <h3 className="text-lg font-bold text-slate-900 dark:text-slate-100">Transaction result</h3>
+          <Button size="sm" variant="secondary" onClick={onClose}>
+            Close
+          </Button>
         </div>
-      ) : isEnquiry && txn.status === 'success' ? (
-        <p className="text-sm text-slate-600 dark:text-slate-400">
-          Bank did not return a displayable balance for this account.
-        </p>
-      ) : null}
-      <div className="grid gap-3 sm:grid-cols-2">
-        <Stat label="Status" value={txn.status || '—'} />
-        <Stat label="Amount" value={txn.amount != null ? `₹${txn.amount}` : '—'} />
-        <Stat label="RRN" value={txn.bank_rrn || '—'} mono />
-        <Stat label="Txn id" value={txn.merchant_tran_id || '—'} mono />
-        <Stat label="Response" value={txn.response_message || txn.response_code || '—'} />
-        <Stat label="Product" value={txn.product || '—'} />
+        {children}
       </div>
-      {rows.length ? (
-        <div className="overflow-x-auto rounded-lg border border-slate-100 dark:border-slate-800">
-          <table className="min-w-full text-left text-sm">
-            <thead className="bg-slate-50 dark:bg-slate-800/50 text-xs uppercase text-slate-500 dark:text-slate-400">
-              <tr>
-                <th className="px-3 py-2">Date</th>
-                <th className="px-3 py-2">Narration</th>
-                <th className="px-3 py-2">Amount</th>
-                <th className="px-3 py-2">Type</th>
-              </tr>
-            </thead>
-            <tbody>
-              {rows.map((r, i) => (
-                <tr key={i} className="border-t border-slate-100 dark:border-slate-800">
-                  <td className="px-3 py-2">{r.date || r.txnDate || '—'}</td>
-                  <td className="px-3 py-2">{r.narration || r.remarks || '—'}</td>
-                  <td className="px-3 py-2">{r.amount || r.txnAmount || '—'}</td>
-                  <td className="px-3 py-2">{r.txnType || r.type || '—'}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-      ) : isMini && txn.status === 'success' ? (
-        <p className="rounded-lg border border-slate-100 bg-slate-50 px-3 py-2 text-sm text-slate-600 dark:border-slate-800 dark:bg-slate-800/50 dark:text-slate-400">
-          Bank returned no mini-statement lines for this account.
-          {balanceLabel ? ' Available balance is shown above.' : ''}
-        </p>
-      ) : null}
-      {txn.merchant_tran_id && (onStatusCheck || onAck) ? (
-        <div className="flex flex-wrap gap-2">
-          {onStatusCheck ? (
-            <Button size="sm" variant="secondary" loading={busy} onClick={() => onStatusCheck(txn)}>
-              Status check
-            </Button>
-          ) : null}
-          {onAck ? (
-            <Button size="sm" variant="secondary" loading={busy} onClick={() => onAck(txn)}>
-              Acknowledge
-            </Button>
-          ) : null}
-        </div>
-      ) : null}
-    </Card>
+    </div>
   );
 };
-
-const Stat = ({ label, value, mono }) => (
-  <div className="rounded-lg bg-slate-50 dark:bg-slate-800/50 px-3 py-2 ring-1 ring-slate-100 dark:ring-slate-800">
-    <p className="text-[10px] font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">{label}</p>
-    <p className={`mt-0.5 break-all text-sm font-semibold text-slate-900 dark:text-slate-100 ${mono ? 'font-mono text-xs' : ''}`}>
-      {value}
-    </p>
-  </div>
-);
 
 /**
  * Shared product form for CW / BE / MS / AP / CD (+ CD OTP mode).
@@ -157,8 +77,9 @@ const AepsProductPage = ({
   require2fa,
   allowCdOtp,
   aepsStatus: status,
-  refreshStatus,
 }) => {
+  const { user } = useAuth();
+  const isOperator = isAepsOperatorRole(user);
   const [banks, setBanks] = useState([]);
   const [bankQuery, setBankQuery] = useState('');
   const [cdMode, setCdMode] = useState('bio'); // bio | otp
@@ -172,8 +93,27 @@ const AepsProductPage = ({
     transactionAmount: '',
   });
   const [result, setResult] = useState(null);
+  const [outcomeOpen, setOutcomeOpen] = useState(false);
   const [msg, setMsg] = useState('');
   const [busy, setBusy] = useState(false);
+
+  const showUserMsg = (raw) => {
+    const text = isOperator ? String(raw || '') : sanitizeAepsUserMessage(raw);
+    setMsg(text);
+  };
+
+  const resolveBankName = (iin) => {
+    const hit = banks.find((b) => String(b.iin) === String(iin));
+    return hit?.bank_name || '';
+  };
+
+  const withBankName = (body) => {
+    const iin = body.nationalBankIdentificationNumber || body.iin || '';
+    return {
+      ...body,
+      bankName: resolveBankName(iin),
+    };
+  };
 
   useEffect(() => {
     aepsAPI.listBanks(product === 'AP' ? 'aadhaar_pay' : 'aeps').then((res) => {
@@ -216,56 +156,84 @@ const AepsProductPage = ({
     return { block: false };
   }, [status, require2fa, title]);
 
-    const afterTxn = async (res, { otpMode = false } = {}) => {
+  const clearOutcome = () => {
+    setResult(null);
+    setMsg('');
+    setOutcomeOpen(false);
+  };
+
+  const openOutcome = (data) => {
+    setResult(data);
+    setOutcomeOpen(Boolean(data));
+  };
+
+  const afterTxn = async (res, { otpMode = false } = {}) => {
     if (!res.success) {
-      setMsg(res.message);
+      if (res.data?.transaction || res.data?.merchant_tran_id) {
+        openOutcome(res.data);
+      } else {
+        setResult(null);
+        setOutcomeOpen(false);
+      }
+      showUserMsg(res.message || 'Transaction failed');
       return;
     }
     let data = res.data;
-    setResult(data);
-    const txn = data?.transaction || data;
+    openOutcome(data);
+    const txn = normalizeAepsTxn(data);
     const mid = txn?.merchant_tran_id;
+    const alreadyFailed = txn?.status === 'failed';
     const shouldPoll =
-      Boolean(data?.needs_status_check) || ['pending', 'timeout', 'initiated'].includes(txn?.status);
+      !alreadyFailed &&
+      (Boolean(data?.needs_status_check) || ['pending', 'timeout', 'initiated'].includes(txn?.status));
+
     if (shouldPoll && mid) {
       const st = await aepsAPI.statusCheck(mid, { otp_mode: otpMode });
       if (st.success) {
-        setResult(st.data);
+        openOutcome(st.data);
         data = st.data;
       } else if (st.message) {
-        setMsg(st.message);
+        showUserMsg(st.message);
       }
     }
-    const finalTxn = data?.transaction || data;
-    if (finalTxn?.status === 'success' && mid) {
+
+    const finalTxn = normalizeAepsTxn(data);
+    if (finalTxn?.status === 'success' && mid && aepsAckAllowed(finalTxn)) {
       const ack = await aepsAPI.acknowledge(mid, { otp_mode: otpMode });
-      if (ack.success) setResult(ack.data);
-      const shown = ack.success ? ack.data?.transaction || ack.data : finalTxn;
+      if (ack.success) {
+        openOutcome(ack.data);
+        data = ack.data;
+      }
+    }
+
+    const shown = normalizeAepsTxn(data);
+    if (shown?.status === 'success') {
       const bal = aepsBalanceLabel(shown);
-      setMsg(bal ? `Transaction successful. Available balance: ${bal}` : 'Transaction successful.');
+      showUserMsg(bal ? `Transaction successful. Available balance: ${bal}` : 'Transaction successful.');
+    } else if (['pending', 'timeout', 'initiated'].includes(shown?.status)) {
+      showUserMsg(shown?.response_message || 'Still confirming with the bank…');
     } else {
-      setMsg(finalTxn?.response_message || res.message || 'Transaction failed');
+      showUserMsg(shown?.response_message || res.message || 'Transaction failed');
     }
   };
 
   const onSubmitBio = async (e) => {
     e.preventDefault();
     setBusy(true);
-    setMsg('');
-    setResult(null);
+    clearOutcome();
     const geo = await getBrowserGeo();
     if (geo.status !== 'granted') {
-      setMsg('Location is required for AEPS transactions.');
+      showUserMsg('Location is required for AEPS transactions.');
       setBusy(false);
       return;
     }
     const cap = await captureMantraFingerprint();
     if (!cap.success) {
-      setMsg(cap.message);
+      showUserMsg(cap.message);
       setBusy(false);
       return;
     }
-    const body = {
+    const body = withBankName({
       ...form,
       aadhaarNumber: form.aadhaarNumber.replace(/\s/g, ''),
       transactionAmount: requireAmount ? form.transactionAmount : 0,
@@ -273,7 +241,7 @@ const AepsProductPage = ({
       longitude: geo.longitude,
       captureResponse: cap.captureResponse,
       indicatorforUID: 0,
-    };
+    });
     const res = await submit(body);
     await afterTxn(res, { otpMode: false });
     setBusy(false);
@@ -281,29 +249,40 @@ const AepsProductPage = ({
 
   const cdOtpGenerate = async () => {
     setBusy(true);
-    setMsg('');
+    clearOutcome();
+    setPendingTranId('');
+    setOtpStep('idle');
     const geo = await getBrowserGeo();
     if (geo.status !== 'granted') {
-      setMsg('Location is required.');
+      showUserMsg('Location is required.');
       setBusy(false);
       return;
     }
-    const res = await aepsAPI.cashDepositOtpGenerate({
-      ...form,
-      aadhaarNumber: form.aadhaarNumber.replace(/\s/g, ''),
-      transactionAmount: form.transactionAmount,
-      latitude: geo.latitude,
-      longitude: geo.longitude,
-      indicatorforUID: 0,
-    });
+    const res = await aepsAPI.cashDepositOtpGenerate(
+      withBankName({
+        ...form,
+        aadhaarNumber: form.aadhaarNumber.replace(/\s/g, ''),
+        transactionAmount: form.transactionAmount,
+        latitude: geo.latitude,
+        longitude: geo.longitude,
+        indicatorforUID: 0,
+      })
+    );
     if (res.success) {
       const mid = res.data?.transaction?.merchant_tran_id || res.data?.merchant_tran_id;
       setPendingTranId(mid || '');
       setOtpStep('sent');
-      setMsg('OTP sent to customer mobile.');
+      showUserMsg('OTP sent to customer mobile.');
+      // Keep OTP flow on-page; full receipt modal after final submit / bio
       setResult(res.data);
     } else {
-      setMsg(res.message);
+      showUserMsg(res.message || 'OTP generate failed');
+      if (res.data?.transaction) openOutcome(res.data);
+      else {
+        setResult(null);
+        setOutcomeOpen(false);
+      }
+      setOtpStep('idle');
     }
     setBusy(false);
   };
@@ -316,10 +295,10 @@ const AepsProductPage = ({
     });
     if (res.success) {
       setOtpStep('validated');
-      setMsg('OTP validated. Submit deposit next.');
+      showUserMsg('OTP validated. Submit deposit next.');
       setResult(res.data);
     } else {
-      setMsg(res.message);
+      showUserMsg(res.message);
     }
     setBusy(false);
   };
@@ -343,22 +322,48 @@ const AepsProductPage = ({
   const onStatusCheck = async (txn) => {
     setBusy(true);
     const st = await aepsAPI.statusCheck(txn.merchant_tran_id, {
-      otp_mode: cdMode === 'otp' || txn.product === 'CD_OTP',
+      otp_mode: Boolean(txn.cd_otp_mode) || cdMode === 'otp' || txn.product === 'CD_OTP',
     });
-    if (st.success) setResult(st.data);
-    else setMsg(st.message);
+    if (st.success) {
+      openOutcome(st.data);
+      const shown = normalizeAepsTxn(st.data);
+      showUserMsg(
+        shown?.status === 'success'
+          ? 'Transaction successful.'
+          : shown?.response_message || 'Status updated.'
+      );
+    } else showUserMsg(st.message);
     setBusy(false);
   };
 
   const onAck = async (txn) => {
+    if (!aepsAckAllowed(txn)) {
+      showUserMsg('Acknowledge is not required for this product.');
+      return;
+    }
     setBusy(true);
     const ack = await aepsAPI.acknowledge(txn.merchant_tran_id, {
-      otp_mode: cdMode === 'otp' || txn.product === 'CD_OTP',
+      otp_mode: Boolean(txn.cd_otp_mode) || cdMode === 'otp' || txn.product === 'CD_OTP',
     });
-    if (ack.success) setResult(ack.data);
-    else setMsg(ack.message);
+    if (ack.success) openOutcome(ack.data);
+    else showUserMsg(ack.message);
     setBusy(false);
   };
+
+  const onDoAnother = () => {
+    clearOutcome();
+    setOtpStep('idle');
+    setOtpValue('');
+    setPendingTranId('');
+  };
+
+  const friendlyDescription = isOperator
+    ? description
+    : String(description || '')
+        .replace(/\(per Fingpay Cash Deposit\)/gi, '')
+        .replace(/\bFingpay\b/gi, 'bank network')
+        .replace(/\bTapits\b/gi, 'support')
+        .trim();
 
   if (gate.block) {
     return <GateCard title={gate.title} text={gate.text} to={gate.to} />;
@@ -368,25 +373,37 @@ const AepsProductPage = ({
     <div className="space-y-5">
       <header>
         <h2 className="text-xl font-bold text-slate-900 dark:text-slate-100">{title}</h2>
-        <p className="text-sm text-slate-500 dark:text-slate-400">{description}</p>
+        <p className="text-sm text-slate-500 dark:text-slate-400">{friendlyDescription}</p>
       </header>
 
       {allowCdOtp ? (
         <div className="flex gap-2">
           <button
             type="button"
-            onClick={() => setCdMode('bio')}
+            onClick={() => {
+              setCdMode('bio');
+              clearOutcome();
+              setOtpStep('idle');
+            }}
             className={`rounded-lg px-3 py-1.5 text-xs font-semibold ring-1 ${
-              cdMode === 'bio' ? 'bg-blue-600 text-white ring-blue-600' : 'bg-white dark:bg-slate-900 text-slate-700 dark:text-slate-300 ring-slate-200 dark:ring-slate-700'
+              cdMode === 'bio'
+                ? 'bg-blue-600 text-white ring-blue-600'
+                : 'bg-white dark:bg-slate-900 text-slate-700 dark:text-slate-300 ring-slate-200 dark:ring-slate-700'
             }`}
           >
             Biometric
           </button>
           <button
             type="button"
-            onClick={() => setCdMode('otp')}
+            onClick={() => {
+              setCdMode('otp');
+              clearOutcome();
+              setOtpStep('idle');
+            }}
             className={`rounded-lg px-3 py-1.5 text-xs font-semibold ring-1 ${
-              cdMode === 'otp' ? 'bg-blue-600 text-white ring-blue-600' : 'bg-white dark:bg-slate-900 text-slate-700 dark:text-slate-300 ring-slate-200 dark:ring-slate-700'
+              cdMode === 'otp'
+                ? 'bg-blue-600 text-white ring-blue-600'
+                : 'bg-white dark:bg-slate-900 text-slate-700 dark:text-slate-300 ring-slate-200 dark:ring-slate-700'
             }`}
           >
             OTP deposit
@@ -395,7 +412,10 @@ const AepsProductPage = ({
       ) : null}
 
       <Card shadow="sm">
-        <form onSubmit={cdMode === 'otp' && allowCdOtp ? (e) => e.preventDefault() : onSubmitBio} className="space-y-4">
+        <form
+          onSubmit={cdMode === 'otp' && allowCdOtp ? (e) => e.preventDefault() : onSubmitBio}
+          className="space-y-4"
+        >
           <Input
             label="Customer Aadhaar"
             value={form.aadhaarNumber}
@@ -466,7 +486,12 @@ const AepsProductPage = ({
           {allowCdOtp && cdMode === 'otp' ? (
             <div className="space-y-3 rounded-lg border border-slate-100 dark:border-slate-800 bg-slate-50 dark:bg-slate-800/50 p-3">
               {otpStep === 'idle' || otpStep === 'sent' ? (
-                <Button type="button" loading={busy} onClick={cdOtpGenerate} disabled={!form.nationalBankIdentificationNumber}>
+                <Button
+                  type="button"
+                  loading={busy}
+                  onClick={cdOtpGenerate}
+                  disabled={!form.nationalBankIdentificationNumber}
+                >
                   Generate OTP
                 </Button>
               ) : null}
@@ -499,8 +524,33 @@ const AepsProductPage = ({
         </form>
       </Card>
 
-      {msg ? <p className="text-sm text-slate-700 dark:text-slate-300">{msg}</p> : null}
-      <ReceiptCard result={result} onStatusCheck={onStatusCheck} onAck={onAck} busy={busy} />
+      <OutcomeModal
+        open={outcomeOpen && Boolean(result)}
+        onClose={() => setOutcomeOpen(false)}
+      >
+        <AepsTransactionReceiptView
+          result={result}
+          onStatusCheck={onStatusCheck}
+          onAck={onAck}
+          onDoAnother={onDoAnother}
+          busy={busy}
+        />
+      </OutcomeModal>
+
+      {/* Errors with no receipt payload still surface in a popup so agents never miss them below the fold */}
+      <OutcomeModal
+        open={!result && Boolean(msg) && !busy}
+        onClose={() => setMsg('')}
+      >
+        <p className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-3 text-sm text-slate-800 dark:border-slate-700 dark:bg-slate-800/50 dark:text-slate-200">
+          {msg}
+        </p>
+        <div className="mt-4 flex justify-end">
+          <Button size="sm" onClick={() => setMsg('')}>
+            OK
+          </Button>
+        </div>
+      </OutcomeModal>
     </div>
   );
 };
@@ -554,12 +604,10 @@ export const AepsDeposit = (props) => (
     {...props}
     product="CD"
     title="Cash deposit"
-    description="Deposit cash via biometric or customer OTP (per Fingpay Cash Deposit)."
+    description="Deposit cash via biometric or customer OTP."
     submit={aepsAPI.cashDeposit}
     requireAmount
     require2fa
     allowCdOtp
   />
 );
-
-export default AepsProductPage;

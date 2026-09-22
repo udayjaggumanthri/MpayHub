@@ -59,7 +59,7 @@ const AepsDevice = ({ aepsStatus: status, refreshStatus }) => {
       <header>
         <h2 className="text-xl font-bold text-slate-900 dark:text-slate-100">Mantra device</h2>
         <p className="text-sm text-slate-500 dark:text-slate-400">
-          Save your phone/tablet IMEI for Fingpay (deviceIMEI header) and your Mantra scanner serial for
+          Save your phone/tablet IMEI for AEPS (device IMEI header) and your Mantra scanner serial for
           fingerprint capture. These are different values — eKYC Send OTP needs the phone IMEI.
         </p>
       </header>
@@ -220,7 +220,7 @@ const AepsDevice = ({ aepsStatus: status, refreshStatus }) => {
           </p>
         ) : null}
         <label className="mt-6 block text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">
-          Phone / tablet IMEI (Fingpay deviceIMEI)
+          Phone / tablet IMEI (AEPS device IMEI)
           <input
             className="mt-1 w-full max-w-md rounded-lg border border-slate-200 dark:border-slate-700 px-3 py-2 font-mono text-sm"
             value={deviceImei}

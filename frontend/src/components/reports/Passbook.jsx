@@ -1,12 +1,15 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { useAuth } from '../../context/AuthContext';
+import { useWallet } from '../../context/WalletContext';
 import { FiDownload } from 'react-icons/fi';
 import { passbookAPI, reportsAPI } from '../../services/api';
 import { canUseTeamReportScope } from '../../utils/rolePermissions';
 import { formatCurrency, formatDateTime } from '../../utils/formatters';
 import { formatReportBalance } from '../../utils/reportBalanceDisplay';
+import { reportPeriodFilterDates } from '../../utils/reportPeriodRange';
 import ReportDateRange from '../common/ReportDateRange';
 import ReportPagination from '../common/ReportPagination';
+import ReportSummaryPeriodToggle from '../common/ReportSummaryPeriodToggle';
 import { countActiveReportFilters } from '../../utils/reportFilters';
 import {
   CollapsibleReportFilters,
@@ -18,8 +21,19 @@ import {
 
 const DEFAULT_PAGE_SIZE = 25;
 
+const EMPTY_PASSBOOK_FILTERS = {
+  search: '',
+  dateFrom: '',
+  dateTo: '',
+  mobile: '',
+  amountMin: '',
+  amountMax: '',
+  includeLegacy: false,
+};
+
 const Passbook = () => {
   const { user } = useAuth();
+  const { wallets } = useWallet();
   const userId = user?.id ?? user?.user_id;
   const fetchIdRef = useRef(0);
   const [reportScope, setReportScope] = useState('self');
@@ -27,29 +41,15 @@ const Passbook = () => {
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(DEFAULT_PAGE_SIZE);
   const [total, setTotal] = useState(0);
-  const [filters, setFilters] = useState({
-    search: '',
-    dateFrom: '',
-    dateTo: '',
-    mobile: '',
-    amountMin: '',
-    amountMax: '',
-  });
-  const [appliedFilters, setAppliedFilters] = useState({
-    search: '',
-    dateFrom: '',
-    dateTo: '',
-    mobile: '',
-    amountMin: '',
-    amountMax: '',
-  });
+  const [summaryPeriod, setSummaryPeriod] = useState('day');
+  const [filters, setFilters] = useState({ ...EMPTY_PASSBOOK_FILTERS });
+  const [appliedFilters, setAppliedFilters] = useState({ ...EMPTY_PASSBOOK_FILTERS });
   const [loading, setLoading] = useState(true);
   const [hasLoadedOnce, setHasLoadedOnce] = useState(false);
   const hasLoadedOnceRef = useRef(false);
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [showFilters, setShowFilters] = useState(false);
   const [summary, setSummary] = useState({
-    openingBalance: 0,
     creditAmount: 0,
     debitAmount: 0,
     availableBalance: 0,
@@ -73,30 +73,32 @@ const Passbook = () => {
       if (appliedFilters.mobile.trim()) params.mobile = appliedFilters.mobile.trim();
       if (appliedFilters.amountMin) params.amount_min = appliedFilters.amountMin;
       if (appliedFilters.amountMax) params.amount_max = appliedFilters.amountMax;
+      if (appliedFilters.includeLegacy) params.include_legacy = true;
 
       const result = await passbookAPI.getPassbookEntries(params);
       if (runId !== fetchIdRef.current) return;
       if (!result.success) {
         setEntries([]);
         setTotal(0);
-        setSummary({
-          openingBalance: 0,
-          creditAmount: 0,
-          debitAmount: 0,
-          availableBalance: 0,
-        });
+        if (!hasLoadedOnceRef.current) {
+          setSummary({ creditAmount: 0, debitAmount: 0, availableBalance: 0 });
+        }
         return;
       }
 
       setTotal(Number(result.data?.total) || 0);
 
+      const available =
+        reportScope === 'self'
+          ? parseFloat(wallets?.main) || 0
+          : parseFloat(result.data?.period_summary?.closing_balance) || 0;
+
       const ps = result.data?.period_summary;
       if (ps) {
         setSummary({
-          openingBalance: parseFloat(ps.opening_balance) || 0,
           creditAmount: parseFloat(ps.total_credits) || 0,
           debitAmount: parseFloat(ps.total_debits) || 0,
-          availableBalance: parseFloat(ps.closing_balance) || 0,
+          availableBalance: available,
         });
       }
 
@@ -124,21 +126,16 @@ const Passbook = () => {
         if (sortedEntries.length > 0) {
           const creditTotal = sortedEntries.reduce((sum, entry) => sum + (entry.creditAmount || 0), 0);
           const debitTotal = sortedEntries.reduce((sum, entry) => sum + (entry.debitAmount || 0), 0);
-          const oldest = sortedEntries[sortedEntries.length - 1];
-          const newest = sortedEntries[0];
-
           setSummary({
-            openingBalance: oldest.openingBalance || 0,
             creditAmount: creditTotal,
             debitAmount: debitTotal,
-            availableBalance: newest.closingBalance || 0,
+            availableBalance: available,
           });
         } else {
           setSummary({
-            openingBalance: 0,
             creditAmount: 0,
             debitAmount: 0,
-            availableBalance: 0,
+            availableBalance: available,
           });
         }
       }
@@ -147,12 +144,9 @@ const Passbook = () => {
       console.error('Error loading passbook:', error);
       setEntries([]);
       setTotal(0);
-      setSummary({
-        openingBalance: 0,
-        creditAmount: 0,
-        debitAmount: 0,
-        availableBalance: 0,
-      });
+      if (!hasLoadedOnceRef.current) {
+        setSummary({ creditAmount: 0, debitAmount: 0, availableBalance: 0 });
+      }
     } finally {
       if (runId !== fetchIdRef.current) return;
       setLoading(false);
@@ -162,11 +156,28 @@ const Passbook = () => {
         setHasLoadedOnce(true);
       }
     }
-  }, [userId, user?.role, appliedFilters, reportScope, page, pageSize]);
+  }, [userId, user?.role, appliedFilters, reportScope, page, pageSize, wallets?.main]);
 
   useEffect(() => {
     loadPassbook();
   }, [loadPassbook]);
+
+  const changeSummaryPeriod = (period) => {
+    if (!period || period === summaryPeriod) return;
+    setSummaryPeriod(period);
+    const dates = reportPeriodFilterDates(period);
+    setFilters((prev) => ({ ...prev, ...dates }));
+    setAppliedFilters((prev) => ({ ...prev, ...dates }));
+    setPage(1);
+  };
+
+  const clearFilters = () => {
+    setSummaryPeriod('day');
+    const cleared = { ...EMPTY_PASSBOOK_FILTERS };
+    setFilters(cleared);
+    setAppliedFilters(cleared);
+    setPage(1);
+  };
 
   return (
     <div className="space-y-4">
@@ -193,6 +204,7 @@ const Passbook = () => {
                 if (appliedFilters.mobile.trim()) params.mobile = appliedFilters.mobile.trim();
                 if (appliedFilters.amountMin) params.amount_min = appliedFilters.amountMin;
                 if (appliedFilters.amountMax) params.amount_max = appliedFilters.amountMax;
+                if (appliedFilters.includeLegacy) params.include_legacy = true;
                 const res = await reportsAPI.downloadReportCsv('/reports/passbook/export.csv', params);
                 if (!res.success || !res.blob) return;
                 const url = window.URL.createObjectURL(res.blob);
@@ -212,19 +224,7 @@ const Passbook = () => {
             setPage(1);
             setAppliedFilters({ ...filters });
           }}
-          onClear={() => {
-            const cleared = {
-              search: '',
-              dateFrom: '',
-              dateTo: '',
-              mobile: '',
-              amountMin: '',
-              amountMax: '',
-            };
-            setFilters(cleared);
-            setPage(1);
-            setAppliedFilters(cleared);
-          }}
+          onClear={clearFilters}
         >
           <ReportFilterGrid>
             <ReportFilterField label="Search anywhere" htmlFor="passbook-search" span={2}>
@@ -284,6 +284,18 @@ const Passbook = () => {
               }
             />
           </ReportFilterDateRow>
+          <div className="mt-3 flex items-center gap-2">
+            <input
+              id="passbook-include-legacy"
+              type="checkbox"
+              checked={Boolean(filters.includeLegacy)}
+              onChange={(e) => setFilters({ ...filters, includeLegacy: e.target.checked })}
+              className="h-4 w-4 rounded border-slate-300 text-blue-600 focus:ring-blue-500"
+            />
+            <label htmlFor="passbook-include-legacy" className="text-sm text-slate-700 dark:text-slate-300">
+              Include legacy wallets
+            </label>
+          </div>
         </CollapsibleReportFilters>
 
         {canUseTeamReportScope(user?.role) && (
@@ -313,23 +325,36 @@ const Passbook = () => {
           </div>
         )}
 
-        {/* Summary Cards */}
-        <div className="grid grid-cols-1 md:grid-cols-4 gap-3 mb-4">
-          <div className="bg-blue-50 dark:bg-blue-950/40 border-2 border-blue-200 dark:border-blue-800 rounded-lg p-4">
-            <p className="text-sm text-gray-600 dark:text-slate-400 mb-1">OPENING BALANCE</p>
-            <p className="text-2xl font-bold text-blue-600 dark:text-blue-400">{formatCurrency(summary.openingBalance)}</p>
-          </div>
-          <div className="bg-green-50 dark:bg-green-950/40 border-2 border-green-200 dark:border-green-800 rounded-lg p-4">
-            <p className="text-sm text-gray-600 dark:text-slate-400 mb-1">CREDIT AMOUNT</p>
-            <p className="text-2xl font-bold text-green-600 dark:text-green-400">{formatCurrency(summary.creditAmount)}</p>
-          </div>
-          <div className="bg-red-50 dark:bg-red-950/40 border-2 border-red-200 dark:border-red-800 rounded-lg p-4">
-            <p className="text-sm text-gray-600 dark:text-slate-400 mb-1">DEBIT AMOUNT</p>
-            <p className="text-2xl font-bold text-red-600 dark:text-red-400">{formatCurrency(summary.debitAmount)}</p>
-          </div>
-          <div className="bg-purple-50 dark:bg-purple-950/40 border-2 border-purple-200 dark:border-purple-800 rounded-lg p-4">
-            <p className="text-sm text-gray-600 dark:text-slate-400 mb-1">AVAILABLE BALANCE</p>
-            <p className="text-2xl font-bold text-purple-600 dark:text-purple-400">{formatCurrency(summary.availableBalance)}</p>
+        {/* Summary Cards — credit/debit period-scoped; available = current wallet */}
+        <div className="mb-4 space-y-3">
+          <ReportSummaryPeriodToggle
+            period={summaryPeriod}
+            onChange={changeSummaryPeriod}
+            refreshing={isRefreshing && hasLoadedOnce}
+          />
+          <div
+            className={`grid grid-cols-1 sm:grid-cols-3 gap-3 transition-opacity ${
+              isRefreshing && hasLoadedOnce ? 'opacity-70' : ''
+            }`}
+          >
+            <div className="bg-green-50 dark:bg-green-950/40 border-2 border-green-200 dark:border-green-800 rounded-lg p-4">
+              <p className="text-sm text-gray-600 dark:text-slate-400 mb-1">CREDIT AMOUNT</p>
+              <p className="text-2xl font-bold text-green-600 dark:text-green-400">
+                {formatCurrency(summary.creditAmount)}
+              </p>
+            </div>
+            <div className="bg-red-50 dark:bg-red-950/40 border-2 border-red-200 dark:border-red-800 rounded-lg p-4">
+              <p className="text-sm text-gray-600 dark:text-slate-400 mb-1">DEBIT AMOUNT</p>
+              <p className="text-2xl font-bold text-red-600 dark:text-red-400">
+                {formatCurrency(summary.debitAmount)}
+              </p>
+            </div>
+            <div className="bg-purple-50 dark:bg-purple-950/40 border-2 border-purple-200 dark:border-purple-800 rounded-lg p-4">
+              <p className="text-sm text-gray-600 dark:text-slate-400 mb-1">AVAILABLE BALANCE</p>
+              <p className="text-2xl font-bold text-purple-600 dark:text-purple-400">
+                {formatCurrency(summary.availableBalance)}
+              </p>
+            </div>
           </div>
         </div>
 
@@ -343,10 +368,11 @@ const Passbook = () => {
           <div className="text-center py-12 text-gray-500 dark:text-slate-400">No passbook entries found</div>
         ) : (
           <div className={isRefreshing ? 'opacity-60 pointer-events-none' : ''}>
-          <div className="overflow-x-auto">
-            <table className="w-full border-collapse">
+          <div className="-mx-2 overflow-x-auto sm:mx-0">
+            <table className="w-full min-w-[1100px] border-collapse whitespace-nowrap">
               <thead>
                 <tr className="bg-gray-50 dark:bg-slate-800/50 border-b border-gray-200 dark:border-slate-700">
+                  <th className="px-4 py-3 text-left text-sm font-semibold text-gray-700 dark:text-slate-300">S.No</th>
                   <th className="px-4 py-3 text-left text-sm font-semibold text-gray-700 dark:text-slate-300">DATE & TIME</th>
                   <th className="px-4 py-3 text-left text-sm font-semibold text-gray-700 dark:text-slate-300">SERVICE</th>
                   <th className="px-4 py-3 text-left text-sm font-semibold text-gray-700 dark:text-slate-300">SERVICE ID</th>
@@ -363,25 +389,26 @@ const Passbook = () => {
               <tbody>
                 {entries.map((entry, index) => (
                   <tr key={entry.id || index} className="border-b border-gray-200 dark:border-slate-700 hover:bg-gray-50 dark:hover:bg-slate-800">
-                    <td className="px-4 py-3 text-sm text-gray-700 dark:text-slate-300">{formatDateTime(entry.date)}</td>
-                    <td className="px-4 py-3 text-sm text-gray-900 dark:text-slate-100 font-medium">{entry.service || '-'}</td>
-                    <td className="px-4 py-3 text-sm text-gray-700 dark:text-slate-300">{entry.serviceId || '-'}</td>
-                    <td className="px-4 py-3 text-sm text-gray-700 dark:text-slate-300 max-w-md">{entry.description || '-'}</td>
-                    <td className="px-4 py-3 text-sm text-gray-600 dark:text-slate-400">{entry.ownerUserId || '—'}</td>
-                    <td className="px-4 py-3 text-sm text-gray-700 dark:text-slate-300 text-right">
+                    <td className="px-4 py-2.5 text-sm text-gray-600 dark:text-slate-400">{(page - 1) * pageSize + index + 1}</td>
+                    <td className="px-4 py-2.5 text-sm text-gray-700 dark:text-slate-300">{formatDateTime(entry.date)}</td>
+                    <td className="px-4 py-2.5 text-sm text-gray-900 dark:text-slate-100 font-medium">{entry.service || '-'}</td>
+                    <td className="px-4 py-2.5 text-sm text-gray-700 dark:text-slate-300">{entry.serviceId || '-'}</td>
+                    <td className="px-4 py-2.5 text-sm text-gray-700 dark:text-slate-300">{entry.description || '-'}</td>
+                    <td className="px-4 py-2.5 text-sm text-gray-600 dark:text-slate-400">{entry.ownerUserId || '—'}</td>
+                    <td className="px-4 py-2.5 text-sm text-gray-700 dark:text-slate-300 text-right">
                       {entry.serviceCharge > 0 ? formatCurrency(entry.serviceCharge) : '—'}
                     </td>
-                    <td className="px-4 py-3 text-sm text-red-600 dark:text-red-400 text-right font-medium">
+                    <td className="px-4 py-2.5 text-sm text-red-600 dark:text-red-400 text-right font-medium">
                       {entry.debitAmount > 0 ? formatCurrency(entry.debitAmount) : '-'}
                     </td>
-                    <td className="px-4 py-3 text-sm text-green-600 dark:text-green-400 text-right font-medium">
+                    <td className="px-4 py-2.5 text-sm text-green-600 dark:text-green-400 text-right font-medium">
                       {entry.creditAmount > 0 ? formatCurrency(entry.creditAmount) : '-'}
                     </td>
-                    <td className="px-4 py-3 text-sm text-gray-700 dark:text-slate-300">{entry.cl || '-'}</td>
-                    <td className="px-4 py-3 text-sm text-gray-900 dark:text-slate-100 text-right">
+                    <td className="px-4 py-2.5 text-sm text-gray-700 dark:text-slate-300">{entry.cl || '-'}</td>
+                    <td className="px-4 py-2.5 text-sm text-gray-900 dark:text-slate-100 text-right">
                       {formatReportBalance(entry.openingBalance)}
                     </td>
-                    <td className="px-4 py-3 text-sm text-gray-900 dark:text-slate-100 text-right font-semibold">
+                    <td className="px-4 py-2.5 text-sm text-gray-900 dark:text-slate-100 text-right font-semibold">
                       {formatReportBalance(entry.closingBalance)}
                     </td>
                   </tr>

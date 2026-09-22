@@ -7,6 +7,8 @@ import logging
 import re
 from typing import Any, Optional
 
+from django.db import IntegrityError, transaction
+
 from apps.integrations.email_service import EmailDeliveryError, get_active_smtp_config, send_email
 from apps.notifications.email_catalog import EMAIL_CATALOG_EVENT_KEYS
 from apps.notifications.models import EmailDeliveryLog, EmailNotificationTemplate
@@ -64,16 +66,26 @@ def _write_log(
     error_message: str = '',
     context_json: Optional[dict] = None,
 ) -> EmailDeliveryLog:
-    return EmailDeliveryLog.objects.create(
-        event_key=event_key,
-        idempotency_key=idempotency_key,
-        user_id=user_id,
-        to_email_masked=to_email_masked,
-        status=status,
-        skip_reason=skip_reason,
-        error_message=error_message,
-        context_json=context_json or {},
-    )
+    """Create a delivery log; treat duplicate idempotency keys as a no-op."""
+    try:
+        return EmailDeliveryLog.objects.create(
+            event_key=event_key,
+            idempotency_key=idempotency_key,
+            user_id=user_id,
+            to_email_masked=to_email_masked,
+            status=status,
+            skip_reason=skip_reason,
+            error_message=error_message,
+            context_json=context_json or {},
+        )
+    except IntegrityError:
+        existing = EmailDeliveryLog.objects.filter(
+            idempotency_key=idempotency_key,
+            is_deleted=False,
+        ).first()
+        if existing:
+            return existing
+        raise
 
 
 class EmailNotificationService:

@@ -159,8 +159,14 @@ def apply_passbook_report_filters(qs: QuerySet, request) -> QuerySet:
         qs = qs.filter(Q(service_id__icontains=search) | Q(description__icontains=search))
 
     wallet_type = (request.query_params.get('wallet_type') or '').strip()
+    include_legacy = str(request.query_params.get('include_legacy') or '').lower() in (
+        '1', 'true', 'yes',
+    )
     if wallet_type in ('main', 'commission', 'bbps', 'profit'):
         qs = qs.filter(wallet_type=wallet_type)
+    elif not include_legacy:
+        # Default post-consolidation: show main wallet lines only.
+        qs = qs.filter(wallet_type='main')
 
     amount_min = (request.query_params.get('amount_min') or '').strip()
     amount_max = (request.query_params.get('amount_max') or '').strip()

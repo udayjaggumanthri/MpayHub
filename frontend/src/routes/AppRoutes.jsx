@@ -12,6 +12,7 @@ import ForgotMPIN from '../components/auth/ForgotMPIN';
 
 // Dashboard
 import Dashboard from '../components/dashboard/Dashboard';
+import ServicesPage from '../components/dashboard/ServicesPage';
 
 // Fund Management
 import LoadMoney from '../components/fundManagement/LoadMoney';
@@ -66,16 +67,17 @@ import TestUsageMode from '../components/admin/TestUsageMode';
 import RolesPermissions from '../components/admin/RolesPermissions';
 import SuperAdminRoute from '../components/common/SuperAdminRoute';
 import AppearanceSettings from '../components/admin/AppearanceSettings';
+import KycApprovalDashboard from '../components/admin/KycApprovalDashboard';
 import UserManagementSettings from '../components/admin/UserManagementSettings';
 import WalletAdjustments from '../components/admin/WalletAdjustments';
 import WalletHistoryPage from '../components/wallets/WalletHistoryPage';
+import DistributedLedgerPage from '../components/wallets/DistributedLedgerPage';
 import AepsLayout from '../modules/aeps/pages/AepsLayout';
 import AepsOverview from '../modules/aeps/pages/AepsOverview';
 import AepsSetup from '../modules/aeps/pages/AepsSetup';
 import AepsEkyc from '../modules/aeps/pages/AepsEkyc';
 import AepsDevice from '../modules/aeps/pages/AepsDevice';
 import AepsTwoFA from '../modules/aeps/pages/AepsTwoFA';
-import AepsHistory from '../modules/aeps/pages/AepsHistory';
 import AepsReports from '../modules/aeps/pages/AepsReports';
 import {
   AepsWithdraw,
@@ -91,6 +93,16 @@ import {
   AepsAdminRecon,
   AepsAdminDebugLogs,
 } from '../modules/aeps/admin/AepsAdminPages';
+import CmsLayout from '../modules/cms/pages/CmsLayout';
+import CmsOverview from '../modules/cms/pages/CmsOverview';
+import CmsWallet from '../modules/cms/pages/CmsWallet';
+import CmsLaunch from '../modules/cms/pages/CmsLaunch';
+import CmsReports from '../modules/cms/pages/CmsReports';
+import {
+  CmsAdminProvider,
+  CmsAdminAgents,
+  CmsAdminAuditLogs,
+} from '../modules/cms/admin/CmsAdminPages';
 
 /** Old URL `/admin/users/:id` → canonical user profile (all roles that may view a profile). */
 function LegacyAdminUserDetailRedirect() {
@@ -166,6 +178,17 @@ const AppRoutes = () => {
           <ProtectedRoute>
             <Layout>
               <Dashboard />
+            </Layout>
+          </ProtectedRoute>
+        }
+      />
+
+      <Route
+        path="/services"
+        element={
+          <ProtectedRoute>
+            <Layout>
+              <ServicesPage />
             </Layout>
           </ProtectedRoute>
         }
@@ -410,6 +433,18 @@ const AppRoutes = () => {
       />
 
       <Route
+        path="/wallets/distributed"
+        element={
+          <ProtectedRoute>
+            <AdminRoute>
+              <Layout>
+                <DistributedLedgerPage />
+              </Layout>
+            </AdminRoute>
+          </ProtectedRoute>
+        }
+      />
+      <Route
         path="/wallets/:walletType-history"
         element={
           <ProtectedRoute>
@@ -526,6 +561,20 @@ const AppRoutes = () => {
             <AdminRoute>
               <Layout>
                 <AppearanceSettings />
+              </Layout>
+            </AdminRoute>
+          </ProtectedRoute>
+        }
+      />
+
+      {/* Admin / Super Admin - KYC approval queue */}
+      <Route
+        path="/admin/kyc-approvals"
+        element={
+          <ProtectedRoute>
+            <AdminRoute>
+              <Layout>
+                <KycApprovalDashboard />
               </Layout>
             </AdminRoute>
           </ProtectedRoute>
@@ -866,11 +915,7 @@ const AppRoutes = () => {
         path="/aeps/history"
         element={
           <ProtectedRoute>
-            <Layout>
-              <AepsLayout>
-                <AepsHistory />
-              </AepsLayout>
-            </Layout>
+            <Navigate to="/aeps/reports" replace />
           </ProtectedRoute>
         }
       />
@@ -941,6 +986,92 @@ const AppRoutes = () => {
             <AdminRoute>
               <Layout>
                 <AepsAdminDebugLogs />
+              </Layout>
+            </AdminRoute>
+          </ProtectedRoute>
+        }
+      />
+
+      {/* CMS (Uber CMS Web URL) */}
+      <Route
+        path="/cms"
+        element={
+          <ProtectedRoute>
+            <Layout>
+              <CmsLayout>
+                <CmsOverview />
+              </CmsLayout>
+            </Layout>
+          </ProtectedRoute>
+        }
+      />
+      <Route
+        path="/cms/wallet"
+        element={
+          <ProtectedRoute>
+            <Layout>
+              <CmsLayout>
+                <CmsWallet />
+              </CmsLayout>
+            </Layout>
+          </ProtectedRoute>
+        }
+      />
+      <Route
+        path="/cms/launch"
+        element={
+          <ProtectedRoute>
+            <Layout>
+              <CmsLayout>
+                <CmsLaunch />
+              </CmsLayout>
+            </Layout>
+          </ProtectedRoute>
+        }
+      />
+      <Route
+        path="/cms/reports"
+        element={
+          <ProtectedRoute>
+            <Layout>
+              <CmsLayout>
+                <CmsReports />
+              </CmsLayout>
+            </Layout>
+          </ProtectedRoute>
+        }
+      />
+      <Route
+        path="/admin/cms/provider"
+        element={
+          <ProtectedRoute>
+            <AdminRoute>
+              <Layout>
+                <CmsAdminProvider />
+              </Layout>
+            </AdminRoute>
+          </ProtectedRoute>
+        }
+      />
+      <Route
+        path="/admin/cms/agents"
+        element={
+          <ProtectedRoute>
+            <AdminRoute>
+              <Layout>
+                <CmsAdminAgents />
+              </Layout>
+            </AdminRoute>
+          </ProtectedRoute>
+        }
+      />
+      <Route
+        path="/admin/cms/audit-logs"
+        element={
+          <ProtectedRoute>
+            <AdminRoute>
+              <Layout>
+                <CmsAdminAuditLogs />
               </Layout>
             </AdminRoute>
           </ProtectedRoute>

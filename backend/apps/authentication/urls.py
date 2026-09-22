@@ -37,6 +37,11 @@ urlpatterns = [
     path('change-mpin/', views.change_mpin_view, name='change-mpin'),
     path('onboarding/kyc/pan/', views.onboarding_kyc_verify_pan_view, name='onboarding-kyc-pan'),
     path(
+        'onboarding/kyc/resubmit/',
+        views.onboarding_kyc_resubmit_view,
+        name='onboarding-kyc-resubmit',
+    ),
+    path(
         'onboarding/kyc/digilocker/init/',
         views.onboarding_kyc_digilocker_init_view,
         name='onboarding-kyc-digilocker-init',
@@ -50,6 +55,11 @@ urlpatterns = [
         'onboarding/kyc/digilocker/complete/',
         views.onboarding_kyc_digilocker_complete_view,
         name='onboarding-kyc-digilocker-complete',
+    ),
+    path(
+        'onboarding/kyc/digilocker/finalize-pending/',
+        views.onboarding_kyc_digilocker_finalize_pending_view,
+        name='onboarding-kyc-digilocker-finalize-pending',
     ),
     path(
         'onboarding/kyc/aadhaar/send-otp/',

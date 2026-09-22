@@ -7,7 +7,7 @@ from apps.wallet_adjustments.models import WalletAdjustment
 
 class WalletAdjustmentCreateSerializer(serializers.Serializer):
     user_id = serializers.IntegerField(min_value=1)
-    wallet_type = serializers.ChoiceField(choices=['main', 'bbps'])
+    wallet_type = serializers.ChoiceField(choices=['main'])
     adjustment_type = serializers.ChoiceField(choices=['CREDIT', 'DEBIT'])
     amount = serializers.DecimalField(
         max_digits=18, decimal_places=4, min_value=Decimal('0.0001')

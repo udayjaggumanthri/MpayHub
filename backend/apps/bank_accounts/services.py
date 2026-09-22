@@ -131,9 +131,26 @@ def _charge_verification_fee(user, *, account_number: str, ifsc: str) -> None:
         credit_amount=Decimal('0.00'),
         opening_balance=opening_balance,
         closing_balance=closing_balance,
-        service_charge=Decimal('0.00'),
-        principal_amount=verification_charge,
+        service_charge=verification_charge,
+        principal_amount=Decimal('0.00'),
     )
+    if verification_charge > 0:
+        try:
+            from apps.transactions.services.fee_settlement import settle_service_charge
+
+            settle_service_charge(
+                payer=user,
+                module='bank_verification',
+                service_id=service_id,
+                charge=verification_charge,
+                principal=Decimal('0'),
+                meta={'account_last4': account_number[-4:], 'ifsc': ifsc},
+            )
+        except Exception:
+            import logging
+            logging.getLogger(__name__).exception(
+                'Bank verification fee settlement failed for %s', service_id
+            )
 
 
 def _build_validate_response(

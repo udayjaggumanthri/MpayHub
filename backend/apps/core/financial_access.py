@@ -152,6 +152,23 @@ __all__ = [
 
 def user_access_flags_snapshot(user) -> dict[str, Any]:
     """Serializable access flags for API responses."""
+    aeps_entitled = False
+    cms_entitled = False
+    try:
+        from apps.core.roles import is_platform_operator
+
+        if is_platform_operator(user):
+            aeps_entitled = True
+            cms_entitled = True
+        else:
+            from apps.aeps.services.gates import is_entitled as aeps_is_entitled
+            from apps.cms.services.entitlement import is_entitled as cms_is_entitled
+
+            aeps_entitled = bool(aeps_is_entitled(user))
+            cms_entitled = bool(cms_is_entitled(user))
+    except Exception:
+        pass
+
     return {
         'is_active': bool(getattr(user, 'is_active', True)),
         'is_restricted': bool(getattr(user, 'is_restricted', False)),
@@ -160,4 +177,6 @@ def user_access_flags_snapshot(user) -> dict[str, Any]:
         'may_login': user_may_login(user),
         'may_pay_in': user_may_pay_in(user),
         'may_pay_out': user_may_pay_out(user),
+        'aeps_entitled': aeps_entitled,
+        'cms_entitled': cms_entitled,
     }

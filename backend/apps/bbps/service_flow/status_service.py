@@ -1,11 +1,15 @@
 from __future__ import annotations
 
+import logging
+
 from django.utils import timezone
 
 from apps.bbps.models import BbpsPaymentAttempt, BbpsStatusPollLog
 from apps.bbps.service_flow.compliance import enforce_awaited_poll_cooling
 from apps.bbps.service_flow.provider_float import credit_float_for_refund, debit_float_for_payment
 from apps.integrations.bbps_client import BBPSClient
+
+logger = logging.getLogger(__name__)
 
 
 STATUS_MAP = {
@@ -75,7 +79,24 @@ def poll_attempt_status(attempt: BbpsPaymentAttempt) -> BbpsPaymentAttempt:
                     attempt.bill_payment.failure_reason = f'Status changed to {mapped}'
                 attempt.bill_payment.save(update_fields=['status', 'failure_reason'])
 
-        # Provider float: debit on SUCCESS, credit on refund/reversal (idempotent).
+        from apps.bbps.service_flow.user_wallet_settlement import (
+            refund_settled_payment,
+            release_payment_hold,
+            settle_payment_hold,
+        )
+
+        if mapped == 'SUCCESS' and prior_status != 'SUCCESS':
+            try:
+                settle_payment_hold(attempt=attempt)
+            except Exception:
+                logger.exception(
+                    'BBPS user wallet settle failed on poll for %s', attempt.service_id
+                )
+        elif mapped == 'FAILED' and prior_status not in ('FAILED', 'SUCCESS', 'REFUNDED', 'REVERSED'):
+            release_payment_hold(attempt=attempt, reason='status_poll_failed')
+        elif mapped in ('REFUNDED', 'REVERSED') and prior_status not in ('REFUNDED', 'REVERSED'):
+            refund_settled_payment(attempt=attempt, reason=mapped.lower())
+
         sid = attempt.service_id or (attempt.bill_payment.service_id if attempt.bill_payment_id else '')
         amt = _float_amount_for_attempt(attempt)
         if mapped == 'SUCCESS' and prior_status != 'SUCCESS':

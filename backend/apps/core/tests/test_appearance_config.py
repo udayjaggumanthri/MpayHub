@@ -36,6 +36,7 @@ class AppearanceConfigServiceTests(TestCase):
         self.assertEqual(status_data['default_theme'], 'light')
         self.assertFalse(status_data['user_theme_toggle_enabled'])
         self.assertIsNone(status_data['logo_url'])
+        self.assertIsNone(status_data['logo_dark_url'])
 
     def test_update_site_title(self):
         update_config(changed_by=None, patch={'site_title': 'Custom Title'})

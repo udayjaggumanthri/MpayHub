@@ -1,7 +1,7 @@
 from decimal import Decimal
 
 from django.contrib.auth import get_user_model
-from django.test import TestCase
+from django.test import TestCase, override_settings
 from rest_framework.test import APIClient
 
 from apps.wallets.models import Wallet
@@ -35,6 +35,7 @@ class WalletHistoryDescriptionTests(TestCase):
         self.assertEqual(tx.reference, 'TXN123')
 
 
+@override_settings(PLATFORM_PAYIN_SETTLEMENT_USER_ID=None)
 class AdminNetworkWalletTotalsTests(TestCase):
     def setUp(self):
         self.admin = User.objects.create_user(
@@ -45,6 +46,15 @@ class AdminNetworkWalletTotalsTests(TestCase):
             user_id='A_PORT1',
             first_name='Admin',
             last_name='Portfolio',
+        )
+        self.admin2 = User.objects.create_user(
+            phone='9111111112',
+            email='admin2_portfolio@test.com',
+            password='testpass123',
+            role='Admin',
+            user_id='A_PORT2',
+            first_name='Admin',
+            last_name='Two',
         )
         self.r1 = User.objects.create_user(
             phone='9222222222',
@@ -66,49 +76,38 @@ class AdminNetworkWalletTotalsTests(TestCase):
         )
 
         Wallet.get_wallet(self.admin, 'main').credit(Decimal('999.00'), reference='ADM-MAIN')
-        Wallet.get_wallet(self.admin, 'bbps').credit(Decimal('888.00'), reference='ADM-BBPS')
-        Wallet.get_wallet(self.admin, 'commission').credit(Decimal('50.00'), reference='ADM-COMM')
-        Wallet.get_wallet(self.admin, 'profit').credit(Decimal('75.25'), reference='ADM-PROFIT')
-
+        Wallet.get_wallet(self.admin2, 'main').credit(Decimal('50.00'), reference='ADM2-MAIN')
         Wallet.get_wallet(self.r1, 'main').credit(Decimal('100.50'), reference='R1-MAIN')
-        Wallet.get_wallet(self.r1, 'bbps').credit(Decimal('20.00'), reference='R1-BBPS')
         Wallet.get_wallet(self.r2, 'main').credit(Decimal('200.25'), reference='R2-MAIN')
-        Wallet.get_wallet(self.r2, 'bbps').credit(Decimal('30.50'), reference='R2-BBPS')
 
-    def test_sum_excludes_admin_wallets(self):
+    def test_sum_excludes_operator_wallets(self):
         totals = sum_network_wallet_balances()
         self.assertEqual(totals['main'], Decimal('300.75'))
-        self.assertEqual(totals['bbps'], Decimal('50.50'))
 
-    def test_presenter_replaces_admin_main_bbps_only(self):
+    def test_presenter_keeps_treasury_main_adds_distributed(self):
         personal = build_wallet_summary(self.admin)
         presented = present_wallet_summary_for_viewer(self.admin, personal)
-        self.assertEqual(presented['main']['balance'], '300.75')
-        self.assertEqual(presented['main']['source'], 'network_total')
-        self.assertEqual(presented['bbps']['balance'], '50.50')
-        self.assertEqual(presented['bbps']['source'], 'network_total')
-        self.assertEqual(Decimal(str(presented['commission']['balance'])), Decimal('50.00'))
-        self.assertNotIn('source', presented['commission'])
-        self.assertEqual(Decimal(str(presented['profit']['balance'])), Decimal('75.25'))
+        self.assertEqual(Decimal(str(presented['main']['balance'])), Decimal('999.00'))
+        self.assertIn('distributed', presented)
+        self.assertEqual(presented['distributed']['balance'], '300.75')
+        self.assertEqual(presented['distributed']['source'], 'network_total')
 
     def test_presenter_leaves_retailer_personal(self):
         personal = build_wallet_summary(self.r1)
         presented = present_wallet_summary_for_viewer(self.r1, personal)
         self.assertEqual(Decimal(str(presented['main']['balance'])), Decimal('100.50'))
-        self.assertNotIn('source', presented['main'])
-        self.assertEqual(Decimal(str(presented['bbps']['balance'])), Decimal('20.00'))
+        self.assertNotIn('distributed', presented)
 
-    def test_admin_get_wallets_api_returns_network_totals(self):
+    def test_admin_logins_share_treasury_main_via_api(self):
+        """Every Admin login sees the same treasury Main (lowest-id Admin here)."""
         client = APIClient()
-        client.force_authenticate(user=self.admin)
+        client.force_authenticate(user=self.admin2)
         res = client.get('/api/wallets/')
         self.assertEqual(res.status_code, 200)
         wallets = res.data['data']['wallets']
-        self.assertEqual(wallets['main']['balance'], '300.75')
-        self.assertEqual(wallets['main']['source'], 'network_total')
-        self.assertEqual(wallets['bbps']['balance'], '50.50')
-        self.assertEqual(Decimal(str(wallets['commission']['balance'])), Decimal('50.00'))
-        self.assertEqual(Decimal(str(wallets['profit']['balance'])), Decimal('75.25'))
+        # admin2 login → treasury is self.admin (first Admin by id)
+        self.assertEqual(Decimal(str(wallets['main']['balance'])), Decimal('999.00'))
+        self.assertEqual(wallets['distributed']['balance'], '300.75')
 
     def test_retailer_get_wallets_api_stays_personal(self):
         client = APIClient()
@@ -117,5 +116,4 @@ class AdminNetworkWalletTotalsTests(TestCase):
         self.assertEqual(res.status_code, 200)
         wallets = res.data['data']['wallets']
         self.assertEqual(Decimal(str(wallets['main']['balance'])), Decimal('100.50'))
-        self.assertNotIn('source', wallets['main'])
-        self.assertEqual(Decimal(str(wallets['bbps']['balance'])), Decimal('20.00'))
+        self.assertNotIn('distributed', wallets)

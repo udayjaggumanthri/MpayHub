@@ -230,39 +230,58 @@ def sync_kyc_verification_status(kyc):
 
     kyc.verification_status = 'awaiting_approval'
     kyc.save(update_fields=['verification_status'])
-    try:
-        from apps.notifications.email_helpers import mask_pan, user_display_name
-        from apps.notifications.services.email_dispatch import EmailNotificationService
-        from apps.users.identity import public_display_code
 
-        user = kyc.user
-        to_email = (getattr(user, 'email', None) or '').strip()
-        if to_email:
+    # Email must never roll back KYC — run after the surrounding transaction commits.
+    user_pk = kyc.user_id
+    pan_value = getattr(kyc, 'pan', '') or ''
+    status_at = getattr(kyc, 'updated_at', None)
+
+    def _notify_awaiting_approval():
+        try:
+            from apps.authentication.models import User
+            from apps.notifications.email_helpers import mask_pan, user_display_name
+            from apps.notifications.services.email_dispatch import EmailNotificationService
+            from apps.users.identity import public_display_code
+
+            user = User.objects.filter(pk=user_pk).first()
+            if not user:
+                return
+            to_email = (getattr(user, 'email', None) or '').strip()
+            if not to_email:
+                return
+            stamp = status_at.isoformat() if status_at else 'na'
             EmailNotificationService.dispatch(
                 'kyc.submitted.for_approval',
                 to_email,
                 {
                     'name': user_display_name(user),
                     'user_id': public_display_code(user),
-                    'pan_masked': mask_pan(getattr(kyc, 'pan', '') or ''),
+                    'pan_masked': mask_pan(pan_value),
                     'verification_status': 'awaiting_approval',
                 },
                 user_id=user.pk,
-                idempotency_key=f'kyc:awaiting_approval:{user.pk}',
+                idempotency_key=f'kyc:awaiting_approval:{user.pk}:{stamp}',
             )
+        except Exception:
+            logger.exception('KYC awaiting-approval email failed for user_id=%s', user_pk)
+
+    try:
+        transaction.on_commit(_notify_awaiting_approval)
     except Exception:
-        pass
+        # Outside an atomic block — notify immediately.
+        _notify_awaiting_approval()
 
 
 @transaction.atomic
 def admin_approve_kyc(actor, target_user, notes=''):
     """
-    Admin-only: approve provider-complete KYC → verified (unlocks onboarding completion).
+    Platform operator (Admin / Super Admin): approve provider-complete KYC → verified.
     Idempotent if already verified. Creates an immutable approval audit row.
     """
+    from apps.core.roles import is_platform_operator
     from apps.users.models import KycApprovalAudit
 
-    if getattr(actor, 'role', None) != 'Admin':
+    if not is_platform_operator(actor):
         raise ValueError('Only administrators may approve KYC.')
     if not target_user:
         raise ValueError('Target user is required.')
@@ -309,6 +328,7 @@ def admin_approve_kyc(actor, target_user, notes=''):
     try:
         from apps.notifications.email_helpers import mask_pan, user_display_name
         from apps.notifications.services.email_dispatch import EmailNotificationService
+        from apps.users.identity import public_display_code
 
         to_email = (getattr(target_user, 'email', None) or '').strip()
         if to_email:
@@ -333,11 +353,13 @@ def admin_approve_kyc(actor, target_user, notes=''):
 @transaction.atomic
 def admin_reject_kyc(actor, target_user, notes=''):
     """
-    Admin-only: reject KYC awaiting review. Account stays non-active (kyc_complete false).
+    Platform operator (Admin / Super Admin): reject KYC awaiting review.
+    Account stays non-active (kyc_complete false). User may later resubmit.
     """
+    from apps.core.roles import is_platform_operator
     from apps.users.models import KycApprovalAudit
 
-    if getattr(actor, 'role', None) != 'Admin':
+    if not is_platform_operator(actor):
         raise ValueError('Only administrators may reject KYC.')
     if not target_user:
         raise ValueError('Target user is required.')
@@ -384,6 +406,7 @@ def admin_reject_kyc(actor, target_user, notes=''):
     try:
         from apps.notifications.email_helpers import mask_pan, user_display_name
         from apps.notifications.services.email_dispatch import EmailNotificationService
+        from apps.users.identity import public_display_code
 
         to_email = (getattr(target_user, 'email', None) or '').strip()
         if to_email:
@@ -404,6 +427,107 @@ def admin_reject_kyc(actor, target_user, notes=''):
         pass
 
     return kyc
+
+
+def _reset_kyc_for_resubmit(kyc, *, actor, notes='', previous_status=None):
+    """
+    Clear provider verification so the user must re-submit PAN + Aadhaar.
+    Leaves an audit row with decision=request_resubmit.
+    """
+    from apps.users.models import KycApprovalAudit
+    from django.utils import timezone
+
+    previous = previous_status or kyc.verification_status
+    notes = (notes or '').strip()
+
+    kyc.pan = None
+    kyc.pan_verified = False
+    kyc.pan_verified_at = None
+    kyc.aadhaar = None
+    kyc.aadhaar_verified = False
+    kyc.aadhaar_verified_at = None
+    kyc.verified_identity = {}
+    kyc.verification_status = 'pending'
+    kyc.decided_by = actor if actor and getattr(actor, 'pk', None) else None
+    kyc.decided_at = timezone.now()
+    kyc.decision_notes = notes
+    kyc.save(
+        update_fields=[
+            'pan',
+            'pan_verified',
+            'pan_verified_at',
+            'aadhaar',
+            'aadhaar_verified',
+            'aadhaar_verified_at',
+            'verified_identity',
+            'verification_status',
+            'decided_by',
+            'decided_at',
+            'decision_notes',
+        ]
+    )
+
+    KycApprovalAudit.objects.create(
+        user=kyc.user,
+        kyc=kyc,
+        decision='request_resubmit',
+        previous_status=previous,
+        new_status='pending',
+        decided_by=actor if actor and getattr(actor, 'pk', None) else None,
+        notes=notes,
+    )
+    return kyc
+
+
+@transaction.atomic
+def admin_request_rekyc(actor, target_user, notes=''):
+    """
+    Platform operator: force a user back to pending KYC so they must resubmit documents.
+    Allowed from any non-pending status (including verified).
+    """
+    from apps.core.roles import is_platform_operator
+
+    if not is_platform_operator(actor):
+        raise ValueError('Only administrators may request re-KYC.')
+    if not target_user:
+        raise ValueError('Target user is required.')
+    if actor.pk == target_user.pk:
+        raise ValueError('Administrators cannot request re-KYC for themselves.')
+
+    kyc = (
+        KYC.objects.select_for_update()
+        .filter(user=target_user)
+        .first()
+    )
+    if not kyc:
+        raise ValueError('No KYC record found for this user.')
+    if kyc.verification_status == 'pending' and not kyc.pan_verified and not kyc.aadhaar_verified:
+        return kyc
+
+    note = (notes or '').strip() or 'Administrator requested re-KYC submission.'
+    return _reset_kyc_for_resubmit(kyc, actor=actor, notes=note)
+
+
+@transaction.atomic
+def user_resubmit_kyc(user, notes=''):
+    """
+    Self-service: after Admin rejection, clear KYC so the user can submit again.
+    """
+    if not user:
+        raise ValueError('User is required.')
+
+    kyc = (
+        KYC.objects.select_for_update()
+        .filter(user=user)
+        .first()
+    )
+    if not kyc:
+        raise ValueError('No KYC record found.')
+    if kyc.verification_status != 'rejected':
+        raise ValueError('You can only resubmit KYC after it has been rejected.')
+
+    note = (notes or '').strip() or 'User requested KYC resubmission after rejection.'
+    return _reset_kyc_for_resubmit(kyc, actor=user, notes=note)
 
 
 @transaction.atomic
@@ -491,10 +615,8 @@ def create_user(user_data, created_by):
         child_user=user
     )
     
-    # Create wallets for user
+    # Create the single spendable main wallet (legacy types are not provisioned).
     Wallet.objects.create(user=user, wallet_type='main', balance=0.00)
-    Wallet.objects.create(user=user, wallet_type='commission', balance=0.00)
-    Wallet.objects.create(user=user, wallet_type='bbps', balance=0.00)
 
     # Auto-assign default package (if configured) or packages passed during creation (Admin only)
     from apps.fund_management.services import auto_assign_default_package, assign_package_to_user
@@ -768,6 +890,39 @@ def poll_digilocker_status(user, verification_id: str):
     return provider.get_status(verification_id=vid)
 
 
+def finalize_pending_digilocker_if_any(user):
+    """
+    If DigiLocker already authenticated but KYC.aadhaar_verified was not committed
+    (e.g. a later email failure rolled back the transaction), finalize from the
+    latest AUTHENTICATED session. Returns (kyc, details) or None.
+    """
+    kyc = KYC.objects.filter(user=user).first()
+    if not kyc or not kyc.pan_verified or kyc.aadhaar_verified:
+        return None
+    from apps.users.models import KycDigilockerSession
+
+    session = (
+        KycDigilockerSession.objects.filter(
+            user=user,
+            status__in=('AUTHENTICATED', 'SUCCESS'),
+            is_deleted=False,
+        )
+        .order_by('-completed_at', '-created_at')
+        .first()
+    )
+    if not session:
+        return None
+    try:
+        return complete_digilocker_aadhaar(user, session.verification_id)
+    except ValueError:
+        logger.exception(
+            'finalize_pending_digilocker_if_any failed user_id=%s vid=%s',
+            getattr(user, 'pk', None),
+            session.verification_id,
+        )
+        return None
+
+
 def complete_digilocker_aadhaar(user, verification_id: str):
     """Finalize DigiLocker after AUTHENTICATED; marks aadhaar_verified on KYC."""
     from django.db import transaction
@@ -855,7 +1010,11 @@ def complete_digilocker_aadhaar(user, verification_id: str):
             profile_updated=profile_updated,
             raw=doc.raw if isinstance(doc.raw, dict) else None,
         )
-        sync_kyc_verification_status(kyc)
+
+    # Status + email after Aadhaar commit so notification failures cannot undo verification.
+    kyc.refresh_from_db()
+    sync_kyc_verification_status(kyc)
+    kyc.refresh_from_db()
 
     session = KycDigilockerSession.objects.filter(user=user, verification_id=vid, is_deleted=False).first()
     if session and isinstance(doc.raw, dict):

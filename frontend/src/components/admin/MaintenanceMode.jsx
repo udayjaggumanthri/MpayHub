@@ -25,7 +25,7 @@ const MODULES = [
     enabledField: 'bbps_enabled',
     messageField: 'bbps_message',
     label: 'BBPS',
-    description: 'Blocks BBPS payment quotes, bill pay, and main-to-BBPS wallet transfers.',
+    description: 'Blocks BBPS payment quotes and bill pay (debited from the main wallet).',
   },
   {
     key: 'aeps',
@@ -34,6 +34,13 @@ const MODULES = [
     label: 'AEPS (Fingpay)',
     description: 'Blocks the entire AEPS module (onboarding, eKYC, and product APIs).',
   },
+  {
+    key: 'cms',
+    enabledField: 'cms_enabled',
+    messageField: 'cms_message',
+    label: 'CMS (Uber CMS)',
+    description: 'Blocks CMS launch, wallet funding, and partner CMS APIs (inbound webhooks stay reachable).',
+  },
 ];
 
 const defaultForm = () => ({
@@ -41,10 +48,12 @@ const defaultForm = () => ({
   payout_enabled: true,
   bbps_enabled: true,
   aeps_enabled: false,
+  cms_enabled: false,
   pay_in_message: '',
   payout_message: '',
   bbps_message: '',
   aeps_message: '',
+  cms_message: '',
   reason_internal: '',
 });
 
@@ -64,10 +73,12 @@ const MaintenanceMode = () => {
       payout_enabled: m.payout.enabled,
       bbps_enabled: m.bbps.enabled,
       aeps_enabled: m.aeps.enabled,
+      cms_enabled: Boolean(m.cms?.enabled),
       pay_in_message: m.pay_in.message,
       payout_message: m.payout.message,
       bbps_message: m.bbps.message,
       aeps_message: m.aeps.message,
+      cms_message: m.cms?.message || '',
       reason_internal: m.reason_internal || '',
     });
     setMeta({ updated_at: m.updated_at, updated_by: m.updated_by });

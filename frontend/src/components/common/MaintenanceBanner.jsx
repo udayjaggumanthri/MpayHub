@@ -1,6 +1,5 @@
 import React from 'react';
-import { Link } from 'react-router-dom';
-import { FaClock, FaLock, FaScrewdriverWrench } from 'react-icons/fa6';
+import { FaLock, FaScrewdriverWrench } from 'react-icons/fa6';
 import {
   getModuleMessage,
   isModuleInMaintenance,
@@ -79,21 +78,6 @@ const MaintenanceBanner = ({ maintenance, moduleKey, variant = 'inline' }) => {
 
           <h2 className="text-lg font-bold text-amber-950 dark:text-amber-200 sm:text-xl">{meta.title}</h2>
           <p className="text-sm leading-relaxed text-amber-950/90 dark:text-amber-200/90">{message}</p>
-
-          <div className="flex flex-wrap items-center gap-x-4 gap-y-1 pt-1 text-xs text-amber-900/80 dark:text-amber-300/80">
-            <span className="inline-flex items-center gap-1.5">
-              <FaClock size={12} aria-hidden />
-              New transactions in this module are paused for all users.
-            </span>
-            {meta.reportPath ? (
-              <Link
-                to={meta.reportPath}
-                className="font-semibold text-amber-900 dark:text-amber-300 underline decoration-amber-400/80 underline-offset-2 hover:text-amber-950"
-              >
-                View past {meta.reportLabel.toLowerCase()} →
-              </Link>
-            ) : null}
-          </div>
         </div>
       </div>
     </div>

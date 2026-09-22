@@ -129,9 +129,11 @@ class PassbookEntrySerializer(serializers.ModelSerializer):
 
 
 class CommissionLedgerSerializer(serializers.ModelSerializer):
-    """Pay-in commission audit rows (includes source agent in meta)."""
+    """Commission / service-fee audit rows (includes source agent in meta)."""
 
     amount = serializers.SerializerMethodField()
+    customer_charge = serializers.SerializerMethodField()
+    slice_display = serializers.SerializerMethodField()
 
     class Meta:
         model = CommissionLedger
@@ -141,6 +143,11 @@ class CommissionLedgerSerializer(serializers.ModelSerializer):
             'role_at_time',
             'amount',
             'source',
+            'entry_kind',
+            'module',
+            'slice_key',
+            'slice_display',
+            'customer_charge',
             'reference_service_id',
             'wallet_type',
             'meta',
@@ -153,3 +160,16 @@ class CommissionLedgerSerializer(serializers.ModelSerializer):
 
     def get_amount(self, obj):
         return _dec4(obj.amount)
+
+    def get_customer_charge(self, obj):
+        # Channel roles must not see fee totals (implies commission structure).
+        request = self.context.get('request')
+        if request is not None:
+            from apps.core.roles import is_platform_operator
+
+            if not is_platform_operator(getattr(request.user, 'role', '')):
+                return ''
+        return _dec4(getattr(obj, 'customer_charge', None) or 0)
+
+    def get_slice_display(self, obj):
+        return (obj.slice_key or (obj.meta or {}).get('slice') or '') or ''

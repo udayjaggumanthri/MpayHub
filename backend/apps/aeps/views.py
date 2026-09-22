@@ -1242,10 +1242,16 @@ def txn_acknowledge(request, merchant_tran_id: str):
         )
     except AepsTransaction.DoesNotExist:
         return _err('Transaction not found', http_status=404)
-    try:
-        products_svc.acknowledge_transaction(
-            txn, otp_mode=bool(request.data.get('otp_mode') or request.data.get('otpMode'))
+    otp_mode = bool(request.data.get('otp_mode') or request.data.get('otpMode'))
+    if not products_svc.product_ack_allowed(txn.product, otp_mode=otp_mode):
+        label = products_svc.PRODUCT_LABELS.get(txn.product, txn.product)
+        return _err(
+            f'Acknowledge is not required for {label}. Enquiry products do not call Fingpay acknowledgement.',
+            code='ACK_NOT_APPLICABLE',
+            http_status=400,
         )
+    try:
+        products_svc.acknowledge_transaction(txn, otp_mode=otp_mode)
     except Exception as exc:
         return _err(str(exc), http_status=400)
     return _ok({'transaction': products_svc.serialize_txn(txn)})
@@ -1306,8 +1312,28 @@ def reports_summary(request):
         user=request.user,
         admin_all=admin_all,
         days=int(request.query_params.get('days') or 7),
+        date_from=request.query_params.get('date_from'),
+        date_to=request.query_params.get('date_to'),
+        product=request.query_params.get('product'),
+        status=request.query_params.get('status'),
     )
     return _ok(data)
+
+
+@api_view(['GET'])
+@permission_classes([IsAuthenticated])
+def reports_export_csv(request):
+    admin_all = _require_admin(request) and request.query_params.get('scope') == 'all'
+    return reports_svc.export_transactions_csv(
+        user=request.user,
+        admin_all=admin_all,
+        product=request.query_params.get('product'),
+        status=request.query_params.get('status'),
+        date_from=request.query_params.get('date_from'),
+        date_to=request.query_params.get('date_to'),
+        search=request.query_params.get('search'),
+        limit=int(request.query_params.get('limit') or 5000),
+    )
 
 
 @api_view(['GET'])

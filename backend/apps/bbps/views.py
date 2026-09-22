@@ -4325,6 +4325,24 @@ def billavenue_callback_view(request):
         attempt.save(update_fields=['status', 'settled_at', 'updated_at'])
 
         try:
+            from apps.bbps.service_flow.user_wallet_settlement import (
+                refund_settled_payment,
+                release_payment_hold,
+                settle_payment_hold,
+            )
+
+            if code == '000' and prior_status != 'SUCCESS':
+                settle_payment_hold(attempt=attempt)
+            elif code == '300' and prior_status not in ('REFUNDED', 'REVERSED'):
+                refund_settled_payment(attempt=attempt, reason='refunded')
+            elif code not in ('000', '300') and prior_status not in (
+                'FAILED', 'SUCCESS', 'REFUNDED', 'REVERSED',
+            ):
+                release_payment_hold(attempt=attempt, reason='webhook_failed')
+        except Exception:
+            logger.exception('BBPS user wallet webhook hook failed attempt=%s', attempt.pk)
+
+        try:
             from apps.bbps.service_flow.provider_float import credit_float_for_refund, debit_float_for_payment
             from apps.bbps.service_flow.status_service import _float_amount_for_attempt
 

@@ -169,12 +169,23 @@ class PassbookEntry(BaseModel):
 
 class CommissionLedger(BaseModel):
     """
-    Audit trail for commission credits (pay-in chain + retailer).
+    Audit trail for commission credits and platform service fees.
+    Money always credits the beneficiary's main wallet; this ledger explains why.
     """
 
     SOURCE_CHOICES = [
         ('payin', 'Pay-in'),
         ('profit', 'Platform profit'),
+        ('bbps', 'BBPS'),
+        ('payout', 'Payout'),
+        ('bank_verification', 'Bank verification'),
+        ('aeps', 'AEPS'),
+        ('cms', 'CMS'),
+    ]
+
+    ENTRY_KIND_CHOICES = [
+        ('commission', 'Commission'),
+        ('service_fee', 'Service fee'),
     ]
 
     WALLET_TYPE_CHOICES = [
@@ -195,8 +206,35 @@ class CommissionLedger(BaseModel):
     role_at_time = models.CharField(max_length=50, blank=True, default='')
     amount = models.DecimalField(max_digits=MONEY_MAX_DIGITS, decimal_places=MONEY_DECIMAL_PLACES)
     source = models.CharField(max_length=20, choices=SOURCE_CHOICES, default='payin', db_index=True)
+    entry_kind = models.CharField(
+        max_length=20,
+        choices=ENTRY_KIND_CHOICES,
+        default='commission',
+        db_index=True,
+        help_text='commission = downline earning; service_fee = platform revenue from a configured charge.',
+    )
+    module = models.CharField(
+        max_length=32,
+        blank=True,
+        default='',
+        db_index=True,
+        help_text='Product module: payin, bbps, payout, bank_verification, aeps, cms.',
+    )
+    slice_key = models.CharField(
+        max_length=64,
+        blank=True,
+        default='',
+        db_index=True,
+        help_text='Stable slice id for idempotency (e.g. admin_absorbed, gateway_absorbed, Super Distributor).',
+    )
+    customer_charge = models.DecimalField(
+        max_digits=MONEY_MAX_DIGITS,
+        decimal_places=MONEY_DECIMAL_PLACES,
+        default=0,
+        help_text='Total charge the customer paid on this transaction (same for all slices).',
+    )
     reference_service_id = models.CharField(max_length=100, db_index=True)
-    wallet_type = models.CharField(max_length=20, choices=WALLET_TYPE_CHOICES, default='commission')
+    wallet_type = models.CharField(max_length=20, choices=WALLET_TYPE_CHOICES, default='main')
     meta = models.JSONField(default=dict, blank=True)
 
     source_user_code = models.CharField(max_length=30, blank=True, default='', db_index=True)
@@ -210,7 +248,15 @@ class CommissionLedger(BaseModel):
             models.Index(fields=['reference_service_id']),
             models.Index(fields=['user', 'source', 'created_at']),
             models.Index(fields=['user', 'created_at']),
+            models.Index(fields=['module', 'entry_kind', 'created_at']),
             GinIndex(fields=['meta'], name='commission_ledger_meta_gin'),
+        ]
+        constraints = [
+            models.UniqueConstraint(
+                fields=['reference_service_id', 'user', 'slice_key'],
+                name='commission_ledger_idempotent_slice',
+                condition=models.Q(user__isnull=False) & ~models.Q(slice_key=''),
+            ),
         ]
 
     def __str__(self):

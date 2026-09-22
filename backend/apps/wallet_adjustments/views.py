@@ -78,7 +78,7 @@ def _list_filter_kwargs(request):
 
 def _user_balances(user: User) -> dict:
     out = {}
-    for wt in ('main', 'bbps'):
+    for wt in ('main',):
         w = Wallet.objects.filter(user=user, wallet_type=wt, is_deleted=False).first()
         out[wt] = str(w.balance) if w else '0.0000'
     return out

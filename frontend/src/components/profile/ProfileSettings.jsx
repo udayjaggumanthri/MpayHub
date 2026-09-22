@@ -10,11 +10,12 @@ import KycVerificationPanel from '../onboarding/KycVerificationPanel';
 import KycProfileSyncAlert from '../onboarding/KycProfileSyncAlert';
 import ActivityAuditPanel from '../userManagement/profile/ActivityAuditPanel';
 import MpinInput from '../common/MpinInput';
+import { canViewCommissionWallet } from '../../utils/rolePermissions';
 
 const ProfileSettings = () => {
   const navigate = useNavigate();
   const { user, refreshUser } = useAuth();
-  const [wallets, setWallets] = useState({ main: 0, commission: 0, bbps: 0, profit: 0 });
+  const [wallets, setWallets] = useState({ main: 0, held: 0 });
   const [walletsLoading, setWalletsLoading] = useState(false);
   const [activeTab, setActiveTab] = useState('profile');
   const [isEditing, setIsEditing] = useState(false);
@@ -50,11 +51,10 @@ const ProfileSettings = () => {
       const res = await walletsAPI.getAllWallets();
       if (res.success && res.data?.wallets) {
         const w = res.data.wallets;
+        const main = w.main || {};
         setWallets({
-          main: parseFloat(w.main?.balance || 0),
-          commission: parseFloat(w.commission?.balance || 0),
-          bbps: parseFloat(w.bbps?.balance || 0),
-          profit: parseFloat(w.profit?.balance || 0),
+          main: parseFloat(main.balance || 0) || 0,
+          held: parseFloat(main.held_balance || 0) || 0,
         });
       }
     } catch (err) {
@@ -216,9 +216,7 @@ const ProfileSettings = () => {
   };
 
   const ob = user?.onboarding;
-  const showCommissionWallet = user?.role && user.role !== 'Retailer';
-  const showProfitWallet =
-    user?.role?.toLowerCase() === 'admin' || user?.role === 'Super Admin';
+  const showEarnings = canViewCommissionWallet(user?.role);
 
   const tabs = [
     { id: 'profile', name: 'Profile', icon: FiUser },
@@ -271,7 +269,7 @@ const ProfileSettings = () => {
           </button>
         </div>
 
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-4 pt-4 border-t border-gray-200 dark:border-slate-700">
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4 pt-4 border-t border-gray-200 dark:border-slate-700">
           <button
             type="button"
             onClick={() => navigate('/reports/passbook')}
@@ -281,38 +279,21 @@ const ProfileSettings = () => {
             <p className="text-xl font-bold text-blue-600 dark:text-blue-400">
               {walletsLoading ? '...' : formatCurrency(wallets.main)}
             </p>
+            {wallets.held > 0 && (
+              <p className="mt-1 text-xs text-amber-700 dark:text-amber-300">
+                Held: {formatCurrency(wallets.held)}
+              </p>
+            )}
           </button>
-          {showCommissionWallet && (
+          {showEarnings && (
             <button
               type="button"
               onClick={() => navigate('/reports/commission')}
               className="text-center p-4 bg-green-50 dark:bg-green-950/40 rounded-lg hover:bg-green-100 dark:hover:bg-green-900/60 transition-colors cursor-pointer border border-green-100 dark:border-green-900"
             >
-              <p className="text-sm text-gray-600 dark:text-slate-400 mb-1">Commission Wallet</p>
-              <p className="text-xl font-bold text-green-600 dark:text-green-400">
-                {walletsLoading ? '...' : formatCurrency(wallets.commission)}
-              </p>
-            </button>
-          )}
-          <button
-            type="button"
-            onClick={() => navigate('/reports/bbps')}
-            className="text-center p-4 bg-yellow-50 dark:bg-yellow-950/40 rounded-lg hover:bg-yellow-100 dark:hover:bg-yellow-900/60 transition-colors cursor-pointer border border-yellow-100 dark:border-yellow-900"
-          >
-            <p className="text-sm text-gray-600 dark:text-slate-400 mb-1">BBPS Wallet</p>
-            <p className="text-xl font-bold text-yellow-600 dark:text-yellow-400">
-              {walletsLoading ? '...' : formatCurrency(wallets.bbps)}
-            </p>
-          </button>
-          {showProfitWallet && (
-            <button
-              type="button"
-              onClick={() => navigate('/wallets/profit')}
-              className="text-center p-4 bg-purple-50 dark:bg-purple-950/40 rounded-lg hover:bg-purple-100 dark:hover:bg-purple-900/60 transition-colors cursor-pointer border border-purple-100 dark:border-purple-900"
-            >
-              <p className="text-sm text-gray-600 dark:text-slate-400 mb-1">Profit Wallet</p>
-              <p className="text-xl font-bold text-purple-600 dark:text-purple-400">
-                {walletsLoading ? '...' : formatCurrency(wallets.profit)}
+              <p className="text-sm text-gray-600 dark:text-slate-400 mb-1">Earnings</p>
+              <p className="text-sm font-medium text-green-700 dark:text-green-300">
+                Credited to your main wallet
               </p>
             </button>
           )}

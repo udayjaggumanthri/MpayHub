@@ -38,13 +38,16 @@ class BalancePair:
 def passbook_balance_map(
     keys: list[BalanceKey],
     *,
-    wallet_type: str,
+    wallet_type: str | None = None,
+    wallet_types: list[str] | tuple[str, ...] | None = None,
     services: list[str] | None = None,
     credit_only: bool = False,
     debit_only: bool = False,
 ) -> dict[BalanceKey, BalancePair]:
     """
     Latest passbook row per (service_id, user_id) matching filters.
+
+    Prefer ``wallet_types`` (e.g. ``('main', 'bbps')``) to span the consolidation cutover.
     """
     if not keys:
         return {}
@@ -53,10 +56,11 @@ def passbook_balance_map(
     if not service_ids:
         return {}
 
+    types = list(wallet_types) if wallet_types else ([wallet_type] if wallet_type else ['main'])
     qs = PassbookEntry.objects.filter(
         service_id__in=service_ids,
         user_id__in=user_ids,
-        wallet_type=wallet_type,
+        wallet_type__in=types,
     )
     if services:
         qs = qs.filter(service__in=services)
@@ -131,8 +135,14 @@ def payout_balance_map(items: list) -> dict[BalanceKey, BalancePair]:
 
 
 def bbps_balance_map(items: list) -> dict[BalanceKey, BalancePair]:
+    """BBPS debits lived on bbps wallet pre-merge and on main post-merge."""
     keys = _payin_keys_from_items(items)
-    return passbook_balance_map(keys, wallet_type='bbps', services=['BBPS'], debit_only=True)
+    return passbook_balance_map(
+        keys,
+        wallet_types=('main', 'bbps'),
+        services=['BBPS'],
+        debit_only=True,
+    )
 
 
 def balance_fields_for_key(balance_map: dict[BalanceKey, BalancePair], service_id: str, user_id: int) -> dict[str, str]:

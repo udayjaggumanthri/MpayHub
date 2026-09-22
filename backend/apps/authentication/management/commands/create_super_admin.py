@@ -50,8 +50,7 @@ class Command(BaseCommand):
 
         UserProfile.objects.get_or_create(user=user)
         KYC.objects.get_or_create(user=user)
-        for wallet_type in ('main', 'commission', 'bbps'):
-            Wallet.objects.get_or_create(user=user, wallet_type=wallet_type, defaults={'balance': 0})
+        Wallet.objects.get_or_create(user=user, wallet_type='main', defaults={'balance': 0})
 
         self.stdout.write(
             self.style.SUCCESS(

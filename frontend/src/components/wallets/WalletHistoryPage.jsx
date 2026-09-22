@@ -5,10 +5,12 @@ import { formatCurrency, formatReportDateTime } from '../../utils/formatters';
 
 const TITLES = {
   main: 'Main Wallet History',
-  commission: 'Commission Wallet History',
-  bbps: 'BBPS Wallet History',
-  profit: 'Profit Wallet History',
+  commission: 'Commission History (legacy)',
+  bbps: 'BBPS History (legacy — now Main wallet)',
+  profit: 'Profit History (legacy)',
 };
+
+const LEGACY_TYPES = new Set(['bbps', 'commission', 'profit']);
 
 const normalizeWalletType = (raw) => {
   const decoded = decodeURIComponent(String(raw || ''));
@@ -40,6 +42,7 @@ const WalletHistoryPage = () => {
   const location = useLocation();
   const pathType = String(location.pathname || '').split('/wallets/')[1]?.split('/')[0] || '';
   const type = normalizeWalletType(walletType || pathType);
+  const isLegacy = LEGACY_TYPES.has(type);
   const [rows, setRows] = useState([]);
   const [loading, setLoading] = useState(false);
   const [page, setPage] = useState(1);
@@ -47,14 +50,19 @@ const WalletHistoryPage = () => {
   const [errorMessage, setErrorMessage] = useState('');
   const pageSize = 20;
 
-  const title = useMemo(() => TITLES[type] || 'Wallet History', [type]);
+  const title = useMemo(() => {
+    if (type === 'main') return TITLES.main;
+    if (isLegacy) return TITLES[type] || 'Wallet History';
+    return TITLES[type] || 'Wallet History';
+  }, [type, isLegacy]);
 
   useEffect(() => {
     let mounted = true;
     const load = async () => {
       setLoading(true);
       setErrorMessage('');
-      const res = await walletsAPI.getWalletHistory(type, { page });
+      const historyType = type || 'main';
+      const res = await walletsAPI.getWalletHistory(historyType, { page });
       if (!mounted) return;
       if (res.success) {
         setRows(res.data?.transactions || []);
@@ -87,6 +95,11 @@ const WalletHistoryPage = () => {
         <p className="text-sm text-gray-600 dark:text-slate-400">
           Detailed ledger of credits/debits with references and business descriptions.
         </p>
+        {isLegacy && (
+          <div className="mt-4 rounded-lg border border-amber-200 dark:border-amber-800 bg-amber-50 dark:bg-amber-950/40 px-4 py-3 text-sm text-amber-900 dark:text-amber-200">
+            This wallet was merged into Main. Historical lines below keep their original wallet type.
+          </div>
+        )}
       </div>
 
       <div className="rounded-xl border border-gray-200 dark:border-slate-700 bg-white dark:bg-slate-900 p-4 shadow-sm">

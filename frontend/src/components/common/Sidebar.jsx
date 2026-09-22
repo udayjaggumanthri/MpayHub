@@ -8,7 +8,6 @@ import {
 import { shouldBlockPathForUser } from '../../utils/userAccess';
 import { adminAPI } from '../../services/api';
 import {
-  FiX,
   FiChevronDown,
   FiChevronRight,
   FiChevronLeft,
@@ -31,6 +30,8 @@ import {
 } from 'react-icons/hi2';
 import bMnemonicPrimary from '../../assets/bbps/b-mnemonic-primary.svg';
 import { HEADER_OFFSET_CLASS } from './Header';
+import ThemeToggle from './ThemeToggle';
+import { useTheme } from '../../context/ThemeContext';
 
 const BBPS_MENU_ICON = 'bbps-mnemonic';
 const SIDEBAR_STORAGE_KEY = 'mpayhub_sidebar_collapsed';
@@ -83,6 +84,16 @@ function useIsDesktopLg() {
   }, []);
 
   return isDesktop;
+}
+
+function MobileAppearanceRow() {
+  const { canToggle } = useTheme();
+  if (!canToggle) return null;
+  return (
+    <div className="flex flex-shrink-0 items-center justify-end border-b border-gray-200 px-4 py-2 dark:border-slate-700 lg:hidden">
+      <ThemeToggle variant="segmented" />
+    </div>
+  );
 }
 
 const Sidebar = ({
@@ -418,29 +429,20 @@ const Sidebar = ({
         onMouseLeave={clearFlyoutSoon}
       >
         <div className="relative flex h-full flex-col overflow-hidden">
-          {/* Mobile drawer chrome only — logo stays in Header, never in the rail */}
-          <div className="flex flex-shrink-0 items-center justify-end border-b border-gray-200 px-3 py-2.5 dark:border-slate-700 lg:hidden">
-            <button
-              type="button"
-              onClick={() => setMobileMenuOpen(false)}
-              className="inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-lg text-gray-600 transition-colors hover:bg-gray-100 focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 dark:text-slate-400 dark:hover:bg-slate-800"
-              aria-label="Close menu"
-            >
-              <FiX size={20} />
-            </button>
-          </div>
+          {/* Mobile: light/dark switch (replaces empty close-only bar — Header already closes) */}
+          <MobileAppearanceRow />
 
           <nav
             ref={menuNavRef}
-            className={`flex-1 overflow-y-auto overflow-x-hidden scroll-smooth pb-2 pt-3 ${
+            className={`flex-1 overflow-y-auto overflow-x-hidden scroll-smooth pb-2 pt-1.5 ${
               railMode ? 'px-1.5' : 'px-3 sm:px-4'
             }`}
             style={{ scrollPaddingTop: 0 }}
           >
-            <div className="min-h-0 space-y-1.5">
+            <div className="min-h-0 space-y-1">
               {menuItems.length > 0 ? (
                 menuItems.map((item, index) => (
-                  <div key={`${item.name}-${index}`} className="first:pt-0">
+                  <div key={`${item.name}-${index}`}>
                     <MenuItem item={item} />
                   </div>
                 ))

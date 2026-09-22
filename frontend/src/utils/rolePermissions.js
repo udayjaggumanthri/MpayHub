@@ -14,6 +14,7 @@ export const roleMenus = {
       icon: 'users',
       submenu: [
         { name: 'Users', path: '/user-management/users' },
+        { name: 'KYC Approvals', path: '/admin/kyc-approvals' },
         { name: 'Contacts', path: '/user-management/contacts' },
         { name: 'Bank Accounts', path: '/user-management/bank-accounts' },
       ],
@@ -80,6 +81,18 @@ export const roleMenus = {
       ],
     },
     {
+      name: 'CMS',
+      path: '/cms',
+      icon: 'aeps',
+      submenu: [
+        { name: 'Workspace', path: '/cms' },
+        { name: 'Provider', path: '/admin/cms/provider' },
+        { name: 'Agents', path: '/admin/cms/agents' },
+        { name: 'Audit logs', path: '/admin/cms/audit-logs' },
+        { name: 'Reports', path: '/cms/reports' },
+      ],
+    },
+    {
       name: 'Notifications',
       path: '/admin/smtp-settings',
       icon: 'notifications',
@@ -114,9 +127,13 @@ export const roleMenus = {
       icon: 'dashboard',
     },
     {
-      name: 'AEPS',
-      path: '/aeps',
-      icon: 'aeps',
+      name: 'Fund Management',
+      path: '/fund-management',
+      icon: 'wallet',
+      submenu: [
+        { name: 'Load Money', path: '/fund-management/load-money' },
+        { name: 'Payout', path: '/fund-management/payout' },
+      ],
     },
     {
       name: 'Bill Payment',
@@ -125,9 +142,18 @@ export const roleMenus = {
       submenu: [
         { name: 'Pay Bill', path: '/bill-payments/pay' },
         { name: 'Complaints', path: '/bill-payments/complaints' },
-        { name: 'Fund wallet', path: '/bill-payments/fund-wallet' },
         { name: 'My Bills', path: '/bill-payments/my-bills' },
       ],
+    },
+    {
+      name: 'AEPS',
+      path: '/aeps',
+      icon: 'aeps',
+    },
+    {
+      name: 'CMS',
+      path: '/cms',
+      icon: 'aeps',
     },
     {
       name: 'User Management',
@@ -164,9 +190,13 @@ export const roleMenus = {
       icon: 'dashboard',
     },
     {
-      name: 'AEPS',
-      path: '/aeps',
-      icon: 'aeps',
+      name: 'Fund Management',
+      path: '/fund-management',
+      icon: 'wallet',
+      submenu: [
+        { name: 'Load Money', path: '/fund-management/load-money' },
+        { name: 'Payout', path: '/fund-management/payout' },
+      ],
     },
     {
       name: 'Bill Payment',
@@ -175,9 +205,18 @@ export const roleMenus = {
       submenu: [
         { name: 'Pay Bill', path: '/bill-payments/pay' },
         { name: 'Complaints', path: '/bill-payments/complaints' },
-        { name: 'Fund wallet', path: '/bill-payments/fund-wallet' },
         { name: 'My Bills', path: '/bill-payments/my-bills' },
       ],
+    },
+    {
+      name: 'AEPS',
+      path: '/aeps',
+      icon: 'aeps',
+    },
+    {
+      name: 'CMS',
+      path: '/cms',
+      icon: 'aeps',
     },
     {
       name: 'User Management',
@@ -193,6 +232,13 @@ export const roleMenus = {
       name: 'Reports',
       path: '/reports',
       icon: 'reports',
+      submenu: [
+        { name: 'Pay In', path: '/reports/payin' },
+        { name: 'Pay Out', path: '/reports/payout' },
+        { name: 'BBPS', path: '/reports/bbps' },
+        { name: 'Passbook', path: '/reports/passbook' },
+        { name: 'Commission', path: '/reports/commission' },
+      ],
     },
     {
       name: 'Profile & Settings',
@@ -207,9 +253,13 @@ export const roleMenus = {
       icon: 'dashboard',
     },
     {
-      name: 'AEPS',
-      path: '/aeps',
-      icon: 'aeps',
+      name: 'Fund Management',
+      path: '/fund-management',
+      icon: 'wallet',
+      submenu: [
+        { name: 'Load Money', path: '/fund-management/load-money' },
+        { name: 'Payout', path: '/fund-management/payout' },
+      ],
     },
     {
       name: 'Bill Payment',
@@ -218,9 +268,18 @@ export const roleMenus = {
       submenu: [
         { name: 'Pay Bill', path: '/bill-payments/pay' },
         { name: 'Complaints', path: '/bill-payments/complaints' },
-        { name: 'Fund wallet', path: '/bill-payments/fund-wallet' },
         { name: 'My Bills', path: '/bill-payments/my-bills' },
       ],
+    },
+    {
+      name: 'AEPS',
+      path: '/aeps',
+      icon: 'aeps',
+    },
+    {
+      name: 'CMS',
+      path: '/cms',
+      icon: 'aeps',
     },
     {
       name: 'User Management',
@@ -236,6 +295,13 @@ export const roleMenus = {
       name: 'Reports',
       path: '/reports',
       icon: 'reports',
+      submenu: [
+        { name: 'Pay In', path: '/reports/payin' },
+        { name: 'Pay Out', path: '/reports/payout' },
+        { name: 'BBPS', path: '/reports/bbps' },
+        { name: 'Passbook', path: '/reports/passbook' },
+        { name: 'Commission', path: '/reports/commission' },
+      ],
     },
     {
       name: 'Profile & Settings',
@@ -250,9 +316,13 @@ export const roleMenus = {
       icon: 'dashboard',
     },
     {
-      name: 'AEPS',
-      path: '/aeps',
-      icon: 'aeps',
+      name: 'Fund Management',
+      path: '/fund-management',
+      icon: 'wallet',
+      submenu: [
+        { name: 'Load Money', path: '/fund-management/load-money' },
+        { name: 'Payout', path: '/fund-management/payout' },
+      ],
     },
     {
       name: 'Bill Payment',
@@ -261,9 +331,18 @@ export const roleMenus = {
       submenu: [
         { name: 'Pay Bill', path: '/bill-payments/pay' },
         { name: 'Complaints', path: '/bill-payments/complaints' },
-        { name: 'Fund wallet', path: '/bill-payments/fund-wallet' },
         { name: 'My Bills', path: '/bill-payments/my-bills' },
       ],
+    },
+    {
+      name: 'AEPS',
+      path: '/aeps',
+      icon: 'aeps',
+    },
+    {
+      name: 'CMS',
+      path: '/cms',
+      icon: 'aeps',
     },
     {
       name: 'User Management',
@@ -278,6 +357,12 @@ export const roleMenus = {
       name: 'Reports',
       path: '/reports',
       icon: 'reports',
+      submenu: [
+        { name: 'Pay In', path: '/reports/payin' },
+        { name: 'Pay Out', path: '/reports/payout' },
+        { name: 'BBPS', path: '/reports/bbps' },
+        { name: 'Passbook', path: '/reports/passbook' },
+      ],
     },
     {
       name: 'Profile & Settings',
@@ -316,6 +401,7 @@ export const MENU_PATH_MODULE = [
   ['/admin/announcements', 'announcements'],
   ['/admin/maintenance', 'maintenance'],
   ['/admin/appearance', 'appearance'],
+  ['/admin/kyc-approvals', 'user_management'],
   ['/admin/wallet-adjustments', 'wallet_adjustments'],
   ['/admin/api-master', 'pay_in_setup'],
   ['/admin/gateways', 'pay_in_setup'],
@@ -326,17 +412,33 @@ export const MENU_PATH_MODULE = [
   ['/admin/sms-settings', 'notifications'],
   ['/admin/bbps', 'bbps_console'],
   ['/admin/aeps', 'aeps'],
+  ['/admin/cms', 'cms'],
   ['/user-management', 'user_management'],
   ['/fund-management', 'fund_management'],
+  ['/bill-payments', 'bbps'],
   ['/bbps', 'bbps'],
   ['/aeps', 'aeps'],
+  ['/cms', 'cms'],
   ['/reports', 'reports'],
   ['/dashboard', 'dashboard'],
   ['/profile', 'profile'],
 ];
 
+/**
+ * Contacts and bank accounts are core directory resources for every channel
+ * role. They must stay visible even when the broader `user_management` module
+ * (network Users directory) is turned off for that account.
+ */
+const ALWAYS_VISIBLE_MENU_PREFIXES = [
+  '/user-management/contacts',
+  '/user-management/bank-accounts',
+];
+
 export const moduleCodeForPath = (path) => {
   const p = path || '';
+  if (ALWAYS_VISIBLE_MENU_PREFIXES.some((prefix) => p === prefix || p.startsWith(`${prefix}/`))) {
+    return null;
+  }
   for (const [prefix, code] of MENU_PATH_MODULE) {
     if (p === prefix || p.startsWith(`${prefix}/`)) return code;
   }
@@ -344,7 +446,27 @@ export const moduleCodeForPath = (path) => {
 };
 
 export const filterMenusByModules = (menuItems, enabledModules) => {
-  if (!Array.isArray(enabledModules) || enabledModules.length === 0) {
+  const stripProductModules = (items) =>
+    (items || [])
+      .map((item) => {
+        const code = moduleCodeForPath(item.path);
+        if (code === 'aeps' || code === 'cms') return null;
+        if (item.submenu?.length) {
+          const submenu = item.submenu.filter((sub) => {
+            const sc = moduleCodeForPath(sub.path);
+            return sc !== 'aeps' && sc !== 'cms';
+          });
+          return { ...item, submenu };
+        }
+        return item;
+      })
+      .filter(Boolean);
+
+  // null = still loading; [] = permissions fetch failed — hide AEPS/CMS until known.
+  if (enabledModules == null || (Array.isArray(enabledModules) && enabledModules.length === 0)) {
+    return stripProductModules(menuItems);
+  }
+  if (!Array.isArray(enabledModules)) {
     return menuItems;
   }
   const allowed = new Set(enabledModules);
@@ -403,7 +525,8 @@ export const canCreateRole = (currentUserRole, targetRole) => {
   return (CREATABLE_CHILD_ROLES[currentUserRole] || []).includes(targetRole);
 };
 
-// Check if user can view commission wallet
+// Check if user can view commission / revenue wallet & report (channel earners + ops).
+// Retailers are end-users and do not participate in the commission hierarchy UI.
 export const canViewCommissionWallet = (role) => {
   return [
     'Super Admin',

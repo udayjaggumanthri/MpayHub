@@ -171,7 +171,7 @@ const WalletAdjustments = () => {
   const validateForm = () => {
     const errs = {};
     if (!selectedUser) errs.user = 'Select a user first.';
-    if (!['main', 'bbps'].includes(form.wallet_type)) errs.wallet_type = 'Select a wallet.';
+    if (!['main'].includes(form.wallet_type)) errs.wallet_type = 'Select a wallet.';
     if (!['CREDIT', 'DEBIT'].includes(form.adjustment_type)) {
       errs.adjustment_type = 'Select credit or debit.';
     }
@@ -360,21 +360,13 @@ const WalletAdjustments = () => {
                       Change
                     </Button>
                   </div>
-                  <div className="mt-3 grid grid-cols-2 gap-3">
+                  <div className="mt-3 grid grid-cols-1 gap-3">
                     <div className="rounded-lg bg-white dark:bg-slate-900 border border-slate-100 dark:border-slate-800 px-3 py-2">
                       <p className="text-xs text-slate-500 dark:text-slate-400 flex items-center gap-1">
                         <FaWallet /> Main
                       </p>
                       <p className="text-base font-bold text-slate-900 dark:text-slate-100">
                         {formatCurrency(selectedUser.balances?.main)}
-                      </p>
-                    </div>
-                    <div className="rounded-lg bg-white dark:bg-slate-900 border border-slate-100 dark:border-slate-800 px-3 py-2">
-                      <p className="text-xs text-slate-500 dark:text-slate-400 flex items-center gap-1">
-                        <FaWallet /> BBPS
-                      </p>
-                      <p className="text-base font-bold text-slate-900 dark:text-slate-100">
-                        {formatCurrency(selectedUser.balances?.bbps)}
                       </p>
                     </div>
                   </div>
@@ -394,7 +386,6 @@ const WalletAdjustments = () => {
                     onChange={(e) => setForm((f) => ({ ...f, wallet_type: e.target.value }))}
                   >
                     <option value="main">Main wallet</option>
-                    <option value="bbps">BBPS wallet</option>
                   </select>
                   {fieldErrors.wallet_type && (
                     <p className="mt-1 text-xs text-red-600 dark:text-red-400">{fieldErrors.wallet_type}</p>
@@ -603,7 +594,6 @@ const WalletAdjustments = () => {
                   >
                     <option value="">All</option>
                     <option value="main">Main</option>
-                    <option value="bbps">BBPS</option>
                   </select>
                 </ReportFilterField>
                 <ReportFilterField label="Type" htmlFor="wa-type">

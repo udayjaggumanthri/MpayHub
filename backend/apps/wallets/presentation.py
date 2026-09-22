@@ -1,7 +1,7 @@
 """
 Wallet summary presentation adapters.
 
-Keeps personal balance building separate from Admin network-total display.
+Keeps personal balance building separate from Admin Distributed Balance display.
 """
 
 from __future__ import annotations
@@ -10,11 +10,7 @@ from copy import deepcopy
 from decimal import Decimal
 
 from apps.core.roles import is_platform_operator
-from apps.wallets.portfolio import (
-    NETWORK_WALLET_TYPES,
-    network_wallet_user_counts,
-    sum_network_wallet_balances,
-)
+from apps.wallets.portfolio import distributed_balance_snapshot
 
 
 def _money_str(value: Decimal | str | int | float | None) -> str:
@@ -28,26 +24,21 @@ def present_wallet_summary_for_viewer(user, personal_summary: dict) -> dict:
     """
     Return wallet summary for the authenticated viewer.
 
-    Non-Admin: personal balances unchanged.
-    Admin: main/bbps balances replaced with live network totals (display-only).
+    Non-Admin: personal main balance unchanged.
+    Admin / Super Admin: Main is the shared platform treasury (same number on
+    every operator login); attach ``distributed`` as the live network total.
+    Never overwrites the treasury main with network sums.
     """
     summary = deepcopy(personal_summary or {})
     role = getattr(user, 'role', None) or ''
     if not is_platform_operator(role):
         return summary
 
-    totals = sum_network_wallet_balances(wallet_types=NETWORK_WALLET_TYPES)
-    user_counts = network_wallet_user_counts(wallet_types=NETWORK_WALLET_TYPES)
-
-    for wt in NETWORK_WALLET_TYPES:
-        entry = summary.get(wt)
-        if not isinstance(entry, dict):
-            entry = {'balance': '0.00'}
-        else:
-            entry = dict(entry)
-        entry['balance'] = _money_str(totals.get(wt, Decimal('0')))
-        entry['source'] = 'network_total'
-        entry['network_user_count'] = int(user_counts.get(wt, 0))
-        summary[wt] = entry
-
+    snap = distributed_balance_snapshot()
+    summary['distributed'] = {
+        'balance': _money_str(snap['balance']),
+        'source': 'network_total',
+        'network_user_count': snap['network_user_count'],
+        'wallet_type': 'distributed',
+    }
     return summary

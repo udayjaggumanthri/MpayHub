@@ -45,7 +45,7 @@ const CreditCardBill = ({
   const [showPaymentModal, setShowPaymentModal] = useState(false);
   const [paymentAmountType, setPaymentAmountType] = useState('total');
   const [customAmount, setCustomAmount] = useState('');
-  const [bbpsWallet, setBbpsWallet] = useState(0);
+  const [mainWallet, setMainWallet] = useState(0);
   const [showSuccessNotification, setShowSuccessNotification] = useState(false);
   const [transactionId, setTransactionId] = useState('');
   const [billerOptions, setBillerOptions] = useState([]);
@@ -108,9 +108,14 @@ const CreditCardBill = ({
   }, [inputSchema, inputValues]);
 
   const loadWallets = useCallback(async () => {
-    const res = await walletsAPI.getWalletByType('bbps');
+    const res = await walletsAPI.getWalletByType('main');
     if (res.success && res.data?.wallet) {
-      setBbpsWallet(parseFloat(res.data.wallet.balance || 0));
+      const w = res.data.wallet;
+      const available =
+        w.available_balance != null
+          ? parseFloat(w.available_balance) || 0
+          : parseFloat(w.balance || 0) || 0;
+      setMainWallet(available);
     }
   }, []);
 
@@ -635,8 +640,8 @@ const CreditCardBill = ({
     if (!user || !billDetails) return;
     const amount = getPaymentAmount();
     const totalDeducted = Number(quote?.total_deducted || amount);
-    if (bbpsWallet < totalDeducted) {
-      setError(`Insufficient BBPS wallet balance. Required: ${formatCurrency(totalDeducted)}, Available: ${formatCurrency(bbpsWallet)}`);
+    if (mainWallet < totalDeducted) {
+      setError(`Insufficient wallet balance. Required: ${formatCurrency(totalDeducted)}, Available: ${formatCurrency(mainWallet)}`);
       return;
     }
     const isCashMode = String(paymentMode || '').trim().toLowerCase() === 'cash';
@@ -855,10 +860,10 @@ const CreditCardBill = ({
                 />
                 <div className="min-w-0">
                   <p className="text-[11px] font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">
-                    Your Wallet Balance
+                    Main Wallet Balance
                   </p>
                   <p className="text-xl font-semibold tabular-nums tracking-tight text-slate-900 dark:text-slate-100 sm:text-2xl">
-                    {formatCurrency(bbpsWallet)}
+                    {formatCurrency(mainWallet)}
                   </p>
                 </div>
               </div>
@@ -1277,12 +1282,12 @@ const CreditCardBill = ({
                         </p>
                       </div>
                     ) : null}
-                    {bbpsWallet < totalDeducted && (
+                    {mainWallet < totalDeducted && (
                       <div className="mt-3 p-3 bg-red-50 dark:bg-red-950/40 border border-red-200 dark:border-red-800 rounded-lg flex items-center space-x-2">
                         <FaCircleExclamation className="text-red-600 dark:text-red-400" size={18} />
                         <p className="text-sm text-red-700 dark:text-red-300">
-                          Insufficient balance. Required: {formatCurrency(totalDeducted)}, Available:{' '}
-                          {formatCurrency(bbpsWallet)}
+                          Insufficient main wallet balance. Required: {formatCurrency(totalDeducted)}, Available:{' '}
+                          {formatCurrency(mainWallet)}
                         </p>
                       </div>
                     )}
@@ -1297,7 +1302,7 @@ const CreditCardBill = ({
                 bbpsMaintenance ||
                 (paymentAmountType === 'custom' && (!customAmount || parseFloat(customAmount) <= 0)) ||
                 paymentAmountOutOfRange ||
-                bbpsWallet < totalDeducted ||
+                mainWallet < totalDeducted ||
                 !quote ||
                 loading ||
                 isPaymentProcessing
