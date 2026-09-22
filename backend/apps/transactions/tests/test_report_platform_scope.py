@@ -158,6 +158,22 @@ class PlatformScopeReportTests(TestCase):
         self.assertNotIn('LM-ADMIN-HIDDEN', ids)
         self.assertEqual(r.data['data']['total'], 1)
 
+    def test_admin_self_scope_coerces_to_platform_on_payin(self):
+        LoadMoney.objects.create(
+            user=self.retailer,
+            amount=Decimal('50'),
+            gateway='test',
+            charge=Decimal('0.5'),
+            net_credit=Decimal('49.5'),
+            status='SUCCESS',
+            transaction_id='LM-ADMIN-SELF-COERCE',
+        )
+        r = self.admin_client.get('/api/reports/payin/', {'scope': 'self'})
+        self.assertEqual(r.status_code, status.HTTP_200_OK)
+        self.assertEqual(r.data['data']['scope'], 'platform')
+        ids = [row['service_id'] for row in r.data['data']['rows']]
+        self.assertIn('LM-ADMIN-SELF-COERCE', ids)
+
     def test_payin_summary_uses_cache_on_repeat(self):
         from django.core.cache import cache
         from django.db import connection

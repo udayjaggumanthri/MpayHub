@@ -9,7 +9,7 @@ from apps.fund_management.models import LoadMoney, Payout
 from apps.transactions.report_filters import apply_operational_report_filters
 from apps.transactions.reporting_scope import (
     TEAM_SCOPE_ROLES,
-    get_report_scope,
+    get_operational_report_scope,
     team_transaction_user_ids,
 )
 from rest_framework.exceptions import PermissionDenied
@@ -35,7 +35,7 @@ def platform_payin_queryset(request) -> QuerySet:
 
 def user_scope_payin_load_money_queryset(request) -> QuerySet:
     """Pay-in report rows for self/team scope (includes QR pending review)."""
-    scope = get_report_scope(request)
+    scope = get_operational_report_scope(request)
     qs = (
         LoadMoney.objects.filter(is_deleted=False)
         .select_related(

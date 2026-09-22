@@ -958,10 +958,10 @@ def bill_payments_list_view(request):
     """
     from apps.bbps.bill_payments_filters import apply_bill_payments_list_filters
     from apps.bbps.bill_payments_scope import bill_payments_queryset_for_request
-    from apps.transactions.reporting_scope import get_report_scope
+    from apps.transactions.reporting_scope import get_operational_report_scope
 
     try:
-        scope = get_report_scope(request)
+        scope = get_operational_report_scope(request)
         payments = apply_bill_payments_list_filters(bill_payments_queryset_for_request(request), request)
     except PermissionDenied as e:
         return Response(

@@ -165,8 +165,9 @@ def apply_passbook_report_filters(qs: QuerySet, request) -> QuerySet:
     if wallet_type in ('main', 'commission', 'bbps', 'profit'):
         qs = qs.filter(wallet_type=wallet_type)
     elif not include_legacy:
-        # Default post-consolidation: show main wallet lines only.
-        qs = qs.filter(wallet_type='main')
+        # Default post-consolidation: live main + historical BBPS lines.
+        # Commission/profit stay behind include_legacy so merge noise stays optional.
+        qs = qs.filter(wallet_type__in=('main', 'bbps'))
 
     amount_min = (request.query_params.get('amount_min') or '').strip()
     amount_max = (request.query_params.get('amount_max') or '').strip()

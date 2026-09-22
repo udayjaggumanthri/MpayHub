@@ -24,6 +24,14 @@ TEAM_SCOPE_ROLES = frozenset(
 
 VALID_REPORT_SCOPES = frozenset({'self', 'team', 'platform'})
 
+# Request flag: Pay In / Pay Out / BBPS hide operator personal (self) scope.
+_HIDE_OPERATOR_SELF_ATTR = '_hide_operator_self_scope'
+
+
+def mark_hide_operator_self_scope(request) -> None:
+    """Coerce Admin/Super Admin scope=self → platform for this request."""
+    setattr(request, _HIDE_OPERATOR_SELF_ATTR, True)
+
 
 def get_report_scope(request) -> str:
     raw = (request.query_params.get('scope') or 'self').strip().lower()
@@ -31,7 +39,21 @@ def get_report_scope(request) -> str:
         if not is_platform_operator(request.user):
             raise PermissionDenied('Platform report scope is only available to Admin users.')
         return 'platform'
-    return raw if raw in ('self', 'team') else 'self'
+    if raw not in ('self', 'team'):
+        raw = 'self'
+    if (
+        raw == 'self'
+        and getattr(request, _HIDE_OPERATOR_SELF_ATTR, False) is True
+        and is_platform_operator(request.user)
+    ):
+        return 'platform'
+    return raw
+
+
+def get_operational_report_scope(request) -> str:
+    """Pay In / Pay Out / BBPS: operators cannot use personal (self) scope."""
+    mark_hide_operator_self_scope(request)
+    return get_report_scope(request)
 
 
 def is_platform_report_scope(request) -> bool:

@@ -5,7 +5,7 @@ from django.db.models import Prefetch, QuerySet
 from rest_framework.exceptions import PermissionDenied
 
 from apps.bbps.models import BillPayment, BbpsPaymentAttempt
-from apps.transactions.reporting_scope import get_report_scope, transaction_user_q
+from apps.transactions.reporting_scope import get_operational_report_scope, transaction_user_q
 
 
 def _attempts_prefetch() -> Prefetch:
@@ -26,7 +26,7 @@ def bill_payments_base_queryset() -> QuerySet:
 
 def bill_payments_queryset_for_request(request) -> QuerySet:
     """Filter BillPayment rows by scope=self|team|platform (platform = Admin only)."""
-    scope = get_report_scope(request)
+    scope = get_operational_report_scope(request)
     qs = bill_payments_base_queryset().order_by('-created_at')
     if scope == 'platform':
         return qs

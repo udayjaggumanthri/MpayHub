@@ -19,6 +19,7 @@ from apps.transactions.serializers import (
 )
 from apps.transactions.reporting_scope import (
     commission_ledger_q_for_team,
+    get_operational_report_scope,
     get_report_scope,
     transaction_user_q,
 )
@@ -368,7 +369,7 @@ def payin_report_view(request):
     GET /api/reports/payin/
     """
     try:
-        scope = get_report_scope(request)
+        scope = get_operational_report_scope(request)
     except PermissionDenied as e:
         return Response(
             {'success': False, 'data': None, 'message': str(e.detail if hasattr(e, 'detail') else e), 'errors': []},
@@ -425,7 +426,7 @@ def payout_report_view(request):
     GET /api/reports/payout/
     """
     try:
-        scope = get_report_scope(request)
+        scope = get_operational_report_scope(request)
     except PermissionDenied as e:
         return Response(
             {'success': False, 'data': None, 'message': str(e.detail if hasattr(e, 'detail') else e), 'errors': []},
@@ -488,7 +489,7 @@ def bbps_report_view(request):
     GET /api/reports/bbps/
     """
     try:
-        scope = get_report_scope(request)
+        scope = get_operational_report_scope(request)
     except PermissionDenied as e:
         return Response(
             {'success': False, 'data': None, 'message': str(e.detail if hasattr(e, 'detail') else e), 'errors': []},
@@ -666,13 +667,13 @@ def commission_report_view(request):
 
 
 def _payin_report_queryset(request):
-    if get_report_scope(request) == 'platform':
+    if get_operational_report_scope(request) == 'platform':
         return platform_payin_queryset(request)
     return user_scope_payin_load_money_queryset(request)
 
 
 def _payout_report_queryset(request):
-    if get_report_scope(request) == 'platform':
+    if get_operational_report_scope(request) == 'platform':
         return platform_payout_queryset(request)
     uq = transaction_user_q(request)
     qs = Transaction.objects.filter(uq, transaction_type='payout').select_related('user', 'agent_user').order_by(
@@ -682,7 +683,7 @@ def _payout_report_queryset(request):
 
 
 def _bbps_report_queryset(request):
-    if get_report_scope(request) == 'platform':
+    if get_operational_report_scope(request) == 'platform':
         return platform_bbps_queryset(request)
     uq = transaction_user_q(request)
     qs = Transaction.objects.filter(uq, transaction_type='bbps').select_related('user', 'agent_user').order_by(

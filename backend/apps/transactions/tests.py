@@ -6,6 +6,7 @@ from django.test import TestCase
 from rest_framework.exceptions import PermissionDenied
 
 from apps.transactions.reporting_scope import (
+    get_operational_report_scope,
     get_report_scope,
     team_transaction_user_ids,
     transaction_user_q,
@@ -145,6 +146,18 @@ class TransactionUserQTeamAdminTests(TestCase):
         req.query_params = {'scope': 'team'}
         q = transaction_user_q(req)
         self.assertEqual(q, ~Q(user=self.admin))
+
+    def test_operational_self_scope_coerces_admin_to_platform(self):
+        req = Mock()
+        req.user = self.admin
+        req.query_params = {'scope': 'self'}
+        self.assertEqual(get_report_scope(req), 'self')
+        self.assertEqual(get_operational_report_scope(req), 'platform')
+        # Passbook (no mark) stays personal/self.
+        req2 = Mock()
+        req2.user = self.admin
+        req2.query_params = {'scope': 'self'}
+        self.assertEqual(get_report_scope(req2), 'self')
 
 
 class MoneyPrecisionTests(TestCase):
