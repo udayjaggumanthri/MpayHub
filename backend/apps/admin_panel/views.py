@@ -121,7 +121,7 @@ class PayoutGatewayViewSet(viewsets.ModelViewSet):
     """
     ViewSet for payout gateway management (Admin only).
     """
-    queryset = PayoutGateway.objects.all()
+    queryset = PayoutGateway.objects.select_related('api_master').all()
     serializer_class = PayoutGatewaySerializer
     permission_classes = [IsAuthenticated, IsAdmin]
     

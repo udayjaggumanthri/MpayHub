@@ -28,6 +28,18 @@ const Layout = ({ children }) => {
     }
   }, [sidebarCollapsed]);
 
+  useEffect(() => {
+    const root = document.documentElement;
+    root.style.setProperty('--mpay-header-h', '4rem');
+    root.style.setProperty('--mpay-sidebar-w', sidebarCollapsed ? '5rem' : '16rem');
+    root.setAttribute('data-sidebar-collapsed', sidebarCollapsed ? '1' : '0');
+    return () => {
+      root.style.removeProperty('--mpay-header-h');
+      root.style.removeProperty('--mpay-sidebar-w');
+      root.removeAttribute('data-sidebar-collapsed');
+    };
+  }, [sidebarCollapsed]);
+
   const contentOffsetClass = sidebarCollapsed
     ? SIDEBAR_RAIL_MARGIN_CLASS
     : SIDEBAR_EXPANDED_MARGIN_CLASS;

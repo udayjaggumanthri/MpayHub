@@ -1,0 +1,245 @@
+"""Unit tests for VimoPay payout crypto, status mapping, masters matching, and orchestrator."""
+from __future__ import annotations
+
+from decimal import Decimal
+from unittest.mock import MagicMock, patch
+
+from django.test import TestCase, override_settings
+
+from apps.authentication.models import User
+from apps.bank_accounts.models import BankAccount
+from apps.core.utils import encrypt_secret_payload
+from apps.fund_management.models import Payout, PayoutProviderEvent
+from apps.fund_management.payout_orchestrator import apply_payout_callback, process_payout
+from apps.integrations.models import ApiMaster
+from apps.integrations.payout import crypto as vimopay_crypto
+from apps.integrations.payout.masters_cache import match_bank_code
+from apps.integrations.payout.types import (
+    DOMAIN_FAILED,
+    DOMAIN_PENDING,
+    DOMAIN_SUCCESS,
+    MasterItem,
+    PayoutCallbackEvent,
+    PayoutInitiateResult,
+    map_provider_status_code,
+)
+from apps.wallets.models import Wallet
+
+
+class CryptoTests(TestCase):
+    def test_encrypt_decrypt_roundtrip(self):
+        # UAT gateway uses secretKey as AES key and saltKey as IV (UTF-8).
+        ed = 'f37701ee0778cfe1dd97b7537ae71709'
+        iv = 'bb13602c407b1ddd6506d59e410bafeb'
+        plain = '{"amount":100.0,"merchantRefId":"TEST123"}'
+        cipher = vimopay_crypto.encrypt(plain, ed_key=ed, iv_key=iv)
+        self.assertTrue(cipher)
+        self.assertNotEqual(cipher, plain)
+        back = vimopay_crypto.decrypt(cipher, ed_key=ed, iv_key=iv)
+        self.assertEqual(back, plain)
+
+
+class SanitizeNameTests(TestCase):
+    def test_strips_title_and_punctuation(self):
+        from apps.integrations.payout.providers.vimopay import sanitize_beneficiary_name
+
+        self.assertEqual(
+            sanitize_beneficiary_name('Mr. JAGGUMANTHRI  KUNDAN UDAY KUMAR'),
+            'JAGGUMANTHRI KUNDAN UDAY KUMAR',
+        )
+        self.assertEqual(
+            sanitize_beneficiary_name('Mrs. A.B. Sharma-123'),
+            'A B Sharma',
+        )
+
+
+class StatusMapTests(TestCase):
+    def test_codes(self):
+        self.assertEqual(map_provider_status_code('000'), DOMAIN_SUCCESS)
+        self.assertEqual(map_provider_status_code('001'), DOMAIN_FAILED)
+        self.assertEqual(map_provider_status_code('003'), DOMAIN_FAILED)
+        self.assertEqual(map_provider_status_code('002'), DOMAIN_PENDING)
+        self.assertEqual(map_provider_status_code('004'), DOMAIN_PENDING)
+        self.assertEqual(map_provider_status_code('', txn_status='Success'), DOMAIN_SUCCESS)
+        self.assertEqual(map_provider_status_code('', txn_status='Queued'), DOMAIN_PENDING)
+
+
+class MatchBankCodeTests(TestCase):
+    def test_match_by_name_and_ifsc(self):
+        banks = [
+            MasterItem(code='001', description='Axis Bank'),
+            MasterItem(code='013', description='HDFC Bank'),
+            MasterItem(code='014', description='ICICI Bank'),
+        ]
+        self.assertEqual(match_bank_code(banks, bank_name='HDFC Bank'), '013')
+        self.assertEqual(match_bank_code(banks, bank_name='hdfc'), '013')
+        self.assertEqual(match_bank_code(banks, ifsc='HDFC0000516'), '013')
+        self.assertIsNone(match_bank_code(banks, bank_name='Unknown Coop'))
+
+
+@override_settings(CACHES={'default': {'BACKEND': 'django.core.cache.backends.locmem.LocMemCache'}})
+class PayoutOrchestratorTests(TestCase):
+    def setUp(self):
+        self.user = User.objects.create_user(
+            phone='9876543299',
+            email='payout_orch@test.com',
+            password='pass12345',
+            role='Retailer',
+            user_id='RTPOUT1',
+            first_name='Payout',
+            last_name='Test',
+        )
+        self.wallet = Wallet.get_wallet(self.user, 'main')
+        self.wallet.balance = Decimal('5000.0000')
+        self.wallet.held_balance = Decimal('0')
+        self.wallet.save(update_fields=['balance', 'held_balance'])
+        self.bank = BankAccount.objects.create(
+            user=self.user,
+            account_number='50200030251661',
+            ifsc='HDFC0000516',
+            bank_name='HDFC Bank',
+            account_holder_name='Test User',
+            beneficiary_name='Test User',
+            mobile_number='9876543299',
+            is_verified=True,
+        )
+        self.master = ApiMaster.objects.create(
+            provider_code='vimopay',
+            provider_name='VimoPay UAT',
+            provider_type='payout',
+            base_url='http://gateway.vimopay.in',
+            status='sandbox',
+            is_default=True,
+            secrets_encrypted=encrypt_secret_payload(
+                {
+                    'secret_key': 'f37701ee0778cfe1dd97b7537ae71709',
+                    'salt_key': 'bb13602c407b1ddd6506d59e410bafeb',
+                    'encrypt_decrypt_key': '47cdba1911f078afe863774a8dffcb26',
+                    'user_id': 'E5B82667-9A9D-4A5A-A55C-F3B1E10BF370',
+                }
+            ),
+            config_json={'timeout': 10, 'default_purpose_code': '004'},
+            supports_webhook=True,
+            webhook_path='/api/integrations/payout/vimopay/callback/',
+        )
+
+    def _mock_provider(self):
+        provider = MagicMock()
+        provider.provider_code = 'vimopay'
+        provider.master = self.master
+        provider.supported_transfer_modes.return_value = frozenset({'IMPS', 'NEFT'})
+        provider.amount_limits.return_value = (Decimal('100'), Decimal('100000'))
+        provider.default_purpose_code.return_value = '004'
+        provider.normalize_beneficiary_name.side_effect = lambda n: n
+        provider.list_banks.return_value = [
+            MasterItem(code='013', description='HDFC Bank'),
+        ]
+        provider.list_states.return_value = [MasterItem(code='JH', description='Jharkhand')]
+        provider.list_purposes.return_value = [MasterItem(code='004', description='Payout')]
+        provider.initiate.return_value = PayoutInitiateResult(
+            domain_status=DOMAIN_PENDING,
+            provider_status_code='004',
+            provider_txn_id='txn-uuid-1',
+            response_message='Your request is been queued',
+            charges=Decimal('1.0'),
+            raw={},
+        )
+        return provider
+
+    @patch('apps.fund_management.payout_orchestrator.resolve_payout_provider')
+    @patch('apps.fund_management.payout_orchestrator.get_masters')
+    def test_process_payout_holds_until_callback(self, mock_masters, mock_resolve):
+        provider = self._mock_provider()
+        mock_resolve.return_value = provider
+        mock_masters.return_value = provider.list_banks()
+
+        payout = process_payout(
+            self.user,
+            self.bank.id,
+            Decimal('100'),
+            transfer_mode='IMPS',
+            beneficiary_location='JH',
+            lat='28.7',
+            long='77.1',
+        )
+        self.assertEqual(payout.status, 'PENDING')
+        self.assertEqual(payout.provider_txn_id, 'txn-uuid-1')
+        self.wallet.refresh_from_db()
+        # 100 + slab (default 7 for <=24999)
+        self.assertGreater(self.wallet.held_balance, 0)
+        self.assertEqual(self.wallet.balance, Decimal('5000.0000'))
+
+        # Success callback settles
+        event = PayoutCallbackEvent(
+            merchant_ref_id=payout.transaction_id,
+            domain_status=DOMAIN_SUCCESS,
+            provider_status_code='000',
+            provider_txn_id='txn-uuid-1',
+            rrn='502222116180',
+            response_message='Transaction successful',
+            raw={'txnStatus': 'Success'},
+        )
+        apply_payout_callback(event, provider_code='vimopay')
+        payout.refresh_from_db()
+        self.assertEqual(payout.status, 'SUCCESS')
+        self.assertEqual(payout.rrn, '502222116180')
+        self.wallet.refresh_from_db()
+        self.assertEqual(self.wallet.held_balance, Decimal('0.0000'))
+        self.assertLess(self.wallet.balance, Decimal('5000.0000'))
+
+        # Idempotent second callback
+        bal_after = self.wallet.balance
+        apply_payout_callback(event, provider_code='vimopay')
+        self.wallet.refresh_from_db()
+        self.assertEqual(self.wallet.balance, bal_after)
+        self.assertTrue(
+            PayoutProviderEvent.objects.filter(
+                merchant_ref_id=payout.transaction_id, direction='inbound'
+            ).exists()
+        )
+
+    @patch('apps.fund_management.payout_orchestrator.resolve_payout_provider')
+    @patch('apps.fund_management.payout_orchestrator.get_masters')
+    def test_callback_failed_releases_hold(self, mock_masters, mock_resolve):
+        provider = self._mock_provider()
+        mock_resolve.return_value = provider
+        mock_masters.return_value = provider.list_banks()
+
+        payout = process_payout(
+            self.user,
+            self.bank.id,
+            Decimal('100'),
+            transfer_mode='IMPS',
+            beneficiary_location='JH',
+        )
+        held = Wallet.objects.get(pk=self.wallet.pk).held_balance
+        self.assertGreater(held, 0)
+
+        apply_payout_callback(
+            PayoutCallbackEvent(
+                merchant_ref_id=payout.transaction_id,
+                domain_status=DOMAIN_FAILED,
+                provider_status_code='001',
+                response_message='Invalid account',
+                raw={},
+            ),
+            provider_code='vimopay',
+        )
+        payout.refresh_from_db()
+        self.assertEqual(payout.status, 'FAILED')
+        self.wallet.refresh_from_db()
+        self.assertEqual(self.wallet.held_balance, Decimal('0.0000'))
+        self.assertEqual(self.wallet.balance, Decimal('5000.0000'))
+
+    def test_fail_closed_without_provider(self):
+        ApiMaster.objects.filter(provider_type='payout').update(status='inactive', is_default=False)
+        from apps.core.exceptions import TransactionFailed
+
+        with self.assertRaises(TransactionFailed):
+            process_payout(
+                self.user,
+                self.bank.id,
+                Decimal('100'),
+                transfer_mode='IMPS',
+                beneficiary_location='JH',
+            )

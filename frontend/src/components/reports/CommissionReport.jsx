@@ -33,7 +33,7 @@ const EMPTY_FILTERS = {
   agentRole: '',
   serviceId: '',
   module: '',
-  entryKind: '',
+  entryKind: 'commission',
 };
 
 const MODULE_OPTIONS = [
@@ -90,7 +90,7 @@ const CommissionReport = () => {
   const [pageSize, setPageSize] = useState(DEFAULT_PAGE_SIZE);
   const [total, setTotal] = useState(0);
   const [summary, setSummary] = useState(null);
-  const [reportScope, setReportScope] = useState('self');
+  const [reportScope, setReportScope] = useState(() => (isOperator ? 'platform' : 'self'));
   const initialFromUrl = useMemo(() => {
     const dateFrom = (searchParams.get('date_from') || '').trim();
     const dateTo = (searchParams.get('date_to') || '').trim();
@@ -113,17 +113,22 @@ const CommissionReport = () => {
   const buildParams = useCallback(
     (extra = {}) => {
       const params = { ...extra };
-      if (reportScope === 'team' && canUseTeamReportScope(user?.role)) params.scope = 'team';
+      if (reportScope === 'platform' && isOperator) {
+        params.scope = 'platform';
+      } else if (reportScope === 'team' && canUseTeamReportScope(user?.role)) {
+        params.scope = 'team';
+      }
       if (appliedFilters.dateFrom) params.date_from = appliedFilters.dateFrom;
       if (appliedFilters.dateTo) params.date_to = appliedFilters.dateTo;
       if (appliedFilters.mobile.trim()) params.mobile = appliedFilters.mobile.trim();
       if (appliedFilters.agentRole.trim()) params.agent_role = appliedFilters.agentRole.trim();
       if (appliedFilters.serviceId.trim()) params.service_id = appliedFilters.serviceId.trim();
       if (appliedFilters.module) params.module = appliedFilters.module;
-      if (appliedFilters.entryKind) params.type = appliedFilters.entryKind;
+      // Commission page always requests commission rows (service fees live in Service Fee Tracker).
+      params.type = appliedFilters.entryKind || 'commission';
       return params;
     },
-    [appliedFilters, reportScope, user?.role]
+    [appliedFilters, reportScope, user?.role, isOperator]
   );
 
   const mapLedgerRows = (rawLedger) =>
@@ -251,6 +256,7 @@ const CommissionReport = () => {
       module: mod,
       serviceId: selectedRef || breakdown?.reference_service_id,
       openReceipt,
+      platformScope: isOperator,
     });
     if (!url) return;
     navigate(url);
@@ -283,7 +289,7 @@ const CommissionReport = () => {
     agentRole: appliedFilters.agentRole,
     serviceId: appliedFilters.serviceId,
     module: appliedFilters.module,
-    entryKind: appliedFilters.entryKind,
+    // entryKind default is always commission on this page — do not count as an active filter
   });
 
   return (
@@ -291,10 +297,11 @@ const CommissionReport = () => {
       <header className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
         <div className="min-w-0">
           <h2 className="text-xl font-bold text-slate-900 dark:text-slate-100 sm:text-2xl">
-            Revenue &amp; Commission
+            Commission
           </h2>
           <p className="mt-0.5 text-sm text-slate-500 dark:text-slate-400">
-            Earnings and service fees credited to your main wallet
+            Hierarchy commission credited to main wallet (platform service fees are in Service Fee
+            Tracker)
           </p>
         </div>
         <Button
@@ -348,7 +355,6 @@ const CommissionReport = () => {
             >
               <option value="">All types</option>
               <option value="commission">Commission</option>
-              <option value="service_fee">Service fee</option>
             </select>
           </ReportFilterField>
           <ReportFilterField label="Source mobile" htmlFor="revenue-mobile">
@@ -398,56 +404,83 @@ const CommissionReport = () => {
         </ReportFilterDateRow>
       </CollapsibleReportFilters>
 
-      {canUseTeamReportScope(user?.role) && (
+      {(isOperator || canUseTeamReportScope(user?.role)) && (
         <div className="flex flex-wrap gap-2">
-          <button
-            type="button"
-            onClick={() => {
-              setReportScope('self');
-              setPage(1);
-            }}
-            className={`px-4 py-2 rounded-lg text-sm font-semibold border ${
-              reportScope === 'self'
-                ? 'bg-blue-600 text-white border-blue-600'
-                : 'bg-white dark:bg-slate-900 text-gray-700 dark:text-slate-300 border-gray-300 dark:border-slate-600'
-            }`}
-          >
-            All my commission
-          </button>
-          <button
-            type="button"
-            onClick={() => {
-              setReportScope('team');
-              setPage(1);
-            }}
-            className={`px-4 py-2 rounded-lg text-sm font-semibold border ${
-              reportScope === 'team'
-                ? 'bg-blue-600 text-white border-blue-600'
-                : 'bg-white dark:bg-slate-900 text-gray-700 dark:text-slate-300 border-gray-300 dark:border-slate-600'
-            }`}
-          >
-            From downline
-          </button>
+          {isOperator ? (
+            <button
+              type="button"
+              onClick={() => {
+                setReportScope('platform');
+                setPage(1);
+              }}
+              className={`px-4 py-2 rounded-lg text-sm font-semibold border ${
+                reportScope === 'platform'
+                  ? 'bg-blue-600 text-white border-blue-600'
+                  : 'bg-white dark:bg-slate-900 text-gray-700 dark:text-slate-300 border-gray-300 dark:border-slate-600'
+              }`}
+            >
+              Platform (all users)
+            </button>
+          ) : null}
+          {!isOperator ? (
+            <button
+              type="button"
+              onClick={() => {
+                setReportScope('self');
+                setPage(1);
+              }}
+              className={`px-4 py-2 rounded-lg text-sm font-semibold border ${
+                reportScope === 'self'
+                  ? 'bg-blue-600 text-white border-blue-600'
+                  : 'bg-white dark:bg-slate-900 text-gray-700 dark:text-slate-300 border-gray-300 dark:border-slate-600'
+              }`}
+            >
+              All my commission
+            </button>
+          ) : (
+            <button
+              type="button"
+              onClick={() => {
+                setReportScope('self');
+                setPage(1);
+              }}
+              className={`px-4 py-2 rounded-lg text-sm font-semibold border ${
+                reportScope === 'self'
+                  ? 'bg-blue-600 text-white border-blue-600'
+                  : 'bg-white dark:bg-slate-900 text-gray-700 dark:text-slate-300 border-gray-300 dark:border-slate-600'
+              }`}
+            >
+              My activity
+            </button>
+          )}
+          {canUseTeamReportScope(user?.role) ? (
+            <button
+              type="button"
+              onClick={() => {
+                setReportScope('team');
+                setPage(1);
+              }}
+              className={`px-4 py-2 rounded-lg text-sm font-semibold border ${
+                reportScope === 'team'
+                  ? 'bg-blue-600 text-white border-blue-600'
+                  : 'bg-white dark:bg-slate-900 text-gray-700 dark:text-slate-300 border-gray-300 dark:border-slate-600'
+              }`}
+            >
+              From downline
+            </button>
+          ) : null}
         </div>
       )}
 
-      <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-4">
+      <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
         <Metric
-          label="Total earned"
+          label="Total commission"
           value={
-            summary?.total_earned != null ? formatCurrency(parseFloat(summary.total_earned) || 0) : '—'
-          }
-        />
-        <Metric
-          label="Service fees"
-          value={
-            summary?.service_fees != null ? formatCurrency(parseFloat(summary.service_fees) || 0) : '—'
-          }
-        />
-        <Metric
-          label="Commission"
-          value={
-            summary?.commission != null ? formatCurrency(parseFloat(summary.commission) || 0) : '—'
+            summary?.commission != null
+              ? formatCurrency(parseFloat(summary.commission) || 0)
+              : summary?.total_earned != null
+                ? formatCurrency(parseFloat(summary.total_earned) || 0)
+                : '—'
           }
         />
         <Metric label="Rows" value={total || summary?.ledger_count || '—'} />
@@ -487,7 +520,7 @@ const CommissionReport = () => {
         {loading && !hasLoadedOnce ? (
           <div className="py-12 text-center text-sm text-slate-500">Loading…</div>
         ) : hasLoadedOnce && rows.length === 0 && !isRefreshing ? (
-          <div className="py-12 text-center text-sm text-slate-500">No revenue records found</div>
+          <div className="py-12 text-center text-sm text-slate-500">No commission records found</div>
         ) : (
           <div className={isRefreshing ? 'opacity-60 pointer-events-none' : ''}>
             <div className="-mx-2 overflow-x-auto sm:mx-0">

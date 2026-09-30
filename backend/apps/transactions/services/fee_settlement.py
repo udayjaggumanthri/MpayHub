@@ -1,9 +1,11 @@
 """
 Unified revenue / commission settlement engine.
 
-Every admin-configured service charge and hierarchy commission credit goes
-through ``settle_service_charge`` so money always lands on the beneficiary's
-main wallet with a matching CommissionLedger row.
+Hierarchy commission credits go through ``settle_service_charge`` onto the
+beneficiary's main wallet with a matching CommissionLedger row.
+
+Platform ``service_fee`` slices are ledger-only (Service Fee Tracker) — they must
+not credit Admin / treasury Main wallets so company profit is not inflated.
 """
 from __future__ import annotations
 
@@ -140,13 +142,17 @@ def settle_service_charge(
     credit_wallets: bool = True,
 ) -> list[CommissionLedger]:
     """
-    Settle a customer service charge into beneficiary main wallets + CommissionLedger.
+    Settle a customer service charge into CommissionLedger (+ wallets for commissions).
 
     ``slices`` is an optional explicit list of:
       { user, amount, slice_key, entry_kind, role_at_time, source, service_label, description }
 
-    When ``slices`` is None and ``charge > 0``, the full charge is credited to
-    platform recipients as ``entry_kind='service_fee'``, ``slice_key='platform_fee'``.
+    When ``slices`` is None and ``charge > 0``, the full charge is recorded as
+    ``entry_kind='service_fee'``, ``slice_key='platform_fee'`` on the platform
+    recipient — **ledger only** (no Admin/treasury Main credit).
+
+    Commission slices still credit the beneficiary Main wallet when
+    ``credit_wallets`` is True.
     """
     charge = money_q(charge or 0)
     principal = money_q(principal or 0)
@@ -174,7 +180,12 @@ def settle_service_charge(
                     customer_charge=charge,
                     reference_service_id=service_id,
                     wallet_type='main',
-                    meta={'slice': 'unattributed', **src},
+                    meta={
+                        'slice': 'unattributed',
+                        'wallet_credited': False,
+                        'tracker': 'service_fee',
+                        **src,
+                    },
                     **src_idx,
                 )
                 created.append(row)
@@ -196,7 +207,7 @@ def settle_service_charge(
                 'source': module if module in (
                     'payin', 'profit', 'bbps', 'payout', 'bank_verification', 'aeps', 'cms'
                 ) else 'profit',
-                'service_label': 'REVENUE',
+                'service_label': 'SERVICE FEE',
                 'description': f'{module.upper()} service fee on {service_id}',
             })
 
@@ -210,7 +221,7 @@ def settle_service_charge(
         source = item.get('source') or module
         role_at_time = item.get('role_at_time') or (getattr(user, 'role', '') if user else 'PLATFORM')
         service_label = item.get('service_label') or (
-            'COMMISSION' if entry_kind == 'commission' else 'REVENUE'
+            'COMMISSION' if entry_kind == 'commission' else 'SERVICE FEE'
         )
         description = item.get('description') or f'{service_label} on {service_id}'
 
@@ -231,7 +242,14 @@ def settle_service_charge(
                     created.append(existing)
                 continue
 
-        if credit_wallets and user is not None and amount > 0:
+        # Platform service fees are tracker-only; commissions still credit Main.
+        do_wallet_credit = (
+            credit_wallets
+            and entry_kind == 'commission'
+            and user is not None
+            and amount > 0
+        )
+        if do_wallet_credit:
             _passbook_credit_main(
                 user,
                 service=service_label,
@@ -244,7 +262,12 @@ def settle_service_charge(
                 principal_amount=principal if principal else amount,
             )
 
-        slice_meta = {'slice': slice_key, **src}
+        slice_meta = {
+            'slice': slice_key,
+            'wallet_credited': bool(do_wallet_credit),
+            'tracker': 'service_fee' if entry_kind == 'service_fee' else 'commission',
+            **src,
+        }
         slice_meta.update(item.get('meta') or {})
         try:
             row = commission_ledger_create(
@@ -304,7 +327,12 @@ def clawback_settlement(
             slice_key=rev_key,
         ).exists():
             continue
-        if orig.user_id and orig.amount > 0:
+        meta_orig = dict(orig.meta or {})
+        # Historical service fees credited Main; tracker-only rows set wallet_credited=False.
+        wallet_was_credited = meta_orig.get('wallet_credited')
+        if wallet_was_credited is None:
+            wallet_was_credited = True
+        if orig.user_id and orig.amount > 0 and wallet_was_credited:
             w = Wallet.get_wallet(orig.user, 'main')
             try:
                 ob = money_q(w.balance)

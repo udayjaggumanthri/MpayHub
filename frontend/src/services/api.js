@@ -1354,7 +1354,17 @@ export const fundManagementAPI = {
    * Payout
    * POST /api/fund-management/payout/
    */
-  payout: async ({ bankAccountId, amount, mpin, transferMode = 'IMPS', gateway = null }) => {
+  payout: async ({
+    bankAccountId,
+    amount,
+    mpin,
+    transferMode = 'IMPS',
+    gateway = null,
+    beneficiaryLocation = '',
+    purposeCode = '',
+    lat = '',
+    long = '',
+  }) => {
     try {
       const body = {
         bank_account_id: bankAccountId,
@@ -1365,7 +1375,26 @@ export const fundManagementAPI = {
       if (gateway != null && gateway !== '') {
         body.gateway = gateway;
       }
+      if (beneficiaryLocation) body.beneficiary_location = beneficiaryLocation;
+      if (purposeCode) body.purpose_code = purposeCode;
+      if (lat) body.lat = lat;
+      if (long) body.long = long;
       const response = await apiClient.post('/fund-management/payout/', body);
+      return extractData(response);
+    } catch (error) {
+      return handleError(error);
+    }
+  },
+
+  /**
+   * Payout master lists (banks / states / purposes)
+   * GET /api/fund-management/payout/masters/?kind=
+   */
+  getPayoutMasters: async (kind = 'states', params = {}) => {
+    try {
+      const response = await apiClient.get('/fund-management/payout/masters/', {
+        params: { kind, ...params },
+      });
       return extractData(response);
     } catch (error) {
       return handleError(error);
@@ -2571,6 +2600,32 @@ export const reportsAPI = {
       const response = await apiClient.get(
         `/reports/revenue/breakdown/${encodeURIComponent(serviceId)}/`
       );
+      return extractData(response);
+    } catch (error) {
+      return handleError(error);
+    }
+  },
+
+  /**
+   * Service Fee Tracker (Admin / Super Admin) — ledger-only platform fees
+   * GET /api/reports/service-fees/
+   */
+  getServiceFeeReport: async (params = {}) => {
+    try {
+      const response = await apiClient.get('/reports/service-fees/', { params });
+      return extractData(response);
+    } catch (error) {
+      return handleError(error);
+    }
+  },
+
+  /**
+   * Service Fee Tracker summary
+   * GET /api/reports/service-fees/summary/
+   */
+  getServiceFeeSummary: async (params = {}) => {
+    try {
+      const response = await apiClient.get('/reports/service-fees/summary/', { params });
       return extractData(response);
     } catch (error) {
       return handleError(error);

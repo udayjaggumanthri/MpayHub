@@ -47,4 +47,20 @@ urlpatterns = [
         report_revenue.unattributed_revenue_view,
         name='revenue-unattributed',
     ),
+    # Platform service fees (ledger-only tracker; Admin / Super Admin)
+    path(
+        'service-fees/',
+        report_revenue.service_fee_tracker_view,
+        name='service-fee-tracker',
+    ),
+    path(
+        'service-fees/summary/',
+        report_revenue.service_fee_tracker_summary_view,
+        name='service-fee-tracker-summary',
+    ),
+    path(
+        'service-fees/export.csv',
+        report_revenue.service_fee_tracker_export_csv,
+        name='service-fee-tracker-export',
+    ),
 ]

@@ -11,6 +11,7 @@ class ApiMaster(BaseModel):
     PROVIDER_TYPE_CHOICES = [
         ('kyc', 'KYC'),
         ('payments', 'Payments'),
+        ('payout', 'Payout'),
         ('banking', 'Banking'),
         ('utility', 'Utility'),
         ('other', 'Other'),

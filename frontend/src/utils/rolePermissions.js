@@ -28,6 +28,7 @@ export const roleMenus = {
         { name: 'Pay Out', path: '/reports/payout' },
         { name: 'BBPS', path: '/reports/bbps' },
         { name: 'Passbook', path: '/reports/passbook' },
+        { name: 'Service Fee Tracker', path: '/reports/service-fees' },
       ],
     },
     {

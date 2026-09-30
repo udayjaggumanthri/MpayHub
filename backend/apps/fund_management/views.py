@@ -314,24 +314,78 @@ def pay_in_packages_view(request):
 @api_view(['GET'])
 @permission_classes([IsAuthenticated])
 def payout_quote_view(request):
-    """GET /api/fund-management/payout/quote/?amount= optional — max eligible + slab preview."""
+    """GET /api/fund-management/payout/quote/?amount= optional — balance + package slab tiers + preview."""
     assert_can_pay_out(request.user)
     assert_module_available(MODULE_PAYOUT)
     from django.conf import settings
+    from apps.fund_management.models import PayoutSlabTier
     from apps.wallets.models import Wallet
 
     main = Wallet.get_wallet(request.user, 'main')
     balance = main.balance
     max_el = max_payout_eligible_for_user(request.user, balance)
     pkg = resolve_payout_package(request.user)
+
+    slabs = []
+    if pkg is not None:
+        tiers = (
+            PayoutSlabTier.objects.filter(package=pkg, is_deleted=False)
+            .order_by('sort_order', 'min_amount')
+            .only('min_amount', 'max_amount', 'flat_charge')
+        )
+        for t in tiers:
+            slabs.append(
+                {
+                    'min_amount': str(t.min_amount),
+                    'max_amount': str(t.max_amount) if t.max_amount is not None else None,
+                    'flat_charge': str(t.flat_charge),
+                }
+            )
+
+    if not slabs:
+        # Global two-tier fallback (admin PayoutSlabConfig / settings)
+        low_max = getattr(settings, 'PAYOUT_SLAB_LOW_MAX', Decimal('24999'))
+        low_c = getattr(settings, 'PAYOUT_CHARGE_LOW', Decimal('7'))
+        high_c = getattr(settings, 'PAYOUT_CHARGE_HIGH', Decimal('15'))
+        try:
+            from apps.admin_panel.models import PayoutSlabConfig
+
+            cfg = (
+                PayoutSlabConfig.objects.filter(is_active=True)
+                .only('low_max_amount', 'low_charge', 'high_charge')
+                .order_by('-updated_at', '-id')
+                .first()
+            )
+            if cfg:
+                low_max = cfg.low_max_amount
+                low_c = cfg.low_charge
+                high_c = cfg.high_charge
+        except Exception:
+            pass
+        slabs = [
+            {
+                'min_amount': '0',
+                'max_amount': str(low_max),
+                'flat_charge': str(low_c),
+            },
+            {
+                'min_amount': str(Decimal(str(low_max)) + Decimal('1')),
+                'max_amount': None,
+                'flat_charge': str(high_c),
+            },
+        ]
+
     out = {
         'main_balance': str(balance),
         'max_eligible_amount': str(max_el),
-        'slab_low_max': str(settings.PAYOUT_SLAB_LOW_MAX),
-        'charge_low': str(settings.PAYOUT_CHARGE_LOW),
-        'charge_high': str(settings.PAYOUT_CHARGE_HIGH),
         'payout_package_id': pkg.pk if pkg else None,
         'payout_package_code': pkg.code if pkg else None,
+        'payout_package_name': getattr(pkg, 'display_name', None) or (pkg.code if pkg else None),
+        'slabs': slabs,
+        # Legacy keys kept for older clients; derived from live slabs
+        'slab_low_max': slabs[0]['max_amount'] if slabs and slabs[0].get('max_amount') else '',
+        'charge_low': slabs[0]['flat_charge'] if slabs else '',
+        'charge_high': slabs[-1]['flat_charge'] if slabs else '',
     }
     amt_param = request.query_params.get('amount')
     if amt_param:
@@ -349,6 +403,60 @@ def payout_quote_view(request):
         {'success': True, 'data': out, 'message': 'OK', 'errors': []},
         status=status.HTTP_200_OK,
     )
+
+
+@api_view(['GET'])
+@permission_classes([IsAuthenticated])
+def payout_masters_view(request):
+    """
+    GET /api/fund-management/payout/masters/?kind=banks|states|purposes
+    Cached provider master lists for the payout form.
+    """
+    assert_can_pay_out(request.user)
+    assert_module_available(MODULE_PAYOUT)
+    kind = (request.query_params.get('kind') or 'states').strip().lower()
+    if kind not in ('banks', 'states', 'purposes'):
+        return Response(
+            {
+                'success': False,
+                'data': None,
+                'message': 'kind must be banks, states, or purposes',
+                'errors': [],
+            },
+            status=status.HTTP_400_BAD_REQUEST,
+        )
+    force = str(request.query_params.get('refresh') or '').lower() in ('1', 'true', 'yes')
+    try:
+        from apps.integrations.payout.exceptions import PayoutConfigurationError
+        from apps.integrations.payout.masters_cache import get_masters
+        from apps.integrations.payout.registry import resolve_payout_provider
+
+        provider = resolve_payout_provider()
+        items = get_masters(provider, kind, force_refresh=force)
+        return Response(
+            {
+                'success': True,
+                'data': {
+                    'kind': kind,
+                    'provider_code': provider.provider_code,
+                    'items': [{'code': i.code, 'description': i.description} for i in items],
+                },
+                'message': 'OK',
+                'errors': [],
+            },
+            status=status.HTTP_200_OK,
+        )
+    except PayoutConfigurationError as e:
+        return Response(
+            {'success': False, 'data': None, 'message': str(e), 'errors': []},
+            status=status.HTTP_503_SERVICE_UNAVAILABLE,
+        )
+    except Exception as e:
+        logger.exception('payout masters failed')
+        return Response(
+            {'success': False, 'data': None, 'message': str(e), 'errors': []},
+            status=status.HTTP_502_BAD_GATEWAY,
+        )
 
 
 def money_q_local(v):
@@ -498,13 +606,22 @@ def payout_view(request):
                 amount,
                 gateway_id=gateway_id,
                 transfer_mode=transfer_mode,
+                beneficiary_location=vd.get('beneficiary_location') or '',
+                purpose_code=vd.get('purpose_code') or '',
+                lat=vd.get('lat') or '',
+                long=vd.get('long') or '',
             )
             response_data = PayoutSerializer(payout).data
+            message = (
+                'Payout initiated successfully'
+                if payout.status == 'SUCCESS'
+                else 'Payout initiated — transfer is in progress'
+            )
             return Response(
                 {
                     'success': True,
                     'data': {'payout': response_data},
-                    'message': 'Payout initiated successfully',
+                    'message': message,
                     'errors': [],
                 },
                 status=status.HTTP_201_CREATED,

@@ -76,6 +76,10 @@ export const WalletProvider = ({ children }) => {
       interval: period === 'day' ? 'day' : period === 'month' ? 'month' : 'year',
     });
     if (rev?.success && rev.data) {
+      // Prefer hierarchy commission only — platform service fees are tracker-only
+      // and must not inflate Admin / channel "earnings" / profit displays.
+      const commission = parseFloat(rev.data.commission || 0) || 0;
+      if (rev.data.commission != null) return commission;
       return parseFloat(rev.data.total_earned || 0) || 0;
     }
     return 0;

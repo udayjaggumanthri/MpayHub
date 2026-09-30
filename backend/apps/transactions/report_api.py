@@ -19,6 +19,7 @@ from apps.fund_management.payin_rail_labels import (
     payin_rail_type_label,
 )
 from apps.fund_management.payin_receipt_context import build_payin_receipt_context
+from apps.fund_management.payout_receipt_context import build_payout_receipt_context
 from apps.fund_management.serializers import payin_payment_mode_display
 from apps.bbps.models import BillPayment
 from apps.transactions.agent_snapshot import (
@@ -301,16 +302,60 @@ def payout_rows_for_transactions(request, transactions: list[Transaction]) -> li
         p = po_map.get(t.service_id)
         bank_name = ''
         acct_masked = ''
+        account_number = ''
+        ifsc = ''
+        beneficiary_name = ''
+        beneficiary_mobile = ''
+        transfer_mode = ''
+        rrn = ''
+        provider_code = ''
+        provider_status_code = ''
+        callback_received_at = None
+        receipt_details = {}
         if p and p.bank_account:
             bank_name = getattr(p.bank_account, 'bank_name', '') or '—'
             acct = p.bank_account.account_number or ''
+            account_number = acct
             acct_masked = f"****{acct[-4:]}" if len(acct) >= 4 else '****'
+            ifsc = (getattr(p.bank_account, 'ifsc', '') or '').strip().upper()
+            beneficiary_name = (
+                (getattr(p.bank_account, 'beneficiary_name', None) or '')
+                or (getattr(p.bank_account, 'account_holder_name', None) or '')
+                or ''
+            ).strip()
+            beneficiary_mobile = (getattr(p.bank_account, 'mobile_number', '') or '').strip()
+        if p:
+            transfer_mode = (p.transfer_mode or '').strip().upper()
+            rrn = (getattr(p, 'rrn', None) or '').strip()
+            provider_code = (getattr(p, 'provider_code', None) or '').strip()
+            provider_status_code = (getattr(p, 'provider_status_code', None) or '').strip()
+            callback_received_at = (
+                p.callback_received_at.isoformat()
+                if getattr(p, 'callback_received_at', None)
+                else None
+            )
+            receipt_details = build_payout_receipt_context(p, request=request)
+            # Prefer payout amounts when row is joined
+            transfer_amount = money_str(p.amount)
+            payout_charge = money_str(p.charge)
+            platform_fee = money_str(p.platform_fee or Decimal('0'))
+            net_debit = money_str(p.total_deducted)
+            reference = rrn or p.gateway_transaction_id or p.provider_txn_id or t.reference or ''
+        else:
+            transfer_amount = money_str(t.amount)
+            payout_charge = money_str(t.charge)
+            platform_fee = money_str(t.platform_fee or Decimal('0'))
+            net_debit = money_str(t.net_amount if t.net_amount is not None else t.amount)
+            reference = t.reference
         actor = _agent_for_transaction(t)
         row_user = t.user
         breakdown = commission_by_sid.get(str(t.service_id or ''), [])
         balances = balance_fields_for_key(
             balance_map, str(t.service_id or ''), int(getattr(t, 'user_id', 0) or 0)
         )
+        if receipt_details:
+            receipt_details['opening_balance'] = balances.get('opening_balance')
+            receipt_details['closing_balance'] = balances.get('closing_balance')
         out.append(
             {
                 'id': t.id,
@@ -319,13 +364,23 @@ def payout_rows_for_transactions(request, transactions: list[Transaction]) -> li
                 'payout_id': p.transaction_id if p else t.service_id,
                 'service_name': service_display_name(t.service_id),
                 'bank_name': bank_name,
+                'account_number': account_number,
                 'account_number_masked': acct_masked,
-                'transfer_amount': money_str(t.amount),
-                'payout_charge': money_str(t.charge),
-                'platform_fee': money_str(t.platform_fee or Decimal('0')),
-                'net_debit': money_str(t.net_amount if t.net_amount is not None else t.amount),
+                'ifsc': ifsc,
+                'beneficiary_name': beneficiary_name,
+                'beneficiary_mobile': beneficiary_mobile,
+                'transfer_mode': transfer_mode,
+                'transfer_amount': transfer_amount,
+                'payout_charge': payout_charge,
+                'platform_fee': platform_fee,
+                'net_debit': net_debit,
                 'status': t.status,
-                'reference': t.reference,
+                'reference': reference,
+                'rrn': rrn,
+                'provider_code': provider_code,
+                'provider_status_code': provider_status_code,
+                'callback_received_at': callback_received_at,
+                'receipt_details': receipt_details or None,
                 'opening_balance': balances['opening_balance'],
                 'closing_balance': balances['closing_balance'],
                 'commission_breakdown': [
@@ -521,13 +576,28 @@ def payout_rows_from_payout(request, items: list[Payout]) -> list[dict[str, Any]
     for p in items:
         bank_name = ''
         acct_masked = ''
+        account_number = ''
+        ifsc = ''
+        beneficiary_name = ''
+        beneficiary_mobile = ''
         if p.bank_account:
             bank_name = getattr(p.bank_account, 'bank_name', '') or '—'
             acct = p.bank_account.account_number or ''
+            account_number = acct
             acct_masked = f"****{acct[-4:]}" if len(acct) >= 4 else '****'
+            ifsc = (getattr(p.bank_account, 'ifsc', '') or '').strip().upper()
+            beneficiary_name = (
+                (getattr(p.bank_account, 'beneficiary_name', None) or '')
+                or (getattr(p.bank_account, 'account_holder_name', None) or '')
+                or ''
+            ).strip()
+            beneficiary_mobile = (getattr(p.bank_account, 'mobile_number', '') or '').strip()
         actor = p.user
         breakdown = commission_by_sid.get(str(p.transaction_id or ''), [])
         balances = balance_fields_for_key(balance_map, str(p.transaction_id or ''), int(p.user_id))
+        receipt_details = build_payout_receipt_context(p, request=request)
+        receipt_details['opening_balance'] = balances.get('opening_balance')
+        receipt_details['closing_balance'] = balances.get('closing_balance')
         out.append(
             {
                 'id': p.id,
@@ -536,13 +606,27 @@ def payout_rows_from_payout(request, items: list[Payout]) -> list[dict[str, Any]
                 'payout_id': p.transaction_id,
                 'service_name': service_display_name(p.transaction_id),
                 'bank_name': bank_name,
+                'account_number': account_number,
                 'account_number_masked': acct_masked,
+                'ifsc': ifsc,
+                'beneficiary_name': beneficiary_name,
+                'beneficiary_mobile': beneficiary_mobile,
+                'transfer_mode': (p.transfer_mode or '').strip().upper(),
                 'transfer_amount': money_str(p.amount),
                 'payout_charge': money_str(p.charge),
                 'platform_fee': money_str(p.platform_fee or Decimal('0')),
                 'net_debit': money_str(p.total_deducted),
                 'status': p.status,
-                'reference': p.gateway_transaction_id or '',
+                'reference': p.rrn or p.gateway_transaction_id or p.provider_txn_id or '',
+                'rrn': getattr(p, 'rrn', '') or '',
+                'provider_code': getattr(p, 'provider_code', '') or '',
+                'provider_status_code': getattr(p, 'provider_status_code', '') or '',
+                'callback_received_at': (
+                    p.callback_received_at.isoformat()
+                    if getattr(p, 'callback_received_at', None)
+                    else None
+                ),
+                'receipt_details': receipt_details,
                 'opening_balance': balances['opening_balance'],
                 'closing_balance': balances['closing_balance'],
                 'commission_breakdown': [

@@ -184,6 +184,14 @@ export const ADMIN_QUICK_ACTION_CATALOG = [
     tone: 'from-lime-600 to-green-700',
   },
   {
+    id: 'service-fee-tracker',
+    title: 'Service Fee Tracker',
+    description: 'Platform fees (not profit)',
+    path: '/reports/service-fees',
+    iconKey: 'docchart',
+    tone: 'from-amber-500 to-orange-600',
+  },
+  {
     id: 'distributed',
     title: 'Distributed Wallets',
     description: 'Network balances',

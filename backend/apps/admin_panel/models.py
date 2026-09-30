@@ -84,11 +84,20 @@ class PaymentGateway(BaseModel):
 class PayoutGateway(BaseModel):
     """
     Payout gateway model for payout transactions.
+    Optional api_master links to integrations.ApiMaster (provider_type=payout).
+    Routing still goes through the payout provider registry.
     """
     name = models.CharField(max_length=200)
     status = models.CharField(max_length=20, choices=[('active', 'Active'), ('down', 'Down')], default='active')
     visible_to_roles = models.JSONField(default=list)  # List of roles that can see this gateway
-    
+    api_master = models.ForeignKey(
+        'integrations.ApiMaster',
+        on_delete=models.SET_NULL,
+        related_name='payout_gateways',
+        null=True,
+        blank=True,
+    )
+
     class Meta:
         db_table = 'payout_gateways'
         ordering = ['name']

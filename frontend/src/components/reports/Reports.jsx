@@ -1,7 +1,7 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { Link, useLocation, useNavigate, useSearchParams } from 'react-router-dom';
 import { useAuth } from '../../context/AuthContext';
-import { canViewCommissionWallet } from '../../utils/rolePermissions';
+import { canViewCommissionWallet, isAdminUser } from '../../utils/rolePermissions';
 import {
   buildModuleReportDrillDownUrl,
   parseDrillDownSearchParams,
@@ -9,6 +9,7 @@ import {
 import TransactionReport from './TransactionReport';
 import BbpsBillsReport from './BbpsBillsReport';
 import CommissionReport from './CommissionReport';
+import ServiceFeeTracker from './ServiceFeeTracker';
 import Passbook from './Passbook';
 
 const pathToTab = {
@@ -17,6 +18,7 @@ const pathToTab = {
   '/reports/bbps': 'bbps',
   '/reports/passbook': 'passbook',
   '/reports/commission': 'commission',
+  '/reports/service-fees': 'service-fees',
 };
 
 const tabToPath = {
@@ -25,6 +27,7 @@ const tabToPath = {
   bbps: '/reports/bbps',
   passbook: '/reports/passbook',
   commission: '/reports/commission',
+  'service-fees': '/reports/service-fees',
 };
 
 const DRILLDOWN_HUB_MODULES = [
@@ -82,12 +85,14 @@ const Reports = () => {
   const drillDown = useMemo(() => parseDrillDownSearchParams(searchParams), [searchParams]);
   const showDrillDownHub = drillDown.fromDashboard && drillDown.moduleAll;
   const showCommission = canViewCommissionWallet(user?.role);
+  const showServiceFees = isAdminUser(user);
 
   const routeTab = useMemo(() => {
     const t = pathToTab[location.pathname];
     if (t === 'commission' && !showCommission) return 'payin';
+    if (t === 'service-fees' && !showServiceFees) return 'payin';
     return t || 'payin';
-  }, [location.pathname, showCommission]);
+  }, [location.pathname, showCommission, showServiceFees]);
 
   const [activeTab, setActiveTab] = useState(routeTab);
 
@@ -102,8 +107,12 @@ const Reports = () => {
     }
     if (location.pathname === '/reports/commission' && !showCommission) {
       navigate('/reports/payin', { replace: true });
+      return;
     }
-  }, [location.pathname, navigate, showCommission]);
+    if (location.pathname === '/reports/service-fees' && !showServiceFees) {
+      navigate('/reports/payin', { replace: true });
+    }
+  }, [location.pathname, navigate, showCommission, showServiceFees]);
 
   const tabs = [
     { id: 'payin', name: 'Pay In', component: () => <TransactionReport type="payin" /> },
@@ -111,7 +120,10 @@ const Reports = () => {
     { id: 'bbps', name: 'BBPS', component: () => <BbpsBillsReport /> },
     { id: 'passbook', name: 'Passbook', component: () => <Passbook /> },
     ...(showCommission
-      ? [{ id: 'commission', name: 'Revenue', component: () => <CommissionReport /> }]
+      ? [{ id: 'commission', name: 'Commission', component: () => <CommissionReport /> }]
+      : []),
+    ...(showServiceFees
+      ? [{ id: 'service-fees', name: 'Service Fee Tracker', component: () => <ServiceFeeTracker /> }]
       : []),
   ];
 

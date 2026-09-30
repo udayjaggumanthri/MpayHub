@@ -6,6 +6,7 @@ import Card from '../common/Card';
 import Input from '../common/Input';
 import Button from '../common/Button';
 import FeedbackModal from '../common/FeedbackModal';
+import PaymentFlowOverlay from '../common/PaymentFlowOverlay';
 import ContactSearchTypeahead from './ContactSearchTypeahead';
 import SelectField from '../common/SelectField';
 import { formatCurrency } from '../../utils/formatters';
@@ -73,7 +74,33 @@ const LoadMoney = () => {
     description: '',
     primaryAction: null,
   });
+  const [paymentFlow, setPaymentFlow] = useState({
+    open: false,
+    phase: 'processing',
+    amount: null,
+    subtitle: '',
+    reference: '',
+    details: [],
+    primaryAction: null,
+    secondaryAction: null,
+  });
 
+  const closePaymentFlow = () => {
+    setPaymentFlow((s) => ({ ...s, open: false }));
+  };
+
+  const showPayinResult = ({ phase, amountValue, subtitle, reference, details, primaryAction, secondaryAction }) => {
+    setPaymentFlow({
+      open: true,
+      phase,
+      amount: amountValue ?? null,
+      subtitle: subtitle || '',
+      reference: reference || '',
+      details: details || [],
+      primaryAction: primaryAction || null,
+      secondaryAction: secondaryAction || null,
+    });
+  };
   useEffect(() => {
     refreshMaintenance?.();
     const id = setInterval(() => refreshMaintenance?.(), 60000);
@@ -263,6 +290,7 @@ const LoadMoney = () => {
     setShowGatewayInterface(false);
     setOrderPayload(null);
     setPayFeedbackModal((m) => ({ ...m, open: false }));
+    setPaymentFlow((s) => ({ ...s, open: false }));
   };
 
   const handleProceedToPayment = async () => {
@@ -273,6 +301,13 @@ const LoadMoney = () => {
     }
     setLoading(true);
     setGatewayRetryMode(false);
+    setShowPaymentModal(false);
+    showPayinResult({
+      phase: 'processing',
+      amountValue: amount ? parseFloat(amount) : null,
+      subtitle: 'Creating secure checkout…',
+    });
+    await new Promise((r) => setTimeout(r, 450));
     try {
       const res = await fundManagementAPI.payInCreateOrder({
         packageId: Number(selectedPackageId),
@@ -281,10 +316,10 @@ const LoadMoney = () => {
         gatewayId: selectedGatewayId ? Number(selectedGatewayId) : undefined,
       });
       if (!res.success) {
-        setPayFeedbackModal({
-          open: true,
-          title: 'Could not start payment',
-          description: res.message || 'Order creation failed. Try again or contact support.',
+        showPayinResult({
+          phase: 'failed',
+          amountValue: amount ? parseFloat(amount) : null,
+          subtitle: res.message || 'Order creation failed. Try again or contact support.',
           primaryAction: {
             label: 'Try another gateway',
             onClick: openGatewayRetry,
@@ -292,8 +327,8 @@ const LoadMoney = () => {
         });
         return;
       }
+      closePaymentFlow();
       setOrderPayload(res.data);
-      setShowPaymentModal(false);
       setShowGatewayInterface(true);
     } finally {
       setLoading(false);
@@ -333,11 +368,12 @@ const LoadMoney = () => {
           const sig = response?.razorpay_signature;
           if (!txnId || !oid || !pid || !sig) {
             setShowGatewayInterface(false);
-            setPayFeedbackModal({
-              open: true,
-              title: 'Incomplete payment response',
-              description:
-                'Razorpay did not return full payment details. If money was debited, check Reports → Pay In or contact support with your reference ID.',
+            showPayinResult({
+              phase: 'failed',
+              amountValue: amount ? parseFloat(amount) : null,
+              subtitle:
+                'Razorpay did not return full payment details. If money was debited, check Reports → Pay In.',
+              reference: txnId || '',
               primaryAction: {
                 label: 'Open Pay In report',
                 onClick: () => navigate('/reports/payin'),
@@ -346,6 +382,14 @@ const LoadMoney = () => {
             return;
           }
           setLoading(true);
+          setShowGatewayInterface(false);
+          showPayinResult({
+            phase: 'processing',
+            amountValue: amount ? parseFloat(amount) : null,
+            subtitle: 'Confirming payment with the bank…',
+            reference: txnId,
+          });
+          await new Promise((r) => setTimeout(r, 550));
           try {
             const res = await fundManagementAPI.payInVerifyRazorpay({
               transactionId: txnId,
@@ -353,7 +397,6 @@ const LoadMoney = () => {
               razorpayPaymentId: pid,
               razorpaySignature: sig,
             });
-            setShowGatewayInterface(false);
             setOrderPayload(null);
             setAmount('');
             setCustomerDetails(null);
@@ -362,29 +405,35 @@ const LoadMoney = () => {
             if (res.success) {
               refreshWallets();
               const net = res.data?.load_money?.net_credit;
-              setPayFeedbackModal({
-                open: true,
-                title: 'Payment successful',
-                description: `Your wallet has been credited. Net credit: ${formatCurrency(parseFloat(net || 0))}. Reference: ${txnId}.\n\nFull history: Reports → Pay In.`,
+              showPayinResult({
+                phase: 'success',
+                amountValue: parseFloat(net || amount || 0),
+                subtitle: 'Wallet credited successfully',
+                reference: txnId,
+                details: [
+                  { label: 'Net credit', value: formatCurrency(parseFloat(net || 0)) },
+                  { label: 'Status', value: 'Successful' },
+                ],
                 primaryAction: {
                   label: 'Open Pay In report',
                   onClick: () => navigate('/reports/payin'),
                 },
               });
             } else {
-              setPayFeedbackModal({
-                open: true,
-                title: 'Could not confirm payment',
-                description:
+              showPayinResult({
+                phase: 'failed',
+                amountValue: amount ? parseFloat(amount) : null,
+                subtitle:
                   res.message ||
-                  'Verification failed. If Razorpay shows success, check Reports → Pay In in a moment, or configure a public webhook URL for production.',
+                  'Verification failed. If Razorpay shows success, check Reports → Pay In shortly.',
+                reference: txnId,
                 primaryAction: {
-                  label: 'Try another gateway',
-                  onClick: openGatewayRetry,
-                },
-                alternateAction: {
                   label: 'Open Pay In report',
                   onClick: () => navigate('/reports/payin'),
+                },
+                secondaryAction: {
+                  label: 'Try another gateway',
+                  onClick: openGatewayRetry,
                 },
               });
             }
@@ -855,6 +904,19 @@ const LoadMoney = () => {
         description={payFeedbackModal.description}
         primaryAction={payFeedbackModal.primaryAction}
         alternateAction={payFeedbackModal.alternateAction}
+      />
+      <PaymentFlowOverlay
+        open={paymentFlow.open}
+        phase={paymentFlow.phase}
+        kind="payin"
+        amount={paymentFlow.amount}
+        subtitle={paymentFlow.subtitle}
+        reference={paymentFlow.reference}
+        details={paymentFlow.details}
+        primaryAction={paymentFlow.primaryAction}
+        secondaryAction={paymentFlow.secondaryAction}
+        onClose={closePaymentFlow}
+        secondaryLabel="Done"
       />
     </div>
   );

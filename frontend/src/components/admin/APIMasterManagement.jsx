@@ -62,13 +62,58 @@ const BANKING_PROVIDERS = {
   },
 };
 
+const PAYOUT_PROVIDERS = {
+  vimopay: {
+    code: 'vimopay',
+    name: 'VimoPay (Vidual)',
+    base_url: 'http://gateway.vimopay.in',
+    config: {
+      timeout: 30,
+      token_ttl_seconds: 300,
+      default_purpose_code: '004',
+      min_amount: 100,
+      max_amount: 100000,
+      masters_ttl_seconds: 21600,
+    },
+    secrets: [
+      { key: 'secret_key', value: '', maskedPreview: '' },
+      { key: 'salt_key', value: '', maskedPreview: '' },
+      { key: 'encrypt_decrypt_key', value: '', maskedPreview: '' },
+      { key: 'user_id', value: '', maskedPreview: '' },
+    ],
+  },
+};
+
 const kycProviderOptions = Object.values(KYC_PROVIDERS);
 const bankingProviderOptions = Object.values(BANKING_PROVIDERS);
+const payoutProviderOptions = Object.values(PAYOUT_PROVIDERS);
 
 const moduleApiLabel = (module) => {
   if (module === 'kyc') return 'KYC API';
   if (module === 'banking') return 'Banking API';
+  if (module === 'payout') return 'Payout API';
   return 'Payment Gateway API';
+};
+
+const defaultPayoutForm = (providerCode = 'vimopay') => {
+  const preset = PAYOUT_PROVIDERS[providerCode] || PAYOUT_PROVIDERS.vimopay;
+  return {
+    provider_code: preset.code,
+    provider_name: preset.name,
+    provider_type: 'payout',
+    kyc_service: '',
+    base_url: preset.base_url,
+    auth_type: 'custom',
+    status: 'sandbox',
+    priority: '0',
+    is_default: true,
+    supports_webhook: true,
+    webhook_path: '/api/integrations/payout/vimopay/callback/',
+    pan_mode: 'sync',
+    redirect_url: '',
+    config_json_text: JSON.stringify(preset.config, null, 2),
+    secrets: preset.secrets.map((s) => ({ ...s })),
+  };
 };
 
 const defaultBankingForm = (providerCode = 'cashfree_bav') => {
@@ -130,6 +175,7 @@ const APIMasterManagement = () => {
   const kycCount = rows.filter((r) => r.provider_type === 'kyc').length;
   const bankingCount = rows.filter((r) => r.provider_type === 'banking').length;
   const paymentCount = rows.filter((r) => r.provider_type === 'payments').length;
+  const payoutCount = rows.filter((r) => r.provider_type === 'payout').length;
 
   const loadRows = async () => {
     setLoading(true);
@@ -154,6 +200,10 @@ const APIMasterManagement = () => {
     }
     if (module === 'banking') {
       setForm(defaultBankingForm());
+      return;
+    }
+    if (module === 'payout') {
+      setForm(defaultPayoutForm());
       return;
     }
     setForm({
@@ -192,7 +242,10 @@ const APIMasterManagement = () => {
         : {};
     const maskedKeys = Object.keys(masked);
     const providerCode = row.provider_code || '';
-    const preset = KYC_PROVIDERS[providerCode] || BANKING_PROVIDERS[providerCode];
+    const preset =
+      KYC_PROVIDERS[providerCode] ||
+      BANKING_PROVIDERS[providerCode] ||
+      PAYOUT_PROVIDERS[providerCode];
     let secretRows;
     if (maskedKeys.length > 0) {
       secretRows = maskedKeys.map((k) => ({
@@ -207,6 +260,8 @@ const APIMasterManagement = () => {
       ];
     } else if ((row.provider_type || '').toLowerCase() === 'banking' && BANKING_PROVIDERS[providerCode]) {
       secretRows = BANKING_PROVIDERS[providerCode].secrets.map((s) => ({ ...s }));
+    } else if ((row.provider_type || '').toLowerCase() === 'payout' && PAYOUT_PROVIDERS[providerCode]) {
+      secretRows = PAYOUT_PROVIDERS[providerCode].secrets.map((s) => ({ ...s }));
     } else if (preset) {
       secretRows = preset.secrets.map((s) => ({ ...s }));
     } else {
@@ -300,6 +355,24 @@ const APIMasterManagement = () => {
       configJson = buildKycConfigJson();
     } else if (activeModule === 'banking') {
       configJson = buildBankingConfigJson();
+    } else if (activeModule === 'payout') {
+      try {
+        configJson = form.config_json_text ? JSON.parse(form.config_json_text) : {};
+      } catch {
+        alert('config_json must be valid JSON');
+        return;
+      }
+      if (form.provider_code === 'vimopay') {
+        configJson = {
+          timeout: configJson.timeout ?? 30,
+          token_ttl_seconds: configJson.token_ttl_seconds ?? 300,
+          default_purpose_code: configJson.default_purpose_code || '004',
+          min_amount: configJson.min_amount ?? 100,
+          max_amount: configJson.max_amount ?? 100000,
+          masters_ttl_seconds: configJson.masters_ttl_seconds ?? 21600,
+          ...configJson,
+        };
+      }
     } else {
       try {
         configJson = form.config_json_text ? JSON.parse(form.config_json_text) : {};
@@ -430,6 +503,22 @@ const APIMasterManagement = () => {
     }));
   };
 
+  const onPayoutProviderChange = (value) => {
+    const preset = PAYOUT_PROVIDERS[value];
+    if (!preset) return;
+    setForm((prev) => ({
+      ...prev,
+      provider_code: preset.code,
+      provider_name: preset.name,
+      base_url: preset.base_url,
+      auth_type: 'custom',
+      supports_webhook: true,
+      webhook_path: '/api/integrations/payout/vimopay/callback/',
+      config_json_text: JSON.stringify(preset.config, null, 2),
+      secrets: preset.secrets.map((s) => ({ ...s })),
+    }));
+  };
+
   return (
     <div className="max-w-7xl mx-auto space-y-6 px-4 sm:px-0">
       <GatewayFlowStepper
@@ -440,7 +529,7 @@ const APIMasterManagement = () => {
         <div>
           <h1 className="text-2xl sm:text-3xl font-bold text-gray-900 dark:text-slate-100">API Master Management</h1>
           <p className="mt-1 sm:mt-2 text-sm sm:text-base text-gray-600 dark:text-slate-400">
-            KYC, Banking, and Payment Gateway APIs.
+            KYC, Banking, Payout, and Payment Gateway APIs.
           </p>
         </div>
       </div>
@@ -455,7 +544,7 @@ const APIMasterManagement = () => {
         </Link>
       </div>
 
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+      <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-4">
         <button
           type="button"
           onClick={() => setActiveModule('kyc')}
@@ -480,6 +569,17 @@ const APIMasterManagement = () => {
         </button>
         <button
           type="button"
+          onClick={() => setActiveModule('payout')}
+          className={`text-left p-4 rounded-xl border ${
+            activeModule === 'payout' ? 'border-blue-500 bg-blue-50 dark:bg-blue-950/40' : 'border-gray-200 dark:border-slate-700 bg-white dark:bg-slate-900'
+          }`}
+        >
+          <p className="font-semibold text-gray-900 dark:text-slate-100">Payout APIs</p>
+          <p className="text-sm text-gray-600 dark:text-slate-400">VimoPay / Vidual bank transfer</p>
+          <p className="text-xs text-blue-700 dark:text-blue-300 mt-1">{payoutCount} configured</p>
+        </button>
+        <button
+          type="button"
           onClick={() => setActiveModule('payments')}
           className={`text-left p-4 rounded-xl border ${
             activeModule === 'payments' ? 'border-blue-500 bg-blue-50 dark:bg-blue-950/40' : 'border-gray-200 dark:border-slate-700 bg-white dark:bg-slate-900'
@@ -493,7 +593,13 @@ const APIMasterManagement = () => {
 
       <div className="flex justify-end">
         <Button onClick={openCreate} variant="primary" icon={FaPlus} iconPosition="left">
-          {activeModule === 'kyc' ? 'Add KYC API' : activeModule === 'banking' ? 'Add Banking API' : 'Add Payment Gateway API'}
+          {activeModule === 'kyc'
+            ? 'Add KYC API'
+            : activeModule === 'banking'
+              ? 'Add Banking API'
+              : activeModule === 'payout'
+                ? 'Add Payout API'
+                : 'Add Payment Gateway API'}
         </Button>
       </div>
 
@@ -536,7 +642,13 @@ const APIMasterManagement = () => {
                       <div className="text-xs text-gray-500 dark:text-slate-400">{row.provider_code}</div>
                     </td>
                     <td className="py-4 px-4 text-sm text-gray-600 dark:text-slate-400">
-                      {activeModule === 'kyc' ? row.kyc_service || '—' : activeModule === 'banking' ? 'BAV' : '—'}
+                      {activeModule === 'kyc'
+                        ? row.kyc_service || '—'
+                        : activeModule === 'banking'
+                          ? 'BAV'
+                          : activeModule === 'payout'
+                            ? 'Bank transfer'
+                            : '—'}
                     </td>
                     <td className="py-4 px-4">{row.auth_type}</td>
                     <td className="py-4 px-4">
@@ -656,6 +768,25 @@ const APIMasterManagement = () => {
                       Cashfree BAV Sync V2. Use sandbox status for test credentials; configure timeout in config JSON.
                     </p>
                   </div>
+                ) : activeModule === 'payout' ? (
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 dark:text-slate-300 mb-2">Payout Provider</label>
+                    <select
+                      value={form.provider_code}
+                      onChange={(e) => onPayoutProviderChange(e.target.value)}
+                      disabled={Boolean(editing)}
+                      className="w-full px-4 py-3 border border-gray-300 dark:border-slate-600 rounded-lg"
+                    >
+                      {payoutProviderOptions.map((s) => (
+                        <option key={s.code} value={s.code}>
+                          {s.name}
+                        </option>
+                      ))}
+                    </select>
+                    <p className="text-xs text-gray-500 dark:text-slate-400 mt-1">
+                      Share callback URL with Vidual: /api/integrations/payout/vimopay/callback/. Test Connection runs authorizeuat.
+                    </p>
+                  </div>
                 ) : (
                   <Input
                     label="Provider Code *"
@@ -772,7 +903,9 @@ const APIMasterManagement = () => {
                       ? `KYC service (${form.kyc_service || 'pan/aadhaar'})`
                       : activeModule === 'banking'
                         ? 'banking (BAV)'
-                        : 'this module'}
+                        : activeModule === 'payout'
+                          ? 'payout'
+                          : 'this module'}
                   </span>
                 </label>
                 <label className="inline-flex items-center gap-2 cursor-pointer">
@@ -811,6 +944,22 @@ const APIMasterManagement = () => {
                 </div>
               )}
 
+              {activeModule === 'payout' && (
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 dark:text-slate-300 mb-2">
+                    Config JSON (timeout, limits, purpose)
+                  </label>
+                  <textarea
+                    value={form.config_json_text}
+                    onChange={(e) => setForm((p) => ({ ...p, config_json_text: e.target.value }))}
+                    className="w-full min-h-[140px] px-4 py-3 border border-gray-300 dark:border-slate-600 rounded-lg font-mono text-sm"
+                  />
+                  <p className="text-xs text-gray-500 dark:text-slate-400 mt-1">
+                    Callback path must stay /api/integrations/payout/vimopay/callback/ and be registered with Vidual.
+                  </p>
+                </div>
+              )}
+
               <div className="border border-gray-200 dark:border-slate-700 rounded-xl p-4">
                 <div className="flex items-center justify-between mb-3">
                   <h3 className="text-sm font-semibold text-gray-800 dark:text-slate-200">Secrets (encrypted at rest)</h3>
@@ -844,6 +993,15 @@ const APIMasterManagement = () => {
                       <strong>Cashfree:</strong> Use keys <code className="bg-blue-100/80 dark:bg-blue-900/40 px-1 rounded">client_id</code>{' '}
                       and <code className="bg-blue-100/80 dark:bg-blue-900/40 px-1 rounded">client_secret</code> from Cashfree Secure ID /
                       VRS dashboard. Sandbox base URL: https://sandbox.cashfree.com
+                    </p>
+                  )}
+                  {activeModule === 'payout' && (
+                    <p className="text-xs text-blue-800 dark:text-blue-300 bg-blue-50 dark:bg-blue-950/40 border border-blue-100 dark:border-blue-900 rounded-lg px-3 py-2 mb-2">
+                      <strong>VimoPay:</strong> Paste partner keys{' '}
+                      <code className="bg-blue-100/80 dark:bg-blue-900/40 px-1 rounded">secret_key</code>,{' '}
+                      <code className="bg-blue-100/80 dark:bg-blue-900/40 px-1 rounded">salt_key</code>,{' '}
+                      <code className="bg-blue-100/80 dark:bg-blue-900/40 px-1 rounded">encrypt_decrypt_key</code>,{' '}
+                      <code className="bg-blue-100/80 dark:bg-blue-900/40 px-1 rounded">user_id</code>. Never commit these to git.
                     </p>
                   )}
                   {form.secrets.map((entry, idx) => (

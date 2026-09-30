@@ -122,7 +122,9 @@ const BbpsBillsList = ({
   const [showDetailsModal, setShowDetailsModal] = useState(false);
   const [detailsLoading, setDetailsLoading] = useState(false);
   const [listScope, setListScope] = useState(() => {
-    if (drillDown.scope === DRILLDOWN_SCOPE_PLATFORM && isAdminUser(user)) return 'platform';
+    if (!isAdminUser(user)) return defaultScope;
+    if (drillDown.scope === DRILLDOWN_SCOPE_PLATFORM) return 'platform';
+    if (drillDown.fromRevenue && drillDown.filters.serviceId) return 'platform';
     return defaultScope;
   });
   const [showDashboardBanner, setShowDashboardBanner] = useState(drillDown.fromDashboard);
@@ -141,6 +143,8 @@ const BbpsBillsList = ({
     setFilters((prev) => (filtersEqual(prev, next) ? prev : next));
     setAppliedFilters((prev) => (filtersEqual(prev, next) ? prev : next));
     if (drillDown.scope === DRILLDOWN_SCOPE_PLATFORM && isAdminUser(user)) {
+      setListScope('platform');
+    } else if (drillDown.fromRevenue && drillDown.filters.serviceId && isAdminUser(user)) {
       setListScope('platform');
     }
     setShowDashboardBanner(drillDown.fromDashboard);

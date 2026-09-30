@@ -422,6 +422,7 @@ class PayInQrApprovalAudit(BaseModel):
 class Payout(BaseModel):
     """
     Payout transaction model.
+    Wallet is held while status is PENDING; settled or released on provider callback.
     """
 
     STATUS_CHOICES = [
@@ -462,6 +463,22 @@ class Payout(BaseModel):
     gateway_transaction_id = models.CharField(max_length=100, blank=True, null=True)
     failure_reason = models.TextField(blank=True, null=True)
 
+    # Provider / adapter fields (additive — historical rows leave these blank)
+    provider_code = models.CharField(max_length=80, blank=True, default='', db_index=True)
+    provider_txn_id = models.CharField(max_length=191, blank=True, default='')
+    rrn = models.CharField(max_length=64, blank=True, default='', db_index=True)
+    provider_status_code = models.CharField(max_length=10, blank=True, default='')
+    merchant_ref_id = models.CharField(max_length=100, blank=True, default='', db_index=True)
+    purpose_code = models.CharField(max_length=20, blank=True, default='004')
+    beneficiary_location = models.CharField(max_length=20, blank=True, default='')
+    request_meta = models.JSONField(default=dict, blank=True)
+    response_meta = models.JSONField(default=dict, blank=True)
+    callback_received_at = models.DateTimeField(null=True, blank=True)
+    provider_charges = models.DecimalField(
+        max_digits=18, decimal_places=4, null=True, blank=True,
+        help_text='Fee charged by the payout provider (audit only; not our slab).',
+    )
+
     class Meta:
         db_table = 'payouts'
         ordering = ['-created_at']
@@ -473,10 +490,75 @@ class Payout(BaseModel):
                 name='payout_status_created_rpt',
                 condition=models.Q(is_deleted=False),
             ),
+            models.Index(fields=['merchant_ref_id']),
+            models.Index(fields=['provider_code', 'status']),
         ]
 
     def __str__(self):
         return f"{self.transaction_id} - {self.user.user_id} - ₹{self.amount}"
+
+
+class PayoutProviderEvent(BaseModel):
+    """Immutable audit trail for outbound provider calls and inbound callbacks."""
+
+    DIRECTION_CHOICES = [
+        ('outbound', 'Outbound'),
+        ('inbound', 'Inbound'),
+    ]
+
+    payout = models.ForeignKey(
+        Payout,
+        on_delete=models.CASCADE,
+        related_name='provider_events',
+        null=True,
+        blank=True,
+    )
+    provider_code = models.CharField(max_length=80, db_index=True)
+    direction = models.CharField(max_length=20, choices=DIRECTION_CHOICES, db_index=True)
+    event_type = models.CharField(max_length=80, blank=True, default='')
+    merchant_ref_id = models.CharField(max_length=100, blank=True, default='', db_index=True)
+    http_status = models.PositiveIntegerField(null=True, blank=True)
+    payload = models.JSONField(default=dict, blank=True)
+    notes = models.TextField(blank=True, default='')
+
+    class Meta:
+        db_table = 'payout_provider_events'
+        ordering = ['-created_at']
+        indexes = [
+            models.Index(fields=['merchant_ref_id', 'created_at']),
+            models.Index(fields=['provider_code', 'direction', 'created_at']),
+        ]
+
+    def __str__(self):
+        return f'{self.direction}:{self.event_type}:{self.merchant_ref_id}'
+
+
+class PayoutMasterCache(BaseModel):
+    """Optional DB-backed cache for provider bank/state/purpose lists."""
+
+    KIND_CHOICES = [
+        ('banks', 'Banks'),
+        ('states', 'States'),
+        ('purposes', 'Purposes'),
+    ]
+
+    provider_code = models.CharField(max_length=80, db_index=True)
+    kind = models.CharField(max_length=20, choices=KIND_CHOICES, db_index=True)
+    items = models.JSONField(default=list, blank=True)
+    fetched_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        db_table = 'payout_master_cache'
+        constraints = [
+            models.UniqueConstraint(
+                fields=['provider_code', 'kind'],
+                condition=models.Q(is_deleted=False),
+                name='uniq_payout_master_provider_kind',
+            ),
+        ]
+
+    def __str__(self):
+        return f'{self.provider_code}:{self.kind}'
 
 
 class UserPackageAssignment(BaseModel):

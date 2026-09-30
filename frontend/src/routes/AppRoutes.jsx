@@ -433,6 +433,17 @@ const AppRoutes = () => {
       />
 
       <Route
+        path="/reports/service-fees"
+        element={
+          <ProtectedRoute>
+            <Layout>
+              <Reports />
+            </Layout>
+          </ProtectedRoute>
+        }
+      />
+
+      <Route
         path="/wallets/distributed"
         element={
           <ProtectedRoute>

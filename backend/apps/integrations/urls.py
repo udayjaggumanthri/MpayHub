@@ -18,4 +18,15 @@ urlpatterns = [
         views.CashfreeDigilockerWebhookView.as_view(),
         name='cashfree-digilocker-webhook',
     ),
+    path(
+        'payout/vimopay/callback/',
+        views.PayoutProviderCallbackView.as_view(),
+        {'provider_code': 'vimopay'},
+        name='vimopay-payout-callback',
+    ),
+    path(
+        'payout/<str:provider_code>/callback/',
+        views.PayoutProviderCallbackView.as_view(),
+        name='payout-provider-callback',
+    ),
 ]

@@ -43,6 +43,7 @@ urlpatterns = [
 
     # Payout endpoints
     path('payout/quote/', views.payout_quote_view, name='payout-quote'),
+    path('payout/masters/', views.payout_masters_view, name='payout-masters'),
     path('payout/', views.payout_view, name='payout'),
     path('payout/list/', views.payout_list_view, name='payout-list'),
 

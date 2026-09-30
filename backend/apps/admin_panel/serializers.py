@@ -180,14 +180,45 @@ class PaymentGatewaySerializer(serializers.ModelSerializer):
 class PayoutGatewaySerializer(serializers.ModelSerializer):
     """Serializer for PayoutGateway model."""
     visible_to_roles = serializers.JSONField(required=False, default=list)
+    api_master_id = serializers.IntegerField(write_only=True, required=False, allow_null=True)
 
     class Meta:
         model = PayoutGateway
         fields = [
             'id', 'name', 'status', 'visible_to_roles',
-            'created_at', 'updated_at'
+            'api_master', 'api_master_id',
+            'created_at', 'updated_at',
         ]
         read_only_fields = ['id', 'created_at', 'updated_at']
+
+    def validate(self, attrs):
+        attrs = super().validate(attrs)
+        api_master = attrs.get('api_master')
+        api_master_id = attrs.get('api_master_id')
+        if api_master_id is not None:
+            from apps.integrations.models import ApiMaster
+
+            api_master = ApiMaster.objects.filter(id=api_master_id, is_deleted=False).first()
+            if api_master_id and not api_master:
+                raise serializers.ValidationError({'api_master_id': ['Invalid API Master id']})
+            if api_master and api_master.provider_type != 'payout':
+                raise serializers.ValidationError(
+                    {'api_master_id': ['Selected API Master must be of provider_type=payout']}
+                )
+            attrs['api_master'] = api_master
+        elif api_master and api_master.provider_type != 'payout':
+            raise serializers.ValidationError(
+                {'api_master': ['Selected API Master must be of provider_type=payout']}
+            )
+        return attrs
+
+    def create(self, validated_data):
+        validated_data.pop('api_master_id', None)
+        return super().create(validated_data)
+
+    def update(self, instance, validated_data):
+        validated_data.pop('api_master_id', None)
+        return super().update(instance, validated_data)
 
 
 class PayoutSlabTierSerializer(serializers.ModelSerializer):

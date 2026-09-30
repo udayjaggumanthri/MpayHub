@@ -46,17 +46,26 @@ def _page_params(request):
 
 def _base_ledger_qs(request):
     try:
+        scope = get_report_scope(request)
+    except PermissionDenied:
+        raise
+    try:
         ledger_extra = commission_ledger_q_for_team(request)
     except PermissionDenied:
         raise
     from apps.fund_management.platform_settlement import ledger_user_for_viewer
 
-    owner = ledger_user_for_viewer(request.user)
-    qs = (
-        CommissionLedger.objects.filter(user=owner)
-        .filter(ledger_extra)
-        .order_by('-created_at')
-    )
+    # Platform operators viewing scope=platform see every beneficiary's ledger
+    # (hierarchy commissions credit channel wallets, not Admin treasury).
+    if is_platform_operator(request.user) and scope == 'platform':
+        qs = CommissionLedger.objects.filter(ledger_extra).order_by('-created_at')
+    else:
+        owner = ledger_user_for_viewer(request.user)
+        qs = (
+            CommissionLedger.objects.filter(user=owner)
+            .filter(ledger_extra)
+            .order_by('-created_at')
+        )
     qs = apply_commission_ledger_filters(qs, request)
 
     module = (request.query_params.get('module') or '').strip().lower()
@@ -65,7 +74,9 @@ def _base_ledger_qs(request):
     elif module:
         qs = qs.filter(Q(module=module) | Q(source=module))
 
-    entry_kind = (request.query_params.get('entry_kind') or request.query_params.get('type') or '').strip().lower()
+    entry_kind = (
+        request.query_params.get('entry_kind') or request.query_params.get('type') or ''
+    ).strip().lower()
     if entry_kind in ('commission', 'service_fee'):
         qs = qs.filter(entry_kind=entry_kind)
 
@@ -373,3 +384,171 @@ def unattributed_revenue_view(request):
         'message': 'Unattributed revenue retrieved',
         'errors': [],
     })
+
+
+def _service_fee_tracker_qs(request):
+    """
+    All platform service-fee ledger rows (including unattributed).
+    Admin / Super Admin only — separate from commission earnings.
+    """
+    if not is_platform_operator(getattr(request.user, 'role', '')):
+        raise PermissionDenied('Admin / Super Admin only')
+
+    qs = CommissionLedger.objects.filter(entry_kind='service_fee').order_by('-created_at')
+    qs = apply_commission_ledger_filters(qs, request)
+
+    module = (request.query_params.get('module') or '').strip().lower()
+    if module == 'payin':
+        qs = qs.filter(Q(module='payin') | Q(source__in=('payin', 'profit')))
+    elif module:
+        qs = qs.filter(Q(module=module) | Q(source=module))
+
+    return qs.order_by('-created_at')
+
+
+@api_view(['GET'])
+@permission_classes([IsAuthenticated])
+def service_fee_tracker_view(request):
+    """GET /api/reports/service-fees/ — Service Fee Tracker list."""
+    try:
+        qs = _service_fee_tracker_qs(request)
+    except PermissionDenied as e:
+        return Response(
+            {'success': False, 'data': None, 'message': str(getattr(e, 'detail', e)), 'errors': []},
+            status=status.HTTP_403_FORBIDDEN,
+        )
+
+    page, page_size = _page_params(request)
+    total = qs.count()
+    start = (page - 1) * page_size
+    rows = list(qs[start:start + page_size])
+    ledger_total = qs.aggregate(s=Coalesce(Sum('amount'), Decimal('0')))['s'] or Decimal('0')
+
+    return Response({
+        'success': True,
+        'data': {
+            'ledger': CommissionLedgerSerializer(
+                rows, many=True, context={'request': request}
+            ).data,
+            'scope': 'platform',
+            'total': total,
+            'page': page,
+            'page_size': page_size,
+            'summary': {
+                'service_fees': str(ledger_total),
+                'ledger_total': str(ledger_total),
+                'ledger_count': total,
+            },
+        },
+        'message': 'Service fee tracker retrieved',
+        'errors': [],
+    })
+
+
+@api_view(['GET'])
+@permission_classes([IsAuthenticated])
+def service_fee_tracker_summary_view(request):
+    """GET /api/reports/service-fees/summary/"""
+    interval_raw = (request.query_params.get('interval') or '').strip().lower()
+    if interval_raw in ('day', 'daily', 'month', 'monthly', 'year', 'yearly') and not (
+        (request.query_params.get('date_from') or '').strip()
+        or (request.query_params.get('date_to') or '').strip()
+    ):
+        from apps.transactions.dashboard_stats import resolve_period
+
+        mapped = {
+            'day': 'daily',
+            'daily': 'daily',
+            'month': 'monthly',
+            'monthly': 'monthly',
+            'year': 'yearly',
+            'yearly': 'yearly',
+        }[interval_raw]
+        df, dt, _ = resolve_period(mapped)
+        mutable = request.query_params.copy()
+        mutable['date_from'] = df.isoformat()
+        mutable['date_to'] = dt.isoformat()
+
+        class _Req:
+            user = request.user
+            query_params = mutable
+
+        request = _Req()  # noqa: PLW2901
+
+    try:
+        qs = _service_fee_tracker_qs(request)
+    except PermissionDenied as e:
+        return Response(
+            {'success': False, 'data': None, 'message': str(getattr(e, 'detail', e)), 'errors': []},
+            status=status.HTTP_403_FORBIDDEN,
+        )
+
+    total = qs.aggregate(s=Coalesce(Sum('amount'), Decimal('0')))['s'] or Decimal('0')
+    by_module = {}
+    for row in qs.values('module', 'source').annotate(
+        total=Coalesce(Sum('amount'), Decimal('0')),
+        count=Count('id'),
+    ):
+        key = (row['module'] or row['source'] or 'other').lower()
+        if key == 'profit':
+            key = 'payin'
+        bucket = by_module.setdefault(key, {'total': Decimal('0'), 'count': 0})
+        bucket['total'] += row['total'] or Decimal('0')
+        bucket['count'] += int(row['count'] or 0)
+
+    return Response({
+        'success': True,
+        'data': {
+            'service_fees': str(total),
+            'total_earned': str(total),
+            'commission': '0',
+            'by_module': {
+                k: {'total': str(v['total']), 'count': v['count']}
+                for k, v in sorted(by_module.items())
+            },
+            'scope': 'platform',
+        },
+        'message': 'Service fee summary retrieved',
+        'errors': [],
+    })
+
+
+@api_view(['GET'])
+@permission_classes([IsAuthenticated])
+def service_fee_tracker_export_csv(request):
+    """GET /api/reports/service-fees/export.csv"""
+    try:
+        qs = _service_fee_tracker_qs(request)
+    except PermissionDenied as e:
+        return Response(
+            {'success': False, 'data': None, 'message': str(getattr(e, 'detail', e)), 'errors': []},
+            status=status.HTTP_403_FORBIDDEN,
+        )
+
+    import csv
+    from io import StringIO
+
+    buf = StringIO()
+    writer = csv.writer(buf)
+    writer.writerow([
+        'DATE', 'REFERENCE', 'MODULE', 'SLICE',
+        'SOURCE_USER', 'SOURCE_ROLE', 'CUSTOMER_CHARGE', 'SERVICE_FEE', 'WALLET_CREDITED', 'STATUS',
+    ])
+    for r in qs[:10000]:
+        meta = r.meta or {}
+        writer.writerow([
+            r.created_at.isoformat() if r.created_at else '',
+            r.reference_service_id,
+            r.module or r.source,
+            r.slice_key or meta.get('slice') or '',
+            r.source_name_snapshot or r.source_user_code,
+            r.source_role,
+            str(r.customer_charge or ''),
+            str(r.amount),
+            'yes' if meta.get('wallet_credited') else 'no',
+            'SUCCESS',
+        ])
+
+    resp = HttpResponse(buf.getvalue(), content_type='text/csv')
+    resp['Content-Disposition'] = 'attachment; filename="service_fee_tracker.csv"'
+    return resp

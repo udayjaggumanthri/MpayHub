@@ -20,6 +20,7 @@ REQUIRED_SECRETS_BY_PROVIDER = {
     'cashfree_bav': ['client_id', 'client_secret'],
     'razorpay': ['key_id', 'key_secret'],
     'payu': ['merchant_key', 'merchant_salt'],
+    'vimopay': ['secret_key', 'salt_key', 'encrypt_decrypt_key', 'user_id'],
 }
 
 

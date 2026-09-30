@@ -163,15 +163,21 @@ def transaction_user_q(request) -> Q:
 
 def commission_ledger_q_for_team(request) -> Q:
     """
-    Extra filter on CommissionLedger (recipient is always request.user).
-    Team = only pay-in commissions attributed to a subordinate in meta.source_user_id,
-    scoped by distributor / MD / SD rules.
+    Extra filter on CommissionLedger.
+
+    - self: no extra filter (recipient filter applied in report view)
+    - platform (Admin): no extra filter — all beneficiaries
+    - team: only rows attributed to a subordinate in meta.source_user_id
     """
     scope = get_report_scope(request)
     if scope == 'self':
         return Q()
     user = request.user
     role = getattr(user, 'role', None)
+    if scope == 'platform':
+        if not is_platform_operator(user):
+            raise PermissionDenied('Platform report scope is only available to Admin users.')
+        return Q()
     if role not in TEAM_SCOPE_ROLES:
         raise PermissionDenied('Team report scope is not enabled for your role.')
     if is_platform_operator(role):

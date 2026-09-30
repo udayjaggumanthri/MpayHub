@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../../context/AuthContext';
 import { contactsAPI, bankAccountsAPI, fundManagementAPI, walletsAPI } from '../../services/api';
@@ -8,6 +8,7 @@ import Card from '../common/Card';
 import Input from '../common/Input';
 import Button from '../common/Button';
 import FeedbackModal from '../common/FeedbackModal';
+import PaymentFlowOverlay from '../common/PaymentFlowOverlay';
 import ContactSearchTypeahead from './ContactSearchTypeahead';
 import SelectField from '../common/SelectField';
 import { formatCurrency } from '../../utils/formatters';
@@ -15,7 +16,6 @@ import { validateAmount, validateAccountNumber, validateIFSC, validatePhone } fr
 import AccountAccessBanner from '../common/AccountAccessBanner';
 import MaintenanceModuleLock from '../common/MaintenanceModuleLock';
 import { isModuleEnabled } from '../../utils/maintenanceMode';
-import { formatAccountNumber } from '../../utils/formatters';
 import {
   FaPhone,
   FaUser,
@@ -60,6 +60,11 @@ const Payout = () => {
   const [transferMethod, setTransferMethod] = useState('IMPS');
   const [payoutGateway, setPayoutGateway] = useState('');
   const [payoutGateways, setPayoutGateways] = useState([]);
+  const [stateOptions, setStateOptions] = useState([]);
+  const [statesLoading, setStatesLoading] = useState(false);
+  const [statesError, setStatesError] = useState('');
+  const [beneficiaryLocation, setBeneficiaryLocation] = useState('');
+  const [geoCoords, setGeoCoords] = useState({ lat: '', long: '' });
   const [showMPINModal, setShowMPINModal] = useState(false);
   const [mpinError, setMpinError] = useState('');
   const [loading, setLoading] = useState(false);
@@ -85,20 +90,40 @@ const Payout = () => {
     description: '',
     primaryAction: null,
   });
-  const [payoutFeedbackModal, setPayoutFeedbackModal] = useState({
+  const [formFeedbackModal, setFormFeedbackModal] = useState({
     open: false,
     title: '',
     description: '',
+  });
+  const [paymentFlow, setPaymentFlow] = useState({
+    open: false,
+    phase: 'processing',
+    amount: null,
+    subtitle: '',
+    reference: '',
+    details: [],
     primaryAction: null,
   });
+  const payoutSubmitLockRef = useRef(false);
+
+  const showFormFeedback = (title, description) => {
+    setFormFeedbackModal({
+      open: true,
+      title: title || 'Please check',
+      description: description || '',
+    });
+  };
 
   const refreshCore = useCallback(async () => {
     if (!user) return;
-    const [wRes, qRes, gRes, bRes] = await Promise.all([
+    setStatesLoading(true);
+    setStatesError('');
+    const [wRes, qRes, gRes, bRes, sRes] = await Promise.all([
       walletsAPI.getAllWallets(),
       fundManagementAPI.getPayoutQuote(),
       fundManagementAPI.getGateways({ type: 'payout' }),
       bankAccountsAPI.listBankAccounts(),
+      fundManagementAPI.getPayoutMasters('states'),
     ]);
 
     if (wRes.success && wRes.data?.wallets) {
@@ -117,9 +142,40 @@ const Payout = () => {
       setPayoutGateways(gRes.data.gateways);
     }
 
+    if (sRes.success && Array.isArray(sRes.data?.items) && sRes.data.items.length > 0) {
+      setStateOptions(sRes.data.items);
+      setStatesError('');
+    } else {
+      setStateOptions([]);
+      setStatesError(
+        sRes.message ||
+          'Could not load state list from the payout provider. Try again or contact admin.'
+      );
+    }
+    setStatesLoading(false);
+
     const raw = bankAccountsFromListResult(bRes);
     setBankAccounts(raw.map(mapBankAccountRow).filter(Boolean));
   }, [user]);
+
+  useEffect(() => {
+    if (typeof navigator === 'undefined' || !navigator.geolocation) return undefined;
+    navigator.geolocation.getCurrentPosition(
+      (pos) => {
+        setGeoCoords({
+          lat: String(pos.coords.latitude),
+          long: String(pos.coords.longitude),
+        });
+      },
+      () => {
+        setGeoCoords((prev) =>
+          prev.lat ? prev : { lat: '28.7041', long: '77.1025' }
+        );
+      },
+      { enableHighAccuracy: false, timeout: 8000, maximumAge: 600000 }
+    );
+    return undefined;
+  }, []);
 
   useEffect(() => {
     refreshMaintenance?.();
@@ -131,10 +187,11 @@ const Payout = () => {
     refreshCore();
   }, [refreshCore]);
 
+  const mainWalletBalance = payoutMeta?.main_balance != null
+    ? parseFloat(payoutMeta.main_balance)
+    : wallets.main;
   const maxEligibleAmount = payoutMeta ? parseFloat(payoutMeta.max_eligible_amount) : 0;
-  const slabLowMax = payoutMeta ? parseFloat(payoutMeta.slab_low_max) : 24999;
-  const chargeLow = payoutMeta ? parseFloat(payoutMeta.charge_low) : 7;
-  const chargeHigh = payoutMeta ? parseFloat(payoutMeta.charge_high) : 15;
+  const payoutSlabs = Array.isArray(payoutMeta?.slabs) ? payoutMeta.slabs : [];
 
   useEffect(() => {
     const n = parseFloat(amount);
@@ -213,19 +270,19 @@ const Payout = () => {
   const handleValidateAccount = async () => {
     const accountValidation = validateAccountNumber(newBankAccount.accountNumber);
     if (!accountValidation.valid) {
-      alert(accountValidation.message);
+      showFormFeedback('Invalid account number', accountValidation.message);
       return;
     }
 
     const ifscValidation = validateIFSC(newBankAccount.ifsc);
     if (!ifscValidation.valid) {
-      alert(ifscValidation.message);
+      showFormFeedback('Invalid IFSC', ifscValidation.message);
       return;
     }
 
     const phoneValidation = validatePhone(newBankAccount.mobileNumber);
     if (!phoneValidation.valid) {
-      alert(phoneValidation.message);
+      showFormFeedback('Invalid mobile number', phoneValidation.message);
       return;
     }
 
@@ -241,10 +298,13 @@ const Payout = () => {
         setValidationData(data);
         setShowValidationModal(true);
       } else {
-        alert(result.message || 'Account validation failed. Please check the details.');
+        showFormFeedback(
+          'Validation failed',
+          result.message || 'Account validation failed. Please check the details.'
+        );
       }
     } catch (error) {
-      alert('Error validating account. Please try again.');
+      showFormFeedback('Validation error', 'Could not validate account. Please try again.');
     } finally {
       setValidatingAccount(false);
     }
@@ -303,74 +363,210 @@ const Payout = () => {
         setValidationData(null);
         setTimeout(() => setShowSuccessNotification(false), 3000);
       } else {
-        alert(result.message || result.errors?.join?.(', ') || 'Failed to save bank account');
+        showFormFeedback(
+          'Could not save account',
+          result.message || result.errors?.join?.(', ') || 'Failed to save bank account'
+        );
       }
     } catch (e) {
-      alert('Could not save bank account');
+      showFormFeedback('Could not save account', 'Please try again in a moment.');
     } finally {
       setLoading(false);
     }
   };
 
   const handlePayoutSubmit = () => {
+    if (loading || payoutSubmitLockRef.current) return;
+
     const amountValidation = validateAmount(parseFloat(amount));
     if (!amountValidation.valid) {
-      alert(amountValidation.message);
+      showFormFeedback('Invalid amount', amountValidation.message);
       return;
     }
 
     const amt = parseFloat(amount);
+    if (amt < 100) {
+      showFormFeedback('Minimum amount', 'Minimum payout amount is ₹100.');
+      return;
+    }
     if (amt > maxEligibleAmount) {
-      alert(`Amount exceeds maximum eligible amount of ${formatCurrency(maxEligibleAmount)}`);
+      showFormFeedback(
+        'Amount too high',
+        `Maximum eligible amount is ${formatCurrency(maxEligibleAmount)}. Reduce the amount or top up your main wallet.`
+      );
       return;
     }
 
     if (!beneficiaryDetails) {
-      alert('Please search and select a beneficiary first');
+      showFormFeedback('Beneficiary required', 'Search and select a beneficiary first.');
       return;
     }
 
     if (!selectedAccount) {
-      alert('Please select or add a bank account');
+      showFormFeedback('Bank account required', 'Select or add a bank account to continue.');
       return;
     }
 
+    if (!beneficiaryLocation) {
+      showFormFeedback('State required', 'Select the beneficiary state to continue.');
+      return;
+    }
+
+    setMpinError('');
     setShowMPINModal(true);
   };
 
+  const resetPayoutForm = () => {
+    setAmount('');
+    setBeneficiarySearch('');
+    setBeneficiaryDetails(null);
+    setSelectedAccount(null);
+    setPayoutGateway('');
+    setBeneficiaryLocation('');
+    setPayoutPreview(null);
+  };
+
+  const openPayoutReceipt = ({ status, txnId, amountValue, chargeValue, totalValue, accountLabel, failureMessage }) => {
+    const st = (status || '').toUpperCase();
+    const isSuccess = st === 'SUCCESS';
+    const isFailed = st === 'FAILED' || Boolean(failureMessage);
+    const isPending = !isSuccess && !isFailed;
+    const phase = isSuccess ? 'success' : isPending ? 'pending' : 'failed';
+
+    const details = [
+      accountLabel ? { label: 'Account', value: accountLabel } : null,
+      chargeValue != null ? { label: 'Charge', value: formatCurrency(chargeValue) } : null,
+      totalValue != null ? { label: 'Total debit', value: formatCurrency(totalValue) } : null,
+      {
+        label: 'Status',
+        value: isSuccess ? 'Successful' : isPending ? 'In progress' : 'Failed',
+      },
+    ].filter(Boolean);
+
+    setPaymentFlow({
+      open: true,
+      phase,
+      amount: amountValue,
+      subtitle: isSuccess
+        ? 'Money sent successfully'
+        : isPending
+          ? 'Funds are held until the bank confirms the transfer'
+          : failureMessage || 'The transfer could not be completed',
+      reference: txnId || '',
+      details,
+      primaryAction: {
+        label: txnId ? 'View receipt' : 'View Pay Out report',
+        onClick: () => {
+          if (txnId) {
+            navigate(`/reports/payout?open_receipt=1&service_id=${encodeURIComponent(txnId)}`);
+            return;
+          }
+          navigate('/reports/payout');
+        },
+      },
+    });
+  };
+
+  const closePaymentFlow = () => {
+    setPaymentFlow((s) => ({ ...s, open: false }));
+    payoutSubmitLockRef.current = false;
+  };
+
   const handleMPINVerify = async (mpin) => {
+    if (payoutSubmitLockRef.current || loading) return;
+    payoutSubmitLockRef.current = true;
     setMpinError('');
     setLoading(true);
+
+    const amountValue = parseFloat(amount);
+    const chargeValue = previewCharge;
+    const totalValue = previewTotal;
+    const accountLabel = selectedAccount
+      ? `${selectedAccount.bankName} · ${selectedAccount.accountNumber || ''}`
+      : '';
+
+    setShowMPINModal(false);
+    setPaymentFlow({
+      open: true,
+      phase: 'processing',
+      amount: amountValue,
+      subtitle: 'Securely verifying and initiating transfer…',
+      reference: '',
+      details: [],
+      primaryAction: null,
+    });
+
+    // Brief cinematic beat so the processing screen is visible even on fast APIs
+    await new Promise((r) => setTimeout(r, 650));
+
     try {
       const res = await fundManagementAPI.payout({
         bankAccountId: selectedAccount.id,
-        amount: parseFloat(amount),
+        amount: amountValue,
         mpin,
         transferMode: transferMethod,
         gateway: payoutGateway || null,
+        beneficiaryLocation,
+        purposeCode: '004',
+        lat: geoCoords.lat || '28.7041',
+        long: geoCoords.long || '77.1025',
       });
       if (res.success) {
-        setShowMPINModal(false);
-        setPayoutFeedbackModal({
-          open: true,
-          title: 'Payout successful',
-          description: `${formatCurrency(parseFloat(amount))} has been scheduled. Main wallet balance will update in your dashboard.`,
-          primaryAction: {
-            label: 'Go to dashboard',
-            onClick: () => navigate('/dashboard'),
-          },
+        const payout = res.data?.payout || {};
+        openPayoutReceipt({
+          status: payout.status,
+          txnId: payout.transaction_id || '',
+          amountValue: parseFloat(payout.amount ?? amountValue) || amountValue,
+          chargeValue:
+            payout.charge != null ? parseFloat(payout.charge) : chargeValue,
+          totalValue:
+            payout.total_deducted != null ? parseFloat(payout.total_deducted) : totalValue,
+          accountLabel,
         });
-        setAmount('');
-        setBeneficiarySearch('');
-        setBeneficiaryDetails(null);
-        setSelectedAccount(null);
-        setPayoutGateway('');
+        resetPayoutForm();
         await refreshCore();
       } else {
-        setMpinError(res.message || 'Payout failed');
+        const msg = res.message || 'Payout could not be completed.';
+        const isMpinError =
+          /mpin/i.test(msg) || Boolean(res.errors?.mpin);
+        if (isMpinError) {
+          setPaymentFlow((s) => ({ ...s, open: false }));
+          setShowMPINModal(true);
+          setMpinError(msg);
+          payoutSubmitLockRef.current = false;
+        } else {
+          openPayoutReceipt({
+            status: 'FAILED',
+            amountValue,
+            chargeValue,
+            totalValue,
+            accountLabel,
+            failureMessage: msg,
+          });
+          payoutSubmitLockRef.current = false;
+        }
       }
     } catch (error) {
-      setMpinError('Something went wrong. Try again.');
+      const msg =
+        error?.response?.data?.message ||
+        error?.message ||
+        'Something went wrong. Please try again or check Pay Out report.';
+      if (/mpin/i.test(String(msg))) {
+        setPaymentFlow((s) => ({ ...s, open: false }));
+        setShowMPINModal(true);
+        setMpinError(String(msg));
+        payoutSubmitLockRef.current = false;
+      } else {
+        openPayoutReceipt({
+          status: 'FAILED',
+          amountValue,
+          chargeValue,
+          totalValue,
+          accountLabel,
+          failureMessage: String(msg),
+        });
+        payoutSubmitLockRef.current = false;
+      }
     } finally {
       setLoading(false);
     }
@@ -399,25 +595,67 @@ const Payout = () => {
 
       <div className="max-w-5xl mx-auto space-y-4 sm:space-y-6 px-4 sm:px-0">
         <AccountAccessBanner user={user} mode="pay_out" />
-        <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between">
+        <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
           <div>
-            <h1 className="text-2xl sm:text-3xl font-bold text-gray-900 dark:text-slate-100">Payout (Withdraw Funds)</h1>
-            <p className="mt-1 sm:mt-2 text-sm sm:text-base text-gray-600 dark:text-slate-400">
-              Transfer from your main wallet via IMPS, NEFT, or RTGS. Slab charges: ₹{chargeLow} up to{' '}
-              {formatCurrency(slabLowMax)}, ₹{chargeHigh} above.
+            <h1 className="text-2xl sm:text-3xl font-bold text-gray-900 dark:text-slate-100">Payout</h1>
+            <p className="mt-1 text-sm text-gray-600 dark:text-slate-400">
+              Transfer from main wallet (IMPS / NEFT). Min ₹100. Funds stay held until the bank confirms.
             </p>
           </div>
         </div>
 
         <MaintenanceModuleLock maintenance={maintenance} moduleKey="payout">
         <Card padding="lg">
-          <div className="p-4 sm:p-6 bg-gradient-to-r from-blue-50 dark:from-blue-950/40 to-indigo-50 dark:to-indigo-950/40 border-2 border-blue-200 dark:border-blue-800 rounded-xl space-y-3">
-            <p className="text-sm font-medium text-gray-600 dark:text-slate-400">Maximum eligible payout (main wallet)</p>
-            <p className="text-3xl font-bold text-blue-600 dark:text-blue-400">{formatCurrency(maxEligibleAmount)}</p>
-            <p className="text-xs text-gray-600 dark:text-slate-400">
-              Main balance: {formatCurrency(wallets.main)}
-              {wallets.commission > 0 ? ` · Commission wallet: ${formatCurrency(wallets.commission)}` : ''}
-            </p>
+          <div className="rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800/60 px-4 py-4 sm:px-5 sm:py-5 space-y-3">
+            <div>
+              <p className="text-xs font-medium uppercase tracking-wide text-slate-500 dark:text-slate-400">
+                Main wallet
+              </p>
+              <p className="mt-1 text-3xl font-bold text-slate-900 dark:text-slate-100">
+                {formatCurrency(mainWalletBalance)}
+              </p>
+              {wallets.commission > 0 ? (
+                <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">
+                  Commission wallet {formatCurrency(wallets.commission)} (not used for payout)
+                </p>
+              ) : null}
+            </div>
+            <div className="border-t border-slate-200 dark:border-slate-700 pt-3">
+              <p className="text-xs font-medium uppercase tracking-wide text-slate-500 dark:text-slate-400 mb-1.5">
+                Payout charges
+                {payoutMeta?.payout_package_name
+                  ? ` · ${payoutMeta.payout_package_name}`
+                  : ''}
+              </p>
+              {payoutSlabs.length > 0 ? (
+                <ul className="space-y-1 text-sm text-slate-700 dark:text-slate-300">
+                  {payoutSlabs.map((slab, idx) => (
+                    <li key={`${slab.min_amount}-${slab.flat_charge}-${idx}`} className="flex justify-between gap-3">
+                      <span className="text-slate-500 dark:text-slate-400">
+                        {(() => {
+                          const min = parseFloat(slab.min_amount);
+                          const max =
+                            slab.max_amount != null && slab.max_amount !== ''
+                              ? parseFloat(slab.max_amount)
+                              : null;
+                          if (max == null || !Number.isFinite(max)) {
+                            return `${formatCurrency(min)} and above`;
+                          }
+                          return `${formatCurrency(min)} – ${formatCurrency(max)}`;
+                        })()}
+                      </span>
+                      <span className="font-semibold tabular-nums">
+                        {formatCurrency(parseFloat(slab.flat_charge))}
+                      </span>
+                    </li>
+                  ))}
+                </ul>
+              ) : (
+                <p className="text-sm text-slate-500 dark:text-slate-400">
+                  Charges apply from your assigned package when you enter an amount.
+                </p>
+              )}
+            </div>
           </div>
         </Card>
 
@@ -469,7 +707,7 @@ const Payout = () => {
                       <h3 className="text-lg font-bold text-gray-900 dark:text-slate-100">Contact Information</h3>
                     </div>
                     <p className="text-xs text-gray-600 dark:text-slate-400 mb-2">
-                      Matched from your saved contacts — confirm identity before payout.
+                      Confirm beneficiary before continuing.
                     </p>
                     <div className="space-y-2">
                       <div className="flex items-center space-x-2">
@@ -498,12 +736,12 @@ const Payout = () => {
 
         {beneficiaryDetails && (
           <div>
-            <Card title="Select Bank Account" subtitle="Choose from saved accounts or add a new one" padding="lg">
+            <Card title="Bank account" padding="lg">
               <div className="space-y-4">
                 {bankAccounts.length > 0 && (
                   <div>
                     <SelectField
-                      label="Beneficiary List"
+                      label="Select account"
                       value={selectedAccount?.id ?? ''}
                       onChange={(val) => {
                         const account = bankAccounts.find((acc) => String(acc.id) === String(val));
@@ -512,10 +750,13 @@ const Payout = () => {
                       }}
                       options={bankAccounts}
                       getOptionLabel={(account) =>
-                        `${account.bankName} - A/C: ${formatAccountNumber(account.accountNumber)} (${account.accountHolderName})`
+                        `${account.bankName} · ${account.accountNumber || ''}${
+                          account.accountHolderName ? ` · ${account.accountHolderName}` : ''
+                        }`
                       }
                       getOptionValue={(account) => account.id}
-                      placeholder="-- Select Bank Account --"
+                      placeholder="Choose bank account"
+                      searchable
                     />
                   </div>
                 )}
@@ -523,21 +764,27 @@ const Payout = () => {
                 {bankAccounts.length === 0 && (
                   <div className="p-3 bg-amber-50 dark:bg-amber-950/40 border border-amber-200 dark:border-amber-800 rounded-lg flex gap-2 text-sm text-amber-900 dark:text-amber-300">
                     <FaCircleExclamation className="flex-shrink-0 mt-0.5" />
-                    <span>No saved bank accounts yet. Add one below (validation may charge your main wallet per backend rules).</span>
+                    <span>No bank accounts yet. Add one to continue.</span>
                   </div>
                 )}
 
                 {selectedAccount && (
                   <div className="p-4 bg-gray-50 dark:bg-slate-800/50 border border-gray-200 dark:border-slate-700 rounded-lg">
-                    <div className="flex items-center justify-between">
-                      <div>
-                        <p className="font-semibold text-gray-900 dark:text-slate-100">
-                          {selectedAccount.bankName} - A/C: {formatAccountNumber(selectedAccount.accountNumber)}
+                    <div className="flex items-center justify-between gap-3">
+                      <div className="min-w-0">
+                        <p className="font-semibold text-gray-900 dark:text-slate-100 truncate">
+                          {selectedAccount.bankName}
                         </p>
-                        <p className="text-sm text-gray-600 dark:text-slate-400 mt-1">IFSC: {selectedAccount.ifsc}</p>
-                        <p className="text-sm text-gray-600 dark:text-slate-400">Account Holder: {selectedAccount.accountHolderName}</p>
+                        <p className="text-sm text-gray-600 dark:text-slate-400 mt-1">
+                          {selectedAccount.accountNumber} · {selectedAccount.ifsc}
+                        </p>
+                        <p className="text-sm text-gray-600 dark:text-slate-400">
+                          {selectedAccount.accountHolderName}
+                        </p>
                       </div>
-                      {selectedAccount.validated && <FaCircleCheck className="text-green-600 dark:text-green-400" size={24} />}
+                      {selectedAccount.validated && (
+                        <FaCircleCheck className="text-green-600 dark:text-green-400 flex-shrink-0" size={22} />
+                      )}
                     </div>
                   </div>
                 )}
@@ -622,36 +869,65 @@ const Payout = () => {
             </Card>
 
             {selectedAccount && payoutGateways.length > 0 && (
-              <Card
-                title="Payout route (optional)"
-                subtitle="If your deployment routes payouts through a specific provider, select it; otherwise leave blank"
-                padding="lg"
-              >
+              <Card title="Payout route" padding="lg">
                 <div>
                   <SelectField
-                    label="Payout gateway"
+                    label="Gateway (optional)"
                     value={payoutGateway}
                     onChange={(val) => setPayoutGateway(val)}
                     options={payoutGateways}
                     getOptionLabel={(gw) => gw.name}
                     getOptionValue={(gw) => gw.id}
-                    placeholder="-- Optional --"
+                    placeholder="Default route"
                   />
                 </div>
               </Card>
             )}
 
             {selectedAccount && (
-              <Card title="Select Transfer Method" subtitle="Choose IMPS, NEFT, or RTGS" padding="lg">
-                <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 sm:gap-4">
-                  {['IMPS', 'NEFT', 'RTGS'].map((method) => (
+              <Card title="Beneficiary state" padding="lg">
+                <SelectField
+                  label="State"
+                  value={beneficiaryLocation}
+                  onChange={(val) => setBeneficiaryLocation(val)}
+                  options={stateOptions}
+                  getOptionLabel={(s) => `${(s.description || '').trim()} (${(s.code || '').trim()})`}
+                  getOptionValue={(s) => String(s.code || '').trim()}
+                  loading={statesLoading}
+                  disabled={statesLoading || (!stateOptions.length && Boolean(statesError))}
+                  placeholder={
+                    statesLoading
+                      ? 'Loading…'
+                      : stateOptions.length
+                        ? 'Select state'
+                        : 'No states available'
+                  }
+                  error={statesError || undefined}
+                  searchable
+                />
+                {statesError ? (
+                  <button
+                    type="button"
+                    onClick={() => refreshCore()}
+                    className="mt-2 text-sm font-medium text-blue-600 dark:text-blue-400 hover:underline"
+                  >
+                    Retry
+                  </button>
+                ) : null}
+              </Card>
+            )}
+
+            {selectedAccount && (
+              <Card title="Transfer mode" padding="lg">
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 sm:gap-4">
+                  {['IMPS', 'NEFT'].map((method) => (
                     <button
                       key={method}
                       type="button"
                       onClick={() => setTransferMethod(method)}
-                      className={`p-4 sm:p-5 border-2 rounded-xl transition-all transform hover:scale-105 ${
+                      className={`p-4 sm:p-5 border-2 rounded-xl transition-all ${
                         transferMethod === method
-                          ? 'border-blue-500 bg-gradient-to-br from-blue-50 dark:from-blue-950/40 to-indigo-50 dark:to-indigo-950/40 shadow-lg'
+                          ? 'border-blue-500 bg-gradient-to-br from-blue-50 dark:from-blue-950/40 to-indigo-50 dark:to-indigo-950/40 shadow-md'
                           : 'border-gray-300 dark:border-slate-600 hover:border-gray-400 bg-white dark:bg-slate-900'
                       }`}
                     >
@@ -666,7 +942,7 @@ const Payout = () => {
             )}
 
             {selectedAccount && (
-              <Card title="Enter Amount" subtitle="Enter the amount you wish to transfer" padding="lg">
+              <Card title="Amount" subtitle="Minimum ₹100" padding="lg">
                 <div className="space-y-6">
                   <div>
                     <Input
@@ -676,7 +952,7 @@ const Payout = () => {
                       value={amount}
                       onChange={(e) => setAmount(e.target.value)}
                       placeholder="Enter amount"
-                      min="1"
+                      min="100"
                       max={maxEligibleAmount}
                       step="0.01"
                       size="lg"
@@ -686,23 +962,23 @@ const Payout = () => {
                   {amount && parseFloat(amount) > 0 && (
                     <div className="p-6 bg-gray-50 dark:bg-slate-800/50 rounded-xl border border-gray-200 dark:border-slate-700">
                       <h4 className="text-sm font-semibold text-gray-700 dark:text-slate-300 mb-4 uppercase tracking-wide">
-                        Transaction Summary
+                        Summary
                       </h4>
                       <div className="space-y-3">
                         <div className="flex justify-between items-center py-2 border-b border-gray-200 dark:border-slate-700">
-                          <span className="text-gray-600 dark:text-slate-400">Payout amount</span>
+                          <span className="text-gray-600 dark:text-slate-400">Payout</span>
                           <span className="font-semibold text-gray-900 dark:text-slate-100 text-lg">
                             {formatCurrency(parseFloat(amount))}
                           </span>
                         </div>
                         <div className="flex justify-between items-center py-2 border-b border-gray-200 dark:border-slate-700">
-                          <span className="text-gray-600 dark:text-slate-400">Transfer charge (slab)</span>
+                          <span className="text-gray-600 dark:text-slate-400">Charge</span>
                           <span className="font-semibold text-red-600 dark:text-red-400">
                             {previewCharge != null ? `-${formatCurrency(previewCharge)}` : '—'}
                           </span>
                         </div>
                         <div className="flex justify-between items-center pt-3 bg-red-50 dark:bg-red-950/40 p-3 rounded-lg">
-                          <span className="text-lg font-bold text-gray-900 dark:text-slate-100">Total debited from main wallet</span>
+                          <span className="text-lg font-bold text-gray-900 dark:text-slate-100">Total debit</span>
                           <span className="text-2xl font-bold text-red-600 dark:text-red-400">
                             {previewTotal != null ? formatCurrency(previewTotal) : '—'}
                           </span>
@@ -713,12 +989,19 @@ const Payout = () => {
 
                   <Button
                     onClick={handlePayoutSubmit}
-                    disabled={payoutMaintenance || !amount || parseFloat(amount) <= 0}
+                    disabled={
+                      payoutMaintenance ||
+                      loading ||
+                      !amount ||
+                      parseFloat(amount) < 100 ||
+                      !beneficiaryLocation
+                    }
+                    loading={loading}
                     variant="primary"
                     size="lg"
                     fullWidth
                   >
-                    PAY NOW
+                    Pay now
                   </Button>
                 </div>
               </Card>
@@ -781,10 +1064,12 @@ const Payout = () => {
           onClose={() => {
             setShowMPINModal(false);
             setMpinError('');
+            payoutSubmitLockRef.current = false;
           }}
           onVerify={handleMPINVerify}
-          title="Enter MPIN to Confirm Payout"
+          title="Confirm payout"
           error={mpinError}
+          loading={loading}
         />
 
         <FeedbackModal
@@ -795,11 +1080,22 @@ const Payout = () => {
           primaryAction={searchFeedbackModal.primaryAction}
         />
         <FeedbackModal
-          open={payoutFeedbackModal.open}
-          onClose={() => setPayoutFeedbackModal((m) => ({ ...m, open: false }))}
-          title={payoutFeedbackModal.title}
-          description={payoutFeedbackModal.description}
-          primaryAction={payoutFeedbackModal.primaryAction}
+          open={formFeedbackModal.open}
+          onClose={() => setFormFeedbackModal((m) => ({ ...m, open: false }))}
+          title={formFeedbackModal.title}
+          description={formFeedbackModal.description}
+        />
+        <PaymentFlowOverlay
+          open={paymentFlow.open}
+          phase={paymentFlow.phase}
+          kind="payout"
+          amount={paymentFlow.amount}
+          subtitle={paymentFlow.subtitle}
+          reference={paymentFlow.reference}
+          details={paymentFlow.details}
+          primaryAction={paymentFlow.primaryAction}
+          onClose={closePaymentFlow}
+          secondaryLabel="Done"
         />
       </div>
     </>

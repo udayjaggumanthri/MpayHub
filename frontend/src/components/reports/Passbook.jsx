@@ -1,6 +1,5 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { useAuth } from '../../context/AuthContext';
-import { useWallet } from '../../context/WalletContext';
 import { FiDownload } from 'react-icons/fi';
 import { passbookAPI, reportsAPI } from '../../services/api';
 import { canUseTeamReportScope } from '../../utils/rolePermissions';
@@ -33,7 +32,6 @@ const EMPTY_PASSBOOK_FILTERS = {
 
 const Passbook = () => {
   const { user } = useAuth();
-  const { wallets } = useWallet();
   const userId = user?.id ?? user?.user_id;
   const fetchIdRef = useRef(0);
   const [reportScope, setReportScope] = useState('self');
@@ -49,11 +47,6 @@ const Passbook = () => {
   const hasLoadedOnceRef = useRef(false);
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [showFilters, setShowFilters] = useState(false);
-  const [summary, setSummary] = useState({
-    creditAmount: 0,
-    debitAmount: 0,
-    availableBalance: 0,
-  });
 
   const loadPassbook = useCallback(async () => {
     if (!userId) return;
@@ -80,27 +73,10 @@ const Passbook = () => {
       if (!result.success) {
         setEntries([]);
         setTotal(0);
-        if (!hasLoadedOnceRef.current) {
-          setSummary({ creditAmount: 0, debitAmount: 0, availableBalance: 0 });
-        }
         return;
       }
 
       setTotal(Number(result.data?.total) || 0);
-
-      const available =
-        reportScope === 'self'
-          ? parseFloat(wallets?.main) || 0
-          : parseFloat(result.data?.period_summary?.closing_balance) || 0;
-
-      const ps = result.data?.period_summary;
-      if (ps) {
-        setSummary({
-          creditAmount: parseFloat(ps.total_credits) || 0,
-          debitAmount: parseFloat(ps.total_debits) || 0,
-          availableBalance: available,
-        });
-      }
 
       const raw = result.data?.entries || [];
       const sortedEntries = raw.map((row) => ({
@@ -121,32 +97,11 @@ const Passbook = () => {
       }));
 
       setEntries(sortedEntries);
-
-      if (!ps) {
-        if (sortedEntries.length > 0) {
-          const creditTotal = sortedEntries.reduce((sum, entry) => sum + (entry.creditAmount || 0), 0);
-          const debitTotal = sortedEntries.reduce((sum, entry) => sum + (entry.debitAmount || 0), 0);
-          setSummary({
-            creditAmount: creditTotal,
-            debitAmount: debitTotal,
-            availableBalance: available,
-          });
-        } else {
-          setSummary({
-            creditAmount: 0,
-            debitAmount: 0,
-            availableBalance: available,
-          });
-        }
-      }
     } catch (error) {
       if (runId !== fetchIdRef.current) return;
       console.error('Error loading passbook:', error);
       setEntries([]);
       setTotal(0);
-      if (!hasLoadedOnceRef.current) {
-        setSummary({ creditAmount: 0, debitAmount: 0, availableBalance: 0 });
-      }
     } finally {
       if (runId !== fetchIdRef.current) return;
       setLoading(false);
@@ -156,7 +111,7 @@ const Passbook = () => {
         setHasLoadedOnce(true);
       }
     }
-  }, [userId, user?.role, appliedFilters, reportScope, page, pageSize, wallets?.main]);
+  }, [userId, user?.role, appliedFilters, reportScope, page, pageSize]);
 
   useEffect(() => {
     loadPassbook();
@@ -325,37 +280,12 @@ const Passbook = () => {
           </div>
         )}
 
-        {/* Summary Cards — credit/debit period-scoped; available = current wallet */}
-        <div className="mb-4 space-y-3">
+        <div className="mb-4">
           <ReportSummaryPeriodToggle
             period={summaryPeriod}
             onChange={changeSummaryPeriod}
             refreshing={isRefreshing && hasLoadedOnce}
           />
-          <div
-            className={`grid grid-cols-1 sm:grid-cols-3 gap-3 transition-opacity ${
-              isRefreshing && hasLoadedOnce ? 'opacity-70' : ''
-            }`}
-          >
-            <div className="bg-green-50 dark:bg-green-950/40 border-2 border-green-200 dark:border-green-800 rounded-lg p-4">
-              <p className="text-sm text-gray-600 dark:text-slate-400 mb-1">CREDIT AMOUNT</p>
-              <p className="text-2xl font-bold text-green-600 dark:text-green-400">
-                {formatCurrency(summary.creditAmount)}
-              </p>
-            </div>
-            <div className="bg-red-50 dark:bg-red-950/40 border-2 border-red-200 dark:border-red-800 rounded-lg p-4">
-              <p className="text-sm text-gray-600 dark:text-slate-400 mb-1">DEBIT AMOUNT</p>
-              <p className="text-2xl font-bold text-red-600 dark:text-red-400">
-                {formatCurrency(summary.debitAmount)}
-              </p>
-            </div>
-            <div className="bg-purple-50 dark:bg-purple-950/40 border-2 border-purple-200 dark:border-purple-800 rounded-lg p-4">
-              <p className="text-sm text-gray-600 dark:text-slate-400 mb-1">AVAILABLE BALANCE</p>
-              <p className="text-2xl font-bold text-purple-600 dark:text-purple-400">
-                {formatCurrency(summary.availableBalance)}
-              </p>
-            </div>
-          </div>
         </div>
 
         {/* Passbook Table */}

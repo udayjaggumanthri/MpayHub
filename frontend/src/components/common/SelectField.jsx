@@ -1,4 +1,5 @@
 import React from 'react';
+import { FiChevronDown } from 'react-icons/fi';
 import SearchableSelect from './SearchableSelect';
 
 const defaultGetLabel = (opt) => (typeof opt === 'object' ? opt.label ?? opt.name ?? String(opt.value ?? '') : String(opt));
@@ -41,32 +42,39 @@ const SelectField = ({
             {required ? <span className="text-red-500 ml-1">*</span> : null}
           </label>
         ) : null}
-        <select
-          value={value ?? ''}
-          onChange={(e) => {
-            const val = e.target.value;
-            const match = options.find((opt) => String(getOptionValue(opt)) === val);
-            onChange?.(val, match);
-          }}
-          disabled={disabled || loading}
-          required={required}
-          className={`w-full px-4 py-3 border rounded-lg bg-white dark:bg-slate-900 text-gray-900 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 disabled:bg-gray-50 dark:disabled:bg-slate-800/50 disabled:text-gray-500 dark:disabled:text-slate-500 disabled:cursor-not-allowed ${
-            error ? 'border-red-400' : 'border-gray-300 dark:border-slate-600'
-          } ${selectClassName}`}
-        >
-          {includeEmptyOption ? (
-            <option value="">{emptyOptionLabel || placeholder}</option>
-          ) : null}
-          {options.map((opt, idx) => {
-            const val = getOptionValue(opt);
-            const lab = getOptionLabel(opt);
-            return (
-              <option key={`${val}-${idx}`} value={val} disabled={isOptionDisabled(opt)}>
-                {lab}
-              </option>
-            );
-          })}
-        </select>
+        <div className="relative">
+          <select
+            value={value ?? ''}
+            onChange={(e) => {
+              const val = e.target.value;
+              const match = options.find((opt) => String(getOptionValue(opt)) === val);
+              onChange?.(val, match);
+            }}
+            disabled={disabled || loading}
+            required={required}
+            className={`w-full appearance-none px-4 py-3 pr-11 border rounded-lg bg-white dark:bg-slate-900 text-gray-900 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 disabled:bg-gray-50 dark:disabled:bg-slate-800/50 disabled:text-gray-500 dark:disabled:text-slate-500 disabled:cursor-not-allowed ${
+              error ? 'border-red-400' : 'border-gray-300 dark:border-slate-600'
+            } ${selectClassName}`}
+          >
+            {includeEmptyOption ? (
+              <option value="">{emptyOptionLabel || placeholder}</option>
+            ) : null}
+            {options.map((opt, idx) => {
+              const val = getOptionValue(opt);
+              const lab = getOptionLabel(opt);
+              return (
+                <option key={`${val}-${idx}`} value={val} disabled={isOptionDisabled(opt)}>
+                  {lab}
+                </option>
+              );
+            })}
+          </select>
+          <FiChevronDown
+            className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-gray-500 dark:text-slate-400"
+            size={18}
+            aria-hidden
+          />
+        </div>
         {error ? <p className="mt-1 text-xs text-red-600 dark:text-red-400">{error}</p> : null}
         {helperText && !error ? <p className="mt-1.5 text-sm text-gray-500 dark:text-slate-400">{helperText}</p> : null}
       </div>

@@ -1,7 +1,7 @@
 /**
- * Deep-link from Revenue/Commission ledger → underlying transaction reports.
+ * Deep-link from Revenue/Commission/Service Fee Tracker → underlying transaction reports.
  */
-import { MODULE_REPORT_PATHS } from './dashboardDrillDown';
+import { DRILLDOWN_SCOPE_PLATFORM, MODULE_REPORT_PATHS } from './dashboardDrillDown';
 
 export function normalizeRevenueModule(moduleOrSource) {
   const raw = String(moduleOrSource || '').trim().toLowerCase();
@@ -13,10 +13,22 @@ export function normalizeRevenueModule(moduleOrSource) {
 }
 
 /**
- * @param {{ module?: string, source?: string, serviceId: string, openReceipt?: boolean }} opts
+ * @param {{
+ *   module?: string,
+ *   source?: string,
+ *   serviceId: string,
+ *   openReceipt?: boolean,
+ *   platformScope?: boolean,
+ * }} opts
  * @returns {string|null} path+query or null if no matching report tab
  */
-export function buildUnderlyingTxnReportUrl({ module, source, serviceId, openReceipt = false }) {
+export function buildUnderlyingTxnReportUrl({
+  module,
+  source,
+  serviceId,
+  openReceipt = false,
+  platformScope = false,
+} = {}) {
   const sid = String(serviceId || '').trim();
   if (!sid || sid === '—') return null;
   const mod = normalizeRevenueModule(module || source);
@@ -25,7 +37,11 @@ export function buildUnderlyingTxnReportUrl({ module, source, serviceId, openRec
   const params = new URLSearchParams();
   params.set('service_id', sid);
   params.set('from', 'revenue');
-  if (openReceipt && (mod === 'payin' || mod === 'bbps')) {
+  // Admin deep-links must use platform scope — fees/commissions are often from other users.
+  if (platformScope) {
+    params.set('scope', DRILLDOWN_SCOPE_PLATFORM);
+  }
+  if (openReceipt && (mod === 'payin' || mod === 'bbps' || mod === 'payout')) {
     params.set('open_receipt', '1');
   }
   return `${base}?${params.toString()}`;
@@ -38,5 +54,5 @@ export function canOpenUnderlyingReport(moduleOrSource) {
 
 export function canPrintUnderlyingReceipt(moduleOrSource) {
   const mod = normalizeRevenueModule(moduleOrSource);
-  return mod === 'payin' || mod === 'bbps';
+  return mod === 'payin' || mod === 'bbps' || mod === 'payout';
 }

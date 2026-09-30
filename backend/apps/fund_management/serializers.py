@@ -263,6 +263,14 @@ class PayoutSerializer(serializers.ModelSerializer):
     bank_account_id = serializers.IntegerField(write_only=True)
     mpin = serializers.CharField(write_only=True, max_length=6, min_length=6)
     gateway = serializers.IntegerField(write_only=True, required=False, allow_null=True)
+    beneficiary_location = serializers.CharField(
+        max_length=20, required=False, allow_blank=True, default=''
+    )
+    purpose_code = serializers.CharField(
+        max_length=20, required=False, allow_blank=True, default=''
+    )
+    lat = serializers.CharField(max_length=32, required=False, allow_blank=True, default='')
+    long = serializers.CharField(max_length=32, required=False, allow_blank=True, default='')
 
     class Meta:
         model = Payout
@@ -279,9 +287,19 @@ class PayoutSerializer(serializers.ModelSerializer):
             'transaction_id',
             'gateway_transaction_id',
             'failure_reason',
+            'provider_code',
+            'provider_txn_id',
+            'rrn',
+            'provider_status_code',
+            'merchant_ref_id',
+            'purpose_code',
+            'beneficiary_location',
+            'callback_received_at',
             'created_at',
             'mpin',
             'gateway',
+            'lat',
+            'long',
         ]
         read_only_fields = [
             'id',
@@ -292,6 +310,12 @@ class PayoutSerializer(serializers.ModelSerializer):
             'transaction_id',
             'gateway_transaction_id',
             'failure_reason',
+            'provider_code',
+            'provider_txn_id',
+            'rrn',
+            'provider_status_code',
+            'merchant_ref_id',
+            'callback_received_at',
             'created_at',
         ]
         extra_kwargs = {
@@ -302,6 +326,19 @@ class PayoutSerializer(serializers.ModelSerializer):
         if not validate_mpin(value):
             raise serializers.ValidationError('MPIN must be 6 digits.')
         return value
+
+    def validate_amount(self, value):
+        from decimal import Decimal
+
+        if value is not None and Decimal(str(value)) < Decimal('100'):
+            raise serializers.ValidationError('Minimum payout amount is ₹100.')
+        return value
+
+    def validate_transfer_mode(self, value):
+        mode = (value or 'IMPS').strip().upper()
+        if mode not in ('IMPS', 'NEFT'):
+            raise serializers.ValidationError('Transfer mode must be IMPS or NEFT.')
+        return mode
 
 
 class PayoutQuoteSerializer(serializers.Serializer):

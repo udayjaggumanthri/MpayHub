@@ -154,6 +154,51 @@ class CashfreeDigilockerWebhookView(APIView):
         return Response({'success': True})
 
 
+@method_decorator(csrf_exempt, name='dispatch')
+class PayoutProviderCallbackView(APIView):
+    """
+    Generic payout provider callback.
+    Path: /api/integrations/payout/<provider_code>/callback/
+    ACK shape is provider-agnostic success envelope (Vidual requires 000).
+    """
+
+    permission_classes = [AllowAny]
+    authentication_classes = []
+
+    def post(self, request, provider_code: str = 'vimopay', *args, **kwargs):
+        from apps.fund_management.payout_orchestrator import apply_payout_callback
+        from apps.integrations.payout.exceptions import PayoutConfigurationError, PayoutInitiateError
+        from apps.integrations.payout.registry import resolve_payout_provider_for_callback
+
+        code = (provider_code or 'vimopay').strip().lower() or 'vimopay'
+        ack = {
+            'successStatus': True,
+            'message': 'Success',
+            'responseCode': '000',
+        }
+        try:
+            raw = request.data
+            if not isinstance(raw, dict):
+                try:
+                    raw = json.loads(request.body.decode('utf-8') or '{}')
+                except (UnicodeDecodeError, json.JSONDecodeError):
+                    raw = {}
+            provider = resolve_payout_provider_for_callback(provider_code=code)
+            event = provider.parse_callback(raw)
+            apply_payout_callback(event, provider_code=provider.provider_code)
+        except PayoutConfigurationError:
+            logger.warning('Payout callback received but provider %s not configured', code)
+        except PayoutInitiateError as e:
+            logger.warning('Payout callback parse error (%s): %s', code, e)
+        except Exception:
+            logger.exception('Payout callback handler error (%s)', code)
+        return Response(ack, status=status.HTTP_200_OK)
+
+
+# Backward-compatible alias used by existing Vidual webhook registration
+VimopayPayoutCallbackView = PayoutProviderCallbackView
+
+
 class ApiMasterViewSet(viewsets.ModelViewSet):
     """Admin API master CRUD (enterprise integration registry)."""
 
@@ -288,6 +333,39 @@ class ApiMasterViewSet(viewsets.ModelViewSet):
                 },
                 status=status.HTTP_200_OK if ok else status.HTTP_400_BAD_REQUEST,
             )
+
+        # Payout providers (VimoPay today; any registered provider_type=payout)
+        if (obj.provider_type or '').strip().lower() == 'payout':
+            try:
+                from apps.integrations.payout.registry import build_payout_provider
+
+                provider = build_payout_provider(obj)
+                result = provider.test_connection()
+                ok = bool(result.get('ok'))
+                detail = str(result.get('detail') or '')
+                return Response(
+                    {
+                        'success': ok,
+                        'data': {
+                            'ok': ok,
+                            'payout_provider': provider.provider_code,
+                            'detail': detail,
+                            'token_preview': result.get('token_preview'),
+                        },
+                        'message': detail if ok else f'Payout authorize failed: {detail}',
+                        'errors': [] if ok else [detail],
+                    },
+                    status=status.HTTP_200_OK if ok else status.HTTP_400_BAD_REQUEST,
+                )
+            except Exception as e:
+                return Response(
+                    {
+                        'success': False,
+                        'message': f'Payout connection failed: {e}',
+                        'errors': [],
+                    },
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
 
         method = str((obj.config_json or {}).get('test_method', 'GET')).upper()
         endpoint = str((obj.config_json or {}).get('test_path', '')).strip()

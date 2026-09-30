@@ -98,7 +98,7 @@ class FeeSettlementTests(TestCase):
         Wallet.get_wallet(self.admin, 'main')
         Wallet.get_wallet(self.payer, 'main').credit(Decimal('500.00'), reference='seed')
 
-    def test_settle_service_charge_credits_admin_main(self):
+    def test_settle_service_charge_ledger_only_no_admin_wallet_credit(self):
         rows = settle_service_charge(
             payer=self.payer,
             module='bbps',
@@ -108,11 +108,12 @@ class FeeSettlementTests(TestCase):
         )
         self.assertTrue(rows)
         admin_main = Wallet.get_wallet(self.admin, 'main')
-        self.assertEqual(admin_main.balance, Decimal('5.0000'))
+        self.assertEqual(admin_main.balance, Decimal('0.0000'))
         ledger = CommissionLedger.objects.filter(reference_service_id='SVCTEST001')
         self.assertTrue(ledger.exists())
         self.assertEqual(ledger.first().entry_kind, 'service_fee')
         self.assertEqual(ledger.first().module, 'bbps')
+        self.assertFalse((ledger.first().meta or {}).get('wallet_credited'))
 
     def test_settle_idempotent(self):
         settle_service_charge(
@@ -130,7 +131,7 @@ class FeeSettlementTests(TestCase):
             principal=Decimal('200.00'),
         )
         admin_main = Wallet.get_wallet(self.admin, 'main')
-        self.assertEqual(admin_main.balance, Decimal('7.0000'))
+        self.assertEqual(admin_main.balance, Decimal('0.0000'))
         self.assertEqual(
             CommissionLedger.objects.filter(reference_service_id='SVCIDEMP1').count(),
             1,
@@ -153,9 +154,10 @@ class FeeSettlementTests(TestCase):
             charge=Decimal('5.00'),
             principal=Decimal('1000.00'),
         )
-        self.assertEqual(Wallet.get_wallet(self.admin, 'main').balance, Decimal('5.0000'))
+        self.assertEqual(Wallet.get_wallet(self.admin, 'main').balance, Decimal('0.0000'))
         self.assertEqual(Wallet.get_wallet(other, 'main').balance, Decimal('0.0000'))
         ledgers = CommissionLedger.objects.filter(reference_service_id='SVCFULL5')
         self.assertEqual(ledgers.count(), 1)
         self.assertEqual(ledgers.first().user_id, self.admin.pk)
         self.assertEqual(ledgers.first().amount, Decimal('5.0000'))
+        self.assertFalse((ledgers.first().meta or {}).get('wallet_credited'))

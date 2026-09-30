@@ -9,13 +9,15 @@ import { canUseTeamReportScope, isAdminUser } from '../../utils/rolePermissions'
 import FeedbackModal from '../common/FeedbackModal';
 import ReportTransactionDetailModal from './ReportTransactionDetailModal';
 import PayinTransactionReceiptView from './PayinTransactionReceiptView';
+import PayoutTransactionReceiptView from './PayoutTransactionReceiptView';
 import { mapPayinRowToReceiptTransaction } from './payinReceiptFields';
 import { buildPayinReceiptPrintHtml, openPayinReceiptPrint } from './payinReceiptPrint';
+import { mapPayoutRowToReceiptTransaction } from './payoutReceiptFields';
+import { buildPayoutReceiptPrintHtml, openPayoutReceiptPrint } from './payoutReceiptPrint';
 import {
   formatCurrency,
   formatDateTime,
   formatReportDateTime,
-  formatAccountNumber,
 } from '../../utils/formatters';
 import { balanceFromRow, formatReportBalance } from '../../utils/reportBalanceDisplay';
 import ReportDateRange from '../common/ReportDateRange';
@@ -93,10 +95,15 @@ const TransactionReport = ({ type = 'all' }) => {
   const [summaryPeriod, setSummaryPeriod] = useState('day');
   const [detailRecord, setDetailRecord] = useState(null);
   const [receiptTxn, setReceiptTxn] = useState(null);
+  const [payoutReceiptTxn, setPayoutReceiptTxn] = useState(null);
   const [helpTxnId, setHelpTxnId] = useState(null);
-  const [reportScope, setReportScope] = useState(() =>
-    drillDown.scope === DRILLDOWN_SCOPE_PLATFORM && isAdminUser(user) ? 'platform' : 'self'
-  );
+  const [reportScope, setReportScope] = useState(() => {
+    if (!isAdminUser(user)) return 'self';
+    if (drillDown.scope === DRILLDOWN_SCOPE_PLATFORM) return 'platform';
+    // Service Fee Tracker / Commission deep-link: txn belongs to source agent, not admin.
+    if (drillDown.fromRevenue && drillDown.filters.serviceId) return 'platform';
+    return 'self';
+  });
   const [showDashboardBanner, setShowDashboardBanner] = useState(drillDown.fromDashboard);
   const [showFilters, setShowFilters] = useState(() => Boolean(drillDown.hasDrillDown));
 
@@ -112,10 +119,19 @@ const TransactionReport = ({ type = 'all' }) => {
     return undefined;
   }, [location.state, type]);
 
+  useEffect(() => {
+    if (type !== 'payout') return undefined;
+    const pending = location.state?.openPayoutReceipt;
+    if (!pending) return undefined;
+    setPayoutReceiptTxn(pending);
+    window.history.replaceState({}, document.title, window.location.pathname + window.location.search);
+    return undefined;
+  }, [location.state, type]);
+
   // Deep-link: ?open_receipt=1&service_id=… after list loads
   const openReceiptDoneRef = useRef(false);
   useEffect(() => {
-    if (type !== 'payin') return;
+    if (type !== 'payin' && type !== 'payout') return;
     if (openReceiptDoneRef.current) return;
     if (!drillDown.openReceipt || !drillDown.filters.serviceId) return;
     if (loading || !transactions.length) return;
@@ -125,7 +141,8 @@ const TransactionReport = ({ type = 'all' }) => {
     );
     if (!match) return;
     openReceiptDoneRef.current = true;
-    openPayinReceipt(match);
+    if (type === 'payin') openPayinReceipt(match);
+    else openPayoutReceipt(match);
   }, [type, drillDown.openReceipt, drillDown.filters.serviceId, loading, transactions]);
 
   useEffect(() => {
@@ -133,6 +150,8 @@ const TransactionReport = ({ type = 'all' }) => {
     setFilters((prev) => (filtersEqual(prev, next) ? prev : next));
     setAppliedFilters((prev) => (filtersEqual(prev, next) ? prev : next));
     if (drillDown.scope === DRILLDOWN_SCOPE_PLATFORM && isAdminUser(user)) {
+      setReportScope('platform');
+    } else if (drillDown.fromRevenue && drillDown.filters.serviceId && isAdminUser(user)) {
       setReportScope('platform');
     }
     setShowDashboardBanner(drillDown.fromDashboard);
@@ -280,21 +299,43 @@ const TransactionReport = ({ type = 'all' }) => {
             detailLine1: `${r.agent_details?.user_code || ''} · ${r.agent_details?.name || ''}`,
             detailLine2: r.bank_name || '—',
             accountMasked: r.account_number_masked || '—',
+            accountNumber: r.account_number || '',
+            ifsc: r.ifsc || '',
+            beneficiaryName: r.beneficiary_name || '',
+            beneficiaryMobile: r.beneficiary_mobile || '',
+            transferMode: r.transfer_mode || '',
+            rrn: r.rrn || '',
+            providerCode: r.provider_code || '',
+            providerStatusCode: r.provider_status_code || '',
+            callbackReceivedAt: r.callback_received_at || null,
+            receiptDetails: r.receipt_details || null,
             openingBalance: r.opening_balance,
             closingBalance: r.closing_balance,
             detail: {
               bankName: r.bank_name,
               accountMasked: r.account_number_masked,
-              accountDisplay: r.account_number_masked,
+              accountDisplay: r.account_number || r.account_number_masked,
+              accountNumber: r.account_number || '',
+              ifsc: r.ifsc || '',
+              beneficiaryName: r.beneficiary_name || '',
+              beneficiaryMobile: r.beneficiary_mobile || '',
+              transferMode: r.transfer_mode || '',
               commissionBreakdown: r.commission_breakdown,
               agentDetails: r.agent_details,
               platformFee: parseFloat(r.platform_fee || '0'),
               netDebit: parseFloat(r.net_debit || '0'),
               totalDeducted: parseFloat(r.net_debit || '0'),
+              payoutCharge: parseFloat(r.payout_charge || '0'),
               gatewayTransactionId: r.reference,
+              rrn: r.rrn || r.reference || '',
+              providerCode: r.provider_code || '',
+              providerStatusCode: r.provider_status_code || '',
+              callbackReceivedAt: r.callback_received_at || null,
               openingBalance: r.opening_balance,
               closingBalance: r.closing_balance,
+              receiptDetails: r.receipt_details || null,
             },
+            rawRow: r,
           }))
         );
       } else {
@@ -430,6 +471,39 @@ const TransactionReport = ({ type = 'all' }) => {
     openPayinReceiptPrint(html, { mobile });
   };
 
+  const openPayoutReceipt = (txn) => {
+    const receiptTransaction = mapPayoutRowToReceiptTransaction({
+      id: txn.id,
+      transaction_id: txn.transactionId,
+      status: txn.status,
+      transfer_mode: txn.transferMode || txn.detail?.transferMode,
+      bank_name: txn.detail?.bankName || txn.detailLine2,
+      account_number: txn.accountNumber || txn.detail?.accountNumber,
+      ifsc: txn.ifsc || txn.detail?.ifsc,
+      beneficiary_name: txn.beneficiaryName || txn.detail?.beneficiaryName,
+      beneficiary_mobile: txn.beneficiaryMobile || txn.detail?.beneficiaryMobile,
+      transfer_amount: txn.billAmount,
+      payout_charge: txn.detail?.payoutCharge ?? txn.charges,
+      net_debit: txn.orderAmount,
+      created_at: txn.date,
+      rrn: txn.rrn || txn.detail?.rrn,
+      reference: txn.requestId,
+      provider_code: txn.providerCode || txn.detail?.providerCode,
+      callback_received_at: txn.callbackReceivedAt || txn.detail?.callbackReceivedAt,
+      opening_balance: txn.openingBalance,
+      closing_balance: txn.closingBalance,
+      agent_details: txn.detail?.agentDetails,
+      receipt_details: txn.receiptDetails || txn.detail?.receiptDetails,
+      ...(txn.rawRow || {}),
+    });
+    setPayoutReceiptTxn(receiptTransaction);
+  };
+
+  const printPayoutReceipt = (txn, { mobile = false } = {}) => {
+    const html = buildPayoutReceiptPrintHtml(txn, { mobile });
+    openPayoutReceiptPrint(html, { mobile });
+  };
+
   return (
     <div className="space-y-4 sm:space-y-6">
       {showDashboardBanner && drillDown.fromDashboard && (
@@ -475,6 +549,35 @@ const TransactionReport = ({ type = 'all' }) => {
               transaction={receiptTxn}
               onPrint={() => printPayinReceipt(receiptTxn)}
               onMobilePrint={() => printPayinReceipt(receiptTxn, { mobile: true })}
+            />
+          </div>
+        </div>
+      ) : null}
+
+      {type === 'payout' && payoutReceiptTxn ? (
+        <div
+          className="fixed inset-0 z-[80] flex items-center justify-center bg-black/50 p-4"
+          role="presentation"
+          onClick={() => setPayoutReceiptTxn(null)}
+        >
+          <div
+            className="relative max-h-[92vh] w-full max-w-3xl overflow-y-auto rounded-2xl bg-white dark:bg-slate-900 p-6 shadow-2xl"
+            role="dialog"
+            aria-modal="true"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <button
+              type="button"
+              onClick={() => setPayoutReceiptTxn(null)}
+              className="absolute right-4 top-4 flex h-9 w-9 items-center justify-center rounded-full bg-red-500 text-white shadow-sm hover:bg-red-600"
+              aria-label="Close receipt"
+            >
+              <FiX className="h-5 w-5" />
+            </button>
+            <PayoutTransactionReceiptView
+              transaction={payoutReceiptTxn}
+              onPrint={() => printPayoutReceipt(payoutReceiptTxn)}
+              onMobilePrint={() => printPayoutReceipt(payoutReceiptTxn, { mobile: true })}
             />
           </div>
         </div>
@@ -928,6 +1031,17 @@ const TransactionReport = ({ type = 'all' }) => {
                             className="rounded-full p-2 text-gray-500 dark:text-slate-400 transition hover:bg-gray-100 dark:hover:bg-slate-700 hover:text-blue-600"
                             title="View / print receipt"
                             aria-label="View pay-in receipt"
+                          >
+                            <MdReceiptLong className="h-5 w-5" />
+                          </button>
+                        ) : null}
+                        {type === 'payout' ? (
+                          <button
+                            type="button"
+                            onClick={() => openPayoutReceipt(txn)}
+                            className="rounded-full p-2 text-gray-500 dark:text-slate-400 transition hover:bg-gray-100 dark:hover:bg-slate-700 hover:text-blue-600"
+                            title="View / print receipt"
+                            aria-label="View payout receipt"
                           >
                             <MdReceiptLong className="h-5 w-5" />
                           </button>

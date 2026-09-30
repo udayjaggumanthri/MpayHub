@@ -1,0 +1,252 @@
+{
+  "info": {
+    "_postman_id": "2ea65f4f-881c-4928-81c0-986ee9306f38",
+    "name": "Payout uat",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json",
+    "_exporter_id": "52131184"
+  },
+  "item": [
+    {
+      "name": "Token Generation Copy",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "secretKey",
+            "value": "f37701ee0778cfe1dd97b7537ae71709",
+            "type": "text"
+          },
+          {
+            "key": "saltKey",
+            "value": "bb13602c407b1ddd6506d59e410bafeb",
+            "type": "text"
+          },
+          {
+            "key": "encryptdecryptKey",
+            "value": "47cdba1911f078afe863774a8dffcb26",
+            "type": "text"
+          },
+          {
+            "key": "userId",
+            "value": "E5B82667-9A9D-4A5A-A55C-F3B1E10BF370",
+            "type": "text"
+          }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "",
+          "options": {
+            "raw": {
+              "language": "json"
+            }
+          }
+        },
+        "url": {
+          "raw": "http://gateway.vimopay.in/payoutapi/api/Signature/authorizeuat",
+          "protocol": "http",
+          "host": [
+            "gateway",
+            "vimopay",
+            "in"
+          ],
+          "path": [
+            "payoutapi",
+            "api",
+            "Signature",
+            "authorizeuat"
+          ]
+        }
+      },
+      "response": []
+    },
+    {
+      "name": "Bank List Copy",
+      "request": {
+        "method": "GET",
+        "header": [
+          {
+            "key": "userId",
+            "value": "E5B82667-9A9D-4A5A-A55C-F3B1E10BF370",
+            "type": "text"
+          },
+          {
+            "key": "Authorization",
+            "value": "Bearer 9fyvLgza94v0ls7gU55OGMMx6+rocl+VU2n1ED19ti2n5Puw/zkTa2VwiKPlHO5MWhtFxHvZ+zLbY5pfotJuBVX3UdKscc3Ocmgi5gM/dAXF2wZ+zoCfc3Bv/et1wItHXsrwW4dYv2BVwSxM0FnXW66W3R0FZFaKNWHcCKvU4+9cDeQFZGGf2uq7VHZ2LovhW48habzhOfD+G2mfcNHyuOdtU3xLeSAbhDLu/GxOlDJYo1p22Wi9AQirCPTfPY6l+b9jbu8WorkwCX09Oo+MIRjkBJ2cR7sVM68EFxiYhCNPkSwM0iPNVeg6EZYoQuQatly0k8ySa5UYU5XL0gquCzXWFjC8v2qPSaJOImpW9NGmyx6rizEyesoLSZMSEYg1G8lA7n4HHKYjrVjNsiXzWUkp3Uf2CEfW+01pyX6Mwe74/EkYDvV9v7NT/vM6RMHheXNfnJ8oDX8ZaQu+a5rRrKGP0NEAHMYXJnY4OjvRKKMvQHXsj3UCvuxdVsrCtpktENr8PTRdqGGxs/HaXUo1JFJBw1XUbsMTr0v/5oogkY8mr5NACuwNQiEAWTBjO/GJWNXUFsIyuc1m",
+            "type": "text"
+          }
+        ],
+        "url": {
+          "raw": "http://gateway.vimopay.in/masterapi/api/master/banklistuat",
+          "protocol": "http",
+          "host": [
+            "gateway",
+            "vimopay",
+            "in"
+          ],
+          "path": [
+            "masterapi",
+            "api",
+            "master",
+            "banklistuat"
+          ]
+        }
+      },
+      "response": []
+    },
+    {
+      "name": "State List Copy",
+      "request": {
+        "method": "GET",
+        "header": [
+          {
+            "key": "userId",
+            "value": "E5B82667-9A9D-4A5A-A55C-F3B1E10BF370",
+            "type": "text"
+          },
+          {
+            "key": "Authorization",
+            "value": "Bearer 9fyvLgza94v0ls7gU55OGMMx6+rocl+VU2n1ED19ti2n5Puw/zkTa2VwiKPlHO5MWhtFxHvZ+zLbY5pfotJuBVX3UdKscc3Ocmgi5gM/dAXF2wZ+zoCfc3Bv/et1wItHXsrwW4dYv2BVwSxM0FnXW66W3R0FZFaKNWHcCKvU4+9cDeQFZGGf2uq7VHZ2LovhW48habzhOfD+G2mfcNHyuOdtU3xLeSAbhDLu/GxOlDJYo1p22Wi9AQirCPTfPY6l+b9jbu8WorkwCX09Oo+MIRjkBJ2cR7sVM68EFxiYhCNPkSwM0iPNVeg6EZYoQuQatly0k8ySa5UYU5XL0gquCzXWFjC8v2qPSaJOImpW9NGmyx6rizEyesoLSZMSEYg1G8lA7n4HHKYjrVjNsiXzWUkp3Uf2CEfW+01pyX6Mwe74/EkYDvV9v7NT/sl2RcHHeXNfnJ8oDX8ZaQu+a5rRrKGP0NEAHMYXJnY4OjvRKKMvQHXsj3UCvuxdVsrCtrxsAcWVRCVPtX+QlJPpCnoncmdV0XSSfMEeiUrT/Y8X7M4Zq6BWPIgxRjXO1JafY4Btkn/DoMBE9Bbr",
+            "type": "text"
+          }
+        ],
+        "url": {
+          "raw": "http://gateway.vimopay.in/masterapi/api/master/statelistuat",
+          "protocol": "http",
+          "host": [
+            "gateway",
+            "vimopay",
+            "in"
+          ],
+          "path": [
+            "masterapi",
+            "api",
+            "master",
+            "statelistuat"
+          ]
+        }
+      },
+      "response": []
+    },
+    {
+      "name": "Purpose Copy",
+      "request": {
+        "method": "GET",
+        "header": [
+          {
+            "key": "userId",
+            "value": "E5B82667-9A9D-4A5A-A55C-F3B1E10BF370",
+            "type": "text"
+          },
+          {
+            "key": "Authorization",
+            "value": "Bearer 9fyvLgza94v0ls7gU55OGMMx6+rocl+VU2n1ED19ti2n5Puw/zkTa2VwiKPlHO5MWhtFxHvZ+zLbY5pfotJuBVX3UdKscc3Ocmgi5gM/dAXF2wZ+zoCfc3Bv/et1wItHXsrwW4dYv2BVwSxM0FnXW66W3R0FZFaKNWHcCKvU4+9cDeQFZGGf2uq7VHZ2LovhW48habzhOfD+G2mfcNHyuOdtU3xLeSAbhDLu/GxOlDJYo1p22Wi9AQirCPTfPY6l+b9jbu8WorkwCX09Oo+MIRjkBJ2cR7sVM68EFxiYhCNPkSwM0iPNVeg6EZYoQuQatly0k8ySa5UYU5XL0gquCzXWFjC8v2qPSaJOImpW9NGmyx6rizEyesoLSZMSEYg1G8lA7n4HHKYjrVjNsiXzWUkp3Uf2CEfW+01pyX6Mwe74/EkYDvV9v7NT/sl2RcHHeXNfnJ8oDX8ZaQu+a5rRrKGP0NEAHMYXJnY4OjvRKKMvQHXsj3UCvuxdVsrCtrxsAcWVRCVPtX+QlJPpCnoncmdV0XSSfMEeiUrT/Y8X7M4Zq6BWPIgxRjXO1JafY4Btkn/DoMBE9Bbr",
+            "type": "text"
+          }
+        ],
+        "url": {
+          "raw": "http://gateway.vimopay.in/masterapi/api/master/purposelistuat",
+          "protocol": "http",
+          "host": [
+            "gateway",
+            "vimopay",
+            "in"
+          ],
+          "path": [
+            "masterapi",
+            "api",
+            "master",
+            "purposelistuat"
+          ],
+          "query": [
+            {
+              "key": "userId",
+              "value": "9DF46A1C-1A53-4887-A0BD-BF7D7A11E59C",
+              "type": "text",
+              "disabled": true
+            },
+            {
+              "key": "A",
+              "value": null,
+              "type": "text",
+              "disabled": true
+            }
+          ]
+        }
+      },
+      "response": []
+    },
+    {
+      "name": "Payout Copy",
+      "protocolProfileBehavior": {
+        "disabledSystemHeaders": {
+          "content-type": true
+        }
+      },
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "userid",
+            "value": "E5B82667-9A9D-4A5A-A55C-F3B1E10BF370"
+          },
+          {
+            "key": "Authorization",
+            "value": "Bearer 9fyvLgza94v0ls7gU55OGMMx6+rocl+VU2n1ED19ti2n5Puw/zkTa2VwiKPlHO5MWhtFxHvZ+zLbY5pfotJuBVX3UdKscc3Ocmgi5gM/dAXF2wZ+zoCfc3Bv/et1wItHXsrwW4dYv2BVwSxM0FnXW66W3R0FZFaKNWHcCKvU4+9cDeQFZGGf2uq7VHZ2LovhW48habzhOfD+G2mfcNHyuOdtU3xLeSAbhDLu/GxOlDJYo1p22Wi9AQirCPTfPY6l+b9jbu8WorkwCX09Oo+MIRjkBJ2cR7sVM68EFxiYhCNPkSwM0iPNVeg6EZYoQuQatly0k8ySa5UYU5XL0gquCzXWFjC8v2qPSaJOImpW9NGmyx6rizEyesoLSZMSEYg1G8lA7n4HHKYjrVjNsiXzWUkp3Uf2CEfW+01pyX6Mwe74/EkYDvV9v7NT/sE4RP/leXNfnJ8oDX8ZaQu+a5rRrKGP0NEAHMYXJnY4OjvRKKMvQHXsj3UCvuxdVsrCtqVzK+WheAR1vEeEtcPDHGJ6IBdaxSXVZMRru03fy6YvvbEy8JdcAbxdYx8nqBIvTbExOYQnc4CTvnlq"
+          },
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n    \"requestbody\": \"1YmRlBxwwM5T1pX/NFMSnw5LoJ6pvyT21+PTncijQS4V2YsolhQoN8cLk2qoh+5D9z4h51oLT3kt/szdgHPAuyLwy6XVBAKN2Oxw87lwSrBcezLeGshsH5TYXQES+SMsFdA813A7Hnf6M03MomrwxXqUo4MgCfmdyexmXZ/9eNRy/zOBgpMp5z0jon51gfLnwlmRZ97d2JjsS3Htm2r63M7gwtuFuniSVbMzR0GdkhuVjnxb8LeR/LstMETlJZbbyA4zco4vzLcduFgoE+nO20iXaTlbIRl2B/As0NUX6CyCnYscVJY1uX3S68VsFNsnqhZtOB/90Fo15+HiEDmZD+dnHILRiOTHDjkiaovNHldAT7F/ArIjYz/cF0fN2m+onHdpPWgicMxV1X42ucXrvp/DkF1hsYdsQij2WiMXXRntI+9+KGh0NNqQorDQRIghFs0s5kxA3JVlKUemvzWG4WGGBlL1TdJ2SbgRMPOS/b6da8dBYWqa8FnN4SB78Xx/tXfPYAFowKKn6/XMDrg4Ovnq1TZnNiKbti0ShzxXulJmpKWA+8Q=\"\n}",
+          "options": {
+            "raw": {
+              "language": "json"
+            }
+          }
+        },
+        "url": {
+          "raw": "http://gateway.vimopay.in/payoutapi/api/Payment/payoutsuat",
+          "protocol": "http",
+          "host": [
+            "gateway",
+            "vimopay",
+            "in"
+          ],
+          "path": [
+            "payoutapi",
+            "api",
+            "Payment",
+            "payoutsuat"
+          ]
+        }
+      },
+      "response": []
+    },
+    {
+      "name": "Call back",
+      "request": {
+        "auth": {
+          "type": "noauth"
+        },
+        "method": "POST",
+        "header": [],
+        "body": {
+          "mode": "raw",
+          "raw": "{\r\n  \"txnStatus\": \"Success\",\r\n  \"txnStatusCode\": \"000\",\r\n  \"rrn\": \"502222116180\",\r\n  \"txnId\": \"07885C7E-BF7C-45FA-822C-4C1301BF5B3C\",\r\n  \"amount\": 1000,\r\n  \"paymentMode\": \"IMPS\",\r\n  \"paymentPurpose\": \"004\",\r\n  \"merchantRefId\": \"210104046709804\",\r\n  \"beneficiaryBank\": \"014\",\r\n  \"beneficiaryAccountNumber\": \"019205204134\",\r\n  \"beneficiaryIFSC\": \"ICIC0320492\",\r\n  \"beneficiaryMobileNumber\": \"9105502543\",\r\n  \"beneficiaryLocation\": \"UP\",\r\n  \"beneficiaryName\": \"Vidual\",\r\n  \"responseMessage\": \"Transaction successful\",\r\n  \"charges\": 13.0,\r\n  \"lat\": \"2.835413\",\r\n  \"long\": \"7.94135\",\r\n  \"udf1\": \"\",\r\n  \"udf2\": \"\",\r\n  \"udf3\": \"\"\r\n}",
+          "options": {
+            "raw": {
+              "language": "json"
+            }
+          }
+        },
+        "url": {
+          "raw": ""
+        }
+      },
+      "response": []
+    }
+  ]
+}

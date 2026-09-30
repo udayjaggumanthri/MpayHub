@@ -626,221 +626,28 @@ def process_load_money(user, amount, gateway_id):
         raise TransactionFailed(f'Load money failed: {str(e)}') from e
 
 
-@db_transaction.atomic
-def process_payout(user, bank_account_id, amount, gateway_id=None, transfer_mode: str = 'IMPS'):
-    from apps.bank_accounts.models import BankAccount
+def process_payout(
+    user,
+    bank_account_id,
+    amount,
+    gateway_id=None,
+    transfer_mode: str = 'IMPS',
+    **kwargs,
+):
+    """
+    Real provider payout (hold until callback). Mock instant-SUCCESS path removed.
+    Extra kwargs: beneficiary_location, purpose_code, lat, long, udf1, udf2, udf3.
+    """
+    from apps.fund_management.payout_orchestrator import process_payout as _orchestrate
 
-    try:
-        bank_account = BankAccount.objects.get(id=bank_account_id, user=user)
-    except BankAccount.DoesNotExist:
-        raise ValueError('Bank account not found') from None
-
-    amount = money_q(Decimal(str(amount)))
-    charge_amt = payout_slab_charge_for_user(user, amount)
-    platform_fee = Decimal('0')
-    total_deducted = money_q(amount + charge_amt)
-
-    main_wallet = Wallet.get_wallet(user, 'main')
-    if main_wallet.balance < total_deducted:
-        raise InsufficientBalance(
-            f'Insufficient balance. Available: ₹{main_wallet.balance}, Required: ₹{total_deducted}'
-        )
-
-    payout = None
-    last_integrity: IntegrityError | None = None
-    for attempt in range(2):
-        tid = generate_service_id('payout')
-        try:
-            with db_transaction.atomic():
-                payout = Payout.objects.create(
-                    user=user,
-                    bank_account=bank_account,
-                    amount=amount,
-                    charge=charge_amt,
-                    platform_fee=platform_fee,
-                    total_deducted=total_deducted,
-                    transfer_mode=transfer_mode,
-                    status='PENDING',
-                    transaction_id=tid,
-                )
-            break
-        except IntegrityError as exc:
-            last_integrity = exc
-            logger.warning('Payout create id collision (attempt %s)', attempt)
-    if payout is None:
-        raise TransactionFailed(
-            'Could not allocate a unique payout reference; please retry.'
-        ) from last_integrity
-
-    try:
-        from apps.notifications.services.dispatch import SmsNotificationService
-        from apps.notifications.email_helpers import dispatch_user_email
-
-        pending_ctx = {
-            'amount': str(amount),
-            'transaction_id': payout.transaction_id,
-            'reference': payout.transaction_id,
-        }
-        SmsNotificationService.dispatch(
-            'payout.pending',
-            user.phone,
-            pending_ctx,
-            user_id=user.pk,
-            idempotency_key=f'payout:{payout.transaction_id}:PENDING',
-        )
-        dispatch_user_email(
-            'payout.pending',
-            user,
-            pending_ctx,
-            idempotency_key=f'payout:{payout.transaction_id}:PENDING',
-        )
-    except Exception:
-        pass
-
-    try:
-        gateway_transaction_id = f'PTX{payout.transaction_id}'
-        payout.gateway_transaction_id = gateway_transaction_id
-        payout.status = 'SUCCESS'
-        payout.save(update_fields=['gateway_transaction_id', 'status'])
-
-        opening_balance = main_wallet.balance
-        main_wallet.debit(total_deducted, reference=payout.transaction_id)
-        closing_balance = main_wallet.balance
-
-        Transaction.objects.create(
-            user=user,
-            transaction_type='payout',
-            amount=amount,
-            charge=charge_amt,
-            platform_fee=platform_fee,
-            net_amount=total_deducted,
-            status='SUCCESS',
-            service_id=payout.transaction_id,
-            reference=gateway_transaction_id,
-            service_family='payout',
-            bank_txn_id=gateway_transaction_id[:191],
-            **transaction_agent_db_fields(user),
-        )
-
-        PassbookEntry.objects.create(
-            user=user,
-            wallet_type='main',
-            service='PAYOUT',
-            service_id=payout.transaction_id,
-            description=(
-                f'PAYOUT {transfer_mode}, A/C ..{bank_account.account_number[-4:]}, IFSC {bank_account.ifsc}, '
-                f'AMOUNT ₹{amount}, CHARGE ₹{charge_amt}'
-            ),
-            debit_amount=total_deducted,
-            credit_amount=Decimal('0'),
-            opening_balance=opening_balance,
-            closing_balance=closing_balance,
-            service_charge=charge_amt,
-            principal_amount=amount,
-            **passbook_initiator_db_fields(user),
-        )
-
-        if charge_amt > 0:
-            try:
-                from apps.transactions.services.fee_settlement import settle_service_charge
-
-                settle_service_charge(
-                    payer=user,
-                    module='payout',
-                    service_id=payout.transaction_id,
-                    charge=charge_amt,
-                    principal=amount,
-                    meta={'transfer_mode': transfer_mode},
-                )
-            except Exception:
-                logger.exception('Payout fee settlement failed for %s', payout.transaction_id)
-
-        logger.info(
-            'payout completed',
-            extra={
-                'event': 'payout_success',
-                'user_id': user.pk,
-                'transaction_id': payout.transaction_id,
-                'service_id': payout.transaction_id,
-                'amount': str(amount),
-                'status': payout.status,
-            },
-        )
-        try:
-            from apps.notifications.services.dispatch import SmsNotificationService
-            from apps.notifications.email_helpers import dispatch_user_email
-
-            acct = str(getattr(bank_account, 'account_number', '') or '')
-            account_masked = f'XXXX{acct[-4:]}' if len(acct) >= 4 else (acct or 'XXXX')
-            ctx = {
-                'amount': str(amount),
-                'account': account_masked,
-                'utr': gateway_transaction_id,
-                'reference': gateway_transaction_id,
-                'transfer_mode': transfer_mode,
-                'transaction_id': payout.transaction_id,
-            }
-            SmsNotificationService.dispatch(
-                'payout.success',
-                user.phone,
-                ctx,
-                user_id=user.pk,
-                idempotency_key=f'payout:{payout.transaction_id}:SUCCESS',
-            )
-            dispatch_user_email(
-                'payout.success',
-                user,
-                ctx,
-                idempotency_key=f'payout:{payout.transaction_id}:SUCCESS',
-            )
-        except Exception:
-            pass
-        return payout
-    except Exception as e:
-        logger.info(
-            'payout failed',
-            extra={
-                'event': 'payout_failure',
-                'user_id': user.pk,
-                'transaction_id': getattr(payout, 'transaction_id', ''),
-                'service_id': getattr(payout, 'transaction_id', ''),
-                'amount': str(amount),
-                'status': 'FAILED',
-            },
-        )
-        payout.status = 'FAILED'
-        payout.failure_reason = str(e)
-        payout.save(update_fields=['status', 'failure_reason'])
-        try:
-            from apps.notifications.services.dispatch import SmsNotificationService
-            from apps.notifications.email_helpers import dispatch_user_email
-
-            acct = str(getattr(bank_account, 'account_number', '') or '')
-            account_masked = f'XXXX{acct[-4:]}' if len(acct) >= 4 else (acct or 'XXXX')
-            txn_id = getattr(payout, 'transaction_id', '') or ''
-            ctx = {
-                'amount': str(amount),
-                'account': account_masked,
-                'transaction_id': txn_id,
-                'reference': txn_id,
-                'reason': str(e)[:200],
-            }
-            SmsNotificationService.dispatch(
-                'payout.failed',
-                user.phone,
-                ctx,
-                user_id=user.pk,
-                idempotency_key=f'payout:{txn_id}:FAILED',
-            )
-            dispatch_user_email(
-                'payout.failed',
-                user,
-                ctx,
-                idempotency_key=f'payout:{txn_id}:FAILED',
-            )
-        except Exception:
-            pass
-        raise TransactionFailed(f'Payout failed: {str(e)}') from e
+    return _orchestrate(
+        user,
+        bank_account_id,
+        amount,
+        gateway_id=gateway_id,
+        transfer_mode=transfer_mode,
+        **kwargs,
+    )
 
 
 def get_available_gateways(user_role=None, gateway_type='payment'):

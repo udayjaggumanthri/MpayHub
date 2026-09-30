@@ -31,7 +31,8 @@ const MpinInput = ({
     onChange?.(next);
     if (char && index < 5) inputRefs.current[index + 1]?.focus();
     if (index === 5 && char && next.every((d) => d !== '')) {
-      onComplete?.(next.join(''));
+      // Defer so parent can set loading before a second Verify click races in
+      Promise.resolve().then(() => onComplete?.(next.join('')));
     }
   };
 

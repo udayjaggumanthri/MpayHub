@@ -348,3 +348,455 @@ input[type='number']::-webkit-inner-spin-button {
   -webkit-appearance: none;
   margin: 0;
 }
+
+/* —— Payment receipt modal (content-scoped; header/sidebar stay usable) —— */
+.payflow-shell {
+  position: fixed;
+  top: var(--mpay-header-h, 4rem);
+  right: 0;
+  bottom: 0;
+  left: 0;
+  z-index: 35;
+  display: flex;
+  color: #0f172a;
+  pointer-events: none;
+}
+
+@media (min-width: 1024px) {
+  .payflow-shell {
+    left: var(--mpay-sidebar-w, 16rem);
+  }
+}
+
+.payflow-backdrop {
+  position: absolute;
+  inset: 0;
+  border: 0;
+  padding: 0;
+  margin: 0;
+  cursor: pointer;
+  pointer-events: auto;
+  background: rgba(15, 23, 42, 0.42);
+  backdrop-filter: blur(2px);
+}
+
+.dark .payflow-backdrop {
+  background: rgba(2, 6, 23, 0.55);
+}
+
+.payflow-backdrop:disabled {
+  cursor: default;
+}
+
+.payflow-panel-wrap {
+  position: relative;
+  z-index: 1;
+  pointer-events: auto;
+  width: 100%;
+  height: 100%;
+  overflow-y: auto;
+  overflow-x: hidden;
+  -webkit-overflow-scrolling: touch;
+  overscroll-behavior: contain;
+  display: flex;
+  align-items: flex-start;
+  justify-content: center;
+  padding: 1rem 0.75rem 5.5rem;
+}
+
+@media (min-width: 640px) {
+  .payflow-panel-wrap {
+    align-items: center;
+    padding: 1.5rem 1.25rem 2rem;
+  }
+}
+
+@media (min-width: 1024px) {
+  .payflow-panel-wrap {
+    padding-bottom: 2rem;
+  }
+}
+
+.payflow-panel {
+  width: 100%;
+  max-width: 26rem;
+  margin: 0 auto;
+  display: flex;
+  flex-direction: column;
+  max-height: none;
+  border-radius: 1.25rem;
+  background: #ffffff;
+  border: 1px solid rgba(226, 232, 240, 0.95);
+  box-shadow: 0 20px 50px rgba(15, 23, 42, 0.16);
+  animation: payflow-rise 0.35s ease both;
+}
+
+.dark .payflow-panel {
+  background: #0f172a;
+  border-color: rgba(51, 65, 85, 0.9);
+  box-shadow: 0 20px 50px rgba(0, 0, 0, 0.45);
+}
+
+@media (min-width: 640px) {
+  .payflow-panel {
+    max-height: min(36rem, calc(100vh - var(--mpay-header-h, 4rem) - 3rem));
+  }
+}
+
+.payflow-panel-scroll {
+  flex: 1 1 auto;
+  overflow-y: auto;
+  padding: 1.5rem 1.25rem 1rem;
+  text-align: center;
+  min-height: 0;
+}
+
+@media (min-width: 640px) {
+  .payflow-panel-scroll {
+    padding: 1.75rem 1.5rem 1rem;
+  }
+}
+
+.payflow-stage {
+  position: relative;
+  width: 7rem;
+  height: 7rem;
+  margin: 0 auto 1rem;
+  display: grid;
+  place-items: center;
+}
+
+.payflow-core {
+  position: relative;
+  z-index: 2;
+  width: 4.5rem;
+  height: 4.5rem;
+  border-radius: 9999px;
+  display: grid;
+  place-items: center;
+  background: #f8fafc;
+  border: 1px solid #e2e8f0;
+}
+
+.dark .payflow-core {
+  background: #1e293b;
+  border-color: #334155;
+}
+
+.payflow-ring {
+  position: absolute;
+  inset: 0;
+  border-radius: 9999px;
+  border: 2px solid rgba(37, 99, 235, 0.28);
+  animation: payflow-ripple 2s ease-out infinite;
+}
+
+.payflow-tone-pending .payflow-ring {
+  border-color: rgba(14, 165, 233, 0.35);
+}
+
+.payflow-ring-2 {
+  animation-delay: 0.6s;
+}
+
+@keyframes payflow-ripple {
+  0% {
+    transform: scale(0.6);
+    opacity: 0.7;
+  }
+  100% {
+    transform: scale(1.25);
+    opacity: 0;
+  }
+}
+
+.payflow-rupee {
+  font-size: 1.85rem;
+  font-weight: 800;
+  color: #2563eb;
+  animation: payflow-rupee-pulse 1.4s ease-in-out infinite;
+}
+
+.dark .payflow-rupee {
+  color: #60a5fa;
+}
+
+@keyframes payflow-rupee-pulse {
+  0%,
+  100% {
+    transform: scale(1);
+    opacity: 0.85;
+  }
+  50% {
+    transform: scale(1.08);
+    opacity: 1;
+  }
+}
+
+.payflow-icon {
+  width: 3.25rem;
+  height: 3.25rem;
+}
+
+.payflow-icon-track {
+  fill: none;
+  stroke: rgba(14, 165, 233, 0.25);
+  stroke-width: 4;
+}
+
+.payflow-pending-arc {
+  stroke: #0ea5e9;
+  animation: payflow-spin 1.1s linear infinite;
+  transform-origin: 32px 32px;
+}
+
+@keyframes payflow-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+.payflow-success-circle {
+  fill: #16a34a;
+  transform-origin: 32px 32px;
+  animation: payflow-pop 0.4s cubic-bezier(0.2, 0.9, 0.2, 1.15) both;
+}
+
+.payflow-success-check {
+  fill: none;
+  stroke: #fff;
+  stroke-width: 4.5;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  stroke-dasharray: 48;
+  stroke-dashoffset: 48;
+  animation: payflow-draw 0.4s 0.15s ease forwards;
+}
+
+.payflow-fail-circle {
+  fill: #dc2626;
+  transform-origin: 32px 32px;
+  animation: payflow-pop 0.35s cubic-bezier(0.2, 0.9, 0.2, 1.15) both;
+}
+
+.payflow-fail-x {
+  fill: none;
+  stroke: #fff;
+  stroke-width: 4.5;
+  stroke-linecap: round;
+  stroke-dasharray: 36;
+  stroke-dashoffset: 36;
+  animation: payflow-draw 0.3s 0.12s ease forwards;
+}
+
+.payflow-fail-pop {
+  animation: payflow-shake 0.4s ease both;
+}
+
+@keyframes payflow-pop {
+  0% {
+    transform: scale(0.45);
+    opacity: 0.2;
+  }
+  100% {
+    transform: scale(1);
+    opacity: 1;
+  }
+}
+
+@keyframes payflow-draw {
+  to {
+    stroke-dashoffset: 0;
+  }
+}
+
+@keyframes payflow-shake {
+  0%,
+  100% {
+    transform: translateX(0);
+  }
+  25% {
+    transform: translateX(-5px);
+  }
+  75% {
+    transform: translateX(5px);
+  }
+}
+
+.payflow-amount {
+  margin: 0 0 0.35rem;
+  font-size: clamp(1.75rem, 5vw, 2.25rem);
+  font-weight: 800;
+  letter-spacing: -0.03em;
+  color: #0f172a;
+}
+
+.dark .payflow-amount {
+  color: #f8fafc;
+}
+
+.payflow-title {
+  margin: 0 0 0.35rem;
+  font-size: 1.2rem;
+  font-weight: 700;
+  color: #0f172a;
+}
+
+.dark .payflow-title {
+  color: #f1f5f9;
+}
+
+.payflow-subtitle {
+  margin: 0 auto 0.75rem;
+  max-width: 22rem;
+  font-size: 0.9rem;
+  line-height: 1.45;
+  color: #64748b;
+}
+
+.dark .payflow-subtitle {
+  color: #94a3b8;
+}
+
+@keyframes payflow-rise {
+  from {
+    opacity: 0;
+    transform: translateY(10px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.payflow-dots {
+  display: flex;
+  justify-content: center;
+  gap: 0.35rem;
+  margin-top: 0.5rem;
+}
+
+.payflow-dots span {
+  width: 0.4rem;
+  height: 0.4rem;
+  border-radius: 9999px;
+  background: #2563eb;
+  animation: payflow-dot 1.2s ease-in-out infinite;
+}
+
+.payflow-dots span:nth-child(2) {
+  animation-delay: 0.15s;
+}
+
+.payflow-dots span:nth-child(3) {
+  animation-delay: 0.3s;
+}
+
+@keyframes payflow-dot {
+  0%,
+  80%,
+  100% {
+    opacity: 0.25;
+    transform: translateY(0);
+  }
+  40% {
+    opacity: 1;
+    transform: translateY(-3px);
+  }
+}
+
+.payflow-card {
+  margin-top: 1rem;
+  border-radius: 0.85rem;
+  background: #f8fafc;
+  border: 1px solid #e2e8f0;
+  padding: 0.65rem 0.9rem;
+  text-align: left;
+}
+
+.dark .payflow-card {
+  background: #1e293b;
+  border-color: #334155;
+}
+
+.payflow-row {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 0.75rem;
+  padding: 0.5rem 0;
+  font-size: 0.8125rem;
+  color: #64748b;
+  border-bottom: 1px solid #e2e8f0;
+}
+
+.payflow-row:last-child {
+  border-bottom: 0;
+}
+
+.dark .payflow-row {
+  color: #94a3b8;
+  border-bottom-color: #334155;
+}
+
+.payflow-value,
+.payflow-mono {
+  color: #0f172a;
+  font-weight: 600;
+  text-align: right;
+  word-break: break-word;
+}
+
+.payflow-mono {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  font-size: 0.75rem;
+  font-weight: 500;
+}
+
+.dark .payflow-value,
+.dark .payflow-mono {
+  color: #e2e8f0;
+}
+
+.payflow-actions {
+  flex-shrink: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.65rem;
+  padding: 0.85rem 1.25rem 1.25rem;
+  border-top: 1px solid #e2e8f0;
+  background: #fff;
+  border-radius: 0 0 1.25rem 1.25rem;
+}
+
+.dark .payflow-actions {
+  border-top-color: #334155;
+  background: #0f172a;
+}
+
+@media (min-width: 640px) {
+  .payflow-actions {
+    flex-direction: row;
+    padding: 0.9rem 1.5rem 1.35rem;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .payflow-ring,
+  .payflow-rupee,
+  .payflow-pending-arc,
+  .payflow-dots span,
+  .payflow-success-circle,
+  .payflow-success-check,
+  .payflow-fail-circle,
+  .payflow-fail-x,
+  .payflow-fail-pop,
+  .payflow-panel {
+    animation: none !important;
+  }
+
+  .payflow-success-check,
+  .payflow-fail-x {
+    stroke-dashoffset: 0;
+  }
+}
