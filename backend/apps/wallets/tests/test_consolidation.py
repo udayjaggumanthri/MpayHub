@@ -98,7 +98,8 @@ class FeeSettlementTests(TestCase):
         Wallet.get_wallet(self.admin, 'main')
         Wallet.get_wallet(self.payer, 'main').credit(Decimal('500.00'), reference='seed')
 
-    def test_settle_service_charge_ledger_only_no_admin_wallet_credit(self):
+    @override_settings(PLATFORM_PAYIN_SETTLEMENT_USER_ID=None)
+    def test_bbps_credits_treasury_as_commission(self):
         rows = settle_service_charge(
             payer=self.payer,
             module='bbps',
@@ -108,35 +109,107 @@ class FeeSettlementTests(TestCase):
         )
         self.assertTrue(rows)
         admin_main = Wallet.get_wallet(self.admin, 'main')
-        self.assertEqual(admin_main.balance, Decimal('0.0000'))
+        self.assertEqual(admin_main.balance, Decimal('5.0000'))
         ledger = CommissionLedger.objects.filter(reference_service_id='SVCTEST001')
         self.assertTrue(ledger.exists())
-        self.assertEqual(ledger.first().entry_kind, 'service_fee')
+        self.assertEqual(ledger.first().entry_kind, 'commission')
         self.assertEqual(ledger.first().module, 'bbps')
-        self.assertFalse((ledger.first().meta or {}).get('wallet_credited'))
+        self.assertEqual(ledger.first().slice_key, 'bbps_admin')
+        self.assertTrue((ledger.first().meta or {}).get('wallet_credited'))
 
-    def test_settle_idempotent(self):
-        settle_service_charge(
+    @override_settings(PLATFORM_PAYIN_SETTLEMENT_USER_ID=None)
+    def test_payout_stays_tracker_only_no_admin_wallet_credit(self):
+        rows = settle_service_charge(
             payer=self.payer,
             module='payout',
-            service_id='SVCIDEMP1',
+            service_id='SVCPAYOUT1',
             charge=Decimal('7.00'),
+            principal=Decimal('500.00'),
+        )
+        self.assertTrue(rows)
+        admin_main = Wallet.get_wallet(self.admin, 'main')
+        self.assertEqual(admin_main.balance, Decimal('0.0000'))
+        ledger = CommissionLedger.objects.filter(reference_service_id='SVCPAYOUT1').first()
+        self.assertEqual(ledger.entry_kind, 'service_fee')
+        self.assertEqual(ledger.slice_key, 'platform_fee')
+        self.assertFalse((ledger.meta or {}).get('wallet_credited'))
+
+    @override_settings(PLATFORM_PAYIN_SETTLEMENT_USER_ID=None)
+    def test_payin_leftover_credits_treasury_as_commission(self):
+        settle_service_charge(
+            payer=self.payer,
+            module='payin',
+            service_id='SVCPAYIN1',
+            charge=Decimal('12.50'),
+            principal=Decimal('1000.00'),
+        )
+        admin_main = Wallet.get_wallet(self.admin, 'main')
+        self.assertEqual(admin_main.balance, Decimal('12.5000'))
+        ledger = CommissionLedger.objects.filter(reference_service_id='SVCPAYIN1').first()
+        self.assertEqual(ledger.entry_kind, 'commission')
+        self.assertEqual(ledger.slice_key, 'admin_absorbed')
+        self.assertTrue((ledger.meta or {}).get('wallet_credited'))
+
+    @override_settings(PLATFORM_PAYIN_SETTLEMENT_USER_ID=None)
+    def test_settle_idempotent_no_double_credit(self):
+        settle_service_charge(
+            payer=self.payer,
+            module='bbps',
+            service_id='SVCIDEMP1',
+            charge=Decimal('10.00'),
             principal=Decimal('200.00'),
         )
         settle_service_charge(
             payer=self.payer,
-            module='payout',
+            module='bbps',
             service_id='SVCIDEMP1',
-            charge=Decimal('7.00'),
+            charge=Decimal('10.00'),
             principal=Decimal('200.00'),
         )
         admin_main = Wallet.get_wallet(self.admin, 'main')
-        self.assertEqual(admin_main.balance, Decimal('0.0000'))
+        self.assertEqual(admin_main.balance, Decimal('10.0000'))
         self.assertEqual(
             CommissionLedger.objects.filter(reference_service_id='SVCIDEMP1').count(),
             1,
         )
 
+    @override_settings(PLATFORM_PAYIN_SETTLEMENT_USER_ID=None)
+    def test_bank_verification_stays_tracker_only_no_admin_wallet_credit(self):
+        settle_service_charge(
+            payer=self.payer,
+            module='bank_verification',
+            service_id='SVCBANK1',
+            charge=Decimal('3.00'),
+            principal=Decimal('0'),
+        )
+        self.assertEqual(Wallet.get_wallet(self.admin, 'main').balance, Decimal('0.0000'))
+        ledger = CommissionLedger.objects.filter(reference_service_id='SVCBANK1').first()
+        self.assertEqual(ledger.entry_kind, 'service_fee')
+        self.assertFalse((ledger.meta or {}).get('wallet_credited'))
+
+    @override_settings(PLATFORM_PAYIN_SETTLEMENT_USER_ID=None)
+    def test_gateway_fee_cannot_credit_even_if_slice_says_commission(self):
+        settle_service_charge(
+            payer=self.payer,
+            module='payout',
+            service_id='SVCPAYFORCE1',
+            charge=Decimal('7.00'),
+            principal=Decimal('100.00'),
+            slices=[{
+                'user': self.admin,
+                'amount': Decimal('7.00'),
+                'slice_key': 'platform_fee',
+                'entry_kind': 'commission',  # malicious / mistaken
+                'role_at_time': 'PLATFORM',
+                'source': 'payout',
+            }],
+        )
+        self.assertEqual(Wallet.get_wallet(self.admin, 'main').balance, Decimal('0.0000'))
+        ledger = CommissionLedger.objects.filter(reference_service_id='SVCPAYFORCE1').first()
+        self.assertEqual(ledger.entry_kind, 'service_fee')
+        self.assertFalse((ledger.meta or {}).get('wallet_credited'))
+
+    @override_settings(PLATFORM_PAYIN_SETTLEMENT_USER_ID=None)
     def test_settle_full_charge_to_single_admin_when_multiple_exist(self):
         other = User.objects.create_user(
             phone='9000000005',
@@ -154,10 +227,10 @@ class FeeSettlementTests(TestCase):
             charge=Decimal('5.00'),
             principal=Decimal('1000.00'),
         )
-        self.assertEqual(Wallet.get_wallet(self.admin, 'main').balance, Decimal('0.0000'))
+        self.assertEqual(Wallet.get_wallet(self.admin, 'main').balance, Decimal('5.0000'))
         self.assertEqual(Wallet.get_wallet(other, 'main').balance, Decimal('0.0000'))
         ledgers = CommissionLedger.objects.filter(reference_service_id='SVCFULL5')
         self.assertEqual(ledgers.count(), 1)
         self.assertEqual(ledgers.first().user_id, self.admin.pk)
         self.assertEqual(ledgers.first().amount, Decimal('5.0000'))
-        self.assertFalse((ledgers.first().meta or {}).get('wallet_credited'))
+        self.assertTrue((ledgers.first().meta or {}).get('wallet_credited'))

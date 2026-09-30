@@ -220,12 +220,11 @@ def _credit_platform_payin_slices(
     tx_ref: str,
 ) -> None:
     """
-    Record gateway + admin platform shares on CommissionLedger only.
+    Credit gateway + admin platform leftover onto treasury Main as commission.
 
-    Service fees are tracked in Service Fee Tracker — they must not credit
-    Admin/treasury Main wallets (avoids inflating company profit).
+    Admin/platform share is company profit — credits treasury wallet and appears
+    on the Commission report (not Service Fee Tracker).
     """
-    del tx_ref  # call-site compatibility; no wallet passbook credit for fees
     recipients = resolve_platform_payin_recipients(load_money.user)
     src_meta = _payin_source_agent_meta(load_money.user)
     n = len(recipients)
@@ -238,104 +237,116 @@ def _credit_platform_payin_slices(
         )
 
     src_idx = _commission_source_index_fields(src_meta)
-    fee_meta_base = {
-        'wallet_credited': False,
-        'tracker': 'service_fee',
-        **src_meta,
-    }
+    payer = load_money.user
+    sid = load_money.transaction_id
+    customer_charge = money_q(load_money.charge or 0)
+
+    def _post_slice(
+        *,
+        user,
+        amount: Decimal,
+        slice_key: str,
+        role_at_time: str,
+        extra_meta: dict,
+    ) -> None:
+        amt = money_q(amount)
+        if amt <= 0:
+            return
+        from apps.transactions.models import CommissionLedger
+
+        if user is not None:
+            if CommissionLedger.objects.filter(
+                reference_service_id=sid,
+                user=user,
+                slice_key=slice_key,
+            ).exists():
+                return
+        meta = {
+            'slice': slice_key,
+            'wallet_credited': bool(user is not None),
+            'tracker': 'commission',
+            **src_meta,
+            **extra_meta,
+        }
+        if user is not None:
+            suffix = (
+                f" (from {src_meta.get('source_user_code', '')}, {src_meta.get('source_role', '')})"
+                if src_meta.get('source_user_code')
+                else ''
+            )
+            _passbook_credit(
+                user,
+                'main',
+                'COMMISSION',
+                sid,
+                f'Pay-in platform commission ({slice_key}) on {sid}{suffix}',
+                amt,
+                tx_ref,
+                initiator_user=payer,
+            )
+        commission_ledger_create(
+            user=user,
+            role_at_time=role_at_time,
+            amount=amt,
+            source='payin',
+            entry_kind='commission',
+            module='payin',
+            slice_key=slice_key,
+            customer_charge=customer_charge,
+            reference_service_id=sid,
+            wallet_type='main',
+            meta=meta,
+            **src_idx,
+        )
 
     if gw > 0:
         if n == 0:
-            commission_ledger_create(
+            _post_slice(
                 user=None,
-                role_at_time='PLATFORM_GATEWAY',
                 amount=gw,
-                source='profit',
-                entry_kind='service_fee',
-                module='payin',
                 slice_key='gateway_absorbed',
-                customer_charge=money_q(load_money.charge or 0),
-                reference_service_id=load_money.transaction_id,
-                wallet_type='main',
-                meta={'slice': 'gateway_absorbed', **fee_meta_base},
-                **src_idx,
+                role_at_time='PLATFORM_GATEWAY',
+                extra_meta={},
             )
         else:
             parts = _split_total_evenly(gw, n)
             for user, part in zip(recipients, parts):
-                if part <= 0:
-                    continue
-                commission_ledger_create(
+                _post_slice(
                     user=user,
-                    role_at_time='PLATFORM_GATEWAY',
                     amount=part,
-                    source='profit',
-                    entry_kind='service_fee',
-                    module='payin',
                     slice_key='gateway_absorbed',
-                    customer_charge=money_q(load_money.charge or 0),
-                    reference_service_id=load_money.transaction_id,
-                    wallet_type='main',
-                    meta={
-                        'slice': 'gateway_absorbed',
-                        'split_recipients': n,
-                        **fee_meta_base,
-                    },
-                    **src_idx,
+                    role_at_time='PLATFORM_GATEWAY',
+                    extra_meta={'split_recipients': n},
                 )
 
     if ad_total > 0:
+        admin_meta = {
+            'admin_base_amount': str(dist['ad_base']),
+            'absorbed_chain_amount': str(dist['absorbed']),
+            'retailer_absorbed_to_admin': str(dist.get('retailer_absorbed_to_admin', '0')),
+        }
         if n == 0:
-            commission_ledger_create(
+            _post_slice(
                 user=None,
-                role_at_time='PLATFORM_ADMIN',
                 amount=ad_total,
-                source='profit',
-                entry_kind='service_fee',
-                module='payin',
                 slice_key='admin_absorbed',
-                customer_charge=money_q(load_money.charge or 0),
-                reference_service_id=load_money.transaction_id,
-                wallet_type='main',
-                meta={
-                    'slice': 'admin_absorbed',
-                    'admin_base_amount': str(dist['ad_base']),
-                    'absorbed_chain_amount': str(dist['absorbed']),
-                    'retailer_absorbed_to_admin': str(dist.get('retailer_absorbed_to_admin', '0')),
-                    **fee_meta_base,
-                },
-                **src_idx,
+                role_at_time='PLATFORM_ADMIN',
+                extra_meta=admin_meta,
             )
         else:
             parts = _split_total_evenly(ad_total, n)
             for user, part in zip(recipients, parts):
-                if part <= 0:
-                    continue
-                commission_ledger_create(
+                _post_slice(
                     user=user,
-                    role_at_time='PLATFORM_ADMIN',
                     amount=part,
-                    source='profit',
-                    entry_kind='service_fee',
-                    module='payin',
                     slice_key='admin_absorbed',
-                    customer_charge=money_q(load_money.charge or 0),
-                    reference_service_id=load_money.transaction_id,
-                    wallet_type='main',
-                    meta={
-                        'slice': 'admin_absorbed',
-                        'admin_base_amount': str(dist['ad_base']),
-                        'absorbed_chain_amount': str(dist['absorbed']),
-                        'retailer_absorbed_to_admin': str(dist.get('retailer_absorbed_to_admin', '0')),
-                        'split_recipients': n,
-                        **fee_meta_base,
-                    },
-                    **src_idx,
+                    role_at_time='PLATFORM_ADMIN',
+                    extra_meta={**admin_meta, 'split_recipients': n},
                 )
 
     if gw > 0 or ad_total > 0:
         logger.info(
-            'Pay-in platform service fee (tracker only): txn=%s recipients=%s gw=%s ad_total=%s',
+            'Pay-in platform commission: txn=%s recipients=%s gw=%s ad_total=%s',
             load_money.transaction_id,
             [u.pk for u in recipients] if recipients else [],
             gw,

@@ -236,9 +236,16 @@ const ServiceFeeTracker = () => {
   return (
     <div className="mx-auto w-full max-w-7xl space-y-4">
       <header className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-        <h2 className="text-xl font-bold text-slate-900 dark:text-slate-100 sm:text-2xl">
-          Service Fee Tracker
-        </h2>
+        <div>
+          <h2 className="text-xl font-bold text-slate-900 dark:text-slate-100 sm:text-2xl">
+            Service Fee Tracker
+          </h2>
+          <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">
+            Payout and bank-verify charges paid to gateways — tracked here only, not
+            credited to Admin Main. Pay In leftover and BBPS extra appear on the
+            Commission report as platform profit.
+          </p>
+        </div>
         <Button
           size="sm"
           variant="secondary"

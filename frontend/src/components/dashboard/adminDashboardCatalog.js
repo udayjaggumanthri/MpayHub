@@ -186,7 +186,7 @@ export const ADMIN_QUICK_ACTION_CATALOG = [
   {
     id: 'service-fee-tracker',
     title: 'Service Fee Tracker',
-    description: 'Platform fees (not profit)',
+    description: 'Gateway charges (not Main)',
     path: '/reports/service-fees',
     iconKey: 'docchart',
     tone: 'from-amber-500 to-orange-600',

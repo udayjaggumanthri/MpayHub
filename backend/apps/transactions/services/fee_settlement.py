@@ -4,8 +4,11 @@ Unified revenue / commission settlement engine.
 Hierarchy commission credits go through ``settle_service_charge`` onto the
 beneficiary's main wallet with a matching CommissionLedger row.
 
-Platform ``service_fee`` slices are ledger-only (Service Fee Tracker) — they must
-not credit Admin / treasury Main wallets so company profit is not inflated.
+Pay-in leftover and BBPS extra debit settle as ``entry_kind=commission`` onto
+the platform treasury Main wallet (admin/platform profit).
+
+Payout and bank-verification charges are **gateway costs** paid to providers —
+``entry_kind=service_fee``, Service Fee Tracker only, **never** credit Admin Main.
 """
 from __future__ import annotations
 
@@ -25,6 +28,12 @@ from apps.transactions.models import CommissionLedger, PassbookEntry
 from apps.wallets.models import Wallet
 
 logger = logging.getLogger(__name__)
+
+# Modules whose default platform slice is admin/platform commission (credits treasury).
+PLATFORM_COMMISSION_MODULES = frozenset({'payin', 'bbps', 'profit'})
+
+# Gateway costs: ledger/tracker only — must never credit Admin / treasury Main.
+GATEWAY_FEE_MODULES = frozenset({'payout', 'bank_verification'})
 
 
 def _source_agent_meta(payer: Optional[User]) -> dict:
@@ -129,6 +138,51 @@ def _split_evenly(total: Decimal, n: int) -> list[Decimal]:
     return parts
 
 
+def _default_platform_slices(
+    *,
+    module: str,
+    service_id: str,
+    charge: Decimal,
+    recipients: list[User],
+) -> list[dict[str, Any]]:
+    """Build default slices when caller does not pass explicit ``slices``."""
+    as_commission = (
+        module in PLATFORM_COMMISSION_MODULES
+        and module not in GATEWAY_FEE_MODULES
+    )
+    if as_commission:
+        slice_key = 'bbps_admin' if module == 'bbps' else 'admin_absorbed'
+        entry_kind = 'commission'
+        service_label = 'COMMISSION'
+        description = f'{module.upper()} platform commission on {service_id}'
+        source = 'payin' if module == 'payin' else module
+    else:
+        slice_key = 'platform_fee'
+        entry_kind = 'service_fee'
+        service_label = 'SERVICE FEE'
+        description = f'{module.upper()} service fee on {service_id}'
+        source = module if module in (
+            'payin', 'profit', 'bbps', 'payout', 'bank_verification', 'aeps', 'cms'
+        ) else 'profit'
+
+    parts = _split_evenly(charge, len(recipients))
+    slices: list[dict[str, Any]] = []
+    for user, part in zip(recipients, parts):
+        if part <= 0:
+            continue
+        slices.append({
+            'user': user,
+            'amount': part,
+            'slice_key': slice_key,
+            'entry_kind': entry_kind,
+            'role_at_time': 'PLATFORM',
+            'source': source,
+            'service_label': service_label,
+            'description': description,
+        })
+    return slices
+
+
 @db_transaction.atomic
 def settle_service_charge(
     *,
@@ -147,12 +201,11 @@ def settle_service_charge(
     ``slices`` is an optional explicit list of:
       { user, amount, slice_key, entry_kind, role_at_time, source, service_label, description }
 
-    When ``slices`` is None and ``charge > 0``, the full charge is recorded as
-    ``entry_kind='service_fee'``, ``slice_key='platform_fee'`` on the platform
-    recipient — **ledger only** (no Admin/treasury Main credit).
+    When ``slices`` is None and ``charge > 0``:
+      - ``payin`` / ``bbps`` → ``entry_kind=commission`` on treasury Main (credits wallet)
+      - ``payout`` and other modules → ``entry_kind=service_fee`` tracker-only
 
-    Commission slices still credit the beneficiary Main wallet when
-    ``credit_wallets`` is True.
+    Commission slices credit the beneficiary Main wallet when ``credit_wallets`` is True.
     """
     charge = money_q(charge or 0)
     principal = money_q(principal or 0)
@@ -163,19 +216,21 @@ def settle_service_charge(
     src.update(meta or {})
     src_idx = _commission_source_index_fields(src)
     created: list[CommissionLedger] = []
+    module_norm = (module or '').strip().lower()
 
     if slices is None:
         recipients = resolve_platform_recipients_or_fallback(payer)
         if not recipients:
             # Ledger-only unattributed row
+            as_commission = module_norm in PLATFORM_COMMISSION_MODULES
             try:
                 row = commission_ledger_create(
                     user=None,
                     role_at_time='PLATFORM',
                     amount=charge,
-                    source=module if module != 'payin' else 'profit',
-                    entry_kind='service_fee',
-                    module=module,
+                    source=module_norm if module_norm != 'payin' else 'profit',
+                    entry_kind='commission' if as_commission else 'service_fee',
+                    module=module_norm,
                     slice_key='unattributed',
                     customer_charge=charge,
                     reference_service_id=service_id,
@@ -183,7 +238,7 @@ def settle_service_charge(
                     meta={
                         'slice': 'unattributed',
                         'wallet_credited': False,
-                        'tracker': 'service_fee',
+                        'tracker': 'commission' if as_commission else 'service_fee',
                         **src,
                     },
                     **src_idx,
@@ -193,23 +248,12 @@ def settle_service_charge(
                 logger.exception('fee_settlement: failed unattributed ledger for %s', service_id)
             return created
 
-        parts = _split_evenly(charge, len(recipients))
-        slices = []
-        for user, part in zip(recipients, parts):
-            if part <= 0:
-                continue
-            slices.append({
-                'user': user,
-                'amount': part,
-                'slice_key': 'platform_fee',
-                'entry_kind': 'service_fee',
-                'role_at_time': 'PLATFORM',
-                'source': module if module in (
-                    'payin', 'profit', 'bbps', 'payout', 'bank_verification', 'aeps', 'cms'
-                ) else 'profit',
-                'service_label': 'SERVICE FEE',
-                'description': f'{module.upper()} service fee on {service_id}',
-            })
+        slices = _default_platform_slices(
+            module=module_norm,
+            service_id=service_id,
+            charge=charge,
+            recipients=recipients,
+        )
 
     for item in slices:
         user = item.get('user')
@@ -218,7 +262,7 @@ def settle_service_charge(
             continue
         slice_key = str(item.get('slice_key') or 'slice')[:64]
         entry_kind = item.get('entry_kind') or 'service_fee'
-        source = item.get('source') or module
+        source = item.get('source') or module_norm
         role_at_time = item.get('role_at_time') or (getattr(user, 'role', '') if user else 'PLATFORM')
         service_label = item.get('service_label') or (
             'COMMISSION' if entry_kind == 'commission' else 'SERVICE FEE'
@@ -242,13 +286,19 @@ def settle_service_charge(
                     created.append(existing)
                 continue
 
-        # Platform service fees are tracker-only; commissions still credit Main.
+        # Commission credits Main; gateway/service fees are tracker-only.
+        # Hard-block wallet credit for payout / bank_verification even if a caller
+        # accidentally passes entry_kind=commission.
+        module_is_gateway_fee = module_norm in GATEWAY_FEE_MODULES
         do_wallet_credit = (
             credit_wallets
             and entry_kind == 'commission'
+            and not module_is_gateway_fee
             and user is not None
             and amount > 0
         )
+        if module_is_gateway_fee:
+            entry_kind = 'service_fee'
         if do_wallet_credit:
             _passbook_credit_main(
                 user,
@@ -264,11 +314,15 @@ def settle_service_charge(
 
         slice_meta = {
             'slice': slice_key,
-            'wallet_credited': bool(do_wallet_credit),
             'tracker': 'service_fee' if entry_kind == 'service_fee' else 'commission',
             **src,
         }
         slice_meta.update(item.get('meta') or {})
+        # Force after merge so caller meta cannot claim a wallet credit for gateway fees.
+        slice_meta['wallet_credited'] = bool(do_wallet_credit)
+        if module_is_gateway_fee:
+            slice_meta['tracker'] = 'service_fee'
+            slice_meta['wallet_credited'] = False
         try:
             row = commission_ledger_create(
                 user=user,
@@ -276,7 +330,7 @@ def settle_service_charge(
                 amount=amount,
                 source=source,
                 entry_kind=entry_kind,
-                module=module,
+                module=module_norm,
                 slice_key=slice_key,
                 customer_charge=charge if charge > 0 else money_q(item.get('customer_charge') or 0),
                 reference_service_id=service_id,
@@ -328,7 +382,7 @@ def clawback_settlement(
         ).exists():
             continue
         meta_orig = dict(orig.meta or {})
-        # Historical service fees credited Main; tracker-only rows set wallet_credited=False.
+        # Explicit False = tracker-only. Missing key: treat as credited (legacy).
         wallet_was_credited = meta_orig.get('wallet_credited')
         if wallet_was_credited is None:
             wallet_was_credited = True
@@ -366,7 +420,7 @@ def clawback_settlement(
         row = commission_ledger_create(
             user=orig.user,
             role_at_time=orig.role_at_time,
-            amount=money_q(-orig.amount) if False else money_q(orig.amount),  # store positive with reversal key
+            amount=money_q(orig.amount),
             source=orig.source,
             entry_kind=orig.entry_kind,
             module=orig.module or '',

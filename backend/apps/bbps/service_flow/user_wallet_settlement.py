@@ -129,14 +129,32 @@ def settle_payment_hold(*, attempt, bill_data: dict | None = None) -> bool:
 
     if charge > 0:
         try:
-            from apps.transactions.services.fee_settlement import settle_service_charge
+            from apps.transactions.services.fee_settlement import (
+                resolve_platform_recipients_or_fallback,
+                settle_service_charge,
+            )
 
+            recipients = resolve_platform_recipients_or_fallback(user)
+            treasury = recipients[0] if recipients else None
+            slices = None
+            if treasury is not None:
+                slices = [{
+                    'user': treasury,
+                    'amount': charge,
+                    'slice_key': 'bbps_admin',
+                    'entry_kind': 'commission',
+                    'role_at_time': 'PLATFORM',
+                    'source': 'bbps',
+                    'service_label': 'COMMISSION',
+                    'description': f'BBPS platform commission on {service_id}',
+                }]
             settle_service_charge(
                 payer=user,
                 module='bbps',
                 service_id=service_id,
                 charge=charge,
                 principal=principal,
+                slices=slices,
                 meta={
                     'biller': bill_data.get('biller') or (bill_payment.biller if bill_payment else ''),
                     'bill_type': bill_data.get('bill_type') or (bill_payment.bill_type if bill_payment else ''),
