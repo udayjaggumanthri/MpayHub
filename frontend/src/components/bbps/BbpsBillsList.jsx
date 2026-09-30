@@ -123,9 +123,9 @@ const BbpsBillsList = ({
   const [detailsLoading, setDetailsLoading] = useState(false);
   const [listScope, setListScope] = useState(() => {
     if (!isAdminUser(user)) return defaultScope;
-    if (drillDown.scope === DRILLDOWN_SCOPE_PLATFORM) return 'platform';
-    if (drillDown.fromRevenue && drillDown.filters.serviceId) return 'platform';
-    return defaultScope;
+    // Admin / Super Admin: never start on My activity.
+    if (defaultScope === 'team') return 'team';
+    return 'platform';
   });
   const [showDashboardBanner, setShowDashboardBanner] = useState(drillDown.fromDashboard);
   const [summaryPeriod, setSummaryPeriod] = useState('day');
@@ -134,6 +134,9 @@ const BbpsBillsList = ({
 
   const selectedIdentity = deriveReceiptIdentity(selectedTransaction || {});
   const showAgentColumn = listScope === 'platform' || listScope === 'team';
+  /** Admins never query My activity (self); coerce to platform. */
+  const effectiveListScope =
+    isAdminUser(user) && listScope === 'self' ? 'platform' : listScope;
 
   const userId = user?.id ?? user?.user_id;
   const userRole = user?.role;
@@ -142,10 +145,16 @@ const BbpsBillsList = ({
     const next = mergeDrillDownFilters(drillDown, { defaultPeriodDates: false });
     setFilters((prev) => (filtersEqual(prev, next) ? prev : next));
     setAppliedFilters((prev) => (filtersEqual(prev, next) ? prev : next));
-    if (drillDown.scope === DRILLDOWN_SCOPE_PLATFORM && isAdminUser(user)) {
-      setListScope('platform');
-    } else if (drillDown.fromRevenue && drillDown.filters.serviceId && isAdminUser(user)) {
-      setListScope('platform');
+    if (isAdminUser(user)) {
+      setListScope((prev) => {
+        if (
+          drillDown.scope === DRILLDOWN_SCOPE_PLATFORM ||
+          (drillDown.fromRevenue && drillDown.filters.serviceId)
+        ) {
+          return 'platform';
+        }
+        return prev === 'self' ? 'platform' : prev;
+      });
     }
     setShowDashboardBanner(drillDown.fromDashboard);
     if (drillDown.hasDrillDown) setShowFilters(true);
@@ -157,7 +166,7 @@ const BbpsBillsList = ({
     try {
       const dates = reportPeriodFilterDates(summaryPeriod);
       const params = {
-        scope: listScope,
+        scope: effectiveListScope,
         page: 1,
         page_size: 1,
         date_from: dates.dateFrom,
@@ -184,7 +193,7 @@ const BbpsBillsList = ({
   }, [loadStatusSummary]);
 
   const buildListParams = useCallback(() => {
-    const params = { page, page_size: pageSize, scope: listScope };
+    const params = { page, page_size: pageSize, scope: effectiveListScope };
     if (appliedFilters.serviceId.trim()) params.search = appliedFilters.serviceId.trim();
     if (appliedFilters.status && appliedFilters.status !== 'ALL') {
       params.status = statusForReportApi(
@@ -197,7 +206,7 @@ const BbpsBillsList = ({
   }, [appliedFilters, listScope, page, pageSize]);
 
   const buildExportParams = useCallback(() => {
-    const params = { page: 1, page_size: 500, scope: listScope };
+    const params = { page: 1, page_size: 500, scope: effectiveListScope };
     if (appliedFilters.serviceId.trim()) params.search = appliedFilters.serviceId.trim();
     if (appliedFilters.status && appliedFilters.status !== 'ALL') {
       params.status = statusForReportApi(
@@ -321,7 +330,7 @@ const BbpsBillsList = ({
     setSelectedTransaction(transaction);
     setDetailsLoading(true);
     try {
-      const detail = await bbpsAPI.getBillPaymentDetail(transaction.id, { scope: listScope });
+      const detail = await bbpsAPI.getBillPaymentDetail(transaction.id, { scope: effectiveListScope });
       const row = detail?.data?.payment;
       if (!detail?.success || !row) return;
       const enriched = mapApiPaymentToReceiptTransaction(row);
@@ -416,20 +425,6 @@ const BbpsBillsList = ({
         }`}
       >
         Team (excl. me)
-      </button>
-      <button
-        type="button"
-        onClick={() => {
-          setPage(1);
-          setListScope('self');
-        }}
-        className={`px-4 py-2 rounded-lg text-sm font-semibold border ${
-          listScope === 'self'
-            ? 'bg-blue-600 text-white border-blue-600'
-            : 'bg-white dark:bg-slate-900 text-gray-700 dark:text-slate-300 border-gray-300 dark:border-slate-600'
-        }`}
-      >
-        My activity
       </button>
     </div>
   );

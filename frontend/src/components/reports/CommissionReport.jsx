@@ -113,8 +113,8 @@ const CommissionReport = () => {
   const buildParams = useCallback(
     (extra = {}) => {
       const params = { ...extra };
-      if (reportScope === 'platform' && isOperator) {
-        params.scope = 'platform';
+      if (isOperator) {
+        params.scope = reportScope === 'team' ? 'team' : 'platform';
       } else if (reportScope === 'team' && canUseTeamReportScope(user?.role)) {
         params.scope = 'team';
       }
@@ -421,22 +421,6 @@ const CommissionReport = () => {
             >
               Platform (all users)
             </button>
-          ) : null}
-          {!isOperator ? (
-            <button
-              type="button"
-              onClick={() => {
-                setReportScope('self');
-                setPage(1);
-              }}
-              className={`px-4 py-2 rounded-lg text-sm font-semibold border ${
-                reportScope === 'self'
-                  ? 'bg-blue-600 text-white border-blue-600'
-                  : 'bg-white dark:bg-slate-900 text-gray-700 dark:text-slate-300 border-gray-300 dark:border-slate-600'
-              }`}
-            >
-              All my commission
-            </button>
           ) : (
             <button
               type="button"
@@ -450,7 +434,7 @@ const CommissionReport = () => {
                   : 'bg-white dark:bg-slate-900 text-gray-700 dark:text-slate-300 border-gray-300 dark:border-slate-600'
               }`}
             >
-              My activity
+              All my commission
             </button>
           )}
           {canUseTeamReportScope(user?.role) ? (

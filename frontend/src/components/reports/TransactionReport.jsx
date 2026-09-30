@@ -98,10 +98,8 @@ const TransactionReport = ({ type = 'all' }) => {
   const [payoutReceiptTxn, setPayoutReceiptTxn] = useState(null);
   const [helpTxnId, setHelpTxnId] = useState(null);
   const [reportScope, setReportScope] = useState(() => {
-    if (!isAdminUser(user)) return 'self';
-    if (drillDown.scope === DRILLDOWN_SCOPE_PLATFORM) return 'platform';
-    // Service Fee Tracker / Commission deep-link: txn belongs to source agent, not admin.
-    if (drillDown.fromRevenue && drillDown.filters.serviceId) return 'platform';
+    // Admin / Super Admin: no personal report operations — default Platform.
+    if (isAdminUser(user)) return 'platform';
     return 'self';
   });
   const [showDashboardBanner, setShowDashboardBanner] = useState(drillDown.fromDashboard);
@@ -149,10 +147,16 @@ const TransactionReport = ({ type = 'all' }) => {
     const next = mergeDrillDownFilters(drillDown);
     setFilters((prev) => (filtersEqual(prev, next) ? prev : next));
     setAppliedFilters((prev) => (filtersEqual(prev, next) ? prev : next));
-    if (drillDown.scope === DRILLDOWN_SCOPE_PLATFORM && isAdminUser(user)) {
-      setReportScope('platform');
-    } else if (drillDown.fromRevenue && drillDown.filters.serviceId && isAdminUser(user)) {
-      setReportScope('platform');
+    if (isAdminUser(user)) {
+      if (
+        drillDown.scope === DRILLDOWN_SCOPE_PLATFORM ||
+        (drillDown.fromRevenue && drillDown.filters.serviceId)
+      ) {
+        setReportScope('platform');
+      } else {
+        // Coerce leftover self → platform (admins have no My activity).
+        setReportScope((prev) => (prev === 'self' ? 'platform' : prev));
+      }
     }
     setShowDashboardBanner(drillDown.fromDashboard);
     if (drillDown.hasDrillDown) setShowFilters(true);
@@ -160,8 +164,9 @@ const TransactionReport = ({ type = 'all' }) => {
 
   const buildReportParams = useCallback((forExport = false) => {
     let scope = 'self';
-    if (reportScope === 'platform' && isAdminUser(user)) {
-      scope = 'platform';
+    if (isAdminUser(user)) {
+      // Admins have no My activity — platform unless they explicitly chose team.
+      scope = reportScope === 'team' ? 'team' : 'platform';
     } else if (reportScope === 'team' && canUseTeamReportScope(user?.role)) {
       scope = 'team';
     }
@@ -423,7 +428,7 @@ const TransactionReport = ({ type = 'all' }) => {
     setFilters(cleared);
     setPage(1);
     setAppliedFilters(cleared);
-    if (isAdminUser(user)) setReportScope('self');
+    if (isAdminUser(user)) setReportScope('platform');
   };
 
   const changeSummaryPeriod = (period) => {
@@ -644,17 +649,6 @@ const TransactionReport = ({ type = 'all' }) => {
                   }`}
                 >
                   Team (excl. me)
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setReportScope('self')}
-                  className={`px-4 py-2 rounded-lg text-sm font-semibold border ${
-                    reportScope === 'self'
-                      ? 'bg-blue-600 text-white border-blue-600'
-                      : 'bg-white dark:bg-slate-900 text-gray-700 dark:text-slate-300 border-gray-300 dark:border-slate-600'
-                  }`}
-                >
-                  My activity
                 </button>
               </>
             )}
