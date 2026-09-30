@@ -6,6 +6,7 @@ import Button from '../common/Button';
 import LoadingSpinner from '../common/LoadingSpinner';
 import GatewayFlowStepper from './GatewayFlowStepper';
 import { firstErrorMessage, packageTotalDeductionDisplay, pct } from './gatewayAdminShared';
+import { formatDecimalInput } from '../../utils/formatters';
 import {
   FaPlus,
   FaPenToSquare,
@@ -62,9 +63,9 @@ const PayInPackagesAdmin = () => {
       if (sRes.success && sRes.data?.config) {
         const cfg = sRes.data.config;
         setPayoutSlabForm({
-          low_max_amount: String(cfg.low_max_amount ?? '24999'),
-          low_charge: String(cfg.low_charge ?? '7'),
-          high_charge: String(cfg.high_charge ?? '15'),
+          low_max_amount: formatDecimalInput(cfg.low_max_amount) || '24999.00',
+          low_charge: formatDecimalInput(cfg.low_charge) || '7.00',
+          high_charge: formatDecimalInput(cfg.high_charge) || '15.00',
         });
       }
     });
@@ -275,7 +276,8 @@ const PayInPackagesAdmin = () => {
                             {packageTotalDeductionDisplay(pkg)}%
                           </td>
                           <td className="p-3 text-xs whitespace-nowrap">
-                            ₹{pkg.min_amount} – ₹{pkg.max_amount_per_txn}
+                            ₹{formatDecimalInput(pkg.min_amount) || '0.00'} – ₹
+                            {formatDecimalInput(pkg.max_amount_per_txn) || '0.00'}
                           </td>
                           <td className="p-3 text-center">
                             <div className="flex flex-col items-center gap-1">

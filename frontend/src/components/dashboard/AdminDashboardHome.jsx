@@ -108,6 +108,7 @@ const AdminDashboardHome = ({ user, flashInfo = null }) => {
   } = useWallet();
 
   const [qrStats, setQrStats] = useState(null);
+  const [payoutRecoveryStats, setPayoutRecoveryStats] = useState(null);
   const [userCensus, setUserCensus] = useState(null);
   const [activityLoading, setActivityLoading] = useState(true);
   const [activity, setActivity] = useState(null);
@@ -123,6 +124,9 @@ const AdminDashboardHome = ({ user, flashInfo = null }) => {
     let mounted = true;
     adminAPI.getQrOperationsStats().then((res) => {
       if (mounted && res.success) setQrStats(res.data);
+    });
+    adminAPI.getPayoutRecoveryStats().then((res) => {
+      if (mounted && res.success) setPayoutRecoveryStats(res.data);
     });
     usersAPI.getUserStats().then((res) => {
       if (!mounted) return;
@@ -268,6 +272,29 @@ const AdminDashboardHome = ({ user, flashInfo = null }) => {
             className="min-h-[44px] shrink-0 rounded-lg bg-amber-600 px-4 py-2 text-sm font-semibold text-white hover:bg-amber-700"
           >
             Open QR queue
+          </button>
+        </div>
+      ) : null}
+
+      {(payoutRecoveryStats?.stuck_count ?? 0) > 0 ? (
+        <div className="flex flex-col gap-3 rounded-xl border border-rose-200 bg-rose-50 px-4 py-3.5 dark:border-rose-800 dark:bg-rose-950/40 sm:flex-row sm:items-center sm:justify-between">
+          <div>
+            <p className="font-semibold text-rose-900 dark:text-rose-300">
+              {payoutRecoveryStats.stuck_count} payout
+              {payoutRecoveryStats.stuck_count === 1 ? '' : 's'} stuck pending (&gt;30 min)
+            </p>
+            <p className="mt-0.5 text-sm text-rose-800 dark:text-rose-300">
+              Held amount{' '}
+              {formatCurrency(parseFloat(payoutRecoveryStats.held_amount || 0))}. Confirm with
+              Vidual/bank, then settle or release.
+            </p>
+          </div>
+          <button
+            type="button"
+            onClick={() => navigate('/admin/payout-recovery')}
+            className="min-h-[44px] shrink-0 rounded-lg bg-rose-600 px-4 py-2 text-sm font-semibold text-white hover:bg-rose-700"
+          >
+            Open payout recovery
           </button>
         </div>
       ) : null}

@@ -177,13 +177,34 @@ class PayoutProviderCallbackView(APIView):
             'responseCode': '000',
         }
         try:
+            provider = resolve_payout_provider_for_callback(provider_code=code)
+            # Optional shared secret (only enforced when configured on ApiMaster).
+            cfg = getattr(getattr(provider, 'master', None), 'config_json', None) or {}
+            expected = ''
+            if isinstance(cfg, dict):
+                expected = str(cfg.get('callback_shared_secret') or '').strip()
+            if expected:
+                got = (
+                    str(request.headers.get('X-Payout-Callback-Secret') or '')
+                    or str(request.META.get('HTTP_X_PAYOUT_CALLBACK_SECRET') or '')
+                ).strip()
+                if got != expected:
+                    logger.warning('Payout callback rejected: bad shared secret (%s)', code)
+                    return Response(
+                        {
+                            'successStatus': False,
+                            'message': 'Unauthorized',
+                            'responseCode': '001',
+                        },
+                        status=status.HTTP_401_UNAUTHORIZED,
+                    )
+
             raw = request.data
             if not isinstance(raw, dict):
                 try:
                     raw = json.loads(request.body.decode('utf-8') or '{}')
                 except (UnicodeDecodeError, json.JSONDecodeError):
                     raw = {}
-            provider = resolve_payout_provider_for_callback(provider_code=code)
             event = provider.parse_callback(raw)
             apply_payout_callback(event, provider_code=provider.provider_code)
         except PayoutConfigurationError:

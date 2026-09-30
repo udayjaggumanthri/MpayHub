@@ -153,3 +153,62 @@ def match_bank_code(
                         return b.code
 
     return None
+
+
+def _norm_state_text(value: str) -> str:
+    text = (value or '').strip().lower()
+    for ch in ('&', ',', '.', '-', '_', '/', '(', ')'):
+        text = text.replace(ch, ' ')
+    text = ' '.join(text.split())
+    # Common IFSC directory phrasing → master list names
+    aliases = {
+        'nct of delhi': 'delhi',
+        'delhi ncr': 'delhi',
+        'orissa': 'odisha',
+        'pondicherry': 'puducherry',
+        'uttaranchal': 'uttarakhand',
+        'dadra and nagar haveli and daman and diu': 'dadra and nagar haveli',
+        'andaman and nicobar': 'andaman and nicobar islands',
+        'jammu & kashmir': 'jammu and kashmir',
+    }
+    return aliases.get(text, text)
+
+
+def match_state_code(states: list[MasterItem], hint: str) -> str | None:
+    """
+    Map a free-text state (name, code, or ISO like IN-AP) to a provider master state code.
+    """
+    raw = (hint or '').strip()
+    if not raw or not states:
+        return None
+
+    upper = raw.upper()
+    if upper.startswith('IN-') and len(upper) >= 5:
+        upper = upper[3:]
+        raw = upper
+
+    # Exact code match (e.g. AP, JH, MH)
+    for item in states:
+        code = (item.code or '').strip()
+        if code and code.upper() == upper:
+            return code
+
+    needle = _norm_state_text(raw)
+    if not needle:
+        return None
+
+    # Exact description match
+    for item in states:
+        desc = _norm_state_text(item.description or '')
+        if desc and desc == needle:
+            return (item.code or '').strip() or None
+
+    # Prefix / containment (Andhra / Andhra Pradesh)
+    for item in states:
+        desc = _norm_state_text(item.description or '')
+        if not desc:
+            continue
+        if needle in desc or desc in needle:
+            return (item.code or '').strip() or None
+
+    return None

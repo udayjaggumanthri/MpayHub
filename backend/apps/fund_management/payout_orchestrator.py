@@ -23,6 +23,7 @@ from apps.integrations.payout.exceptions import (
     PayoutConfigurationError,
     PayoutInitiateError,
 )
+from apps.integrations.payout.beneficiary_location import resolve_beneficiary_location
 from apps.integrations.payout.masters_cache import get_masters, match_bank_code
 from apps.integrations.payout.registry import resolve_payout_provider
 from apps.integrations.payout.types import (
@@ -170,10 +171,6 @@ def process_payout(
     if amount > max_amt:
         raise ValueError(f'Maximum payout amount is ₹{max_amt}.')
 
-    location = (beneficiary_location or '').strip().upper()
-    if not location:
-        raise ValueError('Beneficiary state / location code is required.')
-
     purpose = (purpose_code or '').strip() or _default_purpose(provider)
 
     banks = get_masters(provider, 'banks')
@@ -186,6 +183,20 @@ def process_payout(
         raise ValueError(
             f'Could not map bank "{bank_account.bank_name}" / IFSC {bank_account.ifsc} '
             'to a payout provider bank code. Please contact support or re-verify the account.'
+        )
+
+    # Auto-resolve beneficiary state from bank account IFSC / verification metadata.
+    # Client-provided location remains an optional fallback for older clients.
+    states = get_masters(provider, 'states')
+    location = resolve_beneficiary_location(
+        bank_account=bank_account,
+        states=states,
+        preferred=(beneficiary_location or '').strip(),
+    )
+    if not location:
+        raise ValueError(
+            'Could not determine beneficiary state from the selected bank account IFSC. '
+            'Please re-verify the account or contact support.'
         )
 
     from apps.fund_management.services import payout_slab_charge_for_user

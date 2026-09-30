@@ -141,12 +141,38 @@ export const slabsFromPackage = (pkg) => {
   const tiers = pkg?.payout_slabs;
   if (!tiers || tiers.length === 0) return null;
   if (typeof tiers === 'number') return null;
-  return tiers.map((t, i) => ({
+  const rows = tiers.map((t, i) => ({
     sort_order: t.sort_order ?? i,
-    min_amount: t.min_amount != null ? String(t.min_amount) : '0',
-    max_amount: t.max_amount == null || t.max_amount === '' ? '' : String(t.max_amount),
-    flat_charge: t.flat_charge != null ? String(t.flat_charge) : '0',
+    min_amount: formatDecimalInput(t.min_amount) || '0.00',
+    max_amount:
+      t.max_amount == null || t.max_amount === '' ? '' : formatDecimalInput(t.max_amount) || '',
+    flat_charge: formatDecimalInput(t.flat_charge) || '0.00',
   }));
+  // Keep 2-dp bands contiguous after rounding old 4-dp steps (e.g. 24999.0001 → 24999.01).
+  return normalizePayoutSlabContiguity(rows);
+};
+
+/** Ensure each next tier min = previous max + 0.01 (2 decimal / paise step). */
+export const normalizePayoutSlabContiguity = (rows) => {
+  if (!Array.isArray(rows) || rows.length === 0) return rows || [];
+  const out = rows.map((r, i) => ({
+    sort_order: r.sort_order ?? i,
+    min_amount: formatDecimalInput(r.min_amount) || (i === 0 ? '0.00' : '0.00'),
+    max_amount:
+      r.max_amount == null || r.max_amount === ''
+        ? ''
+        : formatDecimalInput(r.max_amount) || '',
+    flat_charge: formatDecimalInput(r.flat_charge) || '0.00',
+  }));
+  out[0].min_amount = '0.00';
+  for (let i = 1; i < out.length; i += 1) {
+    const prevMax = out[i - 1].max_amount;
+    if (prevMax === '' || prevMax == null) break;
+    const prev = parseFloat(prevMax);
+    if (!Number.isFinite(prev)) break;
+    out[i].min_amount = (prev + 0.01).toFixed(2);
+  }
+  return out;
 };
 
 export const maxRailFeeFromForm = (selectedGatewayRows, selectedQrRows) => {

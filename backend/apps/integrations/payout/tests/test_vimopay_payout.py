@@ -13,7 +13,7 @@ from apps.fund_management.models import Payout, PayoutProviderEvent
 from apps.fund_management.payout_orchestrator import apply_payout_callback, process_payout
 from apps.integrations.models import ApiMaster
 from apps.integrations.payout import crypto as vimopay_crypto
-from apps.integrations.payout.masters_cache import match_bank_code
+from apps.integrations.payout.masters_cache import match_bank_code, match_state_code
 from apps.integrations.payout.types import (
     DOMAIN_FAILED,
     DOMAIN_PENDING,
@@ -24,6 +24,18 @@ from apps.integrations.payout.types import (
     map_provider_status_code,
 )
 from apps.wallets.models import Wallet
+
+
+def _masters_side_effect(provider, kind, **_kwargs):
+    if kind == 'banks':
+        return provider.list_banks()
+    if kind == 'states':
+        return provider.list_states()
+    return provider.list_purposes()
+
+
+def _bind_masters(mock_masters, provider):
+    mock_masters.side_effect = lambda _provider, kind, **kwargs: _masters_side_effect(provider, kind, **kwargs)
 
 
 class CryptoTests(TestCase):
@@ -75,6 +87,20 @@ class MatchBankCodeTests(TestCase):
         self.assertEqual(match_bank_code(banks, bank_name='hdfc'), '013')
         self.assertEqual(match_bank_code(banks, ifsc='HDFC0000516'), '013')
         self.assertIsNone(match_bank_code(banks, bank_name='Unknown Coop'))
+
+
+class MatchStateCodeTests(TestCase):
+    def test_match_by_code_name_and_iso(self):
+        states = [
+            MasterItem(code='AP', description='Andhra Pradesh'),
+            MasterItem(code='JH', description='Jharkhand'),
+            MasterItem(code='DL', description='Delhi'),
+        ]
+        self.assertEqual(match_state_code(states, 'AP'), 'AP')
+        self.assertEqual(match_state_code(states, 'ANDHRA PRADESH'), 'AP')
+        self.assertEqual(match_state_code(states, 'IN-AP'), 'AP')
+        self.assertEqual(match_state_code(states, 'NCT of Delhi'), 'DL')
+        self.assertIsNone(match_state_code(states, 'Unknownland'))
 
 
 @override_settings(CACHES={'default': {'BACKEND': 'django.core.cache.backends.locmem.LocMemCache'}})
@@ -134,7 +160,11 @@ class PayoutOrchestratorTests(TestCase):
         provider.list_banks.return_value = [
             MasterItem(code='013', description='HDFC Bank'),
         ]
-        provider.list_states.return_value = [MasterItem(code='JH', description='Jharkhand')]
+        provider.list_states.return_value = [
+            MasterItem(code='JH', description='Jharkhand'),
+            MasterItem(code='AP', description='Andhra Pradesh'),
+            MasterItem(code='WB', description='West Bengal'),
+        ]
         provider.list_purposes.return_value = [MasterItem(code='004', description='Payout')]
         provider.initiate.return_value = PayoutInitiateResult(
             domain_status=DOMAIN_PENDING,
@@ -148,10 +178,11 @@ class PayoutOrchestratorTests(TestCase):
 
     @patch('apps.fund_management.payout_orchestrator.resolve_payout_provider')
     @patch('apps.fund_management.payout_orchestrator.get_masters')
-    def test_process_payout_holds_until_callback(self, mock_masters, mock_resolve):
+    @patch('apps.integrations.payout.beneficiary_location.lookup_ifsc_state', return_value='')
+    def test_process_payout_holds_until_callback(self, _mock_ifsc, mock_masters, mock_resolve):
         provider = self._mock_provider()
         mock_resolve.return_value = provider
-        mock_masters.return_value = provider.list_banks()
+        _bind_masters(mock_masters, provider)
 
         payout = process_payout(
             self.user,
@@ -164,6 +195,7 @@ class PayoutOrchestratorTests(TestCase):
         )
         self.assertEqual(payout.status, 'PENDING')
         self.assertEqual(payout.provider_txn_id, 'txn-uuid-1')
+        self.assertEqual(payout.beneficiary_location, 'JH')
         self.wallet.refresh_from_db()
         # 100 + slab (default 7 for <=24999)
         self.assertGreater(self.wallet.held_balance, 0)
@@ -200,10 +232,31 @@ class PayoutOrchestratorTests(TestCase):
 
     @patch('apps.fund_management.payout_orchestrator.resolve_payout_provider')
     @patch('apps.fund_management.payout_orchestrator.get_masters')
-    def test_callback_failed_releases_hold(self, mock_masters, mock_resolve):
+    @patch('apps.integrations.payout.beneficiary_location.lookup_ifsc_state', return_value='ANDHRA PRADESH')
+    def test_process_payout_auto_resolves_state_from_ifsc(self, _mock_ifsc, mock_masters, mock_resolve):
         provider = self._mock_provider()
         mock_resolve.return_value = provider
-        mock_masters.return_value = provider.list_banks()
+        _bind_masters(mock_masters, provider)
+
+        payout = process_payout(
+            self.user,
+            self.bank.id,
+            Decimal('100'),
+            transfer_mode='IMPS',
+            beneficiary_location='',
+        )
+        self.assertEqual(payout.status, 'PENDING')
+        self.assertEqual(payout.beneficiary_location, 'AP')
+        initiate_req = provider.initiate.call_args.args[0]
+        self.assertEqual(initiate_req.beneficiary_location, 'AP')
+
+    @patch('apps.fund_management.payout_orchestrator.resolve_payout_provider')
+    @patch('apps.fund_management.payout_orchestrator.get_masters')
+    @patch('apps.integrations.payout.beneficiary_location.lookup_ifsc_state', return_value='')
+    def test_callback_failed_releases_hold(self, _mock_ifsc, mock_masters, mock_resolve):
+        provider = self._mock_provider()
+        mock_resolve.return_value = provider
+        _bind_masters(mock_masters, provider)
 
         payout = process_payout(
             self.user,

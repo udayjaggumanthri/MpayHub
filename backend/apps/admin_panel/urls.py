@@ -5,6 +5,7 @@ from django.urls import path, include
 from rest_framework.routers import DefaultRouter
 from apps.admin_panel import views
 from apps.fund_management import views_qr_admin
+from apps.fund_management import views_payout_admin
 
 router = DefaultRouter()
 router.register(r'announcements', views.AnnouncementViewSet, basename='announcement')
@@ -55,4 +56,17 @@ urlpatterns = [
     path('pay-in/qr-operations/<int:pk>/approve/', views_qr_admin.qr_operations_approve_view, name='qr-operations-approve'),
     path('pay-in/qr-operations/<int:pk>/reject/', views_qr_admin.qr_operations_reject_view, name='qr-operations-reject'),
     path('pay-in/qr-operations/<int:pk>/release-utr/', views_qr_admin.qr_operations_release_utr_view, name='qr-operations-release-utr'),
+    path('payout-recovery/stats/', views_payout_admin.payout_recovery_stats_view, name='payout-recovery-stats'),
+    path('payout-recovery/', views_payout_admin.payout_recovery_list_view, name='payout-recovery-list'),
+    path('payout-recovery/<int:pk>/', views_payout_admin.payout_recovery_detail_view, name='payout-recovery-detail'),
+    path(
+        'payout-recovery/<int:pk>/mark-success/',
+        views_payout_admin.payout_recovery_mark_success_view,
+        name='payout-recovery-mark-success',
+    ),
+    path(
+        'payout-recovery/<int:pk>/mark-failed/',
+        views_payout_admin.payout_recovery_mark_failed_view,
+        name='payout-recovery-mark-failed',
+    ),
 ]

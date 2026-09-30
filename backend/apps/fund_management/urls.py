@@ -45,6 +45,7 @@ urlpatterns = [
     path('payout/quote/', views.payout_quote_view, name='payout-quote'),
     path('payout/masters/', views.payout_masters_view, name='payout-masters'),
     path('payout/', views.payout_view, name='payout'),
+    path('payout/status/<str:transaction_id>/', views.payout_status_view, name='payout-status'),
     path('payout/list/', views.payout_list_view, name='payout-list'),
 
     # Legacy / misc

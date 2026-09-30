@@ -32,13 +32,14 @@ export const roleMenus = {
       ],
     },
     {
-      name: 'Pay-in setup',
+      name: 'Platform setup',
       path: '/admin/gateways',
       icon: 'payin',
       submenu: [
         { name: 'API Master', path: '/admin/api-master' },
         { name: 'Payment gateways', path: '/admin/gateways' },
         { name: 'Pay-in packages', path: '/admin/pay-in-packages' },
+        { name: 'Payout recovery', path: '/admin/payout-recovery' },
       ],
     },
     {

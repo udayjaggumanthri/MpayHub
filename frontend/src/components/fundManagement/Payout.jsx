@@ -60,10 +60,6 @@ const Payout = () => {
   const [transferMethod, setTransferMethod] = useState('IMPS');
   const [payoutGateway, setPayoutGateway] = useState('');
   const [payoutGateways, setPayoutGateways] = useState([]);
-  const [stateOptions, setStateOptions] = useState([]);
-  const [statesLoading, setStatesLoading] = useState(false);
-  const [statesError, setStatesError] = useState('');
-  const [beneficiaryLocation, setBeneficiaryLocation] = useState('');
   const [geoCoords, setGeoCoords] = useState({ lat: '', long: '' });
   const [showMPINModal, setShowMPINModal] = useState(false);
   const [mpinError, setMpinError] = useState('');
@@ -103,6 +99,7 @@ const Payout = () => {
     reference: '',
     details: [],
     primaryAction: null,
+    secondaryAction: null,
   });
   const payoutSubmitLockRef = useRef(false);
 
@@ -116,14 +113,11 @@ const Payout = () => {
 
   const refreshCore = useCallback(async () => {
     if (!user) return;
-    setStatesLoading(true);
-    setStatesError('');
-    const [wRes, qRes, gRes, bRes, sRes] = await Promise.all([
+    const [wRes, qRes, gRes, bRes] = await Promise.all([
       walletsAPI.getAllWallets(),
       fundManagementAPI.getPayoutQuote(),
       fundManagementAPI.getGateways({ type: 'payout' }),
       bankAccountsAPI.listBankAccounts(),
-      fundManagementAPI.getPayoutMasters('states'),
     ]);
 
     if (wRes.success && wRes.data?.wallets) {
@@ -141,18 +135,6 @@ const Payout = () => {
     if (gRes.success && gRes.data?.gateways) {
       setPayoutGateways(gRes.data.gateways);
     }
-
-    if (sRes.success && Array.isArray(sRes.data?.items) && sRes.data.items.length > 0) {
-      setStateOptions(sRes.data.items);
-      setStatesError('');
-    } else {
-      setStateOptions([]);
-      setStatesError(
-        sRes.message ||
-          'Could not load state list from the payout provider. Try again or contact admin.'
-      );
-    }
-    setStatesLoading(false);
 
     const raw = bankAccountsFromListResult(bRes);
     setBankAccounts(raw.map(mapBankAccountRow).filter(Boolean));
@@ -191,7 +173,6 @@ const Payout = () => {
     ? parseFloat(payoutMeta.main_balance)
     : wallets.main;
   const maxEligibleAmount = payoutMeta ? parseFloat(payoutMeta.max_eligible_amount) : 0;
-  const payoutSlabs = Array.isArray(payoutMeta?.slabs) ? payoutMeta.slabs : [];
 
   useEffect(() => {
     const n = parseFloat(amount);
@@ -407,11 +388,6 @@ const Payout = () => {
       return;
     }
 
-    if (!beneficiaryLocation) {
-      showFormFeedback('State required', 'Select the beneficiary state to continue.');
-      return;
-    }
-
     setMpinError('');
     setShowMPINModal(true);
   };
@@ -422,7 +398,6 @@ const Payout = () => {
     setBeneficiaryDetails(null);
     setSelectedAccount(null);
     setPayoutGateway('');
-    setBeneficiaryLocation('');
     setPayoutPreview(null);
   };
 
@@ -436,10 +411,10 @@ const Payout = () => {
     const details = [
       accountLabel ? { label: 'Account', value: accountLabel } : null,
       chargeValue != null ? { label: 'Charge', value: formatCurrency(chargeValue) } : null,
-      totalValue != null ? { label: 'Total debit', value: formatCurrency(totalValue) } : null,
+      totalValue != null ? { label: 'Total held', value: formatCurrency(totalValue) } : null,
       {
         label: 'Status',
-        value: isSuccess ? 'Successful' : isPending ? 'In progress' : 'Failed',
+        value: isSuccess ? 'Successful' : isPending ? 'Waiting for bank' : 'Failed',
       },
     ].filter(Boolean);
 
@@ -450,12 +425,12 @@ const Payout = () => {
       subtitle: isSuccess
         ? 'Money sent successfully'
         : isPending
-          ? 'Funds are held until the bank confirms the transfer'
+          ? 'Transfer queued. Amount is held on your wallet until the bank confirms — usually within a few minutes.'
           : failureMessage || 'The transfer could not be completed',
       reference: txnId || '',
       details,
       primaryAction: {
-        label: txnId ? 'View receipt' : 'View Pay Out report',
+        label: txnId ? 'View receipt / refresh status' : 'View Pay Out report',
         onClick: () => {
           if (txnId) {
             navigate(`/reports/payout?open_receipt=1&service_id=${encodeURIComponent(txnId)}`);
@@ -464,6 +439,28 @@ const Payout = () => {
           navigate('/reports/payout');
         },
       },
+      secondaryAction: isPending && txnId
+        ? {
+            label: 'Check status now',
+            onClick: async () => {
+              const res = await fundManagementAPI.getPayoutStatus(txnId);
+              if (!res.success || !res.data?.payout) {
+                showFormFeedback('Status check', res.message || 'Could not refresh status yet.');
+                return;
+              }
+              const p = res.data.payout;
+              openPayoutReceipt({
+                status: p.status,
+                txnId: p.transaction_id || txnId,
+                amountValue: parseFloat(p.amount ?? amountValue) || amountValue,
+                chargeValue: p.charge != null ? parseFloat(p.charge) : chargeValue,
+                totalValue: p.total_deducted != null ? parseFloat(p.total_deducted) : totalValue,
+                accountLabel,
+                failureMessage: p.failure_reason || '',
+              });
+            },
+          }
+        : null,
     });
   };
 
@@ -494,6 +491,7 @@ const Payout = () => {
       reference: '',
       details: [],
       primaryAction: null,
+      secondaryAction: null,
     });
 
     // Brief cinematic beat so the processing screen is visible even on fast APIs
@@ -506,7 +504,6 @@ const Payout = () => {
         mpin,
         transferMode: transferMethod,
         gateway: payoutGateway || null,
-        beneficiaryLocation,
         purposeCode: '004',
         lat: geoCoords.lat || '28.7041',
         long: geoCoords.long || '77.1025',
@@ -619,42 +616,6 @@ const Payout = () => {
                   Commission wallet {formatCurrency(wallets.commission)} (not used for payout)
                 </p>
               ) : null}
-            </div>
-            <div className="border-t border-slate-200 dark:border-slate-700 pt-3">
-              <p className="text-xs font-medium uppercase tracking-wide text-slate-500 dark:text-slate-400 mb-1.5">
-                Payout charges
-                {payoutMeta?.payout_package_name
-                  ? ` · ${payoutMeta.payout_package_name}`
-                  : ''}
-              </p>
-              {payoutSlabs.length > 0 ? (
-                <ul className="space-y-1 text-sm text-slate-700 dark:text-slate-300">
-                  {payoutSlabs.map((slab, idx) => (
-                    <li key={`${slab.min_amount}-${slab.flat_charge}-${idx}`} className="flex justify-between gap-3">
-                      <span className="text-slate-500 dark:text-slate-400">
-                        {(() => {
-                          const min = parseFloat(slab.min_amount);
-                          const max =
-                            slab.max_amount != null && slab.max_amount !== ''
-                              ? parseFloat(slab.max_amount)
-                              : null;
-                          if (max == null || !Number.isFinite(max)) {
-                            return `${formatCurrency(min)} and above`;
-                          }
-                          return `${formatCurrency(min)} – ${formatCurrency(max)}`;
-                        })()}
-                      </span>
-                      <span className="font-semibold tabular-nums">
-                        {formatCurrency(parseFloat(slab.flat_charge))}
-                      </span>
-                    </li>
-                  ))}
-                </ul>
-              ) : (
-                <p className="text-sm text-slate-500 dark:text-slate-400">
-                  Charges apply from your assigned package when you enter an amount.
-                </p>
-              )}
             </div>
           </div>
         </Card>
@@ -885,39 +846,6 @@ const Payout = () => {
             )}
 
             {selectedAccount && (
-              <Card title="Beneficiary state" padding="lg">
-                <SelectField
-                  label="State"
-                  value={beneficiaryLocation}
-                  onChange={(val) => setBeneficiaryLocation(val)}
-                  options={stateOptions}
-                  getOptionLabel={(s) => `${(s.description || '').trim()} (${(s.code || '').trim()})`}
-                  getOptionValue={(s) => String(s.code || '').trim()}
-                  loading={statesLoading}
-                  disabled={statesLoading || (!stateOptions.length && Boolean(statesError))}
-                  placeholder={
-                    statesLoading
-                      ? 'Loading…'
-                      : stateOptions.length
-                        ? 'Select state'
-                        : 'No states available'
-                  }
-                  error={statesError || undefined}
-                  searchable
-                />
-                {statesError ? (
-                  <button
-                    type="button"
-                    onClick={() => refreshCore()}
-                    className="mt-2 text-sm font-medium text-blue-600 dark:text-blue-400 hover:underline"
-                  >
-                    Retry
-                  </button>
-                ) : null}
-              </Card>
-            )}
-
-            {selectedAccount && (
               <Card title="Transfer mode" padding="lg">
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 sm:gap-4">
                   {['IMPS', 'NEFT'].map((method) => (
@@ -993,8 +921,7 @@ const Payout = () => {
                       payoutMaintenance ||
                       loading ||
                       !amount ||
-                      parseFloat(amount) < 100 ||
-                      !beneficiaryLocation
+                      parseFloat(amount) < 100
                     }
                     loading={loading}
                     variant="primary"
@@ -1094,6 +1021,7 @@ const Payout = () => {
           reference={paymentFlow.reference}
           details={paymentFlow.details}
           primaryAction={paymentFlow.primaryAction}
+          secondaryAction={paymentFlow.secondaryAction}
           onClose={closePaymentFlow}
           secondaryLabel="Done"
         />

@@ -17,10 +17,12 @@ import {
   linkedGatewaysFromPackage,
   linkedQrFromPackage,
   maxRailFeeFromForm,
+  normalizePayoutSlabContiguity,
   packageFormFromPkg,
   slabsFromPackage,
   slugifyCode,
 } from './payInPackageFormShared';
+import { formatDecimalInput } from '../../utils/formatters';
 import {
   FaArrowLeft,
   FaPlus,
@@ -46,14 +48,14 @@ const PayInPackageFormPage = () => {
   });
   const [packageForm, setPackageForm] = useState(defaultPackageForm());
 
-  const buildDefaultPayoutSlabsFromGlobal = () => {
-    const lowMax = payoutSlabForm.low_max_amount || '24999';
-    const lowC = payoutSlabForm.low_charge || '7';
-    const highC = payoutSlabForm.high_charge || '15';
+  const buildDefaultPayoutSlabsFromGlobal = (cfg = payoutSlabForm) => {
+    const lowMax = formatDecimalInput(cfg.low_max_amount) || '24999.00';
+    const lowC = formatDecimalInput(cfg.low_charge) || '7.00';
+    const highC = formatDecimalInput(cfg.high_charge) || '15.00';
     const nextMin = (parseFloat(lowMax, 10) + 0.01).toFixed(2);
     return [
-      { sort_order: 0, min_amount: '0', max_amount: String(lowMax), flat_charge: String(lowC) },
-      { sort_order: 1, min_amount: nextMin, max_amount: '', flat_charge: String(highC) },
+      { sort_order: 0, min_amount: '0.00', max_amount: lowMax, flat_charge: lowC },
+      { sort_order: 1, min_amount: nextMin, max_amount: '', flat_charge: highC },
     ];
   };
 
@@ -68,13 +70,15 @@ const PayInPackageFormPage = () => {
       const gwList = gRes.success ? parseList(gRes) : [];
       setGateways(gwList);
       if (qrRes.success) setQrAccounts(qrRes.data?.results || []);
+      let nextSlabForm = payoutSlabForm;
       if (sRes.success && sRes.data?.config) {
         const cfg = sRes.data.config;
-        setPayoutSlabForm({
-          low_max_amount: String(cfg.low_max_amount ?? '24999'),
-          low_charge: String(cfg.low_charge ?? '7'),
-          high_charge: String(cfg.high_charge ?? '15'),
-        });
+        nextSlabForm = {
+          low_max_amount: formatDecimalInput(cfg.low_max_amount) || '24999.00',
+          low_charge: formatDecimalInput(cfg.low_charge) || '7.00',
+          high_charge: formatDecimalInput(cfg.high_charge) || '15.00',
+        };
+        setPayoutSlabForm(nextSlabForm);
       }
 
       if (isEdit) {
@@ -83,12 +87,12 @@ const PayInPackageFormPage = () => {
           setEditingPackage(res.data);
           setPackageForm(packageFormFromPkg(res.data, gwList, qrRes.data?.results || []));
           setPackagePayoutSlabs(
-            slabsFromPackage(res.data) || buildDefaultPayoutSlabsFromGlobal()
+            slabsFromPackage(res.data) || buildDefaultPayoutSlabsFromGlobal(nextSlabForm)
           );
         }
       } else {
         setPackageForm(defaultPackageForm(gwList));
-        setPackagePayoutSlabs(buildDefaultPayoutSlabsFromGlobal());
+        setPackagePayoutSlabs(buildDefaultPayoutSlabsFromGlobal(nextSlabForm));
       }
       setPageLoading(false);
     };
@@ -253,13 +257,17 @@ const PayInPackageFormPage = () => {
   };
 
   const removePayoutSlabRow = (index) => {
-    setPackagePayoutSlabs((rows) => rows.filter((_, i) => i !== index));
+    setPackagePayoutSlabs((rows) => normalizePayoutSlabContiguity(rows.filter((_, i) => i !== index)));
   };
 
   const updatePayoutSlabRow = (index, field, value) => {
     setPackagePayoutSlabs((rows) => {
       const next = [...rows];
       next[index] = { ...next[index], [field]: value };
+      // Keep following mins contiguous when a max band changes.
+      if (field === 'max_amount') {
+        return normalizePayoutSlabContiguity(next);
+      }
       return next;
     });
   };
@@ -277,7 +285,9 @@ const PayInPackageFormPage = () => {
       return;
     }
     setSaving(true);
-    const payout_slabs = packagePayoutSlabs.map((row, i) => ({
+    const normalizedSlabs = normalizePayoutSlabContiguity(packagePayoutSlabs);
+    setPackagePayoutSlabs(normalizedSlabs);
+    const payout_slabs = normalizedSlabs.map((row, i) => ({
       sort_order: i,
       min_amount: row.min_amount,
       max_amount: row.max_amount === '' || row.max_amount == null ? null : row.max_amount,
@@ -613,7 +623,8 @@ const PayInPackageFormPage = () => {
           <Card shadow="sm" padding="lg" title="Payout slabs (this package)">
             <div className="mb-3 flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
               <p className="text-xs leading-relaxed text-slate-600 dark:text-slate-400 sm:max-w-xl">
-                Bands must start at 0 and be contiguous. Last row may leave max empty.
+                Bands must start at 0 and be contiguous in ₹0.01 steps. Next min is filled
+                automatically from the previous max. Last row may leave max empty.
               </p>
               <Button
                 type="button"
@@ -636,9 +647,15 @@ const PayInPackageFormPage = () => {
                     <label className="mb-1 block text-xs font-medium">Min amount</label>
                     <input
                       type="text"
-                      className="w-full rounded-lg border px-3 py-2 text-sm dark:border-slate-600 dark:bg-slate-900"
+                      className="w-full rounded-lg border px-3 py-2 text-sm dark:border-slate-600 dark:bg-slate-900 disabled:opacity-70"
                       value={row.min_amount}
+                      readOnly={idx === 0 || (idx > 0 && packagePayoutSlabs[idx - 1]?.max_amount !== '')}
                       onChange={(e) => updatePayoutSlabRow(idx, 'min_amount', e.target.value)}
+                      title={
+                        idx === 0
+                          ? 'First tier always starts at 0.00'
+                          : 'Set automatically as previous max + 0.01'
+                      }
                     />
                   </div>
                   <div className="min-w-0 lg:col-span-3">

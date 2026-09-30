@@ -1387,6 +1387,21 @@ export const fundManagementAPI = {
   },
 
   /**
+   * Payout status (owner poll — useful while PENDING awaiting callback)
+   * GET /api/fund-management/payout/status/<transaction_id>/
+   */
+  getPayoutStatus: async (transactionId) => {
+    try {
+      const response = await apiClient.get(
+        `/fund-management/payout/status/${encodeURIComponent(transactionId)}/`
+      );
+      return extractData(response);
+    } catch (error) {
+      return handleError(error);
+    }
+  },
+
+  /**
    * Payout master lists (banks / states / purposes)
    * GET /api/fund-management/payout/masters/?kind=
    */
@@ -3004,6 +3019,58 @@ export const adminAPI = {
   getQrOperationsStats: async () => {
     try {
       const response = await apiClient.get('/admin/pay-in/qr-operations/stats/');
+      return extractData(response);
+    } catch (error) {
+      return handleError(error);
+    }
+  },
+
+  getPayoutRecoveryStats: async (params = {}) => {
+    try {
+      const response = await apiClient.get('/admin/payout-recovery/stats/', { params });
+      return extractData(response);
+    } catch (error) {
+      return handleError(error);
+    }
+  },
+
+  listPayoutRecovery: async (params = {}) => {
+    try {
+      const response = await apiClient.get('/admin/payout-recovery/', { params });
+      return extractData(response);
+    } catch (error) {
+      return handleError(error);
+    }
+  },
+
+  getPayoutRecoveryDetail: async (id) => {
+    try {
+      const response = await apiClient.get(`/admin/payout-recovery/${id}/`);
+      return extractData(response);
+    } catch (error) {
+      return handleError(error);
+    }
+  },
+
+  markPayoutRecoverySuccess: async (id, { rrn = '', providerTxnId = '', internalNote = '' } = {}) => {
+    try {
+      const response = await apiClient.post(`/admin/payout-recovery/${id}/mark-success/`, {
+        rrn,
+        provider_txn_id: providerTxnId,
+        internal_note: internalNote,
+      });
+      return extractData(response);
+    } catch (error) {
+      return handleError(error);
+    }
+  },
+
+  markPayoutRecoveryFailed: async (id, { reason = '', internalNote = '' } = {}) => {
+    try {
+      const response = await apiClient.post(`/admin/payout-recovery/${id}/mark-failed/`, {
+        reason,
+        internal_note: internalNote,
+      });
       return extractData(response);
     } catch (error) {
       return handleError(error);

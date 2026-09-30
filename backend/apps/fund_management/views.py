@@ -639,6 +639,37 @@ def payout_view(request):
 
 @api_view(['GET'])
 @permission_classes([IsAuthenticated])
+def payout_status_view(request, transaction_id: str):
+    """
+    Lightweight status poll for the owner of a payout (callback may have settled since initiate).
+    GET /api/fund-management/payout/status/<transaction_id>/
+    """
+    tid = (transaction_id or '').strip()
+    payout = (
+        Payout.objects.filter(user=request.user, transaction_id=tid, is_deleted=False)
+        .select_related('bank_account')
+        .first()
+    )
+    if not payout:
+        return Response(
+            {'success': False, 'data': None, 'message': 'Payout not found', 'errors': []},
+            status=status.HTTP_404_NOT_FOUND,
+        )
+    from apps.fund_management.serializers import PayoutSerializer
+
+    return Response(
+        {
+            'success': True,
+            'data': {'payout': PayoutSerializer(payout).data},
+            'message': 'OK',
+            'errors': [],
+        },
+        status=status.HTTP_200_OK,
+    )
+
+
+@api_view(['GET'])
+@permission_classes([IsAuthenticated])
 def payout_list_view(request):
     """
     List payout transactions for the authenticated user.

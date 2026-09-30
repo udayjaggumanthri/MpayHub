@@ -53,6 +53,7 @@ import AnnouncementManagement from '../components/admin/AnnouncementManagement';
 import PaymentGatewaysAdmin from '../components/admin/PaymentGatewaysAdmin';
 import PayInQrAccountsAdmin from '../components/admin/PayInQrAccountsAdmin';
 import PayInQrOperations from '../components/admin/PayInQrOperations';
+import PayoutRecovery from '../components/admin/PayoutRecovery';
 import PayInPackagesAdmin from '../components/admin/PayInPackagesAdmin';
 import PayInPackageFormPage from '../components/admin/PayInPackageFormPage';
 import PayInPackageCalculationPreview from '../components/admin/PayInPackageCalculationPreview';
@@ -709,6 +710,20 @@ const AppRoutes = () => {
             <AdminRoute>
               <Layout>
                 <PayInQrOperations />
+              </Layout>
+            </AdminRoute>
+          </ProtectedRoute>
+        }
+      />
+
+      {/* Admin - Payout recovery (stuck PENDING) */}
+      <Route
+        path="/admin/payout-recovery"
+        element={
+          <ProtectedRoute>
+            <AdminRoute>
+              <Layout>
+                <PayoutRecovery />
               </Layout>
             </AdminRoute>
           </ProtectedRoute>

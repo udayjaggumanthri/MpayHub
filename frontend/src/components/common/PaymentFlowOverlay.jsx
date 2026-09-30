@@ -166,7 +166,6 @@ const PaymentFlowOverlay = ({
                   className="w-full sm:flex-1"
                   onClick={() => {
                     secondaryAction.onClick?.();
-                    onClose?.();
                   }}
                 >
                   {secondaryAction.label}

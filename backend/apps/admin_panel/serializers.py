@@ -236,16 +236,17 @@ def _validate_payout_slabs_list(slabs):
         return
     if len(slabs) == 0:
         return
-    step = Decimal('0.0001')
+    # Match admin UI money inputs (2 decimal places / paise).
+    step = Decimal('0.01')
     rows = []
     for i, raw in enumerate(slabs):
-        lo = Decimal(str(raw['min_amount']))
+        lo = Decimal(str(raw['min_amount'])).quantize(step)
         hi_raw = raw.get('max_amount', None)
         if hi_raw in (None, ''):
             hi = None
         else:
-            hi = Decimal(str(hi_raw))
-        fc = Decimal(str(raw['flat_charge']))
+            hi = Decimal(str(hi_raw)).quantize(step)
+        fc = Decimal(str(raw['flat_charge'])).quantize(step)
         so = int(raw.get('sort_order', i))
         if fc < 0:
             raise serializers.ValidationError({'payout_slabs': ['flat_charge cannot be negative.']})
@@ -254,7 +255,7 @@ def _validate_payout_slabs_list(slabs):
         rows.append({'sort_order': so, 'min_amount': lo, 'max_amount': hi, 'flat_charge': fc})
 
     rows.sort(key=lambda r: (r['sort_order'], r['min_amount']))
-    if rows[0]['min_amount'] != Decimal('0'):
+    if rows[0]['min_amount'] != Decimal('0.00'):
         raise serializers.ValidationError(
             {'payout_slabs': ['First tier must have min_amount 0.']}
         )

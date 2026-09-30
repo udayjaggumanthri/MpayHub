@@ -105,14 +105,14 @@ class PayoutSlabPerPackageTests(TestCase):
         PayoutSlabTier.objects.create(
             package=pkg,
             sort_order=1,
-            min_amount=Decimal('1000.0001'),
-            max_amount=Decimal('5000.0000'),
+            min_amount=Decimal('1000.01'),
+            max_amount=Decimal('5000.00'),
             flat_charge=Decimal('3'),
         )
         PayoutSlabTier.objects.create(
             package=pkg,
             sort_order=2,
-            min_amount=Decimal('5000.0001'),
+            min_amount=Decimal('5000.01'),
             max_amount=None,
             flat_charge=Decimal('5'),
         )
@@ -173,14 +173,14 @@ class PayoutSlabPerPackageTests(TestCase):
         PayoutSlabTier.objects.create(
             package=pkg,
             sort_order=1,
-            min_amount=Decimal('100.0001'),
-            max_amount=Decimal('1000.0000'),
+            min_amount=Decimal('100.01'),
+            max_amount=Decimal('1000.00'),
             flat_charge=Decimal('20'),
         )
         PayoutSlabTier.objects.create(
             package=pkg,
             sort_order=2,
-            min_amount=Decimal('1000.0001'),
+            min_amount=Decimal('1000.01'),
             max_amount=None,
             flat_charge=Decimal('30'),
         )
