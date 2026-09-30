@@ -286,19 +286,22 @@ def settle_service_charge(
                     created.append(existing)
                 continue
 
-        # Commission credits Main; gateway/service fees are tracker-only.
-        # Hard-block wallet credit for payout / bank_verification even if a caller
-        # accidentally passes entry_kind=commission.
+        # Commission credits Main. Gateway modules default to service_fee tracker-only,
+        # but explicit payout commission slices (payout_admin) may credit treasury.
         module_is_gateway_fee = module_norm in GATEWAY_FEE_MODULES
+        explicit_platform_commission = (
+            entry_kind == 'commission'
+            and slice_key in ('payout_admin', 'bbps_admin', 'admin_absorbed', 'gateway_absorbed')
+        )
+        if module_is_gateway_fee and not explicit_platform_commission:
+            entry_kind = 'service_fee'
         do_wallet_credit = (
             credit_wallets
             and entry_kind == 'commission'
-            and not module_is_gateway_fee
             and user is not None
             and amount > 0
+            and (not module_is_gateway_fee or explicit_platform_commission)
         )
-        if module_is_gateway_fee:
-            entry_kind = 'service_fee'
         if do_wallet_credit:
             _passbook_credit_main(
                 user,
@@ -320,7 +323,7 @@ def settle_service_charge(
         slice_meta.update(item.get('meta') or {})
         # Force after merge so caller meta cannot claim a wallet credit for gateway fees.
         slice_meta['wallet_credited'] = bool(do_wallet_credit)
-        if module_is_gateway_fee:
+        if module_is_gateway_fee and not do_wallet_credit:
             slice_meta['tracker'] = 'service_fee'
             slice_meta['wallet_credited'] = False
         try:

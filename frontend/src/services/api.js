@@ -3181,6 +3181,32 @@ export const adminAPI = {
     }
   },
 
+  /**
+   * Platform-wide Charge + Commission payout slabs
+   * GET /api/admin/payout-slabs/
+   */
+  getPlatformPayoutSlabs: async () => {
+    try {
+      const response = await apiClient.get('/admin/payout-slabs/');
+      return extractData(response);
+    } catch (error) {
+      return handleError(error);
+    }
+  },
+
+  /**
+   * Replace-all platform payout slabs
+   * PUT /api/admin/payout-slabs/
+   */
+  updatePlatformPayoutSlabs: async (payload) => {
+    try {
+      const response = await apiClient.put('/admin/payout-slabs/', payload);
+      return extractData(response);
+    } catch (error) {
+      return handleError(error);
+    }
+  },
+
   listSmtpConfigs: async () => {
     try {
       const response = await apiClient.get('/admin/smtp-config/');

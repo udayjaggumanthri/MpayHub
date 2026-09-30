@@ -101,6 +101,85 @@ class GatewayAnalyticsPlatformScopeTests(TestCase):
         self.assertEqual(by_gw['PayU']['transactions_count'], 1)
         self.assertEqual(data['totals']['transactions_count'], 2)
 
+    def test_platform_profit_includes_payin_source_admin_absorbed(self):
+        """New settlements use source=payin + slice admin_absorbed — must count as profit."""
+        from apps.fund_management.commission_meta import commission_ledger_create
+
+        self._lm(self.retailer_a, 'LM-PROF-NEW', '10000')
+        commission_ledger_create(
+            user=self.admin,
+            role_at_time='PLATFORM_ADMIN',
+            amount=Decimal('10.00'),
+            source='payin',
+            entry_kind='commission',
+            module='payin',
+            slice_key='admin_absorbed',
+            customer_charge=Decimal('10.00'),
+            reference_service_id='LM-PROF-NEW',
+            wallet_type='main',
+            meta={
+                'slice': 'admin_absorbed',
+                'wallet_credited': True,
+                'source_user_id': self.retailer_a.pk,
+            },
+        )
+        # Hierarchy slice must NOT inflate platform profit.
+        commission_ledger_create(
+            user=self.retailer_a,
+            role_at_time='Super Distributor',
+            amount=Decimal('2.00'),
+            source='payin',
+            entry_kind='commission',
+            module='payin',
+            slice_key='Super Distributor',
+            customer_charge=Decimal('10.00'),
+            reference_service_id='LM-PROF-NEW',
+            wallet_type='main',
+            meta={
+                'slice': 'Super Distributor',
+                'wallet_credited': True,
+                'source_user_id': self.retailer_a.pk,
+            },
+        )
+
+        data = get_gateway_analytics_summary(
+            interval='daily',
+            date_from_raw=self.today,
+            date_to_raw=self.today,
+            use_cache=False,
+        )
+        self.assertEqual(Decimal(data['totals']['platform_profit']), Decimal('10.00'))
+        self.assertEqual(Decimal(data['totals']['payin_charges']), Decimal('10'))
+
+    def test_platform_profit_still_counts_legacy_source_profit(self):
+        from apps.fund_management.commission_meta import commission_ledger_create
+
+        self._lm(self.retailer_a, 'LM-PROF-OLD', '5000')
+        commission_ledger_create(
+            user=self.admin,
+            role_at_time='PLATFORM_ADMIN',
+            amount=Decimal('10.00'),
+            source='profit',
+            entry_kind='commission',
+            module='payin',
+            slice_key='admin_absorbed',
+            customer_charge=Decimal('10.00'),
+            reference_service_id='LM-PROF-OLD',
+            wallet_type='main',
+            meta={
+                'slice': 'admin_absorbed',
+                'wallet_credited': True,
+                'source_user_id': self.retailer_a.pk,
+            },
+        )
+        data = get_gateway_analytics_summary(
+            interval='daily',
+            date_from_raw=self.today,
+            date_to_raw=self.today,
+            use_cache=False,
+        )
+        self.assertEqual(Decimal(data['totals']['platform_profit']), Decimal('10.00'))
+
     def test_non_admin_forbidden(self):
         client = APIClient()
         client.force_authenticate(user=self.retailer_a)

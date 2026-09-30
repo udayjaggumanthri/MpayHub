@@ -457,8 +457,8 @@ class PayInPackageAdminSerializer(serializers.ModelSerializer):
         ]
 
     def get_payout_slabs(self, obj):
-        qs = obj.payout_slabs.filter(is_deleted=False).order_by('sort_order', 'min_amount')
-        return PayoutSlabTierSerializer(qs, many=True).data
+        # Platform-wide slabs only; package-level tiers are deprecated.
+        return []
 
     def get_package_gateways(self, obj):
         from apps.fund_management.package_gateways import serialize_package_gateways
@@ -631,9 +631,7 @@ class PayInPackageAdminSerializer(serializers.ModelSerializer):
                 {'non_field_errors': ['Total deduction percentage cannot exceed 100%.']}
             )
 
-        if isinstance(initial, dict) and 'payout_slabs' in initial:
-            _validate_payout_slabs_list(initial.get('payout_slabs'))
-
+        # payout_slabs on packages are ignored (platform-wide slabs only).
         return attrs
 
     def create(self, validated_data):
@@ -681,8 +679,7 @@ class PayInPackageAdminSerializer(serializers.ModelSerializer):
                 default_gateway_id=default_gateway_id or instance.payment_gateway_id,
                 gateway_fees=gw_fee_map,
             )
-        if isinstance(initial, dict) and 'payout_slabs' in initial:
-            _sync_payout_slabs(instance, initial.get('payout_slabs') or [])
+        # payout_slabs ignored — platform-wide only
         if qr_ids is not None:
             from apps.fund_management.package_qr_accounts import sync_package_qr_links
 
@@ -732,8 +729,7 @@ class PayInPackageAdminSerializer(serializers.ModelSerializer):
                 default_gateway_id=default_gateway_id,
                 gateway_fees=gw_fee_map,
             )
-        if isinstance(initial, dict) and 'payout_slabs' in initial:
-            _sync_payout_slabs(instance, initial.get('payout_slabs') or [])
+        # payout_slabs ignored — platform-wide only
         if qr_ids is not None:
             from apps.fund_management.package_qr_accounts import sync_package_qr_links
 
@@ -778,7 +774,7 @@ class PayInPackageListSerializer(serializers.ModelSerializer):
         read_only_fields = fields
 
     def get_payout_slabs(self, obj):
-        return obj.payout_slabs.filter(is_deleted=False).count()
+        return 0
 
     def get_max_rail_gateway_fee_pct(self, obj):
         from apps.fund_management.rail_fees import max_package_gateway_fee_pct

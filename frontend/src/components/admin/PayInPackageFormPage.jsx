@@ -17,12 +17,9 @@ import {
   linkedGatewaysFromPackage,
   linkedQrFromPackage,
   maxRailFeeFromForm,
-  normalizePayoutSlabContiguity,
   packageFormFromPkg,
-  slabsFromPackage,
   slugifyCode,
 } from './payInPackageFormShared';
-import { formatDecimalInput } from '../../utils/formatters';
 import {
   FaArrowLeft,
   FaPlus,
@@ -40,59 +37,27 @@ const PayInPackageFormPage = () => {
   const [saving, setSaving] = useState(false);
   const [gatewayPickerId, setGatewayPickerId] = useState('');
   const [qrPickerId, setQrPickerId] = useState('');
-  const [packagePayoutSlabs, setPackagePayoutSlabs] = useState([]);
-  const [payoutSlabForm, setPayoutSlabForm] = useState({
-    low_max_amount: '24999',
-    low_charge: '7',
-    high_charge: '15',
-  });
   const [packageForm, setPackageForm] = useState(defaultPackageForm());
-
-  const buildDefaultPayoutSlabsFromGlobal = (cfg = payoutSlabForm) => {
-    const lowMax = formatDecimalInput(cfg.low_max_amount) || '24999.00';
-    const lowC = formatDecimalInput(cfg.low_charge) || '7.00';
-    const highC = formatDecimalInput(cfg.high_charge) || '15.00';
-    const nextMin = (parseFloat(lowMax, 10) + 0.01).toFixed(2);
-    return [
-      { sort_order: 0, min_amount: '0.00', max_amount: lowMax, flat_charge: lowC },
-      { sort_order: 1, min_amount: nextMin, max_amount: '', flat_charge: highC },
-    ];
-  };
 
   useEffect(() => {
     const load = async () => {
       setPageLoading(true);
-      const [gRes, qrRes, sRes] = await Promise.all([
+      const [gRes, qrRes] = await Promise.all([
         adminAPI.listPaymentGateways(),
         adminAPI.listPayInQrAccounts({ page_size: 100 }),
-        adminAPI.getPayoutSlabConfig(),
       ]);
       const gwList = gRes.success ? parseList(gRes) : [];
       setGateways(gwList);
       if (qrRes.success) setQrAccounts(qrRes.data?.results || []);
-      let nextSlabForm = payoutSlabForm;
-      if (sRes.success && sRes.data?.config) {
-        const cfg = sRes.data.config;
-        nextSlabForm = {
-          low_max_amount: formatDecimalInput(cfg.low_max_amount) || '24999.00',
-          low_charge: formatDecimalInput(cfg.low_charge) || '7.00',
-          high_charge: formatDecimalInput(cfg.high_charge) || '15.00',
-        };
-        setPayoutSlabForm(nextSlabForm);
-      }
 
       if (isEdit) {
         const res = await adminAPI.getPayInPackage(id);
         if (res.success && res.data) {
           setEditingPackage(res.data);
           setPackageForm(packageFormFromPkg(res.data, gwList, qrRes.data?.results || []));
-          setPackagePayoutSlabs(
-            slabsFromPackage(res.data) || buildDefaultPayoutSlabsFromGlobal(nextSlabForm)
-          );
         }
       } else {
         setPackageForm(defaultPackageForm(gwList));
-        setPackagePayoutSlabs(buildDefaultPayoutSlabsFromGlobal(nextSlabForm));
       }
       setPageLoading(false);
     };
@@ -245,33 +210,6 @@ const PayInPackageFormPage = () => {
     });
   };
 
-  const addPayoutSlabRow = () => {
-    setPackagePayoutSlabs((rows) => {
-      const next = [...rows];
-      const lastMax = next.length ? next[next.length - 1].max_amount : '0';
-      const minStart =
-        lastMax === '' || lastMax == null ? '0' : (parseFloat(lastMax, 10) + 0.01).toFixed(2);
-      next.push({ sort_order: next.length, min_amount: minStart, max_amount: '', flat_charge: '7' });
-      return next;
-    });
-  };
-
-  const removePayoutSlabRow = (index) => {
-    setPackagePayoutSlabs((rows) => normalizePayoutSlabContiguity(rows.filter((_, i) => i !== index)));
-  };
-
-  const updatePayoutSlabRow = (index, field, value) => {
-    setPackagePayoutSlabs((rows) => {
-      const next = [...rows];
-      next[index] = { ...next[index], [field]: value };
-      // Keep following mins contiguous when a max band changes.
-      if (field === 'max_amount') {
-        return normalizePayoutSlabContiguity(next);
-      }
-      return next;
-    });
-  };
-
   const handleSave = async (e) => {
     e.preventDefault();
     if (!packageForm.code || !packageForm.display_name) {
@@ -285,14 +223,6 @@ const PayInPackageFormPage = () => {
       return;
     }
     setSaving(true);
-    const normalizedSlabs = normalizePayoutSlabContiguity(packagePayoutSlabs);
-    setPackagePayoutSlabs(normalizedSlabs);
-    const payout_slabs = normalizedSlabs.map((row, i) => ({
-      sort_order: i,
-      min_amount: row.min_amount,
-      max_amount: row.max_amount === '' || row.max_amount == null ? null : row.max_amount,
-      flat_charge: row.flat_charge,
-    }));
 
     const payload = {
       code: packageForm.code.trim(),
@@ -326,7 +256,6 @@ const PayInPackageFormPage = () => {
       is_active: packageForm.is_active,
       sort_order: Number(packageForm.sort_order || 0),
       is_default: editingPackage ? !!editingPackage.is_default : false,
-      payout_slabs,
     };
 
     if (hasGateways) {
@@ -620,76 +549,17 @@ const PayInPackageFormPage = () => {
             </div>
           </Card>
 
-          <Card shadow="sm" padding="lg" title="Payout slabs (this package)">
-            <div className="mb-3 flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
-              <p className="text-xs leading-relaxed text-slate-600 dark:text-slate-400 sm:max-w-xl">
-                Bands must start at 0 and be contiguous in ₹0.01 steps. Next min is filled
-                automatically from the previous max. Last row may leave max empty.
-              </p>
-              <Button
-                type="button"
-                variant="outline"
-                size="sm"
-                icon={FaPlus}
-                onClick={addPayoutSlabRow}
-                className="w-full shrink-0 sm:w-auto"
+          <Card shadow="sm" padding="lg" title="Payout fees">
+            <p className="text-sm text-slate-600 dark:text-slate-400">
+              Payout Charge + Commission slabs are configured platform-wide under{' '}
+              <Link
+                to="/admin/payout-slabs"
+                className="font-semibold text-amber-700 underline dark:text-amber-300"
               >
-                Add tier
-              </Button>
-            </div>
-            <div className="space-y-2">
-              {packagePayoutSlabs.map((row, idx) => (
-                <div
-                  key={`slab-${idx}`}
-                  className="grid grid-cols-1 gap-3 rounded-lg border p-3 sm:grid-cols-2 lg:grid-cols-12 lg:items-end"
-                >
-                  <div className="min-w-0 lg:col-span-3">
-                    <label className="mb-1 block text-xs font-medium">Min amount</label>
-                    <input
-                      type="text"
-                      className="w-full rounded-lg border px-3 py-2 text-sm dark:border-slate-600 dark:bg-slate-900 disabled:opacity-70"
-                      value={row.min_amount}
-                      readOnly={idx === 0 || (idx > 0 && packagePayoutSlabs[idx - 1]?.max_amount !== '')}
-                      onChange={(e) => updatePayoutSlabRow(idx, 'min_amount', e.target.value)}
-                      title={
-                        idx === 0
-                          ? 'First tier always starts at 0.00'
-                          : 'Set automatically as previous max + 0.01'
-                      }
-                    />
-                  </div>
-                  <div className="min-w-0 lg:col-span-3">
-                    <label className="mb-1 block text-xs font-medium">Max (blank = ∞)</label>
-                    <input
-                      type="text"
-                      className="w-full rounded-lg border px-3 py-2 text-sm dark:border-slate-600 dark:bg-slate-900"
-                      value={row.max_amount}
-                      onChange={(e) => updatePayoutSlabRow(idx, 'max_amount', e.target.value)}
-                    />
-                  </div>
-                  <div className="min-w-0 lg:col-span-3">
-                    <label className="mb-1 block text-xs font-medium">Flat charge (₹)</label>
-                    <input
-                      type="text"
-                      className="w-full rounded-lg border px-3 py-2 text-sm dark:border-slate-600 dark:bg-slate-900"
-                      value={row.flat_charge}
-                      onChange={(e) => updatePayoutSlabRow(idx, 'flat_charge', e.target.value)}
-                    />
-                  </div>
-                  <div className="flex items-end justify-start lg:col-span-3 lg:justify-end">
-                    {packagePayoutSlabs.length > 1 ? (
-                      <button
-                        type="button"
-                        onClick={() => removePayoutSlabRow(idx)}
-                        className="text-sm font-semibold text-red-600 dark:text-red-400"
-                      >
-                        Remove
-                      </button>
-                    ) : null}
-                  </div>
-                </div>
-              ))}
-            </div>
+                Platform setup → Payout slabs
+              </Link>
+              . Packages only control pay-in rates.
+            </p>
           </Card>
 
           <div className="sticky bottom-0 z-20 -mx-1 rounded-xl border border-slate-200 bg-white/95 px-3 py-3 shadow-[0_-8px_24px_rgba(15,23,42,0.08)] backdrop-blur supports-[backdrop-filter]:bg-white/90 dark:border-slate-700 dark:bg-slate-900/95 sm:-mx-0 sm:px-4">

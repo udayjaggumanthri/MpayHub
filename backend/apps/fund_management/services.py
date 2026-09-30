@@ -19,7 +19,7 @@ from apps.authentication.models import User
 from apps.core.exceptions import InsufficientBalance, TransactionFailed
 from apps.core.utils import decrypt_secret_payload
 from apps.core.utils import generate_service_id
-from apps.fund_management.models import LoadMoney, PayInPackage, Payout, PayoutSlabTier
+from apps.fund_management.models import LoadMoney, PayInPackage, Payout
 from apps.fund_management.money_utils import money_q
 from apps.fund_management.payin_distribution import _compute_payin_distribution
 from apps.fund_management.payin_settlement import (
@@ -741,60 +741,100 @@ def resolve_payout_package(user: User) -> Optional[PayInPackage]:
     return qs.first()
 
 
-def payout_flat_charge_for_package(package: Optional[PayInPackage], amount: Decimal) -> Decimal:
+def _payout_slab_breakdown_global(amount: Decimal) -> dict:
+    """Legacy two-tier → charge only, commission 0 (safety net)."""
+    amount = money_q(amount)
+    charge = _payout_slab_charge_global(amount)
+    return {
+        'charge': money_q(charge),
+        'commission': Decimal('0'),
+        'total': money_q(charge),
+    }
+
+
+def payout_slab_breakdown_for_amount(amount: Decimal) -> dict:
     """
-    Flat payout charge for amount using tiers on ``package``.
-    If ``package`` is None or has no tiers, uses global PayoutSlabConfig / settings.
+    Platform-wide slab match: charge + commission + total.
+
+    Prefers ``PlatformPayoutSlabTier``; falls back to legacy two-tier config.
     """
     amount = money_q(Decimal(str(amount)))
-    if package is None:
-        return _payout_slab_charge_global(amount)
+    from apps.fund_management.models import PlatformPayoutSlabTier
+
     tiers = (
-        PayoutSlabTier.objects.filter(package=package, is_deleted=False)
-        .only('min_amount', 'max_amount', 'flat_charge', 'sort_order')
+        PlatformPayoutSlabTier.objects.filter(is_deleted=False)
+        .only('min_amount', 'max_amount', 'charge', 'commission', 'sort_order')
         .order_by('sort_order', 'min_amount')
     )
-    if not tiers.exists():
-        return _payout_slab_charge_global(amount)
-    for t in tiers:
-        lo = money_q(t.min_amount)
-        hi = money_q(t.max_amount) if t.max_amount is not None else None
-        if amount < lo:
-            continue
-        if hi is not None and amount > hi:
-            continue
-        return money_q(t.flat_charge)
-    return _payout_slab_charge_global(amount)
+    if tiers.exists():
+        for t in tiers:
+            lo = money_q(t.min_amount)
+            hi = money_q(t.max_amount) if t.max_amount is not None else None
+            if amount < lo:
+                continue
+            if hi is not None and amount > hi:
+                continue
+            charge = money_q(t.charge or 0)
+            commission = money_q(t.commission or 0)
+            return {
+                'charge': charge,
+                'commission': commission,
+                'total': money_q(charge + commission),
+            }
+        # Amount outside all bands — last open-ended tier or global fallback
+        last = tiers.last()
+        if last is not None and last.max_amount is None:
+            charge = money_q(last.charge or 0)
+            commission = money_q(last.commission or 0)
+            return {
+                'charge': charge,
+                'commission': commission,
+                'total': money_q(charge + commission),
+            }
+    return _payout_slab_breakdown_global(amount)
+
+
+def payout_slab_breakdown_for_user(user: User, amount: Decimal) -> dict:
+    """Platform slabs only (package tiers no longer used for payout pricing)."""
+    del user  # API compatibility; pricing is platform-wide
+    return payout_slab_breakdown_for_amount(amount)
+
+
+def payout_flat_charge_for_package(package: Optional[PayInPackage], amount: Decimal) -> Decimal:
+    """
+    Backward-compatible total fee for amount (ignores package — platform slabs).
+    """
+    del package
+    return payout_slab_breakdown_for_amount(amount)['total']
 
 
 def payout_slab_charge_for_user(user: User, amount: Decimal) -> Decimal:
-    """Payout flat charge for user's resolved commercial package (per-package tiers)."""
-    pkg = resolve_payout_package(user)
-    return payout_flat_charge_for_package(pkg, amount)
+    """Total payout fee (charge + commission) for amount."""
+    return payout_slab_breakdown_for_user(user, amount)['total']
 
 
 def max_payout_eligible_for_user(user: User, balance: Decimal) -> Decimal:
     """
-    Maximum payout principal such that principal + charge(principal) <= balance,
-    using tiers on the user's resolved package (or global two-tier fallback).
+    Maximum payout principal such that principal + total_fee(principal) <= balance,
+    using platform Charge+Commission tiers.
     """
+    del user
     balance = money_q(Decimal(str(balance)))
     if balance <= 0:
         return Decimal('0')
-    pkg = resolve_payout_package(user)
-    if pkg is None:
-        return _max_payout_eligible_global(balance)
+    from apps.fund_management.models import PlatformPayoutSlabTier
+
     tiers = list(
-        PayoutSlabTier.objects.filter(package=pkg, is_deleted=False).order_by('sort_order', 'min_amount')
+        PlatformPayoutSlabTier.objects.filter(is_deleted=False).order_by('sort_order', 'min_amount')
     )
     if not tiers:
         return _max_payout_eligible_global(balance)
     best = Decimal('0')
     for t in tiers:
-        c = money_q(t.flat_charge)
+        total_fee = money_q((t.charge or 0) + (t.commission or 0))
         lo = money_q(t.min_amount)
         hi = money_q(t.max_amount) if t.max_amount is not None else None
-        cap = money_q(balance - c)
+        cap = money_q(balance - total_fee)
         if cap < lo:
             continue
         upper = min(cap, hi) if hi is not None else cap

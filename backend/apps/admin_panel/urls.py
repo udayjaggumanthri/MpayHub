@@ -20,6 +20,7 @@ app_name = 'admin_panel'
 urlpatterns = [
     path('', include(router.urls)),
     path('payout-slab-config/', views.payout_slab_config_view, name='payout-slab-config'),
+    path('payout-slabs/', views.platform_payout_slabs_view, name='platform-payout-slabs'),
     path('smtp-config/', views.smtp_config_list_view, name='smtp-config'),
     path('smtp-config/<int:pk>/', views.smtp_config_detail_view, name='smtp-config-detail'),
     path('smtp-config/<int:pk>/activate/', views.smtp_config_activate_view, name='smtp-config-activate'),

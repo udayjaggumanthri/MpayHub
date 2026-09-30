@@ -314,11 +314,11 @@ def pay_in_packages_view(request):
 @api_view(['GET'])
 @permission_classes([IsAuthenticated])
 def payout_quote_view(request):
-    """GET /api/fund-management/payout/quote/?amount= optional — balance + package slab tiers + preview."""
+    """GET /api/fund-management/payout/quote/?amount= optional — balance + platform slabs + preview."""
     assert_can_pay_out(request.user)
     assert_module_available(MODULE_PAYOUT)
-    from django.conf import settings
-    from apps.fund_management.models import PayoutSlabTier
+    from apps.fund_management.models import PlatformPayoutSlabTier
+    from apps.fund_management.services import payout_slab_breakdown_for_user
     from apps.wallets.models import Wallet
 
     main = Wallet.get_wallet(request.user, 'main')
@@ -327,23 +327,29 @@ def payout_quote_view(request):
     pkg = resolve_payout_package(request.user)
 
     slabs = []
-    if pkg is not None:
-        tiers = (
-            PayoutSlabTier.objects.filter(package=pkg, is_deleted=False)
-            .order_by('sort_order', 'min_amount')
-            .only('min_amount', 'max_amount', 'flat_charge')
+    tiers = (
+        PlatformPayoutSlabTier.objects.filter(is_deleted=False)
+        .order_by('sort_order', 'min_amount')
+        .only('min_amount', 'max_amount', 'charge', 'commission')
+    )
+    for t in tiers:
+        total = money_q_local((t.charge or 0) + (t.commission or 0))
+        slabs.append(
+            {
+                'min_amount': str(t.min_amount),
+                'max_amount': str(t.max_amount) if t.max_amount is not None else None,
+                'charge': str(t.charge or 0),
+                'commission': str(t.commission or 0),
+                'total': str(total),
+                # Legacy key = total fee shown to older clients
+                'flat_charge': str(total),
+            }
         )
-        for t in tiers:
-            slabs.append(
-                {
-                    'min_amount': str(t.min_amount),
-                    'max_amount': str(t.max_amount) if t.max_amount is not None else None,
-                    'flat_charge': str(t.flat_charge),
-                }
-            )
 
     if not slabs:
-        # Global two-tier fallback (admin PayoutSlabConfig / settings)
+        # Safety net: legacy two-tier as charge-only
+        from django.conf import settings
+
         low_max = getattr(settings, 'PAYOUT_SLAB_LOW_MAX', Decimal('24999'))
         low_c = getattr(settings, 'PAYOUT_CHARGE_LOW', Decimal('7'))
         high_c = getattr(settings, 'PAYOUT_CHARGE_HIGH', Decimal('15'))
@@ -366,11 +372,17 @@ def payout_quote_view(request):
             {
                 'min_amount': '0',
                 'max_amount': str(low_max),
+                'charge': str(low_c),
+                'commission': '0',
+                'total': str(low_c),
                 'flat_charge': str(low_c),
             },
             {
                 'min_amount': str(Decimal(str(low_max)) + Decimal('1')),
                 'max_amount': None,
+                'charge': str(high_c),
+                'commission': '0',
+                'total': str(high_c),
                 'flat_charge': str(high_c),
             },
         ]
@@ -382,20 +394,21 @@ def payout_quote_view(request):
         'payout_package_code': pkg.code if pkg else None,
         'payout_package_name': getattr(pkg, 'display_name', None) or (pkg.code if pkg else None),
         'slabs': slabs,
-        # Legacy keys kept for older clients; derived from live slabs
         'slab_low_max': slabs[0]['max_amount'] if slabs and slabs[0].get('max_amount') else '',
-        'charge_low': slabs[0]['flat_charge'] if slabs else '',
-        'charge_high': slabs[-1]['flat_charge'] if slabs else '',
+        'charge_low': slabs[0].get('flat_charge') or slabs[0].get('total') if slabs else '',
+        'charge_high': slabs[-1].get('flat_charge') or slabs[-1].get('total') if slabs else '',
     }
     amt_param = request.query_params.get('amount')
     if amt_param:
         try:
             amt = money_q_local(Decimal(str(amt_param)))
-            ch = payout_slab_charge_for_user(request.user, amt)
+            bd = payout_slab_breakdown_for_user(request.user, amt)
             out['preview'] = {
                 'amount': str(amt),
-                'charge': str(ch),
-                'total_debit': str(money_q_local(amt + ch)),
+                'charge': str(bd['total']),
+                'service_charge': str(bd['charge']),
+                'commission': str(bd['commission']),
+                'total_debit': str(money_q_local(amt + bd['total'])),
             }
         except Exception:
             pass

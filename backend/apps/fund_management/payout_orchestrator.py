@@ -204,9 +204,12 @@ def process_payout(
             'Please re-verify the account or contact support.'
         )
 
-    from apps.fund_management.services import payout_slab_charge_for_user
+    from apps.fund_management.services import payout_slab_breakdown_for_user
 
-    charge_amt = payout_slab_charge_for_user(user, amount)
+    breakdown = payout_slab_breakdown_for_user(user, amount)
+    charge_amt = breakdown['total']
+    service_charge_amt = breakdown['charge']
+    commission_amt = breakdown['commission']
     platform_fee = Decimal('0')
     total_deducted = money_q(amount + charge_amt)
 
@@ -256,6 +259,8 @@ def process_payout(
                     bank_account=bank_account,
                     amount=amount,
                     charge=charge_amt,
+                    service_charge=service_charge_amt,
+                    commission_amount=commission_amt,
                     platform_fee=platform_fee,
                     total_deducted=total_deducted,
                     transfer_mode=mode,
@@ -271,6 +276,8 @@ def process_payout(
                         'ifsc': bank_account.ifsc,
                         'lat': lat_s,
                         'long': long_s,
+                        'slab_charge': str(service_charge_amt),
+                        'slab_commission': str(commission_amt),
                     },
                 )
                 main_wallet.hold(
@@ -665,18 +672,56 @@ def _settle_success(
         **passbook_initiator_db_fields(locked.user),
     )
 
-    if locked.charge > 0:
+    if locked.charge > 0 or money_q(getattr(locked, 'service_charge', 0) or 0) > 0 or money_q(getattr(locked, 'commission_amount', 0) or 0) > 0:
         try:
+            from apps.fund_management.platform_settlement import get_platform_treasury_user
             from apps.transactions.services.fee_settlement import settle_service_charge
 
-            settle_service_charge(
-                payer=locked.user,
-                module='payout',
-                service_id=locked.transaction_id,
-                charge=locked.charge,
-                principal=locked.amount,
-                meta={'transfer_mode': locked.transfer_mode, 'rrn': rrn},
-            )
+            svc = money_q(getattr(locked, 'service_charge', None) or 0)
+            comm = money_q(getattr(locked, 'commission_amount', None) or 0)
+            # Legacy rows: full charge was service fee only.
+            if svc <= 0 and comm <= 0 and locked.charge > 0:
+                svc = money_q(locked.charge)
+
+            treasury = get_platform_treasury_user(locked.user)
+            slices = []
+            if svc > 0:
+                slices.append({
+                    'user': treasury,
+                    'amount': svc,
+                    'slice_key': 'platform_fee',
+                    'entry_kind': 'service_fee',
+                    'role_at_time': 'PLATFORM',
+                    'source': 'payout',
+                    'service_label': 'SERVICE FEE',
+                    'description': f'PAYOUT service fee on {locked.transaction_id}',
+                })
+            if comm > 0 and treasury is not None:
+                slices.append({
+                    'user': treasury,
+                    'amount': comm,
+                    'slice_key': 'payout_admin',
+                    'entry_kind': 'commission',
+                    'role_at_time': 'PLATFORM',
+                    'source': 'payout',
+                    'service_label': 'COMMISSION',
+                    'description': f'PAYOUT platform commission on {locked.transaction_id}',
+                })
+            if slices:
+                settle_service_charge(
+                    payer=locked.user,
+                    module='payout',
+                    service_id=locked.transaction_id,
+                    charge=money_q(svc + comm) if (svc + comm) > 0 else money_q(locked.charge),
+                    principal=locked.amount,
+                    slices=slices,
+                    meta={
+                        'transfer_mode': locked.transfer_mode,
+                        'rrn': rrn,
+                        'slab_charge': str(svc),
+                        'slab_commission': str(comm),
+                    },
+                )
         except Exception:
             logger.exception('Payout fee settlement failed for %s', locked.transaction_id)
 

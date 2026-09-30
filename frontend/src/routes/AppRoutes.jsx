@@ -57,6 +57,7 @@ import PayoutRecovery from '../components/admin/PayoutRecovery';
 import PayInPackagesAdmin from '../components/admin/PayInPackagesAdmin';
 import PayInPackageFormPage from '../components/admin/PayInPackageFormPage';
 import PayInPackageCalculationPreview from '../components/admin/PayInPackageCalculationPreview';
+import PayoutSlabsAdmin from '../components/admin/PayoutSlabsAdmin';
 import APIMasterManagement from '../components/admin/APIMasterManagement';
 import SmtpSettings from '../components/admin/SmtpSettings';
 import EmailNotifications from '../components/admin/EmailNotifications';
@@ -643,6 +644,19 @@ const AppRoutes = () => {
             <AdminRoute>
               <Layout>
                 <PayInPackagesAdmin />
+              </Layout>
+            </AdminRoute>
+          </ProtectedRoute>
+        }
+      />
+
+      <Route
+        path="/admin/payout-slabs"
+        element={
+          <ProtectedRoute>
+            <AdminRoute>
+              <Layout>
+                <PayoutSlabsAdmin />
               </Layout>
             </AdminRoute>
           </ProtectedRoute>

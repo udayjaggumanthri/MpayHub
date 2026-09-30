@@ -2,6 +2,9 @@
 Admin gateway sales & profit analytics — platform-wide aggregates from LoadMoney.
 
 All users' successful pay-ins are included (not scoped to the admin account or scope=self).
+
+Platform Profit = pay-in leftover credited to treasury (admin_absorbed / gateway_absorbed),
+whether ledger ``source`` is legacy ``profit`` or current ``payin`` commission.
 """
 from __future__ import annotations
 
@@ -17,10 +20,13 @@ from apps.fund_management.models import LoadMoney
 from apps.transactions.dashboard_stats import parse_date_param, resolve_period
 from apps.transactions.models import CommissionLedger
 
-CACHE_KEY_PREFIX = 'gateway_analytics_v1'
+CACHE_KEY_PREFIX = 'gateway_analytics_v2'
 CACHE_TTL_SECONDS = 60
 
 _EMPTY = Value('')
+
+# Pay-in leftover credited to treasury (old source=profit and new source=payin / commission).
+_PLATFORM_PAYIN_SLICES = ('admin_absorbed', 'gateway_absorbed')
 
 
 def _gateway_label_expression():
@@ -138,11 +144,19 @@ def get_gateway_analytics_summary(
         tid_to_bucket[str(tid)] = (period, str(gw or 'Unknown'))
 
     if service_ids:
+        # Platform profit = Admin/treasury pay-in leftover (not hierarchy SD/MD/DT).
+        # Match both legacy ``source=profit`` rows and post-fix ``source=payin``
+        # / ``entry_kind=commission`` admin_absorbed rows.
+        from django.db.models import Q
+
         for row in (
             CommissionLedger.objects.filter(
                 is_deleted=False,
-                source='profit',
                 reference_service_id__in=service_ids,
+            )
+            .filter(
+                Q(slice_key__in=_PLATFORM_PAYIN_SLICES)
+                | Q(source='profit', slice_key='')
             )
             .values('reference_service_id')
             .annotate(total=Sum('amount'))

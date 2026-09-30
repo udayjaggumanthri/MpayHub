@@ -213,9 +213,10 @@ class PayInPackageQrLink(BaseModel):
 
 class PayoutSlabTier(BaseModel):
     """
-    Per-package payout slab: flat charge for withdrawal amount in [min_amount, max_amount].
-    max_amount null means unbounded upper range. Tiers are configured per PayInPackage
-    so assignment grants both pay-in and payout rules.
+    Legacy per-package payout slab (read-only / historical).
+
+    New configuration uses ``PlatformPayoutSlabTier`` (platform-wide Charge + Commission).
+    Package create/update no longer writes these rows.
     """
 
     package = models.ForeignKey(
@@ -245,6 +246,55 @@ class PayoutSlabTier(BaseModel):
     def __str__(self):
         upper = self.max_amount if self.max_amount is not None else '∞'
         return f"{self.package.code} [{self.min_amount}–{upper}]: ₹{self.flat_charge}"
+
+
+class PlatformPayoutSlabTier(BaseModel):
+    """
+    Platform-wide payout slab: Charge (gateway/tracker) + Commission (treasury profit).
+
+    End-user total fee = charge + commission for amount in [min_amount, max_amount].
+    max_amount null means unbounded upper range.
+    """
+
+    sort_order = models.PositiveIntegerField(default=0, db_index=True)
+    min_amount = models.DecimalField(max_digits=18, decimal_places=4)
+    max_amount = models.DecimalField(
+        max_digits=18,
+        decimal_places=4,
+        null=True,
+        blank=True,
+        help_text='Inclusive upper bound; null = no upper limit.',
+    )
+    charge = models.DecimalField(
+        max_digits=18,
+        decimal_places=4,
+        default=Decimal('0'),
+        help_text='Gateway / service fee portion → Service Fee Tracker.',
+    )
+    commission = models.DecimalField(
+        max_digits=18,
+        decimal_places=4,
+        default=Decimal('0'),
+        help_text='Platform profit portion → treasury Main as commission.',
+    )
+
+    class Meta:
+        db_table = 'platform_payout_slab_tiers'
+        ordering = ['sort_order', 'min_amount']
+        indexes = [
+            models.Index(fields=['sort_order', 'min_amount']),
+        ]
+
+    @property
+    def total(self) -> Decimal:
+        return (self.charge or Decimal('0')) + (self.commission or Decimal('0'))
+
+    def __str__(self):
+        upper = self.max_amount if self.max_amount is not None else '∞'
+        return (
+            f"Platform [{self.min_amount}–{upper}]: "
+            f"charge ₹{self.charge} + commission ₹{self.commission} = ₹{self.total}"
+        )
 
 
 class LoadMoney(BaseModel):
@@ -449,7 +499,24 @@ class Payout(BaseModel):
         related_name='payouts',
     )
     amount = models.DecimalField(max_digits=18, decimal_places=4)
-    charge = models.DecimalField(max_digits=18, decimal_places=4, default=Decimal('0'))
+    charge = models.DecimalField(
+        max_digits=18,
+        decimal_places=4,
+        default=Decimal('0'),
+        help_text='Total fee debited from agent (service_charge + commission_amount).',
+    )
+    service_charge = models.DecimalField(
+        max_digits=18,
+        decimal_places=4,
+        default=Decimal('0'),
+        help_text='Gateway/service fee portion → Service Fee Tracker.',
+    )
+    commission_amount = models.DecimalField(
+        max_digits=18,
+        decimal_places=4,
+        default=Decimal('0'),
+        help_text='Platform commission portion → treasury Main.',
+    )
     platform_fee = models.DecimalField(max_digits=18, decimal_places=4, default=Decimal('0'))
     total_deducted = models.DecimalField(max_digits=18, decimal_places=4)
     transfer_mode = models.CharField(

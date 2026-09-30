@@ -90,10 +90,18 @@ export const ADMIN_QUICK_ACTION_CATALOG = [
   {
     id: 'packages',
     title: 'Pay-in Packages',
-    description: 'Commission & payout slabs',
+    description: 'Pay-in fee splits',
     path: '/admin/pay-in-packages',
     iconKey: 'packages',
     tone: 'from-indigo-600 to-violet-700',
+  },
+  {
+    id: 'payout-slabs',
+    title: 'Payout Slabs',
+    description: 'Charge + commission bands',
+    path: '/admin/payout-slabs',
+    iconKey: 'packages',
+    tone: 'from-amber-500 to-orange-600',
   },
   {
     id: 'payin-report',

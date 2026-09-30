@@ -28,12 +28,6 @@ const PayInPackagesAdmin = () => {
   const [loading, setLoading] = useState(false);
   const [loadError, setLoadError] = useState('');
   const [defaultLoading, setDefaultLoading] = useState(null);
-  const [slabLoading, setSlabLoading] = useState(false);
-  const [payoutSlabForm, setPayoutSlabForm] = useState({
-    low_max_amount: '24999',
-    low_charge: '7',
-    high_charge: '15',
-  });
 
   const loadPackages = useCallback(async () => {
     setLoading(true);
@@ -57,35 +51,6 @@ const PayInPackagesAdmin = () => {
   useEffect(() => {
     loadPackages();
   }, [loadPackages]);
-
-  useEffect(() => {
-    adminAPI.getPayoutSlabConfig().then((sRes) => {
-      if (sRes.success && sRes.data?.config) {
-        const cfg = sRes.data.config;
-        setPayoutSlabForm({
-          low_max_amount: formatDecimalInput(cfg.low_max_amount) || '24999.00',
-          low_charge: formatDecimalInput(cfg.low_charge) || '7.00',
-          high_charge: formatDecimalInput(cfg.high_charge) || '15.00',
-        });
-      }
-    });
-  }, []);
-
-  const savePayoutSlab = async (e) => {
-    e.preventDefault();
-    setSlabLoading(true);
-    const res = await adminAPI.updatePayoutSlabConfig({
-      low_max_amount: payoutSlabForm.low_max_amount,
-      low_charge: payoutSlabForm.low_charge,
-      high_charge: payoutSlabForm.high_charge,
-    });
-    setSlabLoading(false);
-    if (!res.success) {
-      alert(firstErrorMessage(res, 'Could not update payout slab config'));
-      return;
-    }
-    alert('Payout slab updated');
-  };
 
   const handleDeletePackage = async (pkgId) => {
     if (!window.confirm('Delete this package? Existing historical transactions remain safe.')) return;
@@ -159,29 +124,21 @@ const PayInPackagesAdmin = () => {
         </header>
 
         <section className="rounded-2xl border bg-white dark:bg-slate-900 shadow-sm overflow-hidden">
-          <div className="border-b bg-slate-50/80 dark:bg-slate-800/50 px-5 py-4 sm:px-6">
-            <h3 className="text-lg font-semibold">System fallback: payout slab (two-tier)</h3>
+          <div className="flex flex-col gap-3 px-5 py-4 sm:flex-row sm:items-center sm:justify-between sm:px-6">
+            <div>
+              <h3 className="text-lg font-semibold">Payout slabs</h3>
+              <p className="text-sm text-slate-600 dark:text-slate-400">
+                Charge + Commission bands are configured platform-wide (not per package).
+              </p>
+            </div>
+            <Link
+              to="/admin/payout-slabs"
+              className="inline-flex items-center gap-2 rounded-xl border border-amber-300 bg-amber-50 px-4 py-2.5 text-sm font-semibold text-amber-900 dark:border-amber-700 dark:bg-amber-950/40 dark:text-amber-100"
+            >
+              Open payout slabs
+              <FaArrowRight size={14} />
+            </Link>
           </div>
-          <form onSubmit={savePayoutSlab} className="px-5 py-4 sm:px-6 grid grid-cols-1 md:grid-cols-4 gap-3 items-end">
-            <Input
-              label="Low slab max amount"
-              value={payoutSlabForm.low_max_amount}
-              onChange={(e) => setPayoutSlabForm((f) => ({ ...f, low_max_amount: e.target.value }))}
-            />
-            <Input
-              label="Charge up to low slab max"
-              value={payoutSlabForm.low_charge}
-              onChange={(e) => setPayoutSlabForm((f) => ({ ...f, low_charge: e.target.value }))}
-            />
-            <Input
-              label="Charge above low slab max"
-              value={payoutSlabForm.high_charge}
-              onChange={(e) => setPayoutSlabForm((f) => ({ ...f, high_charge: e.target.value }))}
-            />
-            <Button type="submit" loading={slabLoading}>
-              Save Slab
-            </Button>
-          </form>
         </section>
 
         <section className="rounded-2xl border bg-white dark:bg-slate-900 shadow-sm overflow-hidden">

@@ -442,7 +442,7 @@ class PayInPackageViewSet(viewsets.ModelViewSet):
 @api_view(['GET', 'PUT'])
 @permission_classes([IsAuthenticated, IsAdmin])
 def payout_slab_config_view(request):
-    """Get/update singleton payout slab configuration used by payout quote/processing."""
+    """Deprecated two-tier config — prefer GET/PUT /api/admin/payout-slabs/."""
     config = (
         PayoutSlabConfig.objects.filter(is_active=True).order_by('-updated_at', '-id').first()
         or PayoutSlabConfig.objects.order_by('-updated_at', '-id').first()
@@ -457,10 +457,10 @@ def payout_slab_config_view(request):
                 'success': True,
                 'data': {
                     'config': ser.data,
-                    'role': 'system_fallback',
+                    'role': 'deprecated_fallback',
                     'description': (
-                        'Fallback two-tier slab when a pay-in package has no payout tiers. '
-                        'Prefer configuring payout_slabs on each package.'
+                        'Deprecated two-tier fallback. Configure Charge + Commission slabs at '
+                        '/api/admin/payout-slabs/ (Platform Setup → Payout slabs).'
                     ),
                 },
                 'message': 'Payout slab config retrieved',
@@ -484,13 +484,165 @@ def payout_slab_config_view(request):
             'success': True,
             'data': {
                 'config': out,
-                'role': 'system_fallback',
+                'role': 'deprecated_fallback',
                 'description': (
-                    'Fallback two-tier slab when a pay-in package has no payout tiers. '
-                    'Prefer configuring payout_slabs on each package.'
+                    'Deprecated two-tier fallback. Prefer Platform Setup → Payout slabs.'
                 ),
             },
             'message': 'Payout slab config updated',
+            'errors': [],
+        },
+        status=status.HTTP_200_OK,
+    )
+
+
+def _validate_platform_payout_slabs(slabs):
+    from decimal import Decimal
+
+    from rest_framework import serializers as drf_serializers
+
+    if not isinstance(slabs, list) or not slabs:
+        raise drf_serializers.ValidationError({'slabs': ['At least one tier is required.']})
+    step = Decimal('0.01')
+    rows = []
+    for i, raw in enumerate(slabs):
+        if not isinstance(raw, dict):
+            raise drf_serializers.ValidationError({'slabs': ['Each tier must be an object.']})
+        lo = Decimal(str(raw.get('min_amount', '0')))
+        hi_raw = raw.get('max_amount')
+        hi = Decimal(str(hi_raw)) if hi_raw not in (None, '') else None
+        charge = Decimal(str(raw.get('charge', '0')))
+        commission = Decimal(str(raw.get('commission', '0')))
+        so = int(raw.get('sort_order', i))
+        if charge < 0 or commission < 0:
+            raise drf_serializers.ValidationError(
+                {'slabs': ['charge and commission cannot be negative.']}
+            )
+        if hi is not None and hi < lo:
+            raise drf_serializers.ValidationError(
+                {'slabs': ['max_amount must be >= min_amount per tier.']}
+            )
+        rows.append(
+            {
+                'sort_order': so,
+                'min_amount': lo,
+                'max_amount': hi,
+                'charge': charge,
+                'commission': commission,
+            }
+        )
+    rows.sort(key=lambda r: (r['sort_order'], r['min_amount']))
+    if rows[0]['min_amount'] != Decimal('0.00') and rows[0]['min_amount'] != Decimal('0'):
+        raise drf_serializers.ValidationError({'slabs': ['First tier must have min_amount 0.']})
+    for i in range(len(rows) - 1):
+        if rows[i]['max_amount'] is None:
+            raise drf_serializers.ValidationError(
+                {'slabs': ['Only the last tier may omit max_amount (open-ended).']}
+            )
+    for i in range(len(rows) - 1):
+        prev_hi = rows[i]['max_amount']
+        next_lo = rows[i + 1]['min_amount']
+        if next_lo != prev_hi + step:
+            raise drf_serializers.ValidationError(
+                {
+                    'slabs': [
+                        f'Tiers must be contiguous (step {step}): after max {prev_hi} '
+                        f'expect min {prev_hi + step}, got {next_lo}.'
+                    ]
+                }
+            )
+    return rows
+
+
+@api_view(['GET', 'PUT'])
+@permission_classes([IsAuthenticated, IsAdmin])
+def platform_payout_slabs_view(request):
+    """
+    GET/PUT /api/admin/payout-slabs/
+
+    Platform-wide Charge + Commission slab table (replace-all on PUT).
+    """
+    from apps.fund_management.models import PlatformPayoutSlabTier
+    from apps.fund_management.money_utils import money_q
+
+    if request.method == 'GET':
+        tiers = (
+            PlatformPayoutSlabTier.objects.filter(is_deleted=False)
+            .order_by('sort_order', 'min_amount')
+        )
+        data = []
+        for t in tiers:
+            total = money_q((t.charge or 0) + (t.commission or 0))
+            data.append(
+                {
+                    'id': t.pk,
+                    'sort_order': t.sort_order,
+                    'min_amount': str(t.min_amount),
+                    'max_amount': str(t.max_amount) if t.max_amount is not None else None,
+                    'charge': str(t.charge or 0),
+                    'commission': str(t.commission or 0),
+                    'total': str(total),
+                }
+            )
+        return Response(
+            {
+                'success': True,
+                'data': {
+                    'slabs': data,
+                    'description': (
+                        'End-user fee = charge + commission. Charge → Service Fee Tracker; '
+                        'Commission → Admin Main (platform profit).'
+                    ),
+                },
+                'message': 'OK',
+                'errors': [],
+            },
+            status=status.HTTP_200_OK,
+        )
+
+    try:
+        rows = _validate_platform_payout_slabs(request.data.get('slabs'))
+    except Exception as e:
+        errors = getattr(e, 'detail', None) or {'slabs': [str(e)]}
+        return Response(
+            {'success': False, 'data': None, 'message': 'Invalid input', 'errors': errors},
+            status=status.HTTP_400_BAD_REQUEST,
+        )
+
+    from django.db import transaction as db_transaction
+
+    with db_transaction.atomic():
+        PlatformPayoutSlabTier.objects.filter(is_deleted=False).update(is_deleted=True)
+        created = []
+        for i, row in enumerate(rows):
+            t = PlatformPayoutSlabTier.objects.create(
+                sort_order=int(row.get('sort_order', i)),
+                min_amount=row['min_amount'],
+                max_amount=row['max_amount'],
+                charge=row['charge'],
+                commission=row['commission'],
+            )
+            created.append(t)
+
+    data = []
+    for t in created:
+        total = money_q((t.charge or 0) + (t.commission or 0))
+        data.append(
+            {
+                'id': t.pk,
+                'sort_order': t.sort_order,
+                'min_amount': str(t.min_amount),
+                'max_amount': str(t.max_amount) if t.max_amount is not None else None,
+                'charge': str(t.charge or 0),
+                'commission': str(t.commission or 0),
+                'total': str(total),
+            }
+        )
+    return Response(
+        {
+            'success': True,
+            'data': {'slabs': data},
+            'message': 'Payout slabs updated',
             'errors': [],
         },
         status=status.HTTP_200_OK,
