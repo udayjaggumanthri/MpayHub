@@ -14,6 +14,7 @@ from django.db import transaction as db_transaction
 from django.utils import timezone
 from datetime import timedelta
 
+from apps.core.maintenance_mode import MODULE_PAYOUT, assert_module_available
 from apps.bank_accounts.models import BankAccount
 from apps.core.exceptions import InsufficientBalance, TransactionFailed
 from apps.core.utils import generate_service_id
@@ -116,6 +117,10 @@ def process_payout(
       3. Call provider (outside hold txn success path)
       4. Stay PENDING until callback; never fake SUCCESS
     """
+    # Defense in depth: views also call assert_module_available; keep orchestrator closed
+    # if invoked from any other code path during maintenance.
+    assert_module_available(MODULE_PAYOUT)
+
     del gateway_id  # routing is via ApiMaster registry; optional UI gateway is display-only
 
     try:

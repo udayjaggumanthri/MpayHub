@@ -106,6 +106,12 @@ class MatchStateCodeTests(TestCase):
 @override_settings(CACHES={'default': {'BACKEND': 'django.core.cache.backends.locmem.LocMemCache'}})
 class PayoutOrchestratorTests(TestCase):
     def setUp(self):
+        from apps.core.maintenance_mode import invalidate_cache, update_config
+
+        invalidate_cache()
+        update_config(changed_by=None, patch={'payout_enabled': True})
+        invalidate_cache()
+
         self.user = User.objects.create_user(
             phone='9876543299',
             email='payout_orch@test.com',

@@ -117,3 +117,32 @@ class MaintenanceModeAPITests(TestCase):
         )
         self.assertEqual(r.status_code, status.HTTP_200_OK)
         self.assertIn('maintenance', r.data['data'])
+
+    def test_payout_post_blocked_when_payout_disabled(self):
+        update_config(
+            changed_by=self.admin,
+            patch={'payout_enabled': False, 'payout_message': 'Payout paused for maintenance.'},
+        )
+        invalidate_cache()
+        self.client.force_authenticate(user=self.retailer)
+        try:
+            r = self.client.post(
+                '/api/fund-management/payout/',
+                {
+                    'bank_account_id': 1,
+                    'amount': '100.00',
+                    'mpin': '123456',
+                    'transfer_mode': 'IMPS',
+                },
+                format='json',
+            )
+            self.assertEqual(r.status_code, status.HTTP_403_FORBIDDEN)
+            detail = r.data.get('detail') if isinstance(r.data, dict) else None
+            if isinstance(detail, dict):
+                self.assertEqual(detail.get('code'), ACCESS_CODE_MODULE_MAINTENANCE)
+                self.assertEqual(detail.get('module'), 'payout')
+                self.assertIn('maintenance', str(detail.get('message', '')).lower())
+        finally:
+            # Restore for shared --keepdb runs / later test modules.
+            update_config(changed_by=self.admin, patch={'payout_enabled': True})
+            invalidate_cache()
