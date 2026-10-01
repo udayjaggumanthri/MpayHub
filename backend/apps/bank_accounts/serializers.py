@@ -13,21 +13,32 @@ class BankAccountSerializer(serializers.ModelSerializer):
     """Serializer for BankAccount model."""
 
     validation_token = serializers.CharField(write_only=True, required=False, allow_blank=True)
+    contact_name = serializers.SerializerMethodField()
+    contact_phone = serializers.SerializerMethodField()
 
     class Meta:
         model = BankAccount
         fields = [
-            'id', 'contact', 'account_number', 'ifsc', 'bank_name',
+            'id', 'contact', 'contact_name', 'contact_phone', 'account_number', 'ifsc', 'bank_name',
             'account_holder_name', 'beneficiary_name', 'mobile_number', 'is_verified',
             'verification_reference_id', 'provider_code', 'branch', 'city',
             'name_match_score', 'name_match_result', 'verification_details',
             'verified_at', 'validation_token', 'created_at', 'updated_at',
         ]
         read_only_fields = [
-            'id', 'beneficiary_name', 'is_verified', 'verification_reference_id',
+            'id', 'contact_name', 'contact_phone', 'beneficiary_name', 'is_verified',
+            'verification_reference_id',
             'provider_code', 'branch', 'city', 'name_match_score', 'name_match_result',
             'verification_details', 'verified_at', 'created_at', 'updated_at',
         ]
+
+    def get_contact_name(self, obj):
+        contact = getattr(obj, 'contact', None)
+        return getattr(contact, 'name', None) if contact is not None else None
+
+    def get_contact_phone(self, obj):
+        contact = getattr(obj, 'contact', None)
+        return getattr(contact, 'phone', None) if contact is not None else None
 
     def validate_ifsc(self, value):
         """Validate IFSC code."""
@@ -35,11 +46,26 @@ class BankAccountSerializer(serializers.ModelSerializer):
             raise serializers.ValidationError('Invalid IFSC code format.')
         return value.upper()
 
+    def validate_contact(self, contact):
+        if contact is None:
+            return contact
+        request = self.context.get('request')
+        user = getattr(request, 'user', None)
+        if user is not None and getattr(contact, 'user_id', None) != getattr(user, 'pk', None):
+            raise serializers.ValidationError('Contact must belong to the authenticated user.')
+        return contact
+
     def validate(self, attrs):
         attrs = super().validate(attrs)
         if self.instance is not None:
             attrs.pop('validation_token', None)
             return attrs
+
+        contact = attrs.get('contact')
+        if contact is None:
+            raise serializers.ValidationError({
+                'contact': ['Select a contact to link this bank account.'],
+            })
 
         request = self.context.get('request')
         user = getattr(request, 'user', None)
@@ -101,6 +127,10 @@ class BankAccountSerializer(serializers.ModelSerializer):
         existing = getattr(self, '_existing_verified_account', None)
         validated_data.pop('validation_token', None)
         if existing is not None:
+            contact = validated_data.get('contact')
+            if contact is not None and existing.contact_id != getattr(contact, 'pk', None):
+                existing.contact = contact
+                existing.save(update_fields=['contact', 'updated_at'])
             return existing
         return super().create(validated_data)
 

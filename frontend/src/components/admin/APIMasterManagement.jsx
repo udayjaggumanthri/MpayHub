@@ -66,7 +66,7 @@ const PAYOUT_PROVIDERS = {
   vimopay: {
     code: 'vimopay',
     name: 'VimoPay (Vidual)',
-    base_url: 'http://gateway.vimopay.in',
+    base_url: 'https://prod.vidual.in',
     config: {
       timeout: 30,
       token_ttl_seconds: 300,
@@ -74,6 +74,13 @@ const PAYOUT_PROVIDERS = {
       min_amount: 100,
       max_amount: 100000,
       masters_ttl_seconds: 21600,
+      endpoints: {
+        authorize: 'https://prod.vidual.in/payoutapi/api/Signature/Authorize',
+        payout: 'https://prod.vidual.in/payoutapi/api/Payment/payout',
+        purpose_list: 'https://prod.vidual.in/masterapi/api/master/purposelist',
+        bank_list: 'https://prod.vidual.in/masterapi/api/master/banklist',
+        state_list: 'https://prod.vidual.in/masterapi/api/master/statelist',
+      },
     },
     secrets: [
       { key: 'secret_key', value: '', maskedPreview: '' },
@@ -82,6 +89,27 @@ const PAYOUT_PROVIDERS = {
       { key: 'user_id', value: '', maskedPreview: '' },
     ],
   },
+};
+
+const VIMOPAY_ENDPOINT_FIELDS = [
+  { key: 'authorize', label: 'Authorization URL' },
+  { key: 'payout', label: 'Payout Transaction URL' },
+  { key: 'purpose_list', label: 'Purpose List URL' },
+  { key: 'bank_list', label: 'Bank List URL' },
+  { key: 'state_list', label: 'State List URL' },
+];
+
+const emptyVimopayEndpoints = () =>
+  Object.fromEntries(VIMOPAY_ENDPOINT_FIELDS.map((f) => [f.key, '']));
+
+const vimopayEndpointsFromConfig = (cfg = {}) => {
+  const preset = PAYOUT_PROVIDERS.vimopay.config.endpoints || {};
+  const fromCfg = cfg && typeof cfg.endpoints === 'object' ? cfg.endpoints : {};
+  const out = emptyVimopayEndpoints();
+  for (const { key } of VIMOPAY_ENDPOINT_FIELDS) {
+    out[key] = String(fromCfg[key] || preset[key] || '').trim();
+  }
+  return out;
 };
 
 const kycProviderOptions = Object.values(KYC_PROVIDERS);
@@ -112,6 +140,7 @@ const defaultPayoutForm = (providerCode = 'vimopay') => {
     pan_mode: 'sync',
     redirect_url: '',
     config_json_text: JSON.stringify(preset.config, null, 2),
+    endpoints: vimopayEndpointsFromConfig(preset.config),
     secrets: preset.secrets.map((s) => ({ ...s })),
   };
 };
@@ -283,6 +312,10 @@ const APIMasterManagement = () => {
       pan_mode: cfg.mode || 'sync',
       redirect_url: cfg.redirect_url || '',
       config_json_text: JSON.stringify(cfg, null, 2),
+      endpoints:
+        (row.provider_type || '').toLowerCase() === 'payout' && providerCode === 'vimopay'
+          ? vimopayEndpointsFromConfig(cfg)
+          : emptyVimopayEndpoints(),
       secrets: secretRows,
     });
     setShowModal(true);
@@ -363,6 +396,11 @@ const APIMasterManagement = () => {
         return;
       }
       if (form.provider_code === 'vimopay') {
+        const endpoints = {};
+        for (const { key } of VIMOPAY_ENDPOINT_FIELDS) {
+          const val = String(form.endpoints?.[key] || '').trim();
+          if (val) endpoints[key] = val;
+        }
         configJson = {
           timeout: configJson.timeout ?? 30,
           token_ttl_seconds: configJson.token_ttl_seconds ?? 300,
@@ -371,6 +409,12 @@ const APIMasterManagement = () => {
           max_amount: configJson.max_amount ?? 100000,
           masters_ttl_seconds: configJson.masters_ttl_seconds ?? 21600,
           ...configJson,
+          endpoints: {
+            ...(typeof configJson.endpoints === 'object' && configJson.endpoints
+              ? configJson.endpoints
+              : {}),
+            ...endpoints,
+          },
         };
       }
     } else {
@@ -515,6 +559,7 @@ const APIMasterManagement = () => {
       supports_webhook: true,
       webhook_path: '/api/integrations/payout/vimopay/callback/',
       config_json_text: JSON.stringify(preset.config, null, 2),
+      endpoints: vimopayEndpointsFromConfig(preset.config),
       secrets: preset.secrets.map((s) => ({ ...s })),
     }));
   };
@@ -784,7 +829,7 @@ const APIMasterManagement = () => {
                       ))}
                     </select>
                     <p className="text-xs text-gray-500 dark:text-slate-400 mt-1">
-                      Share callback URL with Vidual: /api/integrations/payout/vimopay/callback/. Test Connection runs authorizeuat.
+                      Share callback URL with Vidual: /api/integrations/payout/vimopay/callback/. Test Connection runs the Authorization URL below.
                     </p>
                   </div>
                 ) : (
@@ -829,8 +874,34 @@ const APIMasterManagement = () => {
                   label="Base URL"
                   value={form.base_url}
                   onChange={(e) => setForm((p) => ({ ...p, base_url: e.target.value }))}
-                  placeholder="https://sandbox.cashfree.com"
+                  placeholder="https://prod.vidual.in"
                 />
+                {activeModule === 'payout' && form.provider_code === 'vimopay' && (
+                  <div className="md:col-span-2 space-y-3 rounded-lg border border-slate-200 dark:border-slate-700 p-4">
+                    <div>
+                      <p className="text-sm font-medium text-gray-800 dark:text-slate-200">
+                        Production API endpoints (full URLs)
+                      </p>
+                      <p className="text-xs text-gray-500 dark:text-slate-400 mt-1">
+                        Stored in config_json.endpoints. Change anytime without a code deploy. Base URL is only used as fallback if an endpoint is blank.
+                      </p>
+                    </div>
+                    {VIMOPAY_ENDPOINT_FIELDS.map(({ key, label }) => (
+                      <Input
+                        key={key}
+                        label={label}
+                        value={form.endpoints?.[key] || ''}
+                        onChange={(e) =>
+                          setForm((p) => ({
+                            ...p,
+                            endpoints: { ...(p.endpoints || emptyVimopayEndpoints()), [key]: e.target.value },
+                          }))
+                        }
+                        placeholder={`https://prod.vidual.in/...`}
+                      />
+                    ))}
+                  </div>
+                )}
                 <div>
                   <label className="block text-sm font-medium text-gray-700 dark:text-slate-300 mb-2">Status</label>
                   <select
@@ -955,7 +1026,8 @@ const APIMasterManagement = () => {
                     className="w-full min-h-[140px] px-4 py-3 border border-gray-300 dark:border-slate-600 rounded-lg font-mono text-sm"
                   />
                   <p className="text-xs text-gray-500 dark:text-slate-400 mt-1">
-                    Callback path must stay /api/integrations/payout/vimopay/callback/ and be registered with Vidual.
+                    Endpoint fields above write into config_json.endpoints. Callback path must stay
+                    /api/integrations/payout/vimopay/callback/ and be registered with Vidual.
                   </p>
                 </div>
               )}

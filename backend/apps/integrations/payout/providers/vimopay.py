@@ -29,6 +29,8 @@ from apps.integrations.payout.types import (
 
 logger = logging.getLogger(__name__)
 
+# Last-resort relative paths when config_json.endpoints / paths are unset.
+# Prefer full URLs in ApiMaster.config_json.endpoints for production.
 DEFAULT_PATHS = {
     'authorize': '/payoutapi/api/signature/authorizeuat',
     'bank_list': '/masterapi/api/master/banklistuat',
@@ -36,6 +38,23 @@ DEFAULT_PATHS = {
     'purpose_list': '/masterapi/api/master/purposelistuat',
     'payout': '/payoutapi/api/payment/payoutsuat',
 }
+
+ENDPOINT_KEYS = ('authorize', 'payout', 'bank_list', 'state_list', 'purpose_list')
+
+
+def _is_absolute_url(value: str) -> bool:
+    v = (value or '').strip().lower()
+    return v.startswith('http://') or v.startswith('https://')
+
+
+def _join_base_path(base_url: str, path: str) -> str:
+    base = (base_url or '').rstrip('/')
+    p = (path or '').strip()
+    if not p:
+        return base
+    if not p.startswith('/'):
+        p = f'/{p}'
+    return f'{base}{p}'
 
 _TITLE_PREFIX = re.compile(
     r'^(?:mr|mrs|ms|miss|dr|prof|sir|smt|shri|sri)\.?\s+',
@@ -152,11 +171,29 @@ class VimopayPayoutProvider(PayoutProvider):
         return sanitize_beneficiary_name(name)
 
     def _path(self, key: str) -> str:
-        overrides = self.config.get('paths') if isinstance(self.config.get('paths'), dict) else {}
-        return str(overrides.get(key) or DEFAULT_PATHS[key])
+        """Resolve a relative path for `key` (endpoints/paths overrides, else DEFAULT_PATHS)."""
+        endpoints = self.config.get('endpoints') if isinstance(self.config.get('endpoints'), dict) else {}
+        paths = self.config.get('paths') if isinstance(self.config.get('paths'), dict) else {}
+        for source in (endpoints, paths):
+            raw = str(source.get(key) or '').strip()
+            if raw and not _is_absolute_url(raw):
+                return raw if raw.startswith('/') else f'/{raw}'
+        return DEFAULT_PATHS[key]
 
     def _url(self, key: str) -> str:
-        return f'{self.base_url}{self._path(key)}'
+        """
+        Resolve the full HTTP URL for an API operation.
+
+        Order:
+        1. config_json.endpoints[key] if absolute URL
+        2. endpoints[key] or paths[key] as relative path → base_url + path
+        3. base_url + DEFAULT_PATHS[key]
+        """
+        endpoints = self.config.get('endpoints') if isinstance(self.config.get('endpoints'), dict) else {}
+        ep = str(endpoints.get(key) or '').strip()
+        if ep and _is_absolute_url(ep):
+            return ep.rstrip('/') if ep.endswith('/') and '?' not in ep else ep
+        return _join_base_path(self.base_url, self._path(key))
 
     def _encrypt(self, plain: str) -> str:
         return vimopay_crypto.encrypt(plain, ed_key=self.payload_key, iv_key=self.payload_iv)
@@ -189,7 +226,7 @@ class VimopayPayoutProvider(PayoutProvider):
             return text
 
     def authorize(self) -> str:
-        """POST authorizeuat; return opaque Bearer token (Postman uses raw `data` blob)."""
+        """POST authorize endpoint; return opaque Bearer token (Postman uses raw `data` blob)."""
         headers = {
             'secretKey': self.secret_key,
             'saltKey': self.salt_key,
@@ -468,7 +505,7 @@ class VimopayPayoutProvider(PayoutProvider):
             token = self.authorize()
             return {
                 'ok': True,
-                'detail': 'VimoPay authorizeuat succeeded',
+                'detail': f'VimoPay authorize succeeded ({self._url("authorize")})',
                 'token_preview': (token[:12] + '…') if token and len(token) > 12 else '***',
             }
         except Exception as exc:

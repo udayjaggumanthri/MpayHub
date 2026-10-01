@@ -22,8 +22,23 @@ class BankAccountViewSet(viewsets.ModelViewSet):
     permission_classes = [IsAuthenticated]
 
     def get_queryset(self):
-        """Filter bank accounts by authenticated user."""
-        queryset = BankAccount.objects.filter(user=self.request.user)
+        """Filter bank accounts by authenticated user; optional ?contact=<id> scope."""
+        queryset = BankAccount.objects.filter(user=self.request.user).select_related('contact')
+
+        contact_raw = self.request.query_params.get('contact')
+        if contact_raw is not None and str(contact_raw).strip() != '':
+            try:
+                contact_id = int(str(contact_raw).strip())
+            except (TypeError, ValueError):
+                return queryset.none()
+            from apps.contacts.models import Contact
+
+            owns_contact = Contact.objects.filter(
+                pk=contact_id, user=self.request.user, is_deleted=False
+            ).exists()
+            if not owns_contact:
+                return queryset.none()
+            queryset = queryset.filter(contact_id=contact_id)
 
         name = self.request.query_params.get('name')
         if name:

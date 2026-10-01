@@ -113,11 +113,10 @@ const Payout = () => {
 
   const refreshCore = useCallback(async () => {
     if (!user) return;
-    const [wRes, qRes, gRes, bRes] = await Promise.all([
+    const [wRes, qRes, gRes] = await Promise.all([
       walletsAPI.getAllWallets(),
       fundManagementAPI.getPayoutQuote(),
       fundManagementAPI.getGateways({ type: 'payout' }),
-      bankAccountsAPI.listBankAccounts(),
     ]);
 
     if (wRes.success && wRes.data?.wallets) {
@@ -135,10 +134,23 @@ const Payout = () => {
     if (gRes.success && gRes.data?.gateways) {
       setPayoutGateways(gRes.data.gateways);
     }
-
-    const raw = bankAccountsFromListResult(bRes);
-    setBankAccounts(raw.map(mapBankAccountRow).filter(Boolean));
   }, [user]);
+
+  const loadAccountsForContact = useCallback(async (contactId) => {
+    if (!contactId) {
+      setBankAccounts([]);
+      setSelectedAccount(null);
+      return;
+    }
+    const bRes = await bankAccountsAPI.listBankAccounts({ contact: contactId });
+    const raw = bankAccountsFromListResult(bRes);
+    const mapped = raw.map(mapBankAccountRow).filter(Boolean);
+    setBankAccounts(mapped);
+    setSelectedAccount((prev) => {
+      if (prev && mapped.some((a) => String(a.id) === String(prev.id))) return prev;
+      return null;
+    });
+  }, []);
 
   useEffect(() => {
     if (typeof navigator === 'undefined' || !navigator.geolocation) return undefined;
@@ -191,9 +203,19 @@ const Payout = () => {
     return () => clearTimeout(t);
   }, [amount]);
 
-  const handlePickBeneficiary = useCallback((mapped) => {
-    setBeneficiaryDetails(mapped);
-  }, []);
+  const handlePickBeneficiary = useCallback(
+    (mapped) => {
+      setBeneficiaryDetails(mapped);
+      setSelectedAccount(null);
+      setShowAddBankAccount(false);
+      if (mapped?.id) {
+        loadAccountsForContact(mapped.id);
+      } else {
+        setBankAccounts([]);
+      }
+    },
+    [loadAccountsForContact]
+  );
 
   const handleBeneficiarySearch = async () => {
     const raw = beneficiarySearch.trim();
@@ -220,6 +242,9 @@ const Payout = () => {
       const mapped = mapContactRow(contactResult.success ? contactResult.data?.contact : null);
       if (mapped) {
         setBeneficiaryDetails(mapped);
+        setSelectedAccount(null);
+        setShowAddBankAccount(false);
+        await loadAccountsForContact(mapped.id);
       } else {
         const hint =
           'If this beneficiary is not in your saved contacts yet, add them under User Management → Contacts first, then search again.';
@@ -234,6 +259,8 @@ const Payout = () => {
           },
         });
         setBeneficiaryDetails(null);
+        setBankAccounts([]);
+        setSelectedAccount(null);
       }
     } catch (error) {
       setSearchFeedbackModal({
@@ -243,6 +270,8 @@ const Payout = () => {
         primaryAction: null,
       });
       setBeneficiaryDetails(null);
+      setBankAccounts([]);
+      setSelectedAccount(null);
     } finally {
       setSearching(false);
     }
@@ -295,8 +324,10 @@ const Payout = () => {
     if (validationData?.bank_account) {
       const mapped = mapBankAccountRow(validationData.bank_account);
       if (mapped) {
-        setBankAccounts((prev) => [...prev, mapped]);
         setSelectedAccount(mapped);
+      }
+      if (beneficiaryDetails?.id) {
+        await loadAccountsForContact(beneficiaryDetails.id);
       }
       await refreshCore();
       setShowValidationModal(false);
@@ -333,8 +364,10 @@ const Payout = () => {
         const created = result.data?.bank_account || result.data;
         const mapped = mapBankAccountRow(created);
         if (mapped) {
-          setBankAccounts((prev) => [...prev, mapped]);
           setSelectedAccount(mapped);
+        }
+        if (beneficiaryDetails?.id) {
+          await loadAccountsForContact(beneficiaryDetails.id);
         }
         await refreshCore();
         setShowValidationModal(false);
@@ -397,6 +430,7 @@ const Payout = () => {
     setBeneficiarySearch('');
     setBeneficiaryDetails(null);
     setSelectedAccount(null);
+    setBankAccounts([]);
     setPayoutGateway('');
     setPayoutPreview(null);
   };
@@ -633,6 +667,7 @@ const Payout = () => {
               onClearSelection={() => {
                 setBeneficiaryDetails(null);
                 setSelectedAccount(null);
+                setBankAccounts([]);
               }}
               placeholder="Start typing name or phone..."
               helperText="At least 2 characters. If several names match, pick from the list or enter the full 10-digit phone. Press Enter to search."
@@ -725,7 +760,7 @@ const Payout = () => {
                 {bankAccounts.length === 0 && (
                   <div className="p-3 bg-amber-50 dark:bg-amber-950/40 border border-amber-200 dark:border-amber-800 rounded-lg flex gap-2 text-sm text-amber-900 dark:text-amber-300">
                     <FaCircleExclamation className="flex-shrink-0 mt-0.5" />
-                    <span>No bank accounts yet. Add one to continue.</span>
+                    <span>No bank accounts for this contact. Add one to continue.</span>
                   </div>
                 )}
 

@@ -302,3 +302,88 @@ class PayoutOrchestratorTests(TestCase):
                 transfer_mode='IMPS',
                 beneficiary_location='JH',
             )
+
+
+class VimopayUrlResolutionTests(TestCase):
+    def _provider(self, *, base_url='https://prod.vidual.in', config_json=None):
+        from apps.integrations.payout.providers.vimopay import VimopayPayoutProvider
+
+        master = ApiMaster.objects.create(
+            provider_code='vimopay',
+            provider_name='VimoPay URL Test',
+            provider_type='payout',
+            base_url=base_url,
+            status='sandbox',
+            is_default=False,
+            secrets_encrypted=encrypt_secret_payload(
+                {
+                    'secret_key': 'f37701ee0778cfe1dd97b7537ae71709',
+                    'salt_key': 'bb13602c407b1ddd6506d59e410bafeb',
+                    'encrypt_decrypt_key': '47cdba1911f078afe863774a8dffcb26',
+                    'user_id': 'E5B82667-9A9D-4A5A-A55C-F3B1E10BF370',
+                }
+            ),
+            config_json=config_json or {},
+        )
+        return VimopayPayoutProvider(master=master, secrets={
+            'secret_key': 'f37701ee0778cfe1dd97b7537ae71709',
+            'salt_key': 'bb13602c407b1ddd6506d59e410bafeb',
+            'encrypt_decrypt_key': '47cdba1911f078afe863774a8dffcb26',
+            'user_id': 'E5B82667-9A9D-4A5A-A55C-F3B1E10BF370',
+        })
+
+    def test_absolute_endpoints_used_as_is(self):
+        provider = self._provider(
+            config_json={
+                'endpoints': {
+                    'authorize': 'https://prod.vidual.in/payoutapi/api/Signature/Authorize',
+                    'payout': 'https://prod.vidual.in/payoutapi/api/Payment/payout',
+                    'bank_list': 'https://prod.vidual.in/masterapi/api/master/banklist',
+                    'state_list': 'https://prod.vidual.in/masterapi/api/master/statelist',
+                    'purpose_list': 'https://prod.vidual.in/masterapi/api/master/purposelist',
+                }
+            }
+        )
+        self.assertEqual(
+            provider._url('authorize'),
+            'https://prod.vidual.in/payoutapi/api/Signature/Authorize',
+        )
+        self.assertEqual(
+            provider._url('payout'),
+            'https://prod.vidual.in/payoutapi/api/Payment/payout',
+        )
+        self.assertNotIn('uat', provider._url('payout').lower())
+
+    def test_relative_paths_join_base(self):
+        provider = self._provider(
+            config_json={'paths': {'payout': '/payoutapi/api/Payment/payout'}}
+        )
+        self.assertEqual(
+            provider._url('payout'),
+            'https://prod.vidual.in/payoutapi/api/Payment/payout',
+        )
+
+    def test_missing_falls_back_to_default_paths(self):
+        from apps.integrations.payout.providers.vimopay import DEFAULT_PATHS
+
+        provider = self._provider(config_json={})
+        self.assertEqual(
+            provider._url('payout'),
+            f'https://prod.vidual.in{DEFAULT_PATHS["payout"]}',
+        )
+
+    @patch('apps.integrations.payout.providers.vimopay.requests.post')
+    def test_authorize_hits_configured_url(self, mock_post):
+        url = 'https://prod.vidual.in/payoutapi/api/Signature/Authorize'
+        mock_resp = MagicMock()
+        mock_resp.json.return_value = {
+            'successStatus': True,
+            'responseCode': '000',
+            'data': 'opaque-token-value',
+        }
+        mock_post.return_value = mock_resp
+        provider = self._provider(config_json={'endpoints': {'authorize': url}})
+        token = provider.authorize()
+        self.assertEqual(token, 'opaque-token-value')
+        mock_post.assert_called_once()
+        self.assertEqual(mock_post.call_args.args[0], url)

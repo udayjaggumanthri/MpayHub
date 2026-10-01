@@ -29,6 +29,8 @@ const BankAccountViewModal = ({ account, onClose }) => {
   const ifscDetails = details.ifsc_details || {};
 
   const rows = [
+    ['Contact', account.contact_name || (account.contact ? `Contact #${account.contact}` : '—')],
+    ['Contact phone', account.contact_phone || '—'],
     ['Beneficiary Name', account.beneficiary_name || account.account_holder_name],
     ['Mobile Number', account.mobile_number ? formatPhone(account.mobile_number) : '—'],
     ['Account Number', account.account_number],
@@ -285,7 +287,7 @@ const BankAccounts = () => {
         <div>
           <h1 className="text-2xl sm:text-3xl font-bold text-gray-900 dark:text-slate-100">All Bank Accounts</h1>
           <p className="mt-1 sm:mt-2 text-sm sm:text-base text-gray-600 dark:text-slate-400">
-            Manage verified bank accounts for payouts
+            Manage verified bank accounts linked to contacts for payouts
           </p>
         </div>
         <Button
@@ -394,6 +396,9 @@ const BankAccounts = () => {
                 <tr className="bg-gray-50 dark:bg-slate-800/50 border-b border-gray-200 dark:border-slate-700">
                   <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 dark:text-slate-400 uppercase tracking-wider">#</th>
                   <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 dark:text-slate-400 uppercase tracking-wider">
+                    CONTACT
+                  </th>
+                  <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 dark:text-slate-400 uppercase tracking-wider">
                     ACCOUNT HOLDER NAME
                   </th>
                   <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 dark:text-slate-400 uppercase tracking-wider">
@@ -420,10 +425,19 @@ const BankAccounts = () => {
                   const bankName = account.bank_name || 'N/A';
                   const ifsc = account.ifsc || 'N/A';
                   const mobile = account.mobile_number || '—';
+                  const contactLabel = account.contact_name || (account.contact ? `#${account.contact}` : '—');
 
                   return (
                     <tr key={account.id} className="border-b border-gray-200 dark:border-slate-700 hover:bg-gray-50 dark:hover:bg-slate-800 transition-colors">
                       <td className="px-4 py-4 whitespace-nowrap text-sm text-gray-900 dark:text-slate-100">{index + 1}</td>
+                      <td className="px-4 py-4 whitespace-nowrap text-sm text-gray-700 dark:text-slate-300">
+                        <div className="font-medium text-gray-900 dark:text-slate-100">{contactLabel}</div>
+                        {account.contact_phone ? (
+                          <div className="text-xs text-gray-500 dark:text-slate-400 mt-0.5">
+                            {formatPhone(account.contact_phone)}
+                          </div>
+                        ) : null}
+                      </td>
                       <td className="px-4 py-4 whitespace-nowrap text-sm font-medium text-gray-900 dark:text-slate-100">
                         {accountHolderName}
                       </td>

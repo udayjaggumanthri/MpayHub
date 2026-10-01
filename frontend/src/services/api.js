@@ -2453,11 +2453,11 @@ export const bankAccountsAPI = {
 
   /**
    * Update Bank Account
-   * PUT /api/bank-accounts/{id}/
+   * PATCH /api/bank-accounts/{id}/
    */
   updateBankAccount: async (bankAccountId, bankAccountData) => {
     try {
-      const response = await apiClient.put(`/bank-accounts/${bankAccountId}/`, bankAccountData);
+      const response = await apiClient.patch(`/bank-accounts/${bankAccountId}/`, bankAccountData);
       return extractData(response);
     } catch (error) {
       return handleError(error);

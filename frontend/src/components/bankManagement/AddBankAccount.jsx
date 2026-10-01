@@ -1,13 +1,21 @@
-import React, { useState } from 'react';
-import { bankAccountsAPI } from '../../services/api';
+import React, { useState, useEffect, useCallback } from 'react';
+import { bankAccountsAPI, contactsAPI } from '../../services/api';
+import { contactsFromListResult } from '../../utils/contactsHelpers';
 import { validateAccountNumber, validateIFSC, validatePhone } from '../../utils/validators';
 import { FaCircleCheck } from 'react-icons/fa6';
 
-const AddBankAccount = ({ onCancel, onSuccess }) => {
+const AddBankAccount = ({ onCancel, onSuccess, presetContact = null }) => {
+  const [contacts, setContacts] = useState([]);
+  const [contactsLoading, setContactsLoading] = useState(false);
+  const [contactId, setContactId] = useState(
+    presetContact?.id != null ? String(presetContact.id) : ''
+  );
   const [formData, setFormData] = useState({
     accountNumber: '',
     ifsc: '',
-    mobileNumber: '',
+    mobileNumber: presetContact?.phone
+      ? String(presetContact.phone).replace(/\D/g, '').slice(0, 10)
+      : '',
   });
   const [errors, setErrors] = useState({});
   const [loading, setLoading] = useState(false);
@@ -22,6 +30,42 @@ const AddBankAccount = ({ onCancel, onSuccess }) => {
     validationData?.verification_details?.ifsc_details?.bank ||
     '';
 
+  const selectedContact =
+    presetContact ||
+    contacts.find((c) => String(c.id) === String(contactId)) ||
+    null;
+
+  const loadContacts = useCallback(async () => {
+    if (presetContact) return;
+    setContactsLoading(true);
+    try {
+      const result = await contactsAPI.listContacts({ page_size: 200 });
+      const { contacts: rows } = contactsFromListResult(result);
+      setContacts(result.success ? rows : []);
+    } catch {
+      setContacts([]);
+    } finally {
+      setContactsLoading(false);
+    }
+  }, [presetContact]);
+
+  useEffect(() => {
+    loadContacts();
+  }, [loadContacts]);
+
+  const handleContactChange = (value) => {
+    setContactId(value);
+    setErrors((prev) => ({ ...prev, contact: '' }));
+    const c = contacts.find((row) => String(row.id) === String(value));
+    if (c?.phone) {
+      setFormData((prev) => ({
+        ...prev,
+        mobileNumber: String(c.phone).replace(/\D/g, '').slice(0, 10),
+      }));
+    }
+    if (validationData) setValidationData(null);
+  };
+
   const handleInputChange = (field, value) => {
     setFormData({ ...formData, [field]: value });
     if (errors[field]) {
@@ -33,6 +77,11 @@ const AddBankAccount = ({ onCancel, onSuccess }) => {
   };
 
   const handleValidate = async () => {
+    if (!contactId && !presetContact?.id) {
+      setErrors({ contact: 'Select a contact to link this bank account.' });
+      return;
+    }
+
     const accountValidation = validateAccountNumber(formData.accountNumber);
     if (!accountValidation.valid) {
       setErrors({ accountNumber: accountValidation.message });
@@ -76,18 +125,32 @@ const AddBankAccount = ({ onCancel, onSuccess }) => {
     }
   };
 
+  const resolveContactId = () =>
+    Number(presetContact?.id || contactId || 0) || null;
+
   const handleConfirmSave = async () => {
+    const cid = resolveContactId();
+    if (!cid) {
+      setErrors({ contact: 'Select a contact to link this bank account.' });
+      setShowConfirmModal(false);
+      return;
+    }
+
     if (validationData?.bank_account) {
+      // Ensure link if validate already created/returned an account
+      try {
+        await bankAccountsAPI.updateBankAccount(validationData.bank_account.id, {
+          contact: cid,
+        });
+      } catch {
+        /* best-effort link */
+      }
       setShowConfirmModal(false);
       setShowSuccessNotification(true);
       setTimeout(() => {
         setShowSuccessNotification(false);
-        if (onSuccess) {
-          onSuccess(validationData.bank_account);
-        }
-        if (onCancel) {
-          onCancel();
-        }
+        if (onSuccess) onSuccess(validationData.bank_account);
+        if (onCancel) onCancel();
       }, 1500);
       return;
     }
@@ -102,6 +165,7 @@ const AddBankAccount = ({ onCancel, onSuccess }) => {
         beneficiary_name: validatedBeneficiary,
         mobile_number: formData.mobileNumber,
         validation_token: validationData?.validation_token,
+        contact: cid,
       };
 
       const result = await bankAccountsAPI.createBankAccount(accountData);
@@ -117,10 +181,10 @@ const AddBankAccount = ({ onCancel, onSuccess }) => {
           if (onCancel) {
             onCancel();
           }
-        }, 3000);
+        }, 2000);
       } else {
         const errorMsg = result.errors?.join(', ') || result.message || 'Failed to create bank account';
-        alert(errorMsg);
+        alert(typeof errorMsg === 'string' ? errorMsg : JSON.stringify(errorMsg));
       }
     } catch (error) {
       console.error('Error creating bank account:', error);
@@ -131,6 +195,7 @@ const AddBankAccount = ({ onCancel, onSuccess }) => {
   };
 
   const canValidate =
+    (presetContact?.id || contactId) &&
     formData.accountNumber &&
     formData.ifsc.length === 11 &&
     formData.mobileNumber.length === 10;
@@ -143,16 +208,60 @@ const AddBankAccount = ({ onCancel, onSuccess }) => {
             <FaCircleCheck className="text-green-600 dark:text-green-400 flex-shrink-0" size={24} />
             <div>
               <p className="font-semibold text-green-800 dark:text-green-300">Bank account verified successfully!</p>
-              <p className="text-sm text-green-700 dark:text-green-300 mt-1">Bank account saved to your profile</p>
+              <p className="text-sm text-green-700 dark:text-green-300 mt-1">
+                Linked to {selectedContact?.name || 'contact'}
+              </p>
             </div>
           </div>
         </div>
       )}
 
       <div className="max-w-2xl mx-auto bg-white dark:bg-slate-900 rounded-xl shadow-sm p-6 border border-gray-200 dark:border-slate-700">
-        <h2 className="text-2xl font-bold text-gray-900 dark:text-slate-100 mb-6">Add Bank Account</h2>
+        <h2 className="text-2xl font-bold text-gray-900 dark:text-slate-100 mb-2">Add Bank Account</h2>
+        <p className="text-sm text-gray-500 dark:text-slate-400 mb-6">
+          Every bank account must be linked to a contact (one contact → many accounts).
+        </p>
 
         <div className="space-y-6">
+          <div>
+            <label className="block text-sm font-medium text-gray-700 dark:text-slate-300 mb-2">
+              Contact <span className="text-red-500">*</span>
+            </label>
+            {presetContact ? (
+              <div className="rounded-lg border border-blue-200 dark:border-blue-800 bg-blue-50 dark:bg-blue-950/40 px-4 py-3">
+                <p className="font-semibold text-gray-900 dark:text-slate-100">{presetContact.name}</p>
+                <p className="text-sm text-gray-600 dark:text-slate-400 mt-0.5">
+                  {presetContact.phone}
+                  {presetContact.email ? ` · ${presetContact.email}` : ''}
+                </p>
+              </div>
+            ) : (
+              <select
+                value={contactId}
+                onChange={(e) => handleContactChange(e.target.value)}
+                disabled={contactsLoading}
+                className="w-full px-4 py-3 border border-gray-300 dark:border-slate-600 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent bg-white dark:bg-slate-900"
+              >
+                <option value="">
+                  {contactsLoading ? 'Loading contacts…' : 'Select contact'}
+                </option>
+                {contacts.map((c) => (
+                  <option key={c.id} value={c.id}>
+                    {c.name} · {c.phone}
+                  </option>
+                ))}
+              </select>
+            )}
+            {errors.contact && (
+              <p className="mt-1 text-sm text-red-600 dark:text-red-400">{errors.contact}</p>
+            )}
+            {!presetContact && contacts.length === 0 && !contactsLoading && (
+              <p className="mt-1 text-xs text-amber-700 dark:text-amber-300">
+                No contacts yet. Add a contact under User Management → Contacts first.
+              </p>
+            )}
+          </div>
+
           <div>
             <label className="block text-sm font-medium text-gray-700 dark:text-slate-300 mb-2">
               Mobile Number <span className="text-red-500">*</span>
@@ -171,6 +280,9 @@ const AddBankAccount = ({ onCancel, onSuccess }) => {
             {errors.mobileNumber && (
               <p className="mt-1 text-sm text-red-600 dark:text-red-400">{errors.mobileNumber}</p>
             )}
+            <p className="mt-1 text-xs text-gray-500 dark:text-slate-400">
+              Prefills from the selected contact; used for bank verification.
+            </p>
           </div>
 
           <div>
@@ -231,12 +343,14 @@ const AddBankAccount = ({ onCancel, onSuccess }) => {
 
           <div className="flex space-x-3">
             <button
+              type="button"
               onClick={onCancel}
               className="flex-1 px-4 py-3 border border-gray-300 dark:border-slate-600 rounded-lg text-gray-700 dark:text-slate-300 hover:bg-gray-50 dark:hover:bg-slate-800 transition-colors"
             >
               Cancel
             </button>
             <button
+              type="button"
               onClick={handleValidate}
               disabled={loading || !canValidate}
               className="flex-1 px-4 py-3 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
@@ -254,6 +368,10 @@ const AddBankAccount = ({ onCancel, onSuccess }) => {
             <div className="bg-white dark:bg-slate-900 rounded-2xl shadow-2xl max-w-md w-full p-6">
               <h3 className="text-xl font-bold text-gray-900 dark:text-slate-100 mb-4">Confirm Beneficiary</h3>
               <div className="mb-6 p-4 bg-blue-50 dark:bg-blue-950/40 border border-blue-200 dark:border-blue-800 rounded-lg">
+                <p className="text-sm text-gray-600 dark:text-slate-400 mb-1">Linked contact:</p>
+                <p className="font-semibold text-gray-900 dark:text-slate-100 mb-3">
+                  {selectedContact?.name || '—'} ({selectedContact?.phone || '—'})
+                </p>
                 <p className="text-sm text-gray-600 dark:text-slate-400 mb-2">Beneficiary Name:</p>
                 <p className="text-xl font-bold text-gray-900 dark:text-slate-100">{validatedBeneficiary}</p>
                 <p className="text-sm text-gray-600 dark:text-slate-400 mt-2">Mobile: {formData.mobileNumber}</p>
@@ -267,6 +385,7 @@ const AddBankAccount = ({ onCancel, onSuccess }) => {
               </div>
               <div className="flex space-x-3">
                 <button
+                  type="button"
                   onClick={() => {
                     setShowConfirmModal(false);
                     setValidationData(null);
@@ -276,6 +395,7 @@ const AddBankAccount = ({ onCancel, onSuccess }) => {
                   Cancel
                 </button>
                 <button
+                  type="button"
                   onClick={handleConfirmSave}
                   disabled={loading}
                   className="flex-1 px-4 py-3 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors disabled:opacity-50"
