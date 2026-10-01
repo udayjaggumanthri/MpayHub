@@ -320,22 +320,57 @@ const Payout = () => {
     }
   };
 
+  const finishBankAccountSave = async (savedRow) => {
+    const mapped = mapBankAccountRow(savedRow);
+    if (beneficiaryDetails?.id) {
+      await loadAccountsForContact(beneficiaryDetails.id);
+    }
+    if (mapped) {
+      setSelectedAccount(mapped);
+    }
+    await refreshCore();
+    setShowValidationModal(false);
+    setShowAddBankAccount(false);
+    setShowSuccessNotification(true);
+    setNewBankAccount({ ifsc: '', accountNumber: '', mobileNumber: '' });
+    setValidationData(null);
+    setTimeout(() => setShowSuccessNotification(false), 3000);
+  };
+
   const handleSaveBankAccount = async () => {
-    if (validationData?.bank_account) {
-      const mapped = mapBankAccountRow(validationData.bank_account);
-      if (mapped) {
-        setSelectedAccount(mapped);
+    const contactId = beneficiaryDetails?.id;
+    if (!contactId) {
+      showFormFeedback('Contact required', 'Select a beneficiary contact before saving a bank account.');
+      return;
+    }
+
+    // Validate often persists the bank row without contact. Always attach the
+    // selected payout contact — name/mobile need not match the contact.
+    if (validationData?.bank_account?.id) {
+      setLoading(true);
+      try {
+        const linkResult = await bankAccountsAPI.updateBankAccount(validationData.bank_account.id, {
+          contact: contactId,
+        });
+        if (!linkResult.success) {
+          showFormFeedback(
+            'Could not link account',
+            linkResult.message ||
+              linkResult.errors?.join?.(', ') ||
+              'Bank verified but could not link to this contact. Please try again.'
+          );
+          return;
+        }
+        const linked = linkResult.data?.bank_account || linkResult.data || {
+          ...validationData.bank_account,
+          contact: contactId,
+        };
+        await finishBankAccountSave(linked);
+      } catch (e) {
+        showFormFeedback('Could not link account', 'Please try again in a moment.');
+      } finally {
+        setLoading(false);
       }
-      if (beneficiaryDetails?.id) {
-        await loadAccountsForContact(beneficiaryDetails.id);
-      }
-      await refreshCore();
-      setShowValidationModal(false);
-      setShowAddBankAccount(false);
-      setShowSuccessNotification(true);
-      setNewBankAccount({ ifsc: '', accountNumber: '', mobileNumber: '' });
-      setValidationData(null);
-      setTimeout(() => setShowSuccessNotification(false), 3000);
       return;
     }
 
@@ -355,27 +390,12 @@ const Payout = () => {
         beneficiary_name: holder,
         mobile_number: newBankAccount.mobileNumber,
         validation_token: validationData?.validation_token,
+        contact: contactId,
       };
-      if (beneficiaryDetails?.id) {
-        body.contact = beneficiaryDetails.id;
-      }
       const result = await bankAccountsAPI.createBankAccount(body);
       if (result.success) {
         const created = result.data?.bank_account || result.data;
-        const mapped = mapBankAccountRow(created);
-        if (mapped) {
-          setSelectedAccount(mapped);
-        }
-        if (beneficiaryDetails?.id) {
-          await loadAccountsForContact(beneficiaryDetails.id);
-        }
-        await refreshCore();
-        setShowValidationModal(false);
-        setShowAddBankAccount(false);
-        setShowSuccessNotification(true);
-        setNewBankAccount({ ifsc: '', accountNumber: '', mobileNumber: '' });
-        setValidationData(null);
-        setTimeout(() => setShowSuccessNotification(false), 3000);
+        await finishBankAccountSave(created);
       } else {
         showFormFeedback(
           'Could not save account',
@@ -785,11 +805,19 @@ const Payout = () => {
                   </div>
                 )}
 
-                {!selectedAccount && (
-                  <div className="border-t border-gray-200 dark:border-slate-700 pt-4">
+                <div className="border-t border-gray-200 dark:border-slate-700 pt-4">
                     <button
                       type="button"
-                      onClick={() => setShowAddBankAccount(!showAddBankAccount)}
+                      onClick={() => {
+                        const opening = !showAddBankAccount;
+                        setShowAddBankAccount(opening);
+                        if (opening && !newBankAccount.mobileNumber && beneficiaryDetails?.phone) {
+                          setNewBankAccount((prev) => ({
+                            ...prev,
+                            mobileNumber: String(beneficiaryDetails.phone).replace(/\D/g, '').slice(0, 10),
+                          }));
+                        }
+                      }}
                       className="flex items-center space-x-2 text-blue-600 dark:text-blue-400 hover:text-blue-700 dark:hover:text-blue-200 font-medium"
                     >
                       <FaPlus size={18} />
@@ -798,6 +826,10 @@ const Payout = () => {
 
                     {showAddBankAccount && (
                       <div className="mt-4 p-4 bg-gray-50 dark:bg-slate-800/50 border border-gray-200 dark:border-slate-700 rounded-lg space-y-4">
+                        <p className="text-xs text-gray-500 dark:text-slate-400">
+                          Linked to <span className="font-medium text-gray-700 dark:text-slate-300">{beneficiaryDetails.name}</span>.
+                          Bank holder name and mobile can differ from the contact — one contact can have multiple accounts.
+                        </p>
                         <div>
                           <label className="block text-sm font-medium text-gray-700 dark:text-slate-300 mb-2">
                             Mobile Number <span className="text-red-500">*</span>
@@ -808,9 +840,12 @@ const Payout = () => {
                               const value = e.target.value.replace(/\D/g, '').slice(0, 10);
                               setNewBankAccount({ ...newBankAccount, mobileNumber: value });
                             }}
-                            placeholder="Enter 10-digit mobile number"
+                            placeholder="Bank-registered 10-digit mobile"
                             maxLength={10}
                           />
+                          <p className="mt-1 text-xs text-gray-500 dark:text-slate-400">
+                            Use the mobile registered with the bank for verification (need not match contact phone).
+                          </p>
                         </div>
 
                         <div>
@@ -860,7 +895,6 @@ const Payout = () => {
                       </div>
                     )}
                   </div>
-                )}
               </div>
             </Card>
 
@@ -978,7 +1012,16 @@ const Payout = () => {
               <h2 className="text-xl sm:text-2xl font-bold text-gray-900 dark:text-slate-100 mb-4 sm:mb-6">Confirm Beneficiary</h2>
 
               <div className="p-4 bg-blue-50 dark:bg-blue-950/40 border border-blue-200 dark:border-blue-800 rounded-lg mb-6">
-                <p className="text-sm text-gray-600 dark:text-slate-400 mb-2">Beneficiary Name:</p>
+                {beneficiaryDetails?.name && (
+                  <>
+                    <p className="text-sm text-gray-600 dark:text-slate-400 mb-1">Link to contact:</p>
+                    <p className="font-semibold text-gray-900 dark:text-slate-100 mb-3">
+                      {beneficiaryDetails.name}
+                      {beneficiaryDetails.phone ? ` · ${beneficiaryDetails.phone}` : ''}
+                    </p>
+                  </>
+                )}
+                <p className="text-sm text-gray-600 dark:text-slate-400 mb-2">Bank beneficiary name:</p>
                 <p className="text-xl font-bold text-gray-900 dark:text-slate-100">{validatedBeneficiary}</p>
                 <p className="text-sm text-gray-600 dark:text-slate-400 mt-2">
                   Account: {newBankAccount.accountNumber}
@@ -999,6 +1042,9 @@ const Payout = () => {
                       validationData?.verification_details?.ifsc_details?.bank}
                   </p>
                 )}
+                <p className="text-xs text-gray-500 dark:text-slate-400 mt-3">
+                  Contact and bank details do not need to match. This account will be saved under the selected contact.
+                </p>
               </div>
 
               <div className="flex space-x-3">

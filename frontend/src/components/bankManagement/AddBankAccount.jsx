@@ -138,18 +138,30 @@ const AddBankAccount = ({ onCancel, onSuccess, presetContact = null }) => {
 
     if (validationData?.bank_account) {
       // Ensure link if validate already created/returned an account
+      setLoading(true);
       try {
-        await bankAccountsAPI.updateBankAccount(validationData.bank_account.id, {
+        const linkResult = await bankAccountsAPI.updateBankAccount(validationData.bank_account.id, {
           contact: cid,
         });
+        if (!linkResult.success) {
+          const errorMsg =
+            linkResult.errors?.join?.(', ') ||
+            linkResult.message ||
+            'Could not link bank account to contact.';
+          alert(typeof errorMsg === 'string' ? errorMsg : JSON.stringify(errorMsg));
+          return;
+        }
       } catch {
-        /* best-effort link */
+        alert('Could not link bank account to contact. Please try again.');
+        return;
+      } finally {
+        setLoading(false);
       }
       setShowConfirmModal(false);
       setShowSuccessNotification(true);
       setTimeout(() => {
         setShowSuccessNotification(false);
-        if (onSuccess) onSuccess(validationData.bank_account);
+        if (onSuccess) onSuccess({ ...validationData.bank_account, contact: cid });
         if (onCancel) onCancel();
       }, 1500);
       return;
