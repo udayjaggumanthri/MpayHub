@@ -33,6 +33,7 @@ const defaultForm = {
   bbps_wallet_service_charge_mode: 'FLAT',
   bbps_wallet_service_charge_flat: 5,
   bbps_wallet_service_charge_percent: 0,
+  remitter_compliance_enabled: false,
 };
 
 const BillAvenueSettings = () => {
@@ -90,6 +91,7 @@ const BillAvenueSettings = () => {
         bbps_wallet_service_charge_mode: c.bbps_wallet_service_charge_mode || 'FLAT',
         bbps_wallet_service_charge_flat: Number(c.bbps_wallet_service_charge_flat ?? 5),
         bbps_wallet_service_charge_percent: Number(c.bbps_wallet_service_charge_percent ?? 0),
+        remitter_compliance_enabled: !!c.remitter_compliance_enabled,
       }));
       setHasSecrets({
         has_working_key: !!c.has_working_key,
@@ -553,6 +555,39 @@ const BillAvenueSettings = () => {
               />
             </div>
           </div>
+        </div>
+
+        <div className="mt-6 pt-4 border-t border-gray-200 dark:border-slate-700">
+          <h2 className="text-lg font-semibold text-gray-900 dark:text-slate-100 mb-1">
+            Remitter / high-value payment payload
+          </h2>
+          <p className="text-sm text-gray-500 dark:text-slate-400 mb-4">
+            Applies only to this environment ({env.toUpperCase()}). Off keeps the current working
+            payload. On sends BillAvenue remitter tags required for payments above ₹50,000.
+            Turn UAT on first, verify, then enable Production separately.
+          </p>
+          <label className="inline-flex items-center gap-3 text-sm text-gray-800 dark:text-slate-200">
+            <input
+              type="checkbox"
+              className="h-4 w-4 rounded border-gray-300"
+              checked={!!form.remitter_compliance_enabled}
+              onChange={(e) =>
+                setForm((p) => ({ ...p, remitter_compliance_enabled: e.target.checked }))
+              }
+            />
+            <span>
+              Enable remitter compliance for {env.toUpperCase()}
+              {form.remitter_compliance_enabled ? (
+                <span className="ml-2 text-xs font-medium text-emerald-700 dark:text-emerald-400">
+                  ON — new paymentInfo rules
+                </span>
+              ) : (
+                <span className="ml-2 text-xs font-medium text-slate-500">
+                  OFF — current payload
+                </span>
+              )}
+            </span>
+          </label>
         </div>
 
         <div className="grid md:grid-cols-2 gap-4 mt-4">

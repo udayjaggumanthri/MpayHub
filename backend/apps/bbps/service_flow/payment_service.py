@@ -274,6 +274,22 @@ def process_bill_payment_flow(*, user, bill_data: dict) -> dict:
         payment_mode=str(bill_data.get('payment_mode') or ''),
         customer_info=(bill_data.get('customer_info') or {}),
     )
+    from apps.bbps.service_flow.remitter_compliance import (
+        is_remitter_compliance_enabled,
+        validate_high_value_remitter,
+    )
+
+    active_cfg = BillAvenueConfig.objects.filter(
+        is_deleted=False, enabled=True, is_active=True
+    ).first()
+    if is_remitter_compliance_enabled(active_cfg):
+        validate_high_value_remitter(
+            amount=amount,
+            payment_mode=str(bill_data.get('payment_mode') or ''),
+            bill_data=bill_data,
+            remitter_name=str(bill_data.get('remitter_name') or ''),
+            payment_ref=str(bill_data.get('request_id') or bill_data.get('payment_ref_id') or ''),
+        )
     computed_charge = Decimal(str(charge_info.get('computed_charge') or charge_info.get('charge') or 0))
     wallet_meta: dict = {}
     if getattr(settings, 'BBPS_COMMISSION_FINANCIAL_IMPACT_ENABLED', False):

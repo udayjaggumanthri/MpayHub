@@ -154,7 +154,8 @@ def build_bill_pay_plain_xml(payload: dict) -> str:
     billPaymentRequest inner body for /extBillPayCntrl/billPayRequest/xml.
 
     BillAvenue UAT validates element order and expects a root-level ``paymentRefId``
-    matching the prior bill-fetch correlation (same value as ``requestId`` / PaymentRefId in paymentInfo).
+    matching the prior bill-fetch correlation (same value as outer ``requestId``).
+    Remitter identity belongs on ``customerInfo`` (``REMITTER_NAME``, ``customerPan``).
     """
     p = payload or {}
     root = Element('billPaymentRequest')
@@ -181,7 +182,14 @@ def build_bill_pay_plain_xml(payload: dict) -> str:
     customer = p.get('customerInfo') or {}
     if isinstance(customer, dict):
         cust = SubElement(root, 'customerInfo')
-        for k in ('customerMobile', 'customerName', 'customerEmail', 'customerAdhaar', 'customerPan'):
+        for k in (
+            'customerMobile',
+            'customerName',
+            'customerEmail',
+            'customerAdhaar',
+            'customerPan',
+            'REMITTER_NAME',
+        ):
             v = str(customer.get(k) or '').strip()
             if v:
                 SubElement(cust, k).text = v

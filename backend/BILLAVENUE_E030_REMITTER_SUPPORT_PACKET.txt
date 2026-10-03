@@ -1,0 +1,93 @@
+BillAvenue UAT Support Packet — E030 Remitter Name (Amount > 50k)
+Generated (UTC): 2026-10-02T18:56:51.257094+00:00
+
+SUMMARY
+=======
+For bill amounts above Rs 50,000 (amountInfo.amount > 5000000 paise), BillAvenue UAT
+returns E030 "Remitter Name required for txn Amount > 50k" even when Remitter Name,
+PaymentRefId, Payment Account Info, PAN, and Remarks are present in the encrypted
+billPayRequest XML.
+
+Below/equal Rs 50,000 (amount <= 5000000) succeeds without remitter tags.
+Encrypt/decrypt round-trip confirms Remitter Name is inside encRequest.
+
+ENVIRONMENT
+===========
+Base URL: https://stgapi.billavenue.com
+Mode: uat
+Institute ID: PI39
+Access Code: AVXQ74II24QZ46CCXK
+Agent ID: CC01CC01513515340681
+API format: xml
+Key derivation: md5
+encRequest encoding: hex
+Biller ID: DELECTRICITY01
+Channel: AGT
+Payment Mode: Cash
+Customer Id: h696077
+Mobile: 9550221153
+Request / PaymentRefId: CGE1ES9A06ZF8P4UAKTUT0HO74CGCALZ258
+Bill customerName (from fetch): Shrinivas
+billAmount (from fetch): 7070000
+amountInfo.amount sent: 7070000 (Rs 70,700 in paise)
+
+THRESHOLD PROBES (same institute/agent)
+=======================================
+amount=100000  remitter=N  -> OK
+amount=4999900 remitter=N  -> OK
+amount=5000000 remitter=N  -> OK
+amount=5000100 remitter=N  -> E030
+amount=5000100 remitter=Y  -> E030  (tags present)
+amount=7070000 remitter=Y  -> E030  (tags present)
+amount=70700   remitter=N  -> OK   (below their numeric threshold)
+
+RESULT OF THIS CAPTURE
+======================
+FAILED
+Provider response / error:
+BillAvenue API failed (bill_pay) code=001 (E030 — Remitter Name required for txn Amount > 50k)
+
+PLAINTEXT billPayRequest XML (pre-encryption)
+=============================================
+<?xml version="1.0" encoding="UTF-8"?><billPaymentRequest><paymentRefId>CGE1ES9A06ZF8P4UAKTUT0HO74CGCALZ258</paymentRefId><agentId>CC01CC01513515340681</agentId><billerAdhoc>false</billerAdhoc><agentDeviceInfo><ip>127.0.0.1</ip><initChannel>AGT</initChannel><mac>01-23-45-67-89-ab</mac></agentDeviceInfo><customerInfo><customerMobile>9550221153</customerMobile><customerName>Shrinivas</customerName><customerPan>HJAUI4588H</customerPan></customerInfo><billerId>DELECTRICITY01</billerId><inputParams><input><paramName>CustomerId</paramName><paramValue>h696077</paramValue></input></inputParams><billerResponse><billAmount>7070000</billAmount><billDate>2026-10-03</billDate><billNumber>10001</billNumber><billPeriod>Monthly</billPeriod><customerName>Shrinivas</customerName><dueDate>2026-10-18</dueDate></billerResponse><amountInfo><amount>7070000</amount><currency>356</currency><custConvFee>0</custConvFee></amountInfo><paymentMethod><paymentMode>Cash</paymentMode><quickPay>N</quickPay><splitPay>N</splitPay></paymentMethod><paymentInfo><info><infoName>Remarks</infoName><infoValue>Received</infoValue></info><info><infoName>Payment Account Info</infoName><infoValue>Cash Payment</infoValue></info><info><infoName>Remitter Name</infoName><infoValue>Shrinivas</infoValue></info><info><infoName>PaymentRefId</infoName><infoValue>CGE1ES9A06ZF8P4UAKTUT0HO74CGCALZ258</infoValue></info><info><infoName>PAN</infoName><infoValue>HJAUI4588H</infoValue></info></paymentInfo></billPaymentRequest>
+
+paymentInfo JSON
+================
+{
+  "info": [
+    {
+      "infoName": "Remarks",
+      "infoValue": "Received"
+    },
+    {
+      "infoName": "Payment Account Info",
+      "infoValue": "Cash Payment"
+    },
+    {
+      "infoName": "Remitter Name",
+      "infoValue": "Shrinivas"
+    },
+    {
+      "infoName": "PaymentRefId",
+      "infoValue": "CGE1ES9A06ZF8P4UAKTUT0HO74CGCALZ258"
+    },
+    {
+      "infoName": "PAN",
+      "infoValue": "HJAUI4588H"
+    }
+  ]
+}
+
+ENCRYPT ROUND-TRIP CHECK
+========================
+Decrypt(encRequest) contains Remitter Name + Shrinivas: YES
+Decrypted paymentInfo snippet:
+<paymentInfo><info><infoName>Remarks</infoName><infoValue>Received</infoValue></info><info><infoName>Payment Account Info</infoName><infoValue>Cash Payment</infoValue></info><info><infoName>Remitter Name</infoName><infoValue>Shrinivas</infoValue></info><info><infoName>PaymentRefId</infoName><infoValue>CGE1ES9A06ZF8P4UAKTUT0HO74CGCALZ258</infoValue></info><info><infoName>PAN</infoName><infoValue>HJAUI4588H</infoValue></info></paymentInfo>
+
+REQUEST TO BILLAVenue
+=====================
+Please confirm:
+1) Correct paymentInfo tag names/order for AGT Cash > Rs 50,000 on UAT institute PI39.
+2) Why E030 is returned when Remitter Name is present in decrypted encRequest.
+3) Whether remitter validation is enabled for this UAT agent/institute.
+4) Sample successful >50k Cash billPayRequest XML for our UAT credentials.

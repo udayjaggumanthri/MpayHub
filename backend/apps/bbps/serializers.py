@@ -377,6 +377,7 @@ class BillAvenueConfigSerializer(serializers.ModelSerializer):
             'bbps_wallet_service_charge_mode',
             'bbps_wallet_service_charge_flat',
             'bbps_wallet_service_charge_percent',
+            'remitter_compliance_enabled',
             'has_working_key',
             'has_iv',
             'has_callback_secret',

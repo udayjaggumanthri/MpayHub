@@ -53,6 +53,8 @@ const CreditCardBill = ({
   const [paymentMode, setPaymentMode] = useState('Cash');
   const [paymentChannel, setPaymentChannel] = useState('AGT');
   const [cashPan, setCashPan] = useState('');
+  const [highValueIdentityType, setHighValueIdentityType] = useState('pan');
+  const [highValueAadhaar, setHighValueAadhaar] = useState('');
   const [inputSchema, setInputSchema] = useState([]);
   const [inputValues, setInputValues] = useState({});
   const [quote, setQuote] = useState(null);
@@ -645,11 +647,18 @@ const CreditCardBill = ({
       return;
     }
     const isCashMode = String(paymentMode || '').trim().toLowerCase() === 'cash';
-    const needsCashPan = isCashMode && amount >= 50000;
+    // Cash BBPS rule is >= 50k; remitter rule is > 50k — both need PAN or Aadhaar.
+    const needsIdentity = (isCashMode && amount >= 50000) || amount > 50000;
     const panValue = String(cashPan || '').trim().toUpperCase();
-    if (needsCashPan) {
-      if (!/^[A-Z]{5}[0-9]{4}[A-Z]$/.test(panValue)) {
-        setError('PAN is required for cash payments of ₹50,000 or more. Enter a valid PAN.');
+    const aadhaarValue = String(highValueAadhaar || '').replace(/\D/g, '');
+    if (needsIdentity) {
+      if (highValueIdentityType === 'aadhaar') {
+        if (!/^\d{12}$/.test(aadhaarValue)) {
+          setError('Enter a valid 12-digit Aadhaar for payments of ₹50,000 or more.');
+          return;
+        }
+      } else if (!/^[A-Z]{5}[0-9]{4}[A-Z]$/.test(panValue)) {
+        setError('Enter a valid PAN (or switch to Aadhaar) for payments of ₹50,000 or more.');
         return;
       }
     }
@@ -668,11 +677,14 @@ const CreditCardBill = ({
       const customerInfo = { customerMobile: mobile };
       if (customerNameForPay) {
         customerInfo.customerName = customerNameForPay;
-      } else if (needsCashPan && payerName) {
+      } else if (needsIdentity && payerName) {
         customerInfo.customerName = payerName;
       }
-      if (needsCashPan) {
+      if (needsIdentity && highValueIdentityType === 'pan' && panValue) {
         customerInfo.customerPan = panValue;
+      }
+      if (needsIdentity && highValueIdentityType === 'aadhaar' && aadhaarValue) {
+        customerInfo.customerAadhaar = aadhaarValue;
       }
       const result = await bbpsAPI.payBill({
         bill_id: billId || undefined,
@@ -1264,21 +1276,65 @@ const CreditCardBill = ({
                       <span className="text-lg font-bold text-gray-900 dark:text-slate-100">Total Deducted from Wallet:</span>
                       <span className="text-2xl font-bold text-red-600 dark:text-red-400">{formatCurrency(totalDeducted)}</span>
                     </div>
-                    {String(paymentMode || '').toLowerCase() === 'cash' && getPaymentAmount() >= 50000 ? (
+                    {getPaymentAmount() > 50000 ||
+                    (String(paymentMode || '').toLowerCase() === 'cash' && getPaymentAmount() >= 50000) ? (
                       <div className="mt-3 space-y-2">
-                        <label className="block text-sm font-medium text-gray-800 dark:text-slate-200">
-                          Customer PAN <span className="text-red-500">*</span>
-                        </label>
-                        <input
-                          type="text"
-                          value={cashPan}
-                          onChange={(e) => setCashPan(e.target.value.toUpperCase().replace(/[^A-Z0-9]/g, '').slice(0, 10))}
-                          placeholder="ABCDE1234F"
-                          maxLength={10}
-                          className="w-full max-w-xs px-3 py-2 border border-gray-300 dark:border-slate-600 rounded-lg uppercase tracking-wider"
-                        />
+                        <div className="flex flex-wrap gap-3 text-sm">
+                          <label className="inline-flex items-center gap-2">
+                            <input
+                              type="radio"
+                              name="highValueIdentity"
+                              checked={highValueIdentityType === 'pan'}
+                              onChange={() => setHighValueIdentityType('pan')}
+                            />
+                            PAN
+                          </label>
+                          <label className="inline-flex items-center gap-2">
+                            <input
+                              type="radio"
+                              name="highValueIdentity"
+                              checked={highValueIdentityType === 'aadhaar'}
+                              onChange={() => setHighValueIdentityType('aadhaar')}
+                            />
+                            Aadhaar
+                          </label>
+                        </div>
+                        {highValueIdentityType === 'pan' ? (
+                          <>
+                            <label className="block text-sm font-medium text-gray-800 dark:text-slate-200">
+                              Customer PAN <span className="text-red-500">*</span>
+                            </label>
+                            <input
+                              type="text"
+                              value={cashPan}
+                              onChange={(e) =>
+                                setCashPan(e.target.value.toUpperCase().replace(/[^A-Z0-9]/g, '').slice(0, 10))
+                              }
+                              placeholder="ABCDE1234F"
+                              maxLength={10}
+                              className="w-full max-w-xs px-3 py-2 border border-gray-300 dark:border-slate-600 rounded-lg uppercase tracking-wider"
+                            />
+                          </>
+                        ) : (
+                          <>
+                            <label className="block text-sm font-medium text-gray-800 dark:text-slate-200">
+                              Customer Aadhaar <span className="text-red-500">*</span>
+                            </label>
+                            <input
+                              type="text"
+                              inputMode="numeric"
+                              value={highValueAadhaar}
+                              onChange={(e) =>
+                                setHighValueAadhaar(e.target.value.replace(/\D/g, '').slice(0, 12))
+                              }
+                              placeholder="12-digit Aadhaar"
+                              maxLength={12}
+                              className="w-full max-w-xs px-3 py-2 border border-gray-300 dark:border-slate-600 rounded-lg tracking-wider"
+                            />
+                          </>
+                        )}
                         <p className="text-xs text-amber-800 dark:text-amber-300">
-                          Cash payments of ₹50,000 or more require PAN (BBPS rule).
+                          Payments of ₹50,000 or more require PAN or Aadhaar (BBPS remitter rule).
                         </p>
                       </div>
                     ) : null}

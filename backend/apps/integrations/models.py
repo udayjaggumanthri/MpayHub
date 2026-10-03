@@ -141,6 +141,13 @@ class BillAvenueConfig(BaseModel):
         default=0,
         help_text='Percent of bill amount when mode is PERCENT (e.g. 1.25 = 1.25%).',
     )
+    remitter_compliance_enabled = models.BooleanField(
+        default=False,
+        help_text=(
+            'When on, use BillAvenue remitter/paymentInfo rules for this environment '
+            '(required for payments above Rs 50,000). When off, keep the current payload.'
+        ),
+    )
 
     class Meta:
         db_table = 'billavenue_configs'

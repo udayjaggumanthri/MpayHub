@@ -208,8 +208,28 @@ def _friendly_pay_error_message(raw_message: str) -> str:
         return 'This fetch reference is already consumed. Fetch the bill again before retrying payment.'
     if 'errorcode": "e210' in low or 'no fetch data found for given ref id' in low:
         return 'Fetch reference is not valid anymore. Please fetch the bill again and retry payment.'
+    if 'errorcode": "e030' in low or ('e030' in low and 'remitter' in low):
+        return (
+            'High-value bill payment was rejected by the provider (remitter check). '
+            'Please try again, or contact support with the reference ID if this continues.'
+        )
     if 'errorcode": "e092' in low or 'remitter name required' in low:
+        if 'e030' in low:
+            return (
+                'High-value bill payment was rejected by the provider (remitter check). '
+                'Please try again, or contact support with the reference ID if this continues.'
+            )
         return 'Remitter details are missing. Update profile name and fetch bill again before payment.'
+    if 'payment details are incomplete' in low or 'enter pan or aadhaar' in low:
+        return 'Payment details are incomplete. Enter PAN or Aadhaar and try again.'
+    if 'valid upi id' in low and 'vpa' in low:
+        return 'Enter a valid UPI ID (VPA) that includes @, then try payment again.'
+    if 'card payment details are incomplete' in low:
+        return 'Card payment details are incomplete. Enter last 4 digits, card issuer, and auth code.'
+    if 'payment account details are incomplete' in low:
+        return 'Payment account details are incomplete for this payment method. Please try again.'
+    if 'pan and customer name are mandatory' in low:
+        return 'Payment details are incomplete. Enter PAN or Aadhaar and try again.'
 
     provider_msg = re.search(r'"errorMessage"\s*:\s*"([^"]+)"', msg)
     if provider_msg:

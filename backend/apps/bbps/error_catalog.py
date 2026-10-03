@@ -42,6 +42,48 @@ _CATALOG: dict[str, BbpsErrorInfo] = {
         False,
         'BBPS_PAY_REMITTER',
     ),
+    'E030': BbpsErrorInfo(
+        'E030',
+        'provider_config',
+        'High-value bill payment was rejected by the provider (remitter check). '
+        'Please try again, or contact support with the reference ID if this continues.',
+        'Share the reference ID with support. Our request already includes Remitter Name, '
+        'PaymentRefId, Payment Account Info, and PAN/Aadhaar for amounts above ₹50,000.',
+        True,
+        'BBPS_PAY_REMITTER_PROVIDER',
+    ),
+    'REMITTER_INCOMPLETE': BbpsErrorInfo(
+        'REMITTER_INCOMPLETE',
+        'input_validation',
+        'Payment details are incomplete. Enter PAN or Aadhaar and try again.',
+        'For payments above ₹50,000, provide PAN or Aadhaar and complete payment method details.',
+        False,
+        'BBPS_PAY_REMITTER',
+    ),
+    'REMITTER_VPA': BbpsErrorInfo(
+        'REMITTER_VPA',
+        'input_validation',
+        'Enter a valid UPI ID (VPA) that includes @, then try payment again.',
+        'Check the UPI ID format (example: name@upi).',
+        False,
+        'BBPS_PAY_REMITTER',
+    ),
+    'REMITTER_CARD': BbpsErrorInfo(
+        'REMITTER_CARD',
+        'input_validation',
+        'Card payment details are incomplete. Enter last 4 digits, card issuer, and auth code.',
+        'Complete card details and try again.',
+        False,
+        'BBPS_PAY_REMITTER',
+    ),
+    'REMITTER_ACCOUNT_INFO': BbpsErrorInfo(
+        'REMITTER_ACCOUNT_INFO',
+        'input_validation',
+        'Payment account details are incomplete for this payment method. Please try again.',
+        'Choose another payment method or contact support if this continues.',
+        False,
+        'BBPS_PAY_REMITTER',
+    ),
     'E077': BbpsErrorInfo(
         'E077',
         'provider_config',
@@ -508,7 +550,22 @@ def resolve_bbps_error(raw_text: str, *, endpoint: str = '') -> BbpsErrorInfo:
     if 'invalid customer account' in low:
         return _CATALOG['BFR001']
     if 'remitter name required' in low:
+        # Prefer E030 when provider explicitly returns that code.
+        if 'e030' in low:
+            return _CATALOG['E030']
         return _CATALOG['E092']
+    if 'e030' in low and 'remitter' in low:
+        return _CATALOG['E030']
+    if 'payment details are incomplete' in low or 'enter pan or aadhaar' in low:
+        return _CATALOG['REMITTER_INCOMPLETE']
+    if 'valid upi id' in low or ('vpa' in low and '@' in low and 'include' in low):
+        return _CATALOG['REMITTER_VPA']
+    if 'card payment details are incomplete' in low:
+        return _CATALOG['REMITTER_CARD']
+    if 'payment account details are incomplete' in low or 'payment account info' in low:
+        return _CATALOG['REMITTER_ACCOUNT_INFO']
+    if 'pan and customer name are mandatory' in low:
+        return _CATALOG['REMITTER_INCOMPLETE']
     if 'additionalinfo value mismatch' in low:
         return _CATALOG['E212']
     if 'billerresponse value mismatch' in low:

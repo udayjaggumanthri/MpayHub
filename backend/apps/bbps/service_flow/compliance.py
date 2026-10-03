@@ -437,7 +437,7 @@ def enforce_plan_mdm_requirement(*, biller: BbpsBillerMaster, plan_id: str = '')
 
 
 def enforce_cash_pan_rule(*, amount_paise: int, payment_mode: str, customer_info: dict) -> None:
-    """For cash >= 50,000 INR, PAN and customer name are mandatory."""
+    """For cash >= 50,000 INR, PAN or Aadhaar plus customer name are mandatory."""
     mode = _normalize_mode_for_compare(payment_mode)
     if mode != 'cash':
         return
@@ -445,10 +445,18 @@ def enforce_cash_pan_rule(*, amount_paise: int, payment_mode: str, customer_info
         return
     info = customer_info if isinstance(customer_info, dict) else {}
     pan = _normalize_text(info.get('customerPan') or info.get('customer_pan'))
+    aadhaar_raw = _normalize_text(
+        info.get('customerAadhaar')
+        or info.get('customer_aadhaar')
+        or info.get('customerAdhaar')
+        or info.get('customer_adhaar')
+    )
+    aadhaar = ''.join(ch for ch in aadhaar_raw if ch.isdigit())
     name = _normalize_text(info.get('customerName') or info.get('customer_name'))
-    if not pan or not name:
+    has_identity = bool(pan) or len(aadhaar) == 12
+    if not has_identity or not name:
         raise TransactionFailed(
-            'PAN and customer name are mandatory for cash transactions >= 50000.'
+            'PAN or Aadhaar and customer name are mandatory for cash transactions >= 50000.'
         )
 
 

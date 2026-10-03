@@ -761,6 +761,23 @@ class BBPSClient(BaseIntegration):
         if payer_email and not str(ci_merged.get('customerEmail') or '').strip():
             ci_merged['customerEmail'] = payer_email
         corr = _billavenue_correlation_ref(bill_data=bill_data, request_id=str(request_id or ''), service_id=str(service_id or ''))
+
+        from apps.bbps.service_flow.remitter_compliance import (
+            apply_remitter_customer_info,
+            build_remitter_payment_info_rows,
+            is_remitter_compliance_enabled,
+            merge_payment_info_rows,
+            strip_identity_from_payment_info_rows,
+        )
+
+        compliance_on = is_remitter_compliance_enabled(self.config)
+        if compliance_on:
+            ci_merged = apply_remitter_customer_info(
+                ci_merged,
+                remitter_name=remitter_display,
+                bill_data=bill_data,
+            )
+
         plan_id = str(bill_data.get('plan_id') or '').strip()
         wire_inputs = list(input_params) if isinstance(input_params, list) else []
         if plan_id:
@@ -812,26 +829,41 @@ class BBPSClient(BaseIntegration):
                 infos = coerce_bbps_info_rows(payment_info.get('info'))
             elif str(payment_info.get('infoName') or '').strip():
                 infos = [payment_info]
-        def _has_nonempty_remitter(rows: list) -> bool:
-            for row in rows:
-                if not isinstance(row, dict):
-                    continue
-                if str(row.get('infoName') or '').strip().lower() != 'remitter name':
-                    continue
-                if str(row.get('infoValue') or '').strip():
-                    return True
-            return False
 
-        remitter_block = _build_remitter_payment_info(
-            service_id=str(service_id or ''),
-            request_id=str(request_id or ''),
-            payment_mode=payment_mode,
-            bill_data=bill_data,
-        )
-        if not infos:
-            infos = remitter_block
-        elif not _has_nonempty_remitter(infos):
-            infos = remitter_block + infos
+        if compliance_on:
+            # paymentInfo = mode tags + Payment Account Info only.
+            # REMITTER_NAME / customerPan are on customerInfo; paymentRefId is top-level.
+            infos = strip_identity_from_payment_info_rows(infos)
+            remitter_block = build_remitter_payment_info_rows(
+                remitter_name=remitter_display,
+                payment_ref=corr,
+                payment_mode=payment_mode,
+                bill_data=bill_data,
+                amount=amount,
+                include_mode_label=False,
+            )
+            infos = merge_payment_info_rows(infos, remitter_block)
+        else:
+            def _has_nonempty_remitter(rows: list) -> bool:
+                for row in rows:
+                    if not isinstance(row, dict):
+                        continue
+                    if str(row.get('infoName') or '').strip().lower() != 'remitter name':
+                        continue
+                    if str(row.get('infoValue') or '').strip():
+                        return True
+                return False
+
+            remitter_block = _build_remitter_payment_info(
+                service_id=str(service_id or ''),
+                request_id=str(request_id or ''),
+                payment_mode=payment_mode,
+                bill_data=bill_data,
+            )
+            if not infos:
+                infos = remitter_block
+            elif not _has_nonempty_remitter(infos):
+                infos = remitter_block + infos
         payload['paymentInfo'] = {'info': infos}
         # Prefer exact fetch additionalInfo XML (E212). Fallback to normalized rows only.
         ai_xml = str(bill_data.get('additional_info_xml') or '').strip()
