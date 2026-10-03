@@ -873,13 +873,34 @@ class BillAvenueClient:
             if not c:
                 keys = list(normalized.keys())[:12] if isinstance(normalized, dict) else []
                 raw_preview = ''
+                empty_fetch = False
                 if isinstance(normalized, dict):
                     raw_preview = str(normalized.get('raw') or '')[:180].replace('\n', ' ')
-                ce = BillAvenueClientError(
-                    f"BillAvenue API failed ({endpoint_name}): missing responseCode in parsed gateway payload "
-                    f"(top-level keys: {keys}; raw-preview: {raw_preview}). "
-                    'Check UAT credentials, endpoint version, and BillAvenue response format.'
-                )
+                    # BillAvenue UAT sometimes returns a self-closing <billFetchResponse/> with no code.
+                    bfr = normalized.get('billFetchResponse')
+                    empty_fetch = (
+                        endpoint_name == 'bill_fetch'
+                        and (
+                            bfr in ('', None)
+                            or (isinstance(bfr, dict) and not bfr)
+                            or (isinstance(bfr, str) and not bfr.strip())
+                        )
+                        and set(keys) <= {'billFetchResponse', 'raw', '_mpayhub_parse_note'}
+                    )
+                if empty_fetch:
+                    ce = BillAvenueClientError(
+                        'BillAvenue API failed (bill_fetch) code=001 '
+                        '(BFR006 — Unable to fetch bill for this biller right now. '
+                        'The provider returned an empty response. Retry shortly or try another biller.)',
+                        provider_code='BFR006',
+                    )
+                else:
+                    ce = BillAvenueClientError(
+                        f"BillAvenue API failed ({endpoint_name}): missing responseCode in parsed gateway payload "
+                        f"(top-level keys: {keys}; raw-preview: {raw_preview}). "
+                        'Check UAT credentials, endpoint version, and BillAvenue response format.',
+                        provider_code='PARSE',
+                    )
                 _attach_billavenue_request_id(ce, env.get('requestId', ''))
                 raise ce
             exc_cls = exception_for_code(code)
@@ -942,7 +963,22 @@ class BillAvenueClient:
         return self._post(payload_obj=payload, endpoint_name='biller_info', request_id=request_id)
 
     def bill_fetch(self, payload: dict, *, request_id: str | None = None) -> BillAvenueResult:
-        return self._post(payload_obj=payload, endpoint_name='bill_fetch', request_id=request_id)
+        """
+        Fetch bill. Retry once when BillAvenue returns an empty ``<billFetchResponse/>``
+        (seen intermittently on UAT OTME / similar dummy billers).
+        """
+        try:
+            return self._post(payload_obj=payload, endpoint_name='bill_fetch', request_id=request_id)
+        except BillAvenueClientError as exc:
+            msg = str(exc or '')
+            code = str(getattr(exc, 'provider_code', '') or '').upper()
+            if code == 'BFR006' or ('empty response' in msg.lower() and 'bill_fetch' in msg.lower()):
+                logger.warning(
+                    'BillAvenue bill_fetch empty response; retrying once (requestId=%s).',
+                    getattr(exc, 'billavenue_request_id', '') or request_id or '',
+                )
+                return self._post(payload_obj=payload, endpoint_name='bill_fetch', request_id=None)
+            raise
 
     def bill_validate(self, payload: dict, *, request_id: str | None = None) -> BillAvenueResult:
         return self._post(payload_obj=payload, endpoint_name='bill_validate', request_id=request_id)

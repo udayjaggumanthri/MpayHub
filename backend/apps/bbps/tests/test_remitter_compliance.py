@@ -105,6 +105,36 @@ class RemitterComplianceUnitTests(SimpleTestCase):
         self.assertEqual(out['customerPan'], 'ABCDE1234F')
         self.assertEqual(out['customerName'], 'RAHUL')
 
+    def test_normalize_maps_customer_aadhaar_to_ba_spelling(self):
+        from apps.bbps.service_flow.remitter_compliance import normalize_customer_info_for_billavenue
+
+        out = normalize_customer_info_for_billavenue(
+            {'customerMobile': '9876543210', 'customerAadhaar': '234567890123'}
+        )
+        self.assertEqual(out['customerAdhaar'], '234567890123')
+        xml = build_bill_pay_plain_xml(
+            {
+                'agentId': 'AGT1',
+                'billerId': 'B1',
+                'paymentRefId': 'CORR1',
+                'customerInfo': {'customerMobile': '9876543210', 'customerAadhaar': '234567890123'},
+                'amountInfo': {'amount': '100', 'currency': '356', 'custConvFee': '0'},
+                'paymentMethod': {'paymentMode': 'Cash', 'quickPay': 'N', 'splitPay': 'N'},
+                'paymentInfo': {'info': []},
+            }
+        )
+        self.assertIn('<customerAdhaar>234567890123</customerAdhaar>', xml)
+        self.assertNotIn('customerAadhaar', xml)
+
+    def test_apply_remitter_preserves_pay_time_aadhaar_spelling(self):
+        out = apply_remitter_customer_info(
+            {'customerMobile': '9876543210', 'customerAadhaar': '234567890123'},
+            remitter_name='RAHUL',
+            bill_data={},
+        )
+        self.assertEqual(out['customerAdhaar'], '234567890123')
+        self.assertEqual(out['REMITTER_NAME'], 'RAHUL')
+
     def test_validate_high_value_requires_identity(self):
         with self.assertRaises(TransactionFailed) as ctx:
             validate_high_value_remitter(

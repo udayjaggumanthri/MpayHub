@@ -777,6 +777,12 @@ class BBPSClient(BaseIntegration):
                 remitter_name=remitter_display,
                 bill_data=bill_data,
             )
+        else:
+            # Still normalize Aadhaar spelling for BA XML even when remitter toggle is OFF
+            # (cash ≥50k / client may send customerAadhaar).
+            from apps.bbps.service_flow.remitter_compliance import normalize_customer_info_for_billavenue
+
+            ci_merged = normalize_customer_info_for_billavenue(ci_merged)
 
         plan_id = str(bill_data.get('plan_id') or '').strip()
         wire_inputs = list(input_params) if isinstance(input_params, list) else []

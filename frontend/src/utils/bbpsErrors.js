@@ -16,6 +16,7 @@ const PROVIDER_TITLES = {
   BFR001: 'Invalid account details',
   BFR004: 'No bill due',
   BFR006: 'Unable to fetch bill',
+  PARSE: 'Incomplete provider response',
   BRP046: 'QuickPay only',
   VE003: 'Agent ID rejected',
   VE008: 'Required field missing',

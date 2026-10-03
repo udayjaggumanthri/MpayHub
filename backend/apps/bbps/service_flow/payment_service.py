@@ -184,7 +184,6 @@ def process_bill_payment_flow(*, user, bill_data: dict) -> dict:
         fetch_rid = str(fetch_session.request_id).strip()
         bill_data['request_id'] = fetch_rid
     # Keep bill-pay request aligned with bill-fetch snapshot (order + flags matter for BillAvenue E211).
-    # Keep bill-pay request aligned with bill-fetch snapshot (order + flags matter for BillAvenue E211).
     replayed_from_fetch = False
     plan_id = str(bill_data.get('plan_id') or '').strip()
     if fetch_session and isinstance(getattr(fetch_session, 'input_params', None), dict):
@@ -202,7 +201,15 @@ def process_bill_payment_flow(*, user, bill_data: dict) -> dict:
         incoming_ci = bill_data.get('customer_info') if isinstance(bill_data.get('customer_info'), dict) else {}
         fetch_ci = inp.get('customerInfo') if isinstance(inp.get('customerInfo'), dict) else {}
         if fetch_ci or incoming_ci:
-            bill_data['customer_info'] = {**incoming_ci, **fetch_ci}
+            # Fetch provides baseline mobile / device context; pay-time identity must win
+            # (PAN / Aadhaar / remitter name entered on Proceed to Pay — never wipe with stale fetch keys).
+            merged_ci = {**fetch_ci, **incoming_ci}
+            fetch_mobile = str(fetch_ci.get('customerMobile') or fetch_ci.get('customer_mobile') or '').strip()
+            if fetch_mobile:
+                merged_ci['customerMobile'] = fetch_mobile
+            from apps.bbps.service_flow.remitter_compliance import normalize_customer_info_for_billavenue
+
+            bill_data['customer_info'] = normalize_customer_info_for_billavenue(merged_ci)
     from apps.bbps.service_flow.validation_service import (
         inject_plan_id_into_wire_list,
         validate_biller_inputs,

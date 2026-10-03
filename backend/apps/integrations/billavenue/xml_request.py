@@ -181,6 +181,16 @@ def build_bill_pay_plain_xml(payload: dict) -> str:
 
     customer = p.get('customerInfo') or {}
     if isinstance(customer, dict):
+        # Accept API spelling customerAadhaar; BillAvenue wire spelling is customerAdhaar.
+        if not str(customer.get('customerAdhaar') or '').strip():
+            alt = (
+                customer.get('customerAadhaar')
+                or customer.get('customer_aadhaar')
+                or customer.get('customer_adhaar')
+            )
+            if alt not in (None, ''):
+                digits = ''.join(ch for ch in str(alt) if ch.isdigit())
+                customer = {**customer, 'customerAdhaar': digits or str(alt).strip()}
         cust = SubElement(root, 'customerInfo')
         for k in (
             'customerMobile',

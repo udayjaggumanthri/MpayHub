@@ -278,6 +278,28 @@ def strip_identity_from_payment_info_rows(rows: list | None) -> list[dict]:
     return out
 
 
+def normalize_customer_info_for_billavenue(customer_info: dict | None) -> dict:
+    """
+    Normalize customerInfo keys for BillAvenue XML.
+
+    Frontend / APIs may send ``customerAadhaar``; BillAvenue expects historical
+    spelling ``customerAdhaar``. Always prefer the pay-time identity values already
+    on the dict (do not invent IDs).
+    """
+    out = dict(customer_info) if isinstance(customer_info, dict) else {}
+    pan = _scalar(out, 'customerPan', 'customer_pan', 'PAN', 'pan')
+    if pan:
+        out['customerPan'] = pan.upper()
+
+    aadhaar = _scalar(out, 'customerAdhaar', 'customer_adhaar', 'customerAadhaar', 'customer_aadhaar', 'Aadhaar', 'aadhaar')
+    if aadhaar:
+        digits = ''.join(ch for ch in aadhaar if ch.isdigit())
+        value = digits or aadhaar
+        out['customerAdhaar'] = value
+        out.setdefault('customerAadhaar', value)
+    return out
+
+
 def apply_remitter_customer_info(
     customer_info: dict | None,
     *,
@@ -287,7 +309,7 @@ def apply_remitter_customer_info(
     """
     Put REMITTER_NAME and customerPan/customerAdhaar under customerInfo (BillAvenue support).
     """
-    out = dict(customer_info) if isinstance(customer_info, dict) else {}
+    out = normalize_customer_info_for_billavenue(customer_info)
     name = str(remitter_name or '').strip()
     if name:
         out['REMITTER_NAME'] = name
@@ -298,7 +320,7 @@ def apply_remitter_customer_info(
     # Merge identity from original bill_data.customer_info + outgoing customerInfo.
     prior_ci = data.get('customer_info') if isinstance(data.get('customer_info'), dict) else {}
     merged_for_id = dict(data)
-    merged_for_id['customer_info'] = {**prior_ci, **out}
+    merged_for_id['customer_info'] = {**normalize_customer_info_for_billavenue(prior_ci), **out}
     id_kind, id_value = extract_identity(bill_data=merged_for_id)
     if id_kind == 'PAN' and id_value:
         out['customerPan'] = id_value
@@ -306,7 +328,7 @@ def apply_remitter_customer_info(
         # BillAvenue XML uses historical spelling customerAdhaar.
         out['customerAdhaar'] = id_value
         out.setdefault('customerAadhaar', id_value)
-    return out
+    return normalize_customer_info_for_billavenue(out)
 
 
 def build_remitter_payment_info_rows(

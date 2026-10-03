@@ -164,7 +164,7 @@ _CATALOG: dict[str, BbpsErrorInfo] = {
         'BFR004',
         'account',
         'No bill is currently due for this account.',
-        'Try again later or confirm the account with the biller.',
+        'This account has no outstanding bill for the current period. Try different UAT sample values, another test biller, or ask BillAvenue to reset the sample account.',
         False,
         'BBPS_FETCH_NO_DUE',
     ),
@@ -172,9 +172,17 @@ _CATALOG: dict[str, BbpsErrorInfo] = {
         'BFR006',
         'account',
         'Unable to fetch bill for this account right now.',
-        'Verify account details or retry shortly.',
+        'Verify account details or retry shortly. If this keeps happening on the same UAT biller, try another test biller (for example Electricity) or ask BillAvenue to reset the sample account.',
         True,
         'BBPS_FETCH_ACCOUNT',
+    ),
+    'PARSE': BbpsErrorInfo(
+        'PARSE',
+        'gateway',
+        'The bill payment provider returned an incomplete response. Please try again.',
+        'Retry Fetch Bill. If it keeps failing on the same biller, try another UAT test biller or contact support with the reference id.',
+        True,
+        'BBPS_FETCH_PARSE',
     ),
     'BRP046': BbpsErrorInfo(
         'BRP046',
@@ -536,6 +544,10 @@ def resolve_bbps_error(raw_text: str, *, endpoint: str = '') -> BbpsErrorInfo:
         )
     if 'de001' in low or ('invalid enc' in low and 'request' in low):
         return _CATALOG['DE001']
+    if 'empty response' in low or 'missing responsecode' in low:
+        if 'bfr006' in low:
+            return _CATALOG['BFR006']
+        return _CATALOG['PARSE']
     if 'invalid for payment channel' in low or 'errorcode": "e077' in low:
         return _CATALOG['E077']
     # Phrase heuristics before generic code extract (preserve existing UX copy)
@@ -564,7 +576,7 @@ def resolve_bbps_error(raw_text: str, *, endpoint: str = '') -> BbpsErrorInfo:
         return _CATALOG['REMITTER_CARD']
     if 'payment account details are incomplete' in low or 'payment account info' in low:
         return _CATALOG['REMITTER_ACCOUNT_INFO']
-    if 'pan and customer name are mandatory' in low:
+    if 'pan and customer name are mandatory' in low or 'pan or aadhaar and customer name are mandatory' in low:
         return _CATALOG['REMITTER_INCOMPLETE']
     if 'additionalinfo value mismatch' in low:
         return _CATALOG['E212']
