@@ -3,6 +3,7 @@ import { bankAccountsAPI, contactsAPI } from '../../services/api';
 import { contactsFromListResult } from '../../utils/contactsHelpers';
 import { validateAccountNumber, validateIFSC, validatePhone } from '../../utils/validators';
 import { FaCircleCheck } from 'react-icons/fa6';
+import { formatOtherContacts } from './BankAccountPager';
 
 const AddBankAccount = ({ onCancel, onSuccess, presetContact = null }) => {
   const [contacts, setContacts] = useState([]);
@@ -21,6 +22,7 @@ const AddBankAccount = ({ onCancel, onSuccess, presetContact = null }) => {
   const [loading, setLoading] = useState(false);
   const [validationData, setValidationData] = useState(null);
   const [showConfirmModal, setShowConfirmModal] = useState(false);
+  const [sharePrompt, setSharePrompt] = useState(null);
   const [showSuccessNotification, setShowSuccessNotification] = useState(false);
 
   const validatedBeneficiary = validationData?.beneficiary_name || null;
@@ -102,12 +104,39 @@ const AddBankAccount = ({ onCancel, onSuccess, presetContact = null }) => {
 
     setLoading(true);
     setErrors({});
+    const cid = Number(presetContact?.id || contactId || 0) || null;
 
     try {
+      const lookup = await bankAccountsAPI.lookupBankAccount({
+        accountNumber: formData.accountNumber,
+        ifsc: formData.ifsc.toUpperCase(),
+        contactId: cid,
+      });
+      if (!lookup.success) {
+        setErrors({
+          accountNumber: lookup.message || 'Could not check this bank account.',
+        });
+        return;
+      }
+      if (lookup.data?.status === 'on_this_contact') {
+        setErrors({
+          accountNumber: 'This bank account is already on this contact. Use the existing one.',
+        });
+        return;
+      }
+      if (lookup.data?.status === 'exists_on_other_contacts') {
+        setSharePrompt({
+          bankAccountId: lookup.data.bank_account_id,
+          contacts: lookup.data.contacts || [],
+        });
+        return;
+      }
+
       const result = await bankAccountsAPI.validateBankAccount(
         formData.accountNumber,
         formData.ifsc.toUpperCase(),
-        formData.mobileNumber
+        formData.mobileNumber,
+        cid
       );
       if (result.success && result.data?.beneficiary_name) {
         setValidationData(result.data);
@@ -127,6 +156,35 @@ const AddBankAccount = ({ onCancel, onSuccess, presetContact = null }) => {
 
   const resolveContactId = () =>
     Number(presetContact?.id || contactId || 0) || null;
+
+  const handleConfirmShare = async () => {
+    const cid = resolveContactId();
+    if (!cid || !sharePrompt?.bankAccountId) return;
+    setLoading(true);
+    try {
+      const linkResult = await bankAccountsAPI.linkBankAccount({
+        bankAccountId: sharePrompt.bankAccountId,
+        contactId: cid,
+      });
+      if (!linkResult.success) {
+        setErrors({
+          accountNumber: linkResult.message || 'Could not link this bank account.',
+        });
+        return;
+      }
+      setSharePrompt(null);
+      setShowSuccessNotification(true);
+      setTimeout(() => {
+        setShowSuccessNotification(false);
+        if (onSuccess) onSuccess(linkResult.data?.bank_account || { id: sharePrompt.bankAccountId, contact: cid });
+        if (onCancel) onCancel();
+      }, 1500);
+    } catch {
+      setErrors({ accountNumber: 'Could not link this bank account. Please try again.' });
+    } finally {
+      setLoading(false);
+    }
+  };
 
   const handleConfirmSave = async () => {
     const cid = resolveContactId();
@@ -374,6 +432,35 @@ const AddBankAccount = ({ onCancel, onSuccess, presetContact = null }) => {
             ₹3 verification fee (deducted only on successful validation)
           </p>
         </div>
+
+        {sharePrompt && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black bg-opacity-50">
+            <div className="bg-white dark:bg-slate-900 rounded-2xl shadow-2xl max-w-md w-full p-6">
+              <h3 className="text-xl font-bold text-gray-900 dark:text-slate-100 mb-3">Already saved</h3>
+              <p className="text-sm text-gray-600 dark:text-slate-400 mb-4">
+                This bank account is already on {formatOtherContacts(sharePrompt.contacts) || 'another contact'}.
+                Add it to {selectedContact?.name || 'this contact'} as well? It stays on the other contact, and it will not be verified again.
+              </p>
+              <div className="flex space-x-3">
+                <button
+                  type="button"
+                  onClick={() => setSharePrompt(null)}
+                  className="flex-1 px-4 py-3 border border-gray-300 dark:border-slate-600 rounded-lg text-gray-700 dark:text-slate-300"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="button"
+                  onClick={handleConfirmShare}
+                  disabled={loading}
+                  className="flex-1 px-4 py-3 bg-blue-600 text-white rounded-lg disabled:opacity-50"
+                >
+                  {loading ? 'Linking...' : 'Add to this contact'}
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
 
         {showConfirmModal && validatedBeneficiary && (
           <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black bg-opacity-50">

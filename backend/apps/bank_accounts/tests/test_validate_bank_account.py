@@ -4,8 +4,14 @@ from unittest.mock import patch
 from django.contrib.auth import get_user_model
 from django.test import TestCase, override_settings
 
-from apps.bank_accounts.models import BankAccount, BankVerificationAttempt
-from apps.bank_accounts.services import consume_validation_token, validate_bank_account
+from apps.bank_accounts.models import BankAccount, BankAccountContactLink, BankVerificationAttempt
+from apps.bank_accounts.services import (
+    BankAccountLinkError,
+    consume_validation_token,
+    link_bank_account_to_contact,
+    validate_bank_account,
+)
+from apps.contacts.models import Contact
 from apps.core.exceptions import BankValidationFailed
 from apps.core.utils import encrypt_secret_payload
 from apps.integrations.banking.types import BavVerifyResult
@@ -148,3 +154,70 @@ class ValidateBankAccountServiceTests(TestCase):
         self.assertEqual(result['ifsc'], 'HDFC0001234')
         account = BankAccount.objects.get(user=self.user, account_number='1234567890')
         self.assertEqual(account.ifsc, 'HDFC0001234')
+
+    def _contact(self, name, phone):
+        return Contact.objects.create(
+            user=self.user,
+            name=name,
+            phone=phone,
+            email=f'{phone}@test.com',
+        )
+
+    def test_same_contact_does_not_call_validator_or_debit(self):
+        contact = self._contact('Alice', '9111111111')
+        BankAccount.objects.create(
+            user=self.user,
+            contact=contact,
+            account_number='1234567890',
+            ifsc='YESB0000001',
+            bank_name='YES BANK',
+            account_holder_name='JOHN DOE',
+            is_verified=True,
+        )
+        opening = self.wallet.balance
+        with patch('apps.integrations.bank_validator.BankValidator.validate_account') as mock_verify:
+            with self.assertRaises(BankAccountLinkError) as ctx:
+                validate_bank_account(
+                    self.user, '1234567890', 'YESB0000001', '9555555533', contact=contact
+                )
+        mock_verify.assert_not_called()
+        self.assertEqual(ctx.exception.code, 'on_this_contact')
+        self.wallet.refresh_from_db()
+        self.assertEqual(self.wallet.balance, opening)
+        self.assertEqual(PassbookEntry.objects.filter(user=self.user, service='BANK VERIFICATION').count(), 0)
+
+    def test_other_contact_links_without_second_fee(self):
+        contact_a = self._contact('Alice', '9111111111')
+        contact_b = self._contact('Bob', '9222222222')
+        account = BankAccount.objects.create(
+            user=self.user,
+            contact=contact_a,
+            account_number='1234567890',
+            ifsc='YESB0000001',
+            bank_name='YES BANK',
+            account_holder_name='JOHN DOE',
+            is_verified=True,
+        )
+        opening = self.wallet.balance
+        with patch('apps.integrations.bank_validator.BankValidator.validate_account') as mock_verify:
+            with self.assertRaises(BankAccountLinkError) as ctx:
+                validate_bank_account(
+                    self.user, '1234567890', 'YESB0000001', '9555555533', contact=contact_b
+                )
+        mock_verify.assert_not_called()
+        self.assertEqual(ctx.exception.code, 'exists_on_other_contacts')
+        self.assertEqual(ctx.exception.contacts[0]['name'], 'Alice')
+        self.assertEqual(ctx.exception.contacts[0]['phone'], '9111111111')
+        link_bank_account_to_contact(account, contact_b)
+        account.refresh_from_db()
+        self.assertEqual(account.contact_id, contact_a.id)
+        self.assertEqual(
+            set(
+                BankAccountContactLink.objects.filter(bank_account=account, is_deleted=False)
+                .values_list('contact_id', flat=True)
+            ),
+            {contact_a.id, contact_b.id},
+        )
+        self.wallet.refresh_from_db()
+        self.assertEqual(self.wallet.balance, opening)
+        self.assertEqual(BankAccount.objects.filter(user=self.user, account_number='1234567890').count(), 1)

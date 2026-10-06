@@ -4,7 +4,7 @@ Serializers for bank_accounts app.
 from rest_framework import serializers
 
 from apps.bank_accounts.models import BankAccount
-from apps.bank_accounts.services import consume_validation_token
+from apps.bank_accounts.services import consume_validation_token, link_bank_account_to_contact, linked_contacts_payload
 from apps.core.exceptions import BankValidationFailed
 from apps.core.utils import validate_ifsc, validate_phone
 
@@ -15,18 +15,19 @@ class BankAccountSerializer(serializers.ModelSerializer):
     validation_token = serializers.CharField(write_only=True, required=False, allow_blank=True)
     contact_name = serializers.SerializerMethodField()
     contact_phone = serializers.SerializerMethodField()
+    linked_contacts = serializers.SerializerMethodField()
 
     class Meta:
         model = BankAccount
         fields = [
-            'id', 'contact', 'contact_name', 'contact_phone', 'account_number', 'ifsc', 'bank_name',
+            'id', 'contact', 'contact_name', 'contact_phone', 'linked_contacts', 'account_number', 'ifsc', 'bank_name',
             'account_holder_name', 'beneficiary_name', 'mobile_number', 'is_verified',
             'verification_reference_id', 'provider_code', 'branch', 'city',
             'name_match_score', 'name_match_result', 'verification_details',
             'verified_at', 'validation_token', 'created_at', 'updated_at',
         ]
         read_only_fields = [
-            'id', 'contact_name', 'contact_phone', 'beneficiary_name', 'is_verified',
+            'id', 'contact_name', 'contact_phone', 'linked_contacts', 'beneficiary_name', 'is_verified',
             'verification_reference_id',
             'provider_code', 'branch', 'city', 'name_match_score', 'name_match_result',
             'verification_details', 'verified_at', 'created_at', 'updated_at',
@@ -39,6 +40,12 @@ class BankAccountSerializer(serializers.ModelSerializer):
     def get_contact_phone(self, obj):
         contact = getattr(obj, 'contact', None)
         return getattr(contact, 'phone', None) if contact is not None else None
+
+    def get_linked_contacts(self, obj):
+        cached = getattr(obj, '_linked_contacts_payload', None)
+        if cached is not None:
+            return cached
+        return linked_contacts_payload(obj)
 
     def validate_ifsc(self, value):
         """Validate IFSC code."""
@@ -126,13 +133,22 @@ class BankAccountSerializer(serializers.ModelSerializer):
     def create(self, validated_data):
         existing = getattr(self, '_existing_verified_account', None)
         validated_data.pop('validation_token', None)
+        contact = validated_data.get('contact')
         if existing is not None:
-            contact = validated_data.get('contact')
-            if contact is not None and existing.contact_id != getattr(contact, 'pk', None):
-                existing.contact = contact
-                existing.save(update_fields=['contact', 'updated_at'])
+            if contact is not None:
+                link_bank_account_to_contact(existing, contact)
             return existing
-        return super().create(validated_data)
+        account = super().create(validated_data)
+        if contact is not None:
+            link_bank_account_to_contact(account, contact)
+        return account
+
+    def update(self, instance, validated_data):
+        contact = validated_data.pop('contact', None)
+        account = super().update(instance, validated_data)
+        if contact is not None:
+            link_bank_account_to_contact(account, contact)
+        return account
 
 
 class BankAccountValidationSerializer(serializers.Serializer):
@@ -140,6 +156,7 @@ class BankAccountValidationSerializer(serializers.Serializer):
     account_number = serializers.CharField(max_length=20)
     ifsc = serializers.CharField(max_length=11)
     mobile_number = serializers.CharField(max_length=10)
+    contact = serializers.IntegerField(required=False)
 
     def validate_ifsc(self, value):
         """Validate IFSC code."""
@@ -152,3 +169,19 @@ class BankAccountValidationSerializer(serializers.Serializer):
         if not validate_phone(mobile):
             raise serializers.ValidationError('Enter a valid 10-digit mobile number.')
         return mobile
+
+
+class BankAccountLookupSerializer(serializers.Serializer):
+    account_number = serializers.CharField(max_length=20)
+    ifsc = serializers.CharField(max_length=11)
+    contact = serializers.IntegerField()
+
+    def validate_ifsc(self, value):
+        if not validate_ifsc(value):
+            raise serializers.ValidationError('Invalid IFSC code format.')
+        return value.upper()
+
+
+class BankAccountLinkSerializer(serializers.Serializer):
+    bank_account = serializers.IntegerField()
+    contact = serializers.IntegerField()

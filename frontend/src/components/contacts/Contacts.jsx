@@ -8,8 +8,19 @@ import Card from '../common/Card';
 import Button from '../common/Button';
 import Input from '../common/Input';
 import AddBankAccount from '../bankManagement/AddBankAccount';
+import BankAccountPager from '../bankManagement/BankAccountPager';
+import { AccountRowActions, BankAccountConfirmModal, BankAccountDetailsModal } from '../bankManagement/BankAccountDialogs';
 import {
-  FaMagnifyingGlass,
+  DataTableScroll,
+  FilterActions,
+  FilterField,
+  actionTdClass,
+  actionThClass,
+  filterInputClass,
+  tdClass,
+  thClass,
+} from '../bankManagement/ListChrome';
+import {
   FaPlus,
   FaPen,
   FaX,
@@ -45,7 +56,25 @@ const Contacts = () => {
   const [contactAccounts, setContactAccounts] = useState([]);
   const [accountsLoading, setAccountsLoading] = useState(false);
   const [accountsError, setAccountsError] = useState('');
+  const [accountFilterDraft, setAccountFilterDraft] = useState({
+    name: '',
+    bankName: '',
+    accountNumber: '',
+    ifsc: '',
+  });
+  const [accountFilters, setAccountFilters] = useState({
+    name: '',
+    bankName: '',
+    accountNumber: '',
+    ifsc: '',
+  });
+  const [accountPage, setAccountPage] = useState(1);
+  const [accountTotal, setAccountTotal] = useState(0);
+  const accountPageSize = 20;
   const [showAddBank, setShowAddBank] = useState(false);
+  const [viewAccount, setViewAccount] = useState(null);
+  const [removeTarget, setRemoveTarget] = useState(null);
+  const [removing, setRemoving] = useState(false);
 
   const loadContacts = useCallback(async () => {
     if (!user) return;
@@ -90,29 +119,46 @@ const Contacts = () => {
     setAccountsLoading(true);
     setAccountsError('');
     try {
-      const result = await bankAccountsAPI.listBankAccounts({ contact: contact.id });
+      const params = { contact: contact.id, page: accountPage, page_size: accountPageSize };
+      if (accountFilters.name) params.name = accountFilters.name;
+      if (accountFilters.bankName) params.bank_name = accountFilters.bankName;
+      if (accountFilters.accountNumber) params.account_number = accountFilters.accountNumber;
+      if (accountFilters.ifsc) params.ifsc = accountFilters.ifsc;
+      const result = await bankAccountsAPI.listBankAccounts(params);
       if (result.success) {
         const payload = result.data || {};
         const rows = payload.bank_accounts || payload.results || (Array.isArray(payload) ? payload : []);
         setContactAccounts(rows);
+        setAccountTotal(Number(payload.count ?? rows.length) || 0);
       } else {
         setContactAccounts([]);
+        setAccountTotal(0);
         setAccountsError(result.message || 'Failed to load bank accounts');
       }
     } catch (error) {
       console.error('Error loading contact bank accounts:', error);
       setContactAccounts([]);
+      setAccountTotal(0);
       setAccountsError('Failed to load bank accounts');
     } finally {
       setAccountsLoading(false);
     }
-  }, []);
+  }, [accountPage, accountFilters]);
+
+  useEffect(() => {
+    if (detailContact?.id) {
+      loadContactAccounts(detailContact);
+    }
+  }, [detailContact, loadContactAccounts]);
 
   const openContactDetail = (contact) => {
     setDetailContact(contact);
     setShowAddBank(false);
     setContactAccounts([]);
-    loadContactAccounts(contact);
+    setAccountPage(1);
+    const empty = { name: '', bankName: '', accountNumber: '', ifsc: '' };
+    setAccountFilterDraft(empty);
+    setAccountFilters(empty);
   };
 
   const closeContactDetail = () => {
@@ -120,6 +166,32 @@ const Contacts = () => {
     setContactAccounts([]);
     setAccountsError('');
     setShowAddBank(false);
+    setViewAccount(null);
+    setRemoveTarget(null);
+  };
+
+  const confirmRemoveAccount = async () => {
+    if (!removeTarget?.id || !detailContact?.id) return;
+    setRemoving(true);
+    try {
+      const result = await bankAccountsAPI.unlinkBankAccount({
+        bankAccountId: removeTarget.id,
+        contactId: detailContact.id,
+      });
+      if (result.success) {
+        setRemoveTarget(null);
+        await loadContactAccounts(detailContact);
+      } else {
+        setAccountsError(result.message || 'Could not remove this bank account from the contact.');
+        setRemoveTarget(null);
+      }
+    } catch (error) {
+      console.error('Error removing bank account link:', error);
+      setAccountsError('Could not remove this bank account from the contact.');
+      setRemoveTarget(null);
+    } finally {
+      setRemoving(false);
+    }
   };
 
   const handleAddNew = () => {
@@ -319,6 +391,64 @@ const Contacts = () => {
         </div>
 
         <Card padding="lg">
+          <h3 className="text-lg font-semibold text-gray-900 dark:text-slate-100 mb-4">Filter</h3>
+          <div className="mb-6 grid grid-cols-1 items-end gap-4 sm:grid-cols-2 xl:grid-cols-5">
+            <FilterField label="Account holder">
+              <input
+                type="text"
+                value={accountFilterDraft.name}
+                onChange={(e) => setAccountFilterDraft({ ...accountFilterDraft, name: e.target.value })}
+                placeholder="Account holder"
+                className={filterInputClass}
+              />
+            </FilterField>
+            <FilterField label="Bank name">
+              <input
+                type="text"
+                value={accountFilterDraft.bankName}
+                onChange={(e) => setAccountFilterDraft({ ...accountFilterDraft, bankName: e.target.value })}
+                placeholder="Bank name"
+                className={filterInputClass}
+              />
+            </FilterField>
+            <FilterField label="Account number">
+              <input
+                type="text"
+                value={accountFilterDraft.accountNumber}
+                onChange={(e) => setAccountFilterDraft({
+                  ...accountFilterDraft,
+                  accountNumber: e.target.value.replace(/\D/g, ''),
+                })}
+                placeholder="Account number"
+                className={filterInputClass}
+              />
+            </FilterField>
+            <FilterField label="IFSC">
+              <input
+                type="text"
+                value={accountFilterDraft.ifsc}
+                onChange={(e) => setAccountFilterDraft({
+                  ...accountFilterDraft,
+                  ifsc: e.target.value.toUpperCase().replace(/[^A-Z0-9]/g, '').slice(0, 11),
+                })}
+                placeholder="IFSC"
+                maxLength={11}
+                className={`${filterInputClass} uppercase`}
+              />
+            </FilterField>
+            <FilterActions
+              onClear={() => {
+                const empty = { name: '', bankName: '', accountNumber: '', ifsc: '' };
+                setAccountFilterDraft(empty);
+                setAccountFilters(empty);
+                setAccountPage(1);
+              }}
+              onApply={() => {
+                setAccountPage(1);
+                setAccountFilters({ ...accountFilterDraft });
+              }}
+            />
+          </div>
           {accountsError && (
             <div className="mb-4 rounded-lg bg-red-50 dark:bg-red-950/40 border border-red-100 dark:border-red-900 text-red-700 dark:text-red-300 text-sm px-4 py-2">
               {accountsError}
@@ -339,45 +469,100 @@ const Contacts = () => {
               </Button>
             </div>
           ) : (
-            <div className="overflow-x-auto -mx-4 sm:mx-0">
-              <table className="w-full min-w-[640px] border-collapse">
+            <>
+            <div className="md:hidden space-y-3">
+              {contactAccounts.map((account, index) => (
+                <div key={account.id} className="rounded-xl border border-gray-200 dark:border-slate-700 p-4 bg-gray-50 dark:bg-slate-800/40">
+                  <p className="text-xs text-gray-500 dark:text-slate-400">#{(accountPage - 1) * accountPageSize + index + 1}</p>
+                  <p className="text-sm font-semibold text-gray-900 dark:text-slate-100 break-words">
+                    {account.account_holder_name || account.beneficiary_name || '—'}
+                  </p>
+                  <p className="text-sm text-gray-600 dark:text-slate-400 mt-1 break-all">{account.account_number || '—'}</p>
+                  <dl className="mt-3 grid grid-cols-2 gap-2 text-sm">
+                    <div>
+                      <dt className="text-xs text-gray-500 dark:text-slate-400">Bank</dt>
+                      <dd className="text-gray-800 dark:text-slate-200 break-words">{account.bank_name || '—'}</dd>
+                    </div>
+                    <div>
+                      <dt className="text-xs text-gray-500 dark:text-slate-400">IFSC</dt>
+                      <dd className="font-mono text-gray-800 dark:text-slate-200">{account.ifsc || '—'}</dd>
+                    </div>
+                    <div className="col-span-2">
+                      <dt className="text-xs text-gray-500 dark:text-slate-400">Mobile</dt>
+                      <dd className="text-gray-800 dark:text-slate-200">{account.mobile_number ? formatPhone(account.mobile_number) : '—'}</dd>
+                    </div>
+                  </dl>
+                  <div className="mt-3 pt-3 border-t border-gray-200 dark:border-slate-700">
+                    <AccountRowActions
+                      onView={() => setViewAccount(account)}
+                      onRemove={() => setRemoveTarget(account)}
+                    />
+                  </div>
+                </div>
+              ))}
+            </div>
+            <DataTableScroll>
+              <table className="w-max min-w-full border-separate border-spacing-0">
                 <thead>
-                  <tr className="bg-gray-50 dark:bg-slate-800/50 border-b border-gray-200 dark:border-slate-700">
-                    <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 dark:text-slate-400 uppercase tracking-wider">#</th>
-                    <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 dark:text-slate-400 uppercase tracking-wider">Account holder</th>
-                    <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 dark:text-slate-400 uppercase tracking-wider">Account number</th>
-                    <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 dark:text-slate-400 uppercase tracking-wider">Bank</th>
-                    <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 dark:text-slate-400 uppercase tracking-wider">IFSC</th>
-                    <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 dark:text-slate-400 uppercase tracking-wider">Mobile</th>
+                  <tr>
+                    <th className={thClass}>#</th>
+                    <th className={thClass}>Account holder</th>
+                    <th className={thClass}>Account number</th>
+                    <th className={thClass}>Bank</th>
+                    <th className={thClass}>IFSC</th>
+                    <th className={thClass}>Mobile</th>
+                    <th className={actionThClass}>Actions</th>
                   </tr>
                 </thead>
                 <tbody>
                   {contactAccounts.map((account, index) => (
-                    <tr key={account.id} className="border-b border-gray-200 dark:border-slate-700 hover:bg-gray-50 dark:hover:bg-slate-800 transition-colors">
-                      <td className="px-4 py-4 text-sm text-gray-900 dark:text-slate-100">{index + 1}</td>
-                      <td className="px-4 py-4 text-sm font-medium text-gray-900 dark:text-slate-100">
+                    <tr key={account.id} className="group">
+                      <td className={tdClass}>{(accountPage - 1) * accountPageSize + index + 1}</td>
+                      <td className={`${tdClass} font-medium text-gray-900 dark:text-slate-100`}>
                         {account.account_holder_name || account.beneficiary_name || '—'}
                       </td>
-                      <td className="px-4 py-4 text-sm font-mono text-gray-700 dark:text-slate-300">
-                        {account.account_number || '—'}
-                      </td>
-                      <td className="px-4 py-4 text-sm text-gray-700 dark:text-slate-300">
+                      <td className={`${tdClass} font-mono`}>{account.account_number || '—'}</td>
+                      <td className={tdClass}>
                         <span className="inline-flex items-center gap-2">
                           <FaBuilding size={14} className="text-gray-400 dark:text-slate-500" />
                           {account.bank_name || '—'}
                         </span>
                       </td>
-                      <td className="px-4 py-4 text-sm font-mono text-gray-700 dark:text-slate-300">{account.ifsc || '—'}</td>
-                      <td className="px-4 py-4 text-sm text-gray-700 dark:text-slate-300">
-                        {account.mobile_number ? formatPhone(account.mobile_number) : '—'}
+                      <td className={`${tdClass} font-mono`}>{account.ifsc || '—'}</td>
+                      <td className={tdClass}>{account.mobile_number ? formatPhone(account.mobile_number) : '—'}</td>
+                      <td className={actionTdClass}>
+                        <AccountRowActions
+                          onView={() => setViewAccount(account)}
+                          onRemove={() => setRemoveTarget(account)}
+                        />
                       </td>
                     </tr>
                   ))}
                 </tbody>
               </table>
-            </div>
+            </DataTableScroll>
+            </>
+          )}
+          {!accountsLoading && (
+            <BankAccountPager
+              page={accountPage}
+              pageSize={accountPageSize}
+              totalCount={accountTotal}
+              onPageChange={setAccountPage}
+            />
           )}
         </Card>
+
+        <BankAccountDetailsModal account={viewAccount} onClose={() => setViewAccount(null)} />
+        <BankAccountConfirmModal
+          account={removeTarget}
+          title="Remove from this contact?"
+          description="This takes the account off this contact only. The verified account stays saved, and it remains on any other contact it is already linked to."
+          confirmLabel="Remove"
+          loading={removing}
+          onCancel={() => !removing && setRemoveTarget(null)}
+          onConfirm={confirmRemoveAccount}
+        />
 
         {showEditModal && selectedContact && (
           <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 overflow-y-auto">
@@ -459,61 +644,39 @@ const Contacts = () => {
 
       <Card padding="lg">
         <h3 className="text-lg font-semibold text-gray-900 dark:text-slate-100 mb-4">Filter</h3>
-        <p className="text-sm text-gray-500 dark:text-slate-400 mb-4">
-          Enter criteria and click <strong>Filter</strong> to run a server-side search.
-        </p>
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-          <div>
-            <label className="block text-sm font-medium text-gray-700 dark:text-slate-300 mb-2">Name</label>
-            <div className="relative">
-              <FaMagnifyingGlass className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400 dark:text-slate-500" size={18} />
-              <input
-                type="text"
-                value={filterDraft.name}
-                onChange={(e) => setFilterDraft({ ...filterDraft, name: e.target.value })}
-                placeholder="Name"
-                className="w-full pl-10 pr-4 py-2 border border-gray-300 dark:border-slate-600 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-              />
-            </div>
-          </div>
-          <div>
-            <label className="block text-sm font-medium text-gray-700 dark:text-slate-300 mb-2">Email</label>
-            <div className="relative">
-              <FaMagnifyingGlass className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400 dark:text-slate-500" size={18} />
-              <input
-                type="text"
-                value={filterDraft.email}
-                onChange={(e) => setFilterDraft({ ...filterDraft, email: e.target.value })}
-                placeholder="Email"
-                className="w-full pl-10 pr-4 py-2 border border-gray-300 dark:border-slate-600 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-              />
-            </div>
-          </div>
-          <div>
-            <label className="block text-sm font-medium text-gray-700 dark:text-slate-300 mb-2">Phone</label>
-            <div className="relative">
-              <FaMagnifyingGlass className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400 dark:text-slate-500" size={18} />
-              <input
-                type="tel"
-                value={filterDraft.phone}
-                onChange={(e) => {
-                  const value = e.target.value.replace(/\D/g, '').slice(0, 10);
-                  setFilterDraft({ ...filterDraft, phone: value });
-                }}
-                placeholder="10-digit phone"
-                maxLength={10}
-                className="w-full pl-10 pr-4 py-2 border border-gray-300 dark:border-slate-600 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-              />
-            </div>
-          </div>
-        </div>
-        <div className="mt-4 flex flex-wrap justify-end gap-3">
-          <Button onClick={clearFilters} variant="outline" size="sm" type="button">
-            Clear
-          </Button>
-          <Button onClick={applyFilters} variant="primary" size="sm" type="button">
-            Filter
-          </Button>
+        <div className="grid grid-cols-1 items-end gap-4 sm:grid-cols-2 xl:grid-cols-4">
+          <FilterField label="Name">
+            <input
+              type="text"
+              value={filterDraft.name}
+              onChange={(e) => setFilterDraft({ ...filterDraft, name: e.target.value })}
+              placeholder="Name"
+              className={filterInputClass}
+            />
+          </FilterField>
+          <FilterField label="Email">
+            <input
+              type="text"
+              value={filterDraft.email}
+              onChange={(e) => setFilterDraft({ ...filterDraft, email: e.target.value })}
+              placeholder="Email"
+              className={filterInputClass}
+            />
+          </FilterField>
+          <FilterField label="Phone">
+            <input
+              type="tel"
+              value={filterDraft.phone}
+              onChange={(e) => {
+                const value = e.target.value.replace(/\D/g, '').slice(0, 10);
+                setFilterDraft({ ...filterDraft, phone: value });
+              }}
+              placeholder="10-digit phone"
+              maxLength={10}
+              className={filterInputClass}
+            />
+          </FilterField>
+          <FilterActions onClear={clearFilters} onApply={applyFilters} />
         </div>
       </Card>
 
@@ -547,25 +710,36 @@ const Contacts = () => {
             <p className="text-sm mt-2">Use &quot;Add New Contact&quot; or adjust filters.</p>
           </div>
         ) : (
-          <div className="overflow-x-auto -mx-4 sm:mx-0">
-            <table className="w-full min-w-[640px] border-collapse">
+          <>
+          <div className="md:hidden space-y-3">
+            {contacts.map((contact, index) => (
+              <div key={contact.id} className="rounded-xl border border-gray-200 dark:border-slate-700 p-4">
+                <button type="button" onClick={() => openContactDetail(contact)} className="w-full text-left">
+                  <p className="text-xs text-gray-500 dark:text-slate-400">#{index + 1}</p>
+                  <p className="text-base font-semibold text-gray-900 dark:text-slate-100">{contact.name}</p>
+                  <p className="text-sm text-gray-600 dark:text-slate-400 mt-1 break-all">{contact.email || '—'}</p>
+                  <p className="text-sm text-gray-600 dark:text-slate-400 mt-0.5">{contact.phone ? formatPhone(contact.phone) : '—'}</p>
+                </button>
+                <div className="mt-3 pt-3 border-t border-gray-200 dark:border-slate-700 flex flex-wrap gap-2">
+                  <Button type="button" size="sm" variant="outline" icon={FaEye} iconPosition="left" onClick={() => openContactDetail(contact)}>
+                    Accounts
+                  </Button>
+                  <Button type="button" size="sm" variant="outline" icon={FaPen} iconPosition="left" onClick={(e) => handleEdit(contact, e)}>
+                    Edit
+                  </Button>
+                </div>
+              </div>
+            ))}
+          </div>
+          <DataTableScroll>
+            <table className="w-max min-w-full border-separate border-spacing-0">
               <thead>
-                <tr className="bg-gray-50 dark:bg-slate-800/50 border-b border-gray-200 dark:border-slate-700">
-                  <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 dark:text-slate-400 uppercase tracking-wider w-16">
-                    S.NO
-                  </th>
-                  <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 dark:text-slate-400 uppercase tracking-wider">
-                    NAME
-                  </th>
-                  <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 dark:text-slate-400 uppercase tracking-wider">
-                    EMAIL
-                  </th>
-                  <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 dark:text-slate-400 uppercase tracking-wider">
-                    PHONE
-                  </th>
-                  <th className="px-4 py-3 text-center text-xs font-medium text-gray-500 dark:text-slate-400 uppercase tracking-wider w-36">
-                    ACTION
-                  </th>
+                <tr>
+                  <th className={thClass}>S.No</th>
+                  <th className={thClass}>Name</th>
+                  <th className={thClass}>Email</th>
+                  <th className={thClass}>Phone</th>
+                  <th className={actionThClass}>Action</th>
                 </tr>
               </thead>
               <tbody>
@@ -573,31 +747,29 @@ const Contacts = () => {
                   <tr
                     key={contact.id}
                     onClick={() => openContactDetail(contact)}
-                    className="border-b border-gray-200 dark:border-slate-700 hover:bg-blue-50/60 dark:hover:bg-slate-800 transition-colors cursor-pointer"
+                    className="group cursor-pointer"
                   >
-                    <td className="px-4 py-4 text-sm text-gray-900 dark:text-slate-100 tabular-nums">{index + 1}</td>
-                    <td className="px-4 py-4 text-sm font-medium text-gray-900 dark:text-slate-100">{contact.name}</td>
-                    <td className="px-4 py-4 text-sm text-gray-700 dark:text-slate-300 break-all max-w-[220px]">{contact.email}</td>
-                    <td className="px-4 py-4 text-sm text-gray-700 dark:text-slate-300 tabular-nums">{contact.phone}</td>
-                    <td className="px-4 py-4 text-center" onClick={(e) => e.stopPropagation()}>
-                      <div className="inline-flex items-center gap-1">
+                    <td className={tdClass}>{index + 1}</td>
+                    <td className={`${tdClass} font-medium text-gray-900 dark:text-slate-100`}>{contact.name}</td>
+                    <td className={tdClass}>{contact.email || '—'}</td>
+                    <td className={tdClass}>{contact.phone ? formatPhone(contact.phone) : '—'}</td>
+                    <td className={actionTdClass} onClick={(e) => e.stopPropagation()}>
+                      <div className="inline-flex flex-nowrap items-center gap-1">
                         <button
                           type="button"
                           onClick={() => openContactDetail(contact)}
-                          className="inline-flex items-center justify-center text-blue-600 dark:text-blue-400 hover:text-blue-800 dark:hover:text-blue-200 transition-colors p-2 rounded-lg hover:bg-blue-50 dark:hover:bg-blue-950/60"
-                          title="View bank accounts"
-                          aria-label="View bank accounts"
+                          className="inline-flex items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-sm font-semibold text-blue-600 hover:bg-blue-50 dark:text-blue-400 dark:hover:bg-blue-950/60"
                         >
-                          <FaEye size={18} />
+                          <FaEye size={16} />
+                          Accounts
                         </button>
                         <button
                           type="button"
                           onClick={(e) => handleEdit(contact, e)}
-                          className="inline-flex items-center justify-center text-blue-600 dark:text-blue-400 hover:text-blue-800 dark:hover:text-blue-200 transition-colors p-2 rounded-lg hover:bg-blue-50 dark:hover:bg-blue-950/60"
-                          title="Edit contact"
-                          aria-label="Edit contact"
+                          className="inline-flex items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-sm font-semibold text-blue-600 hover:bg-blue-50 dark:text-blue-400 dark:hover:bg-blue-950/60"
                         >
-                          <FaPen size={18} />
+                          <FaPen size={15} />
+                          Edit
                         </button>
                       </div>
                     </td>
@@ -605,7 +777,8 @@ const Contacts = () => {
                 ))}
               </tbody>
             </table>
-          </div>
+          </DataTableScroll>
+          </>
         )}
       </Card>
 

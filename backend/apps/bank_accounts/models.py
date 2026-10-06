@@ -50,6 +50,51 @@ class BankAccount(BaseModel):
     def __str__(self):
         return f"{self.account_holder_name} - {self.account_number[-4:]}"
 
+    def save(self, *args, **kwargs):
+        super().save(*args, **kwargs)
+        # Keep the legacy FK and the link table in sync for the first contact only.
+        # Never creates a second bank-account row.
+        if self.contact_id and not self.is_deleted:
+            BankAccountContactLink.objects.get_or_create(
+                bank_account_id=self.pk,
+                contact_id=self.contact_id,
+                defaults={'user_id': self.user_id},
+            )
+
+
+class BankAccountContactLink(BaseModel):
+    """
+    One verified bank account may belong to many contacts of the same retailer.
+    The bank_accounts row stays unique on (user, account_number, ifsc).
+    """
+
+    user = models.ForeignKey(
+        User,
+        on_delete=models.CASCADE,
+        related_name='bank_account_contact_links',
+        db_index=True,
+    )
+    bank_account = models.ForeignKey(
+        BankAccount,
+        on_delete=models.CASCADE,
+        related_name='contact_links',
+    )
+    contact = models.ForeignKey(
+        Contact,
+        on_delete=models.CASCADE,
+        related_name='bank_account_links',
+    )
+
+    class Meta:
+        db_table = 'bank_account_contact_links'
+        unique_together = [['bank_account', 'contact']]
+        indexes = [
+            models.Index(fields=['user', 'contact']),
+        ]
+
+    def __str__(self):
+        return f'{self.bank_account_id} → {self.contact_id}'
+
 
 class BankVerificationAttempt(BaseModel):
     """Audit trail for external bank account verification calls."""

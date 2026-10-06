@@ -2412,12 +2412,63 @@ export const bankAccountsAPI = {
    * Validate Bank Account
    * POST /api/bank-accounts/validate/
    */
-  validateBankAccount: async (accountNumber, ifsc, mobileNumber) => {
+  validateBankAccount: async (accountNumber, ifsc, mobileNumber, contactId) => {
     try {
-      const response = await apiClient.post('/bank-accounts/validate/', {
+      const body = {
         account_number: accountNumber,
         ifsc,
         mobile_number: mobileNumber,
+      };
+      if (contactId) body.contact = contactId;
+      const response = await apiClient.post('/bank-accounts/validate/', body);
+      return extractData(response);
+    } catch (error) {
+      return handleError(error);
+    }
+  },
+
+  /**
+   * Check whether this account is already saved for the selected contact.
+   * POST /api/bank-accounts/lookup/
+   */
+  lookupBankAccount: async ({ accountNumber, ifsc, contactId }) => {
+    try {
+      const response = await apiClient.post('/bank-accounts/lookup/', {
+        account_number: accountNumber,
+        ifsc,
+        contact: contactId,
+      });
+      return extractData(response);
+    } catch (error) {
+      return handleError(error);
+    }
+  },
+
+  /**
+   * Link an existing verified account to another contact. No new verification.
+   * POST /api/bank-accounts/link/
+   */
+  linkBankAccount: async ({ bankAccountId, contactId }) => {
+    try {
+      const response = await apiClient.post('/bank-accounts/link/', {
+        bank_account: bankAccountId,
+        contact: contactId,
+      });
+      return extractData(response);
+    } catch (error) {
+      return handleError(error);
+    }
+  },
+
+  /**
+   * Remove a contact link. The bank account row stays saved.
+   * POST /api/bank-accounts/unlink/
+   */
+  unlinkBankAccount: async ({ bankAccountId, contactId }) => {
+    try {
+      const response = await apiClient.post('/bank-accounts/unlink/', {
+        bank_account: bankAccountId,
+        contact: contactId,
       });
       return extractData(response);
     } catch (error) {

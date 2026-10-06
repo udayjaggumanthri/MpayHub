@@ -7,164 +7,21 @@ import Button from '../common/Button';
 import FeedbackModal from '../common/FeedbackModal';
 import {
   FaPlus,
-  FaMagnifyingGlass,
-  FaTrash,
   FaBuilding,
-  FaEye,
-  FaXmark,
-  FaTriangleExclamation,
 } from 'react-icons/fa6';
 import AddBankAccount from './AddBankAccount';
-
-const formatDetailValue = (value) => {
-  if (value === null || value === undefined || value === '') return '—';
-  if (typeof value === 'object') return JSON.stringify(value, null, 2);
-  return String(value);
-};
-
-const BankAccountViewModal = ({ account, onClose }) => {
-  if (!account) return null;
-
-  const details = account.verification_details || {};
-  const ifscDetails = details.ifsc_details || {};
-
-  const rows = [
-    ['Contact', account.contact_name || (account.contact ? `Contact #${account.contact}` : '—')],
-    ['Contact phone', account.contact_phone || '—'],
-    ['Beneficiary Name', account.beneficiary_name || account.account_holder_name],
-    ['Mobile Number', account.mobile_number ? formatPhone(account.mobile_number) : '—'],
-    ['Account Number', account.account_number],
-    ['IFSC', account.ifsc],
-    ['Bank Name', account.bank_name],
-    ['Branch', account.branch || details.branch],
-    ['City', account.city || details.city],
-    ['Reference ID', account.verification_reference_id || details.reference_id],
-    ['Account Status', details.account_status],
-    ['Status Code', details.account_status_code],
-    ['Name Match Score', account.name_match_score || details.name_match_score],
-    ['Name Match Result', account.name_match_result || details.name_match_result],
-    ['UTR', details.utr],
-    ['MICR', details.micr],
-    ['Verified At', account.verified_at ? new Date(account.verified_at).toLocaleString() : '—'],
-    ['Provider', account.provider_code],
-  ];
-
-  const ifscRows = Object.entries(ifscDetails).map(([key, value]) => [
-    key.replace(/_/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase()),
-    formatDetailValue(value),
-  ]);
-
-  return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black bg-opacity-50 overflow-y-auto">
-      <Card className="max-w-2xl w-full border-2 border-blue-200 dark:border-blue-800 my-auto" padding="lg" shadow="xl">
-        <div className="flex items-center justify-between mb-4">
-          <h2 className="text-xl sm:text-2xl font-bold text-gray-900 dark:text-slate-100">Bank Account Details</h2>
-          <button
-            type="button"
-            onClick={onClose}
-            className="text-gray-400 dark:text-slate-500 hover:text-gray-600 dark:hover:text-slate-400 transition-colors"
-          >
-            <FaXmark size={22} />
-          </button>
-        </div>
-
-        <div className="space-y-6 max-h-[70vh] overflow-y-auto pr-1">
-          <div>
-            <h3 className="text-sm font-semibold text-gray-700 dark:text-slate-300 mb-3 uppercase tracking-wide">Account Summary</h3>
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-              {rows.map(([label, value]) => (
-                <div key={label} className="rounded-lg border border-gray-200 dark:border-slate-700 p-3 bg-gray-50 dark:bg-slate-800/50">
-                  <p className="text-xs text-gray-500 dark:text-slate-400">{label}</p>
-                  <p className="text-sm font-medium text-gray-900 dark:text-slate-100 mt-1 break-words">{formatDetailValue(value)}</p>
-                </div>
-              ))}
-            </div>
-          </div>
-
-          {ifscRows.length > 0 && (
-            <div>
-              <h3 className="text-sm font-semibold text-gray-700 dark:text-slate-300 mb-3 uppercase tracking-wide">IFSC Details</h3>
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                {ifscRows.map(([label, value]) => (
-                  <div key={label} className="rounded-lg border border-gray-200 dark:border-slate-700 p-3 bg-gray-50 dark:bg-slate-800/50">
-                    <p className="text-xs text-gray-500 dark:text-slate-400">{label}</p>
-                    <p className="text-sm font-medium text-gray-900 dark:text-slate-100 mt-1 break-words whitespace-pre-wrap">{value}</p>
-                  </div>
-                ))}
-              </div>
-            </div>
-          )}
-        </div>
-
-        <div className="mt-6">
-          <Button onClick={onClose} variant="primary" fullWidth>
-            Close
-          </Button>
-        </div>
-      </Card>
-    </div>
-  );
-};
-
-const BankAccountDeleteModal = ({ account, loading, onCancel, onConfirm }) => {
-  if (!account) return null;
-
-  return (
-    <div
-      className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-sm"
-      role="dialog"
-      aria-modal="true"
-      aria-labelledby="delete-bank-account-title"
-      onClick={() => !loading && onCancel()}
-    >
-      <div
-        className="w-full max-w-md rounded-2xl bg-white dark:bg-slate-900 p-6 shadow-2xl"
-        onClick={(e) => e.stopPropagation()}
-      >
-        <div className="flex items-start gap-4">
-          <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-xl bg-red-50 dark:bg-red-950/40 text-red-700 dark:text-red-300">
-            <FaTriangleExclamation size={22} aria-hidden />
-          </div>
-          <div className="min-w-0 flex-1">
-            <h3 id="delete-bank-account-title" className="text-lg font-bold text-slate-900 dark:text-slate-100">
-              Delete bank account?
-            </h3>
-            <p className="mt-1 text-sm text-slate-600 dark:text-slate-400">
-              This action cannot be undone. The account will be removed from your profile.
-            </p>
-          </div>
-        </div>
-
-        <div className="mt-4 rounded-xl border border-slate-100 dark:border-slate-800 bg-slate-50 dark:bg-slate-800/50 px-4 py-3 text-sm text-slate-700 dark:text-slate-300 space-y-1">
-          <p>
-            <span className="font-medium">Account holder:</span>{' '}
-            {account.account_holder_name || account.beneficiary_name || '—'}
-          </p>
-          <p>
-            <span className="font-medium">Account number:</span> {account.account_number || '—'}
-          </p>
-          <p>
-            <span className="font-medium">IFSC:</span> {account.ifsc || '—'}
-          </p>
-          {account.mobile_number ? (
-            <p>
-              <span className="font-medium">Mobile:</span> {formatPhone(account.mobile_number)}
-            </p>
-          ) : null}
-        </div>
-
-        <div className="mt-6 flex gap-3 justify-end">
-          <Button onClick={onCancel} disabled={loading} variant="outline" size="lg">
-            Cancel
-          </Button>
-          <Button onClick={onConfirm} loading={loading} variant="danger" size="lg" icon={FaTrash} iconPosition="left">
-            Delete Account
-          </Button>
-        </div>
-      </div>
-    </div>
-  );
-};
+import BankAccountPager, { linkedContactLabel } from './BankAccountPager';
+import { AccountRowActions, BankAccountConfirmModal, BankAccountDetailsModal } from './BankAccountDialogs';
+import {
+  DataTableScroll,
+  FilterActions,
+  FilterField,
+  actionTdClass,
+  actionThClass,
+  filterInputClass,
+  tdClass,
+  thClass,
+} from './ListChrome';
 
 const BankAccounts = () => {
   const { user } = useAuth();
@@ -175,59 +32,50 @@ const BankAccounts = () => {
   const [deleteTarget, setDeleteTarget] = useState(null);
   const [deleting, setDeleting] = useState(false);
   const [deleteError, setDeleteError] = useState({ open: false, message: '' });
-  const [filters, setFilters] = useState({
+  const [filterDraft, setFilterDraft] = useState({
     name: '',
     bankName: '',
     accountNumber: '',
     ifsc: '',
   });
+  const [appliedFilters, setAppliedFilters] = useState({
+    name: '',
+    bankName: '',
+    accountNumber: '',
+    ifsc: '',
+  });
+  const [page, setPage] = useState(1);
+  const [totalCount, setTotalCount] = useState(0);
+  const pageSize = 20;
 
   const loadAccounts = useCallback(async () => {
     if (!user) return;
 
     setLoading(true);
     try {
-      const result = await bankAccountsAPI.listBankAccounts();
+      const params = { page, page_size: pageSize };
+      if (appliedFilters.name) params.name = appliedFilters.name;
+      if (appliedFilters.bankName) params.bank_name = appliedFilters.bankName;
+      if (appliedFilters.accountNumber) params.account_number = appliedFilters.accountNumber;
+      if (appliedFilters.ifsc) params.ifsc = appliedFilters.ifsc;
+      const result = await bankAccountsAPI.listBankAccounts(params);
       if (result.success) {
         const payload = result.data || {};
-        let filtered = payload.bank_accounts || payload.results || (Array.isArray(payload) ? payload : []);
-
-        if (filters.name) {
-          filtered = filtered.filter((acc) =>
-            (acc.account_holder_name?.toLowerCase().includes(filters.name.toLowerCase())) ||
-            (acc.beneficiary_name?.toLowerCase().includes(filters.name.toLowerCase()))
-          );
-        }
-
-        if (filters.bankName) {
-          filtered = filtered.filter((acc) =>
-            acc.bank_name?.toLowerCase().includes(filters.bankName.toLowerCase())
-          );
-        }
-
-        if (filters.accountNumber) {
-          filtered = filtered.filter((acc) =>
-            acc.account_number?.includes(filters.accountNumber)
-          );
-        }
-
-        if (filters.ifsc) {
-          filtered = filtered.filter((acc) =>
-            acc.ifsc?.toUpperCase().includes(filters.ifsc.toUpperCase())
-          );
-        }
-
-        setAccounts(filtered);
+        const rows = payload.bank_accounts || payload.results || (Array.isArray(payload) ? payload : []);
+        setAccounts(rows);
+        setTotalCount(Number(payload.count ?? rows.length) || 0);
       } else {
         setAccounts([]);
+        setTotalCount(0);
       }
     } catch (error) {
       console.error('Error loading bank accounts:', error);
       setAccounts([]);
+      setTotalCount(0);
     } finally {
       setLoading(false);
     }
-  }, [user, filters]);
+  }, [user, appliedFilters, page]);
 
   useEffect(() => {
     loadAccounts();
@@ -265,11 +113,15 @@ const BankAccounts = () => {
   };
 
   const handleFilter = () => {
-    loadAccounts();
+    setPage(1);
+    setAppliedFilters({ ...filterDraft });
   };
 
   const clearFilters = () => {
-    setFilters({ name: '', bankName: '', accountNumber: '', ifsc: '' });
+    const empty = { name: '', bankName: '', accountNumber: '', ifsc: '' };
+    setFilterDraft(empty);
+    setAppliedFilters(empty);
+    setPage(1);
   };
 
   if (showAddForm) {
@@ -303,77 +155,51 @@ const BankAccounts = () => {
 
       <Card padding="lg">
         <h3 className="text-lg font-semibold text-gray-900 dark:text-slate-100 mb-4">Filter</h3>
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
-          <div>
-            <label className="block text-sm font-medium text-gray-700 dark:text-slate-300 mb-2">Name</label>
-            <div className="relative">
-              <FaMagnifyingGlass className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400 dark:text-slate-500" size={18} />
-              <input
-                type="text"
-                value={filters.name}
-                onChange={(e) => setFilters({ ...filters, name: e.target.value })}
-                placeholder="Enter Name"
-                className="w-full pl-10 pr-4 py-2 border border-gray-300 dark:border-slate-600 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-              />
-            </div>
-          </div>
-
-          <div>
-            <label className="block text-sm font-medium text-gray-700 dark:text-slate-300 mb-2">Bank Name</label>
-            <div className="relative">
-              <FaMagnifyingGlass className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400 dark:text-slate-500" size={18} />
-              <input
-                type="text"
-                value={filters.bankName}
-                onChange={(e) => setFilters({ ...filters, bankName: e.target.value })}
-                placeholder="Enter Bank name"
-                className="w-full pl-10 pr-4 py-2 border border-gray-300 dark:border-slate-600 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-              />
-            </div>
-          </div>
-
-          <div>
-            <label className="block text-sm font-medium text-gray-700 dark:text-slate-300 mb-2">Account Number</label>
-            <div className="relative">
-              <FaMagnifyingGlass className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400 dark:text-slate-500" size={18} />
-              <input
-                type="text"
-                value={filters.accountNumber}
-                onChange={(e) => {
-                  const value = e.target.value.replace(/\D/g, '');
-                  setFilters({ ...filters, accountNumber: value });
-                }}
-                placeholder="Enter Account Number"
-                className="w-full pl-10 pr-4 py-2 border border-gray-300 dark:border-slate-600 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-              />
-            </div>
-          </div>
-
-          <div>
-            <label className="block text-sm font-medium text-gray-700 dark:text-slate-300 mb-2">IFSC CODE</label>
-            <div className="relative">
-              <FaMagnifyingGlass className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400 dark:text-slate-500" size={18} />
-              <input
-                type="text"
-                value={filters.ifsc}
-                onChange={(e) => {
-                  const value = e.target.value.toUpperCase().replace(/[^A-Z0-9]/g, '').slice(0, 11);
-                  setFilters({ ...filters, ifsc: value });
-                }}
-                placeholder="Enter IFSC Code"
-                maxLength={11}
-                className="w-full pl-10 pr-4 py-2 border border-gray-300 dark:border-slate-600 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent uppercase"
-              />
-            </div>
-          </div>
-        </div>
-        <div className="mt-4 flex justify-end space-x-3">
-          <Button onClick={clearFilters} variant="outline" size="sm">
-            Clear
-          </Button>
-          <Button onClick={handleFilter} variant="primary" size="sm">
-            Filter
-          </Button>
+        <div className="grid grid-cols-1 items-end gap-4 sm:grid-cols-2 xl:grid-cols-5">
+          <FilterField label="Name">
+            <input
+              type="text"
+              value={filterDraft.name}
+              onChange={(e) => setFilterDraft({ ...filterDraft, name: e.target.value })}
+              placeholder="Account holder"
+              className={filterInputClass}
+            />
+          </FilterField>
+          <FilterField label="Bank name">
+            <input
+              type="text"
+              value={filterDraft.bankName}
+              onChange={(e) => setFilterDraft({ ...filterDraft, bankName: e.target.value })}
+              placeholder="Bank name"
+              className={filterInputClass}
+            />
+          </FilterField>
+          <FilterField label="Account number">
+            <input
+              type="text"
+              value={filterDraft.accountNumber}
+              onChange={(e) => {
+                const value = e.target.value.replace(/\D/g, '');
+                setFilterDraft({ ...filterDraft, accountNumber: value });
+              }}
+              placeholder="Account number"
+              className={filterInputClass}
+            />
+          </FilterField>
+          <FilterField label="IFSC">
+            <input
+              type="text"
+              value={filterDraft.ifsc}
+              onChange={(e) => {
+                const value = e.target.value.toUpperCase().replace(/[^A-Z0-9]/g, '').slice(0, 11);
+                setFilterDraft({ ...filterDraft, ifsc: value });
+              }}
+              placeholder="IFSC"
+              maxLength={11}
+              className={`${filterInputClass} uppercase`}
+            />
+          </FilterField>
+          <FilterActions onClear={clearFilters} onApply={handleFilter} />
         </div>
       </Card>
 
@@ -390,111 +216,113 @@ const BankAccounts = () => {
             <p className="text-sm mt-2">Click "Create Account" to add a new bank account</p>
           </div>
         ) : (
-          <div className="overflow-x-auto">
-            <table className="w-full border-collapse">
+          <>
+          <div className="md:hidden space-y-3">
+            {accounts.map((account, index) => (
+              <div key={account.id} className="rounded-xl border border-gray-200 dark:border-slate-700 p-4 bg-gray-50 dark:bg-slate-800/40">
+                <div className="flex items-start justify-between gap-3">
+                  <div className="min-w-0">
+                    <p className="text-xs text-gray-500 dark:text-slate-400">#{(page - 1) * pageSize + index + 1}</p>
+                    <p className="text-sm font-semibold text-gray-900 dark:text-slate-100 break-words">
+                      {account.account_holder_name || account.beneficiary_name || 'N/A'}
+                    </p>
+                    <p className="text-sm text-gray-600 dark:text-slate-400 mt-1 break-all">{account.account_number}</p>
+                  </div>
+                  <FaBuilding className="text-gray-400 dark:text-slate-500 shrink-0" size={16} />
+                </div>
+                <dl className="mt-3 grid grid-cols-2 gap-2 text-sm">
+                  <div>
+                    <dt className="text-xs text-gray-500 dark:text-slate-400">Bank</dt>
+                    <dd className="text-gray-800 dark:text-slate-200 break-words">{account.bank_name || '—'}</dd>
+                  </div>
+                  <div>
+                    <dt className="text-xs text-gray-500 dark:text-slate-400">IFSC</dt>
+                    <dd className="font-mono text-gray-800 dark:text-slate-200">{account.ifsc || '—'}</dd>
+                  </div>
+                  <div className="col-span-2">
+                    <dt className="text-xs text-gray-500 dark:text-slate-400">Contacts</dt>
+                    <dd className="text-gray-800 dark:text-slate-200 break-words">{linkedContactLabel(account)}</dd>
+                  </div>
+                </dl>
+                <div className="mt-3 pt-3 border-t border-gray-200 dark:border-slate-700">
+                  <AccountRowActions
+                    onView={() => setViewAccount(account)}
+                    onDelete={() => handleDelete(account)}
+                  />
+                </div>
+              </div>
+            ))}
+          </div>
+          <DataTableScroll>
+            <table className="w-max min-w-full border-separate border-spacing-0">
               <thead>
-                <tr className="bg-gray-50 dark:bg-slate-800/50 border-b border-gray-200 dark:border-slate-700">
-                  <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 dark:text-slate-400 uppercase tracking-wider">#</th>
-                  <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 dark:text-slate-400 uppercase tracking-wider">
-                    CONTACT
-                  </th>
-                  <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 dark:text-slate-400 uppercase tracking-wider">
-                    ACCOUNT HOLDER NAME
-                  </th>
-                  <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 dark:text-slate-400 uppercase tracking-wider">
-                    ACCOUNT NUMBER
-                  </th>
-                  <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 dark:text-slate-400 uppercase tracking-wider">
-                    BANK NAME
-                  </th>
-                  <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 dark:text-slate-400 uppercase tracking-wider">
-                    MOBILE
-                  </th>
-                  <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 dark:text-slate-400 uppercase tracking-wider">
-                    IFSC
-                  </th>
-                  <th className="px-4 py-3 text-center text-xs font-medium text-gray-500 dark:text-slate-400 uppercase tracking-wider">
-                    ACTIONS
-                  </th>
+                <tr>
+                  <th className={thClass}>#</th>
+                  <th className={thClass}>Contact</th>
+                  <th className={thClass}>Account holder</th>
+                  <th className={thClass}>Account number</th>
+                  <th className={thClass}>Bank</th>
+                  <th className={thClass}>Mobile</th>
+                  <th className={thClass}>IFSC</th>
+                  <th className={actionThClass}>Actions</th>
                 </tr>
               </thead>
               <tbody>
                 {accounts.map((account, index) => {
-                  const accountHolderName = account.account_holder_name || account.beneficiary_name || 'N/A';
-                  const accountNumber = account.account_number || 'N/A';
-                  const bankName = account.bank_name || 'N/A';
-                  const ifsc = account.ifsc || 'N/A';
-                  const mobile = account.mobile_number || '—';
-                  const contactLabel = account.contact_name || (account.contact ? `#${account.contact}` : '—');
-
+                  const contactLabel = linkedContactLabel(account);
+                  const accountHolderName = account.account_holder_name || account.beneficiary_name || '—';
+                  const mobile = account.mobile_number ? formatPhone(account.mobile_number) : '—';
                   return (
-                    <tr key={account.id} className="border-b border-gray-200 dark:border-slate-700 hover:bg-gray-50 dark:hover:bg-slate-800 transition-colors">
-                      <td className="px-4 py-4 whitespace-nowrap text-sm text-gray-900 dark:text-slate-100">{index + 1}</td>
-                      <td className="px-4 py-4 whitespace-nowrap text-sm text-gray-700 dark:text-slate-300">
-                        <div className="font-medium text-gray-900 dark:text-slate-100">{contactLabel}</div>
-                        {account.contact_phone ? (
-                          <div className="text-xs text-gray-500 dark:text-slate-400 mt-0.5">
-                            {formatPhone(account.contact_phone)}
-                          </div>
-                        ) : null}
+                    <tr key={account.id} className="group">
+                      <td className={tdClass}>{(page - 1) * pageSize + index + 1}</td>
+                      <td className={`${tdClass} font-medium text-gray-900 dark:text-slate-100`} title={contactLabel}>
+                        {contactLabel}
                       </td>
-                      <td className="px-4 py-4 whitespace-nowrap text-sm font-medium text-gray-900 dark:text-slate-100">
-                        {accountHolderName}
-                      </td>
-                      <td className="px-4 py-4 whitespace-nowrap text-sm text-gray-700 dark:text-slate-300 font-mono">
-                        {accountNumber}
-                      </td>
-                      <td className="px-4 py-4 whitespace-nowrap text-sm text-gray-700 dark:text-slate-300">
-                        <div className="flex items-center space-x-2">
+                      <td className={`${tdClass} font-medium text-gray-900 dark:text-slate-100`}>{accountHolderName}</td>
+                      <td className={`${tdClass} font-mono`}>{account.account_number || '—'}</td>
+                      <td className={tdClass}>
+                        <span className="inline-flex items-center gap-2">
                           <FaBuilding size={14} className="text-gray-400 dark:text-slate-500" />
-                          <span>{bankName}</span>
-                        </div>
+                          {account.bank_name || '—'}
+                        </span>
                       </td>
-                      <td className="px-4 py-4 whitespace-nowrap text-sm text-gray-700 dark:text-slate-300">
-                        {mobile !== '—' ? formatPhone(mobile) : mobile}
-                      </td>
-                      <td className="px-4 py-4 whitespace-nowrap text-sm text-gray-700 dark:text-slate-300 font-mono">{ifsc}</td>
-                      <td className="px-4 py-4 whitespace-nowrap text-center">
-                        <div className="inline-flex items-center gap-2">
-                          <button
-                            type="button"
-                            onClick={() => setViewAccount(account)}
-                            className="text-blue-600 dark:text-blue-400 hover:text-blue-800 dark:hover:text-blue-200 transition-colors p-1 rounded hover:bg-blue-50 dark:hover:bg-blue-950/60"
-                            title="View Details"
-                          >
-                            <FaEye size={18} />
-                          </button>
-                          <button
-                            type="button"
-                            onClick={() => handleDelete(account)}
-                            className="text-red-600 dark:text-red-400 hover:text-red-800 dark:hover:text-red-200 transition-colors p-1 rounded hover:bg-red-50 dark:hover:bg-red-950/60"
-                            title="Delete Account"
-                          >
-                            <FaTrash size={18} />
-                          </button>
-                        </div>
+                      <td className={tdClass}>{mobile}</td>
+                      <td className={`${tdClass} font-mono`}>{account.ifsc || '—'}</td>
+                      <td className={actionTdClass}>
+                        <AccountRowActions
+                          onView={() => setViewAccount(account)}
+                          onDelete={() => handleDelete(account)}
+                        />
                       </td>
                     </tr>
                   );
                 })}
               </tbody>
             </table>
-          </div>
+          </DataTableScroll>
+          </>
+        )}
+        {!loading && (
+          <BankAccountPager
+            page={page}
+            pageSize={pageSize}
+            totalCount={totalCount}
+            onPageChange={setPage}
+          />
         )}
       </Card>
 
-      {viewAccount && (
-        <BankAccountViewModal account={viewAccount} onClose={() => setViewAccount(null)} />
-      )}
+      <BankAccountDetailsModal account={viewAccount} onClose={() => setViewAccount(null)} />
 
-      {deleteTarget && (
-        <BankAccountDeleteModal
-          account={deleteTarget}
-          loading={deleting}
-          onCancel={() => !deleting && setDeleteTarget(null)}
-          onConfirm={confirmDelete}
-        />
-      )}
+      <BankAccountConfirmModal
+        account={deleteTarget}
+        title="Delete bank account?"
+        description="This removes the account from your profile. Payout history already recorded for this account is left as it is."
+        confirmLabel="Delete account"
+        loading={deleting}
+        onCancel={() => !deleting && setDeleteTarget(null)}
+        onConfirm={confirmDelete}
+      />
 
       <FeedbackModal
         open={deleteError.open}

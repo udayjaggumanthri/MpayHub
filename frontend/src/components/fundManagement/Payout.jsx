@@ -11,6 +11,7 @@ import FeedbackModal from '../common/FeedbackModal';
 import PaymentFlowOverlay from '../common/PaymentFlowOverlay';
 import ContactSearchTypeahead from './ContactSearchTypeahead';
 import SelectField from '../common/SelectField';
+import { formatOtherContacts } from '../bankManagement/BankAccountPager';
 import { formatCurrency } from '../../utils/formatters';
 import { validateAmount, validateAccountNumber, validateIFSC, validatePhone } from '../../utils/validators';
 import AccountAccessBanner from '../common/AccountAccessBanner';
@@ -34,6 +35,24 @@ function bankAccountsFromListResult(result) {
   if (Array.isArray(d.bank_accounts)) return d.bank_accounts;
   if (Array.isArray(d)) return d;
   return [];
+}
+
+async function listAllAccountsForContact(contactId) {
+  const pageSize = 100;
+  const rows = [];
+  let page = 1;
+  while (page <= 50) {
+    const result = await bankAccountsAPI.listBankAccounts({
+      contact: contactId,
+      page,
+      page_size: pageSize,
+    });
+    const batch = bankAccountsFromListResult(result);
+    rows.push(...batch);
+    if (!result?.success || !result.data?.next || batch.length === 0) break;
+    page += 1;
+  }
+  return rows;
 }
 
 function mapBankAccountRow(a) {
@@ -77,6 +96,7 @@ const Payout = () => {
   const [validatingAccount, setValidatingAccount] = useState(false);
   const [validationData, setValidationData] = useState(null);
   const [showValidationModal, setShowValidationModal] = useState(false);
+  const [sharePrompt, setSharePrompt] = useState(null);
   const [showSuccessNotification, setShowSuccessNotification] = useState(false);
 
   const validatedBeneficiary = validationData?.beneficiary_name || null;
@@ -142,8 +162,7 @@ const Payout = () => {
       setSelectedAccount(null);
       return;
     }
-    const bRes = await bankAccountsAPI.listBankAccounts({ contact: contactId });
-    const raw = bankAccountsFromListResult(bRes);
+    const raw = await listAllAccountsForContact(contactId);
     const mapped = raw.map(mapBankAccountRow).filter(Boolean);
     setBankAccounts(mapped);
     setSelectedAccount((prev) => {
@@ -298,10 +317,34 @@ const Payout = () => {
 
     setValidatingAccount(true);
     try {
+      const lookup = await bankAccountsAPI.lookupBankAccount({
+        accountNumber: newBankAccount.accountNumber,
+        ifsc: newBankAccount.ifsc.toUpperCase(),
+        contactId: beneficiaryDetails?.id,
+      });
+      if (!lookup.success) {
+        showFormFeedback('Could not check account', lookup.message || 'Please try again.');
+        return;
+      }
+      if (lookup.data?.status === 'on_this_contact') {
+        showFormFeedback(
+          'Already on this contact',
+          'This bank account is already on this contact. Use the existing one.'
+        );
+        return;
+      }
+      if (lookup.data?.status === 'exists_on_other_contacts') {
+        setSharePrompt({
+          bankAccountId: lookup.data.bank_account_id,
+          contacts: lookup.data.contacts || [],
+        });
+        return;
+      }
       const result = await bankAccountsAPI.validateBankAccount(
         newBankAccount.accountNumber,
         newBankAccount.ifsc.toUpperCase(),
-        newBankAccount.mobileNumber
+        newBankAccount.mobileNumber,
+        beneficiaryDetails?.id
       );
       const data = result.success ? result.data : null;
       if (data?.beneficiary_name) {
@@ -335,6 +378,29 @@ const Payout = () => {
     setNewBankAccount({ ifsc: '', accountNumber: '', mobileNumber: '' });
     setValidationData(null);
     setTimeout(() => setShowSuccessNotification(false), 3000);
+  };
+
+  const handleConfirmShare = async () => {
+    const contactId = beneficiaryDetails?.id;
+    if (!contactId || !sharePrompt?.bankAccountId) return;
+    setLoading(true);
+    try {
+      const linkResult = await bankAccountsAPI.linkBankAccount({
+        bankAccountId: sharePrompt.bankAccountId,
+        contactId,
+      });
+      if (!linkResult.success) {
+        showFormFeedback('Could not link account', linkResult.message || 'Please try again.');
+        return;
+      }
+      const linked = linkResult.data?.bank_account || { id: sharePrompt.bankAccountId };
+      setSharePrompt(null);
+      await finishBankAccountSave(linked);
+    } catch {
+      showFormFeedback('Could not link account', 'Please try again in a moment.');
+    } finally {
+      setLoading(false);
+    }
   };
 
   const handleSaveBankAccount = async () => {
@@ -1005,6 +1071,26 @@ const Payout = () => {
           </div>
         )}
         </MaintenanceModuleLock>
+
+        {sharePrompt && !payoutMaintenance && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black bg-opacity-50">
+            <Card className="max-w-md w-full my-auto" padding="lg" shadow="xl">
+              <h2 className="text-xl font-bold text-gray-900 dark:text-slate-100 mb-3">Already saved</h2>
+              <p className="text-sm text-gray-600 dark:text-slate-400 mb-4">
+                This bank account is already on {formatOtherContacts(sharePrompt.contacts) || 'another contact'}.
+                Add it to {beneficiaryDetails?.name || 'this contact'} as well? It stays on the other contact, and it will not be verified again.
+              </p>
+              <div className="flex space-x-3">
+                <Button onClick={() => setSharePrompt(null)} variant="outline" size="lg" fullWidth>
+                  Cancel
+                </Button>
+                <Button onClick={handleConfirmShare} variant="primary" size="lg" fullWidth loading={loading}>
+                  Add to this contact
+                </Button>
+              </div>
+            </Card>
+          </div>
+        )}
 
         {showValidationModal && validatedBeneficiary && !payoutMaintenance && (
           <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black bg-opacity-50 overflow-y-auto">

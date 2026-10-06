@@ -10,7 +10,8 @@ from django.conf import settings
 from django.db import transaction as db_transaction
 from django.utils import timezone
 
-from apps.bank_accounts.models import BankAccount, BankVerificationAttempt
+from apps.bank_accounts.models import BankAccount, BankAccountContactLink, BankVerificationAttempt
+from apps.contacts.models import Contact
 from apps.core.exceptions import BankValidationFailed
 from apps.core.utils import generate_service_id, validate_ifsc, validate_phone
 from apps.integrations.bank_validator import BankValidator
@@ -95,23 +96,169 @@ def save_verified_bank_account(
             'verification_details': verification_details,
             'verified_at': timezone.now(),
             'mobile_number': mobile_number,
+            'is_deleted': False,
+            'deleted_at': None,
         },
     )
+    if account.is_deleted:
+        account.is_deleted = False
+        account.deleted_at = None
+        account.save(update_fields=['is_deleted', 'deleted_at', 'updated_at'])
     return account
 
 
-def _ensure_account_not_duplicate(user, account_number: str, ifsc: str) -> None:
-    exists = BankAccount.objects.filter(
-        user=user,
-        account_number=account_number,
-        ifsc=ifsc.upper(),
+class BankAccountLinkError(BankValidationFailed):
+    """Saved-account lookup stopped the flow before any provider call or fee."""
+
+    def __init__(self, message, *, code, contacts=None, bank_account_id=None):
+        super().__init__(message)
+        self.code = code
+        self.contacts = contacts or []
+        self.bank_account_id = bank_account_id
+
+
+def linked_contacts_payload(account: BankAccount) -> list[dict]:
+    """Live contacts already linked to this account, plus the legacy FK if needed."""
+    rows = []
+    seen = set()
+    links = (
+        BankAccountContactLink.objects.filter(bank_account=account, is_deleted=False)
+        .select_related('contact')
+        .order_by('id')
+    )
+    for link in links:
+        contact = link.contact
+        if contact is None or contact.is_deleted or contact.id in seen:
+            continue
+        seen.add(contact.id)
+        rows.append({'id': contact.id, 'name': contact.name, 'phone': contact.phone})
+    legacy = getattr(account, 'contact', None)
+    if (
+        account.contact_id
+        and account.contact_id not in seen
+        and legacy is not None
+        and not legacy.is_deleted
+    ):
+        rows.append({'id': legacy.id, 'name': legacy.name, 'phone': legacy.phone})
+    return rows
+
+
+def find_live_account(user, account_number: str, ifsc: str) -> BankAccount | None:
+    return (
+        BankAccount.objects.filter(
+            user=user,
+            account_number=str(account_number or '').strip(),
+            ifsc=str(ifsc or '').upper().strip(),
+            is_deleted=False,
+        )
+        .select_related('contact')
+        .first()
+    )
+
+
+def classify_saved_account(user, account_number: str, ifsc: str, contact=None) -> dict:
+    """
+    Decide whether Cashfree may run.
+    Soft-deleted rows are ignored (status available).
+    """
+    account = find_live_account(user, account_number, ifsc)
+    if account is None:
+        return {
+            'status': 'available',
+            'bank_account': None,
+            'contacts': [],
+        }
+    contacts = linked_contacts_payload(account)
+    contact_id = getattr(contact, 'pk', None)
+    on_this = contact_id is not None and any(row['id'] == contact_id for row in contacts)
+    if on_this:
+        status_name = 'on_this_contact'
+    else:
+        status_name = 'exists_on_other_contacts'
+    return {
+        'status': status_name,
+        'bank_account': account,
+        'contacts': contacts,
+    }
+
+
+def link_bank_account_to_contact(account: BankAccount, contact: Contact) -> BankAccount:
+    """
+    Attach an existing verified account to another contact.
+    Does not move or clear BankAccount.contact. Does not call Cashfree.
+    """
+    if account.user_id != contact.user_id:
+        raise BankValidationFailed('Contact must belong to the same retailer.')
+    if account.is_deleted or contact.is_deleted:
+        raise BankValidationFailed('This bank account is not available.')
+    link, _created = BankAccountContactLink.objects.get_or_create(
+        bank_account=account,
+        contact=contact,
+        defaults={'user_id': account.user_id},
+    )
+    if link.is_deleted:
+        link.is_deleted = False
+        link.deleted_at = None
+        link.save(update_fields=['is_deleted', 'deleted_at', 'updated_at'])
+    if not account.contact_id:
+        account.contact = contact
+        account.save(update_fields=['contact', 'updated_at'])
+    return account
+
+
+def unlink_bank_account_from_contact(account: BankAccount, contact: Contact) -> BankAccount:
+    """
+    Drop this contact's link only.
+    The bank account row, verification, and any other contact links stay.
+    """
+    if account.user_id != contact.user_id:
+        raise BankValidationFailed('Contact must belong to the same retailer.')
+    remaining = list(
+        BankAccountContactLink.objects.filter(bank_account=account, is_deleted=False)
+        .exclude(contact_id=contact.id)
+        .select_related('contact')
+        .order_by('id')
+    )
+    if account.contact_id == contact.id:
+        account.contact = remaining[0].contact if remaining else None
+        account.save(update_fields=['contact', 'updated_at'])
+    BankAccountContactLink.objects.filter(
+        bank_account=account,
+        contact=contact,
         is_deleted=False,
-    ).exists()
-    if exists:
+    ).update(is_deleted=True, deleted_at=timezone.now())
+    return account
+
+
+def _ensure_account_not_duplicate(user, account_number: str, ifsc: str, contact=None) -> None:
+    found = classify_saved_account(user, account_number, ifsc, contact)
+    if found['status'] == 'available':
+        return
+    account = found['bank_account']
+    contacts = found['contacts']
+    if found['status'] == 'on_this_contact':
+        raise BankAccountLinkError(
+            'This bank account is already on this contact. Use the existing one.',
+            code='on_this_contact',
+            contacts=contacts,
+            bank_account_id=getattr(account, 'id', None),
+        )
+    if contact is None:
         raise BankValidationFailed(
             'This bank account is already saved in your profile. '
             'View it in Bank Accounts or delete the existing entry before validating again.'
         )
+    names = ', '.join(
+        f"{row['name']} ({row['phone']})" for row in contacts
+    ) or 'another contact'
+    raise BankAccountLinkError(
+        f'This bank account is already saved on {names}. '
+        'Confirm if you still want it on this contact. It will not be removed from the other contact, '
+        'and it will not be verified again.',
+        code='exists_on_other_contacts',
+        contacts=contacts,
+        bank_account_id=getattr(account, 'id', None),
+    )
 
 
 def _charge_verification_fee(user, *, account_number: str, ifsc: str) -> None:
@@ -180,7 +327,7 @@ def _build_validate_response(
     return payload
 
 
-def validate_bank_account(user, account_number, ifsc, mobile_number=''):
+def validate_bank_account(user, account_number, ifsc, mobile_number='', contact=None):
     """
     Validate bank account and fetch beneficiary name.
 
@@ -193,7 +340,7 @@ def validate_bank_account(user, account_number, ifsc, mobile_number=''):
         raise BankValidationFailed('A valid 10-digit mobile number is required.')
     if not validate_ifsc(ifsc):
         raise BankValidationFailed('Invalid IFSC code format.')
-    _ensure_account_not_duplicate(user, account_number, ifsc)
+    _ensure_account_not_duplicate(user, account_number, ifsc, contact)
     main_wallet = Wallet.get_wallet(user, 'main')
     verification_charge = Decimal(str(settings.BANK_VERIFICATION_CHARGE))
     if main_wallet.balance < verification_charge:
@@ -217,7 +364,7 @@ def validate_bank_account(user, account_number, ifsc, mobile_number=''):
         reference_id = result.reference_id
         resolved_ifsc = str(result.ifsc or ifsc).upper().strip()
         if resolved_ifsc != ifsc:
-            _ensure_account_not_duplicate(user, account_number, resolved_ifsc)
+            _ensure_account_not_duplicate(user, account_number, resolved_ifsc, contact)
     except (BavVerificationFailed, BavConfigurationError, BavProviderError) as exc:
         BankVerificationAttempt.objects.create(
             user=user,
@@ -285,6 +432,8 @@ def validate_bank_account(user, account_number, ifsc, mobile_number=''):
             wallet_charged=True,
             bank_account=bank_account,
         )
+        if contact is not None:
+            link_bank_account_to_contact(bank_account, contact)
 
     return _build_validate_response(
         result,
