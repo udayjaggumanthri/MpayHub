@@ -28,6 +28,9 @@ const BbpsTransactionReceiptView = ({
   loading = false,
   onPrint,
   onMobilePrint,
+  onCheckStatus,
+  checkStatusBusy = false,
+  checkStatusNote = '',
   onAnotherTransaction,
   onRaiseComplaint,
   showActions = true,
@@ -108,7 +111,20 @@ const BbpsTransactionReceiptView = ({
             >
               Mobile Print
             </button>
+            {onCheckStatus ? (
+              <button
+                type="button"
+                onClick={onCheckStatus}
+                disabled={checkStatusBusy}
+                className="px-4 py-2 text-sm font-medium text-amber-800 border border-amber-500 rounded hover:bg-amber-50 transition-colors disabled:opacity-60"
+              >
+                {checkStatusBusy ? 'Checking…' : 'Check current status'}
+              </button>
+            ) : null}
           </div>
+          {checkStatusNote ? (
+            <p className="w-full text-sm text-slate-600">{checkStatusNote}</p>
+          ) : null}
           <div className="flex flex-wrap gap-2 ml-auto">
             {isSuccess && onRaiseComplaint ? (
               <button

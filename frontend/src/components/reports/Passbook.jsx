@@ -8,6 +8,7 @@ import { formatReportBalance } from '../../utils/reportBalanceDisplay';
 import { reportPeriodFilterDates } from '../../utils/reportPeriodRange';
 import ReportDateRange from '../common/ReportDateRange';
 import ReportPagination from '../common/ReportPagination';
+import StickyHorizontalScroll from '../common/StickyHorizontalScroll';
 import ReportSummaryPeriodToggle from '../common/ReportSummaryPeriodToggle';
 import { countActiveReportFilters } from '../../utils/reportFilters';
 import {
@@ -298,7 +299,7 @@ const Passbook = () => {
           <div className="text-center py-12 text-gray-500 dark:text-slate-400">No passbook entries found</div>
         ) : (
           <div className={isRefreshing ? 'opacity-60 pointer-events-none' : ''}>
-          <div className="-mx-2 overflow-x-auto sm:mx-0">
+          <StickyHorizontalScroll className="-mx-2 sm:mx-0">
             <table className="w-full min-w-[1100px] border-collapse whitespace-nowrap">
               <thead>
                 <tr className="bg-gray-50 dark:bg-slate-800/50 border-b border-gray-200 dark:border-slate-700">
@@ -345,7 +346,7 @@ const Passbook = () => {
                 ))}
               </tbody>
             </table>
-          </div>
+          </StickyHorizontalScroll>
           <ReportPagination
             page={page}
             pageSize={pageSize}

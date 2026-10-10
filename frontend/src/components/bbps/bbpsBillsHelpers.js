@@ -237,6 +237,32 @@ export const deriveFormReceiptIdentity = ({
   return { label: 'Customer ID', value: 'N/A' };
 };
 
+export const describeSavedPaymentStatus = (status) => {
+  const saved = String(status || 'PENDING').toUpperCase();
+  if (saved === 'SUCCESS') {
+    return {
+      status: 'SUCCESS',
+      title: 'Payment Successful',
+      body: 'Your payment has been processed successfully.',
+      tone: 'success',
+    };
+  }
+  if (saved === 'FAILED' || saved === 'FAILURE') {
+    return {
+      status: 'FAILED',
+      title: 'Payment Failed',
+      body: 'The biller rejected this payment. You can pay again from the same fetched bill.',
+      tone: 'failed',
+    };
+  }
+  return {
+    status: 'PENDING',
+    title: 'Payment Pending',
+    body: 'BillAvenue has not confirmed a final result yet. The amount stays reserved until the status is final.',
+    tone: 'pending',
+  };
+};
+
 export const getStatusColor = (status) => {
   switch (status) {
     case 'SUCCESS':

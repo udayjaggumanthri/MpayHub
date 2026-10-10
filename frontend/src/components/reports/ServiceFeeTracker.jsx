@@ -12,6 +12,7 @@ import {
 import { formatCurrency, formatDateTime } from '../../utils/formatters';
 import ReportDateRange from '../common/ReportDateRange';
 import ReportPagination from '../common/ReportPagination';
+import StickyHorizontalScroll from '../common/StickyHorizontalScroll';
 import Button from '../common/Button';
 import { countActiveReportFilters } from '../../utils/reportFilters';
 import {
@@ -400,14 +401,14 @@ const ServiceFeeTracker = () => {
         </div>
       ) : null}
 
-      <div className="overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm dark:border-slate-700 dark:bg-slate-900">
+      <div className="overflow-visible rounded-xl border border-slate-200 bg-white shadow-sm dark:border-slate-700 dark:bg-slate-900">
         {loading && !hasLoadedOnce ? (
           <div className="py-12 text-center text-sm text-slate-500">Loading…</div>
         ) : hasLoadedOnce && rows.length === 0 && !isRefreshing ? (
           <div className="py-12 text-center text-sm text-slate-500">No service fee records found</div>
         ) : (
           <div className={isRefreshing ? 'opacity-60 pointer-events-none' : ''}>
-            <div className="overflow-x-auto">
+            <StickyHorizontalScroll>
               <table className="w-full min-w-[720px] border-collapse md:min-w-[900px]">
                 <thead>
                   <tr className="border-b border-gray-200 bg-gray-50 dark:border-slate-700 dark:bg-slate-800/50">
@@ -507,7 +508,7 @@ const ServiceFeeTracker = () => {
                   })}
                 </tbody>
               </table>
-            </div>
+            </StickyHorizontalScroll>
             <div className="border-t border-slate-200 px-2 py-2 dark:border-slate-700 sm:px-3">
               <ReportPagination
                 page={page}

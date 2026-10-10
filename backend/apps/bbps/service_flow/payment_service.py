@@ -7,6 +7,7 @@ from uuid import UUID
 
 from django.conf import settings
 from django.db import transaction as db_transaction
+from django.db.models import Q
 from django.utils import timezone
 
 from apps.bbps.catalog.env import get_biller_master
@@ -16,7 +17,6 @@ from apps.bbps.models import (
     BbpsBillerMaster,
     BbpsFetchSession,
     BbpsPaymentAttempt,
-    BbpsStatusPollLog,
 )
 from apps.bbps.service_flow.compliance import (
     compute_ccf1_if_required,
@@ -29,13 +29,14 @@ from apps.bbps.service_flow.compliance import (
 )
 from apps.bbps.service_flow.bbps_wallet_charge import resolve_bbps_wallet_service_charge
 from apps.bbps.service_flow.commission_service import resolve_commission_for_payment
-from apps.bbps.service_flow.provider_float import assert_float_available, debit_float_for_payment
+from apps.bbps.service_flow.provider_float import assert_float_available
 from apps.core.exceptions import InsufficientBalance, TransactionFailed
 from apps.integrations.bbps_client import (
     BBPSClient,
     extract_biller_response_dict,
     normalize_additional_info_rows,
 )
+from apps.integrations.billavenue.errors import BillAvenueValidationError
 from apps.integrations.models import BillAvenueConfig, BillAvenueModeChannelPolicy
 from apps.transactions.agent_snapshot import passbook_initiator_db_fields, transaction_agent_db_fields
 from apps.transactions.models import PassbookEntry, Transaction
@@ -143,7 +144,186 @@ def _auto_block_provider_combo_on_error(*, biller: BbpsBillerMaster, payment_mod
     clear_provider_policy_cache()
 
 
-@db_transaction.atomic
+_BLOCKING_ATTEMPT_STATUSES = ('PAY_INITIATED', 'AWAITED', 'SUCCESS')
+
+
+def _find_blocking_attempt(*, user, service_id: str, request_id: str):
+    """
+    In-flight or successful pay for this service id or fetch request id.
+    A real Failed row does not block a new attempt.
+    """
+    qs = BbpsPaymentAttempt.objects.filter(
+        user=user,
+        is_deleted=False,
+        status__in=_BLOCKING_ATTEMPT_STATUSES,
+    )
+    sid = str(service_id or '').strip()
+    rid = str(request_id or '').strip()
+    if sid:
+        hit = qs.filter(service_id=sid).order_by('-created_at').first()
+        if hit:
+            return hit
+    if rid:
+        hit = (
+            qs.filter(
+                Q(request_id=rid)
+                | Q(bill_payment__request_id=rid)
+                | Q(fetch_session__request_id=rid)
+            )
+            .order_by('-created_at')
+            .first()
+        )
+        if hit:
+            return hit
+    return None
+
+
+def _consume_fetch_session(fetch_session) -> None:
+    if not fetch_session:
+        return
+    BbpsFetchSession.objects.filter(pk=fetch_session.pk, status='FETCHED').update(status='CONSUMED')
+
+
+def _next_idempotency_key(*, user, bill_data: dict, amount, service_id: str) -> str:
+    base = (
+        f"{user.pk}|{bill_data.get('biller_id', '')}|{bill_data.get('bill_type', '')}|"
+        f"{_to_paise(amount)}|{bill_data.get('payment_mode', '')}|{service_id}"
+    )
+    idem = base
+    for n in range(1, 21):
+        if not BbpsPaymentAttempt.objects.filter(idempotency_key=idem, is_deleted=False).exists():
+            return idem
+        idem = f'{base}|r{n}'
+    return f'{base}|r{timezone.now().strftime("%H%M%S%f")}'
+
+
+def _persist_provider_reply(attempt: BbpsPaymentAttempt, payment_result: dict) -> None:
+    attempt.txn_ref_id = str((payment_result or {}).get('txn_ref_id') or '')[:40]
+    attempt.approval_ref_number = str((payment_result or {}).get('approval_ref_number') or '')[:60]
+    attempt.response_payload = _json_safe((payment_result or {}).get('response_payload') or {})
+    attempt.last_error_code = str((payment_result or {}).get('response_code') or '')[:50]
+    attempt.last_error_message = str((payment_result or {}).get('message') or '')[:4000]
+    attempt.save(
+        update_fields=[
+            'txn_ref_id',
+            'approval_ref_number',
+            'response_payload',
+            'last_error_code',
+            'last_error_message',
+            'updated_at',
+        ]
+    )
+
+
+def _finalize_pay_result(
+    *,
+    attempt: BbpsPaymentAttempt,
+    bill_payment: BillPayment,
+    payment_result: dict,
+    bill_data: dict,
+    biller,
+    fetch_session,
+) -> dict:
+    from apps.bbps.service_flow.provider_float import debit_float_for_payment
+    from apps.bbps.service_flow.user_wallet_settlement import release_payment_hold, settle_payment_hold
+
+    status = str((payment_result or {}).get('status') or '').upper()
+    txn_ref = str((payment_result or {}).get('txn_ref_id') or '').strip()
+    # A transaction id means BillAvenue has the payment. Do not treat that as a clear reject.
+    if status == 'FAILED' and txn_ref:
+        status = 'AWAITED'
+
+    if status == 'SUCCESS':
+        bill_payment.status = 'SUCCESS'
+        bill_payment.failure_reason = ''
+        bill_payment.save(update_fields=['status', 'failure_reason'])
+        settle_payment_hold(attempt=attempt, bill_data=bill_data)
+        attempt.status = 'SUCCESS'
+        attempt.txn_ref_id = txn_ref[:40]
+        attempt.approval_ref_number = str(payment_result.get('approval_ref_number') or '')[:60]
+        attempt.response_payload = _json_safe(payment_result.get('response_payload') or {})
+        attempt.last_error_message = ''
+        attempt.settled_at = timezone.now()
+        attempt.save(
+            update_fields=[
+                'status',
+                'txn_ref_id',
+                'approval_ref_number',
+                'response_payload',
+                'last_error_message',
+                'settled_at',
+                'updated_at',
+            ]
+        )
+        debit_float_for_payment(
+            bill_payment.service_id,
+            bill_payment.amount,
+            payment_attempt=attempt,
+            remarks=f'BBPS SUCCESS {bill_payment.service_id}',
+        )
+        _consume_fetch_session(fetch_session)
+        from apps.bbps.notifications import notify_payment_attempt_status
+
+        notify_payment_attempt_status(attempt, source='payment_service')
+        return {'attempt': attempt, 'bill_payment': bill_payment, 'idempotent': False}
+
+    if status == 'AWAITED':
+        attempt.status = 'AWAITED'
+        attempt.txn_ref_id = txn_ref[:40]
+        attempt.approval_ref_number = str((payment_result or {}).get('approval_ref_number') or '')[:60]
+        attempt.response_payload = _json_safe((payment_result or {}).get('response_payload') or {})
+        attempt.last_error_message = str((payment_result or {}).get('message') or '')[:4000]
+        attempt.save(
+            update_fields=[
+                'status',
+                'txn_ref_id',
+                'approval_ref_number',
+                'response_payload',
+                'last_error_message',
+                'updated_at',
+            ]
+        )
+        bill_payment.status = 'PENDING'
+        bill_payment.failure_reason = ''
+        bill_payment.save(update_fields=['status', 'failure_reason'])
+        _consume_fetch_session(fetch_session)
+        from apps.bbps.notifications import notify_payment_attempt_status
+
+        notify_payment_attempt_status(attempt, source='payment_service')
+        return {'attempt': attempt, 'bill_payment': bill_payment, 'idempotent': False}
+
+    failure_message = (payment_result or {}).get('message') or 'Payment failed'
+    _auto_block_provider_combo_on_error(
+        biller=biller,
+        payment_mode=str(bill_data.get('payment_mode') or ''),
+        payment_channel=str(bill_data.get('init_channel') or ''),
+        message=failure_message,
+    )
+    release_payment_hold(attempt=attempt, reason=failure_message)
+    attempt.status = 'FAILED'
+    attempt.txn_ref_id = ''
+    attempt.last_error_message = failure_message
+    attempt.response_payload = _json_safe((payment_result or {}).get('response_payload') or {})
+    attempt.settled_at = timezone.now()
+    attempt.save(
+        update_fields=[
+            'status',
+            'txn_ref_id',
+            'last_error_message',
+            'response_payload',
+            'settled_at',
+            'updated_at',
+        ]
+    )
+    bill_payment.status = 'FAILED'
+    bill_payment.failure_reason = failure_message
+    bill_payment.save(update_fields=['status', 'failure_reason'])
+    from apps.bbps.notifications import notify_payment_attempt_status
+
+    notify_payment_attempt_status(attempt, source='payment_service')
+    return {'attempt': attempt, 'bill_payment': bill_payment, 'idempotent': False}
+
+
 def process_bill_payment_flow(*, user, bill_data: dict) -> dict:
     amount = Decimal(str(bill_data['amount']))
     biller_id = str(bill_data.get('biller_id') or '').strip()
@@ -309,6 +489,12 @@ def process_bill_payment_flow(*, user, bill_data: dict) -> dict:
     charge_info['shadow_mode'] = not bool(getattr(settings, 'BBPS_COMMISSION_FINANCIAL_IMPACT_ENABLED', False))
     total = charge_info['total_deducted']
 
+    service_id = str(bill_data.get('service_id') or '').strip()
+    request_id = str(bill_data.get('request_id') or '').strip()
+    blocking = _find_blocking_attempt(user=user, service_id=service_id, request_id=request_id)
+    if blocking:
+        return {'attempt': blocking, 'bill_payment': blocking.bill_payment, 'idempotent': True}
+
     bbps_wallet = Wallet.get_wallet(user, 'main')
     if bbps_wallet.available_balance < total:
         raise InsufficientBalance(
@@ -318,98 +504,6 @@ def process_bill_payment_flow(*, user, bill_data: dict) -> dict:
     # Company BillAvenue float gate (admin-tracked). Blocks before any BA call / attempt create.
     assert_float_available(amount)
 
-    service_id = bill_data.get('service_id') or ''
-    BbpsApiAuditLog.objects.create(
-        endpoint_name='commission_resolution',
-        request_id=str(bill_data.get('request_id') or ''),
-        service_id=service_id,
-        status_code='000',
-        latency_ms=0,
-        success=True,
-        request_meta=_json_safe({
-            'biller_id': bill_data.get('biller_id') or '',
-            'provider_id': bill_data.get('provider_id') or None,
-            'bill_type': bill_data.get('bill_type') or '',
-        }),
-        response_meta=_json_safe({
-            'commission_rule_code': charge_info.get('commission_rule_code') or '',
-            'computed_charge': str(computed_charge),
-            'applied_charge': str(charge_info.get('charge') or 0),
-            'total_deducted': str(charge_info.get('total_deducted') or 0),
-            'shadow_mode': charge_info.get('shadow_mode'),
-            'wallet_service_charge': wallet_meta,
-        }),
-        error_message='',
-    )
-    idem = f"{user.pk}|{bill_data.get('biller_id','')}|{bill_data.get('bill_type','')}|{_to_paise(amount)}|{bill_data.get('payment_mode','')}|{service_id}"
-    attempt, created = BbpsPaymentAttempt.objects.get_or_create(
-        idempotency_key=idem,
-        defaults={
-            'user': user,
-            'service_id': service_id,
-            'biller_id': bill_data.get('biller_id', ''),
-            'amount_paise': _to_paise(amount),
-            'payment_mode': bill_data.get('payment_mode', ''),
-            'payment_channel': bill_data.get('init_channel', ''),
-            'commission_rule_code': charge_info.get('commission_rule_code') or '',
-            'commission_rule_snapshot': _json_safe(charge_info.get('commission_rule_snapshot') or {}),
-            'commission_amount': charge_info['charge'],
-            'status': 'PAY_INITIATED',
-            'fetch_session': fetch_session,
-        },
-    )
-    if not created and attempt.status in ('SUCCESS', 'AWAITED', 'PAY_INITIATED'):
-        return {'attempt': attempt, 'bill_payment': attempt.bill_payment, 'idempotent': True}
-
-    bill_payment = BillPayment.objects.create(
-        user=user,
-        biller=bill_data.get('biller', ''),
-        biller_id=bill_data.get('biller_id', ''),
-        bill_type=bill_data.get('bill_type', ''),
-        amount=amount,
-        charge=charge_info['charge'],
-        total_deducted=total,
-        commission_rule_code=charge_info.get('commission_rule_code') or '',
-        commission_rule_snapshot=_json_safe(charge_info.get('commission_rule_snapshot') or {}),
-        commission_amount=charge_info['charge'],
-        status='PENDING',
-        service_id=service_id,
-        request_id=bill_data.get('request_id') or None,
-    )
-
-    attempt.bill_payment = bill_payment
-    attempt.request_id = bill_payment.request_id or ''
-    safe_bill = {k: v for k, v in bill_data.items() if str(k).lower() != 'mpin'}
-    attempt.request_payload = _json_safe(dict(safe_bill))
-    attempt.status = 'PAY_INITIATED'
-    attempt.fetch_session = fetch_session
-    attempt.commission_rule_code = charge_info.get('commission_rule_code') or ''
-    attempt.commission_rule_snapshot = _json_safe(charge_info.get('commission_rule_snapshot') or {})
-    attempt.commission_amount = charge_info['charge']
-    attempt.save(
-        update_fields=[
-            'bill_payment',
-            'request_id',
-            'request_payload',
-            'status',
-            'fetch_session',
-            'commission_rule_code',
-            'commission_rule_snapshot',
-            'commission_amount',
-            'updated_at',
-        ]
-    )
-
-    # Hold funds on main wallet before calling the provider.
-    from apps.bbps.service_flow.user_wallet_settlement import (
-        place_payment_hold,
-        release_payment_hold,
-        settle_payment_hold,
-    )
-
-    place_payment_hold(attempt=attempt, amount=total)
-
-    client = BBPSClient()
     ccf1 = compute_ccf1_if_required(biller=biller, amount_paise=_to_paise(amount))
     if ccf1:
         bill_data.setdefault('bill_payment_payload', {})
@@ -421,78 +515,129 @@ def process_bill_payment_flow(*, user, bill_data: dict) -> dict:
             amount_info['CCF1'] = str(ccf1.ccf1_paise)
         payload['amountInfo'] = amount_info
         bill_data['bill_payment_payload'] = payload
-    payment_result: dict = {'status': 'FAILED', 'message': 'Payment did not complete'}
+
+    # Payload validation before a bill row exists. A validation error must not leave a payment.
     try:
-        payment_result = client.process_payment(bill_payment.service_id, bill_payment.request_id, amount, bill_data)
-    finally:
-        # Leave FETCHED session intact on decline so the user can retry pay with the same snapshot
-        # (BillAvenue E211/E0379, etc.). Consume only after a committed or in-flight success path.
-        st = str((payment_result or {}).get('status') or '').upper()
-        if fetch_session and st in ('SUCCESS', 'AWAITED'):
-            BbpsFetchSession.objects.filter(pk=fetch_session.pk, status='FETCHED').update(status='CONSUMED')
-    status = payment_result.get('status')
-
-    if status == 'SUCCESS':
-        bill_payment.status = 'SUCCESS'
-        bill_payment.save(update_fields=['status'])
-
-        settle_payment_hold(attempt=attempt, bill_data=bill_data)
-
-        attempt.status = 'SUCCESS'
-        attempt.txn_ref_id = payment_result.get('txn_ref_id') or ''
-        attempt.approval_ref_number = payment_result.get('approval_ref_number') or ''
-        attempt.response_payload = _json_safe(payment_result.get('response_payload') or {})
-        attempt.settled_at = timezone.now()
-        attempt.save(update_fields=['status', 'txn_ref_id', 'approval_ref_number', 'response_payload', 'settled_at', 'updated_at'])
-        debit_float_for_payment(
-            bill_payment.service_id,
-            amount,
-            payment_attempt=attempt,
-            remarks=f'BBPS SUCCESS {bill_payment.service_id}',
+        BBPSClient()._build_bill_payment_payload(
+            service_id=service_id,
+            request_id=request_id,
+            amount=amount,
+            bill_data=bill_data,
         )
-        from apps.bbps.notifications import notify_payment_attempt_status
+    except BillAvenueValidationError as exc:
+        raise TransactionFailed(str(exc)) from exc
 
-        notify_payment_attempt_status(attempt, source='payment_service')
-        return {'attempt': attempt, 'bill_payment': bill_payment, 'idempotent': False}
+    from apps.bbps.service_flow.user_wallet_settlement import place_payment_hold
 
-    if status == 'AWAITED':
-        attempt.status = 'AWAITED'
-        attempt.txn_ref_id = payment_result.get('txn_ref_id') or ''
-        attempt.approval_ref_number = payment_result.get('approval_ref_number') or ''
-        attempt.response_payload = _json_safe(payment_result.get('response_payload') or {})
-        attempt.save(update_fields=['status', 'txn_ref_id', 'approval_ref_number', 'response_payload', 'updated_at'])
-        bill_payment.status = 'PENDING'
-        bill_payment.save(update_fields=['status'])
-        BbpsStatusPollLog.objects.create(
+    with db_transaction.atomic():
+        if fetch_session is not None:
+            BbpsFetchSession.objects.select_for_update().filter(pk=fetch_session.pk).first()
+        blocking = _find_blocking_attempt(user=user, service_id=service_id, request_id=request_id)
+        if blocking:
+            attempt = blocking
+            bill_payment = blocking.bill_payment
+            created_new = False
+        else:
+            created_new = True
+            BbpsApiAuditLog.objects.create(
+                endpoint_name='commission_resolution',
+                request_id=request_id,
+                service_id=service_id,
+                status_code='000',
+                latency_ms=0,
+                success=True,
+                request_meta=_json_safe({
+                    'biller_id': bill_data.get('biller_id') or '',
+                    'provider_id': bill_data.get('provider_id') or None,
+                    'bill_type': bill_data.get('bill_type') or '',
+                }),
+                response_meta=_json_safe({
+                    'commission_rule_code': charge_info.get('commission_rule_code') or '',
+                    'computed_charge': str(computed_charge),
+                    'applied_charge': str(charge_info.get('charge') or 0),
+                    'total_deducted': str(charge_info.get('total_deducted') or 0),
+                    'shadow_mode': charge_info.get('shadow_mode'),
+                    'wallet_service_charge': wallet_meta,
+                }),
+                error_message='',
+            )
+            idem = _next_idempotency_key(
+                user=user, bill_data=bill_data, amount=amount, service_id=service_id
+            )
+            safe_bill = {k: v for k, v in bill_data.items() if str(k).lower() != 'mpin'}
+            bill_payment = BillPayment.objects.create(
+                user=user,
+                biller=bill_data.get('biller', ''),
+                biller_id=bill_data.get('biller_id', ''),
+                bill_type=bill_data.get('bill_type', ''),
+                amount=amount,
+                charge=charge_info['charge'],
+                total_deducted=total,
+                commission_rule_code=charge_info.get('commission_rule_code') or '',
+                commission_rule_snapshot=_json_safe(charge_info.get('commission_rule_snapshot') or {}),
+                commission_amount=charge_info['charge'],
+                status='PENDING',
+                service_id=service_id,
+                request_id=request_id or None,
+            )
+            attempt = BbpsPaymentAttempt.objects.create(
+                user=user,
+                bill_payment=bill_payment,
+                fetch_session=fetch_session,
+                idempotency_key=idem,
+                request_id=request_id,
+                service_id=service_id,
+                biller_id=bill_data.get('biller_id', ''),
+                amount_paise=_to_paise(amount),
+                payment_mode=bill_data.get('payment_mode', ''),
+                payment_channel=bill_data.get('init_channel', ''),
+                status='PAY_INITIATED',
+                request_payload=_json_safe(dict(safe_bill)),
+                commission_rule_code=charge_info.get('commission_rule_code') or '',
+                commission_rule_snapshot=_json_safe(charge_info.get('commission_rule_snapshot') or {}),
+                commission_amount=charge_info['charge'],
+            )
+            # Reserve spendable balance before BillAvenue. Do not consume the fetch here.
+            place_payment_hold(attempt=attempt, amount=total)
+
+    if not created_new:
+        return {'attempt': attempt, 'bill_payment': bill_payment, 'idempotent': True}
+
+    client = BBPSClient()
+    try:
+        payment_result = client.process_payment(
+            bill_payment.service_id, bill_payment.request_id, amount, bill_data
+        )
+    except Exception as exc:
+        logger.exception('BBPS bill_pay failed open for %s', bill_payment.service_id)
+        payment_result = {
+            'status': 'AWAITED',
+            'message': f'Payment in process ({exc})',
+            'txn_ref_id': '',
+            'approval_ref_number': '',
+            'response_payload': {'error': str(exc)},
+        }
+    if not isinstance(payment_result, dict):
+        payment_result = {
+            'status': 'AWAITED',
+            'message': 'Payment in process',
+            'txn_ref_id': '',
+            'approval_ref_number': '',
+            'response_payload': {},
+        }
+
+    with db_transaction.atomic():
+        attempt.refresh_from_db()
+        _persist_provider_reply(attempt, payment_result)
+
+    with db_transaction.atomic():
+        attempt.refresh_from_db()
+        bill_payment.refresh_from_db()
+        return _finalize_pay_result(
             attempt=attempt,
-            track_type='REQUEST_ID',
-            track_value=bill_payment.request_id or bill_payment.service_id,
-            response_code='AWAITED',
-            txn_status='AWAITED',
-            response_payload=_json_safe(payment_result.get('response_payload') or {}),
+            bill_payment=bill_payment,
+            payment_result=payment_result,
+            bill_data=bill_data,
+            biller=biller,
+            fetch_session=fetch_session,
         )
-        from apps.bbps.notifications import notify_payment_attempt_status
-
-        notify_payment_attempt_status(attempt, source='payment_service')
-        return {'attempt': attempt, 'bill_payment': bill_payment, 'idempotent': False}
-
-    failure_message = payment_result.get('message') or 'Payment failed'
-    _auto_block_provider_combo_on_error(
-        biller=biller,
-        payment_mode=str(bill_data.get('payment_mode') or ''),
-        payment_channel=str(bill_data.get('init_channel') or ''),
-        message=failure_message,
-    )
-    release_payment_hold(attempt=attempt, reason=failure_message)
-    attempt.status = 'FAILED'
-    attempt.last_error_message = failure_message
-    attempt.response_payload = _json_safe(payment_result.get('response_payload') or {})
-    attempt.save(update_fields=['status', 'last_error_message', 'response_payload', 'updated_at'])
-    from apps.bbps.notifications import notify_payment_attempt_status
-
-    notify_payment_attempt_status(attempt, source='payment_service')
-    bill_payment.status = 'FAILED'
-    bill_payment.failure_reason = failure_message
-    bill_payment.save(update_fields=['status', 'failure_reason'])
-    msg = bill_payment.failure_reason or 'Payment failed'
-    raise TransactionFailed(msg)

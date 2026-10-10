@@ -14,12 +14,11 @@ import { bharatConnectLogoSlotStyle } from './bbpsLogoSizes';
 import BbpsDynamicFieldSet from './BbpsDynamicFieldSet';
 import SelectField from '../common/SelectField';
 import BbpsCategoryComingSoon from './BbpsCategoryComingSoon';
-import BAssuredReceiptHeader from './BAssuredReceiptHeader';
 import AccountAccessBanner from '../common/AccountAccessBanner';
 import MaintenanceModuleLock from '../common/MaintenanceModuleLock';
 import { getModuleMessage, isModuleEnabled } from '../../utils/maintenanceMode';
 import { parseBbpsError } from '../../utils/bbpsErrors';
-import { deriveFormReceiptIdentity } from './bbpsBillsHelpers';
+import { deriveFormReceiptIdentity, describeSavedPaymentStatus } from './bbpsBillsHelpers';
 import { readBillerListCache, writeBillerListCache } from '../../utils/bbpsCatalogCache';
 
 const CreditCardBill = ({
@@ -46,7 +45,7 @@ const CreditCardBill = ({
   const [paymentAmountType, setPaymentAmountType] = useState('total');
   const [customAmount, setCustomAmount] = useState('');
   const [mainWallet, setMainWallet] = useState(0);
-  const [showSuccessNotification, setShowSuccessNotification] = useState(false);
+  const [paymentNotice, setPaymentNotice] = useState(null);
   const [transactionId, setTransactionId] = useState('');
   const [billerOptions, setBillerOptions] = useState([]);
   const [billersLoading, setBillersLoading] = useState(true);
@@ -58,7 +57,6 @@ const CreditCardBill = ({
   const [inputSchema, setInputSchema] = useState([]);
   const [inputValues, setInputValues] = useState({});
   const [quote, setQuote] = useState(null);
-  const [lastReceipt, setLastReceipt] = useState(null);
   const [fetchRequestId, setFetchRequestId] = useState('');
   const [showConfirmPayModal, setShowConfirmPayModal] = useState(false);
   const [isPaymentProcessing, setIsPaymentProcessing] = useState(false);
@@ -705,67 +703,33 @@ const CreditCardBill = ({
       });
       if (result.success) {
         const billPayment = result.data?.bill_payment || {};
-        const txnAt = new Date().toISOString();
-        const bConnectTxnId = billPayment.bconnect_txn_id || billPayment.request_id || billPayment.service_id || 'N/A';
-        setTransactionId(bConnectTxnId);
-        const summaryIdentity = getPaymentSummaryIdentity();
-        setLastReceipt({
-          bConnectTxnId,
-          txnRefId: billPayment.service_id || 'N/A',
-          billerId: biller,
-          billerName: billDetails?.billerName || biller,
-          customerName: billDetails?.name || 'N/A',
-          customerNumber: summaryIdentity.value,
-          identityLabel: summaryIdentity.label,
-          billDate: billDetails?.billDate || '',
-          billPeriod: billDetails?.billPeriod || 'NA',
-          billNumber: billDetails?.billNumber || 'NA',
-          dueDate: billDetails?.dueDate || '',
-          billAmount: getPaymentAmount(),
-          serviceCharge: Number(billPayment.ccf_amount || serviceCharge || 0),
-          ccfAmount: Number(billPayment.ccf_amount || 0),
-          totalAmount: totalDeducted,
-          paymentMode,
-          initChannel: paymentChannel,
-          status: 'SUCCESS',
-          approvalNumber: billPayment.approval_ref_number || billPayment.request_id || 'NA',
-          statusHistory: Array.isArray(billPayment.status_history) ? billPayment.status_history : [],
-          txnAt,
-        });
-        setShowSuccessNotification(true);
-        try {
-          const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
-          const osc = audioCtx.createOscillator();
-          const gain = audioCtx.createGain();
-          osc.connect(gain);
-          gain.connect(audioCtx.destination);
-          osc.frequency.value = 880;
-          gain.gain.setValueAtTime(0.04, audioCtx.currentTime);
-          osc.start();
-          osc.stop(audioCtx.currentTime + 0.2);
-        } catch (_) {}
+        const notice = describeSavedPaymentStatus(billPayment.status);
         setShowPaymentModal(false);
         setShowConfirmPayModal(false);
         await loadWallets();
-        setTimeout(() => {
-          setShowSuccessNotification(false);
-          setBiller('');
-          setBillDetails(null);
-          setBillId(null);
-          setFetchRequestId('');
-          setInputSchema([]);
-          setInputValues({});
-          setQuote(null);
-          setPaymentAmountType('total');
-          setCustomAmount('');
-          if (onPaymentSuccess) {
-            onPaymentSuccess({
-              paymentId: billPayment.id || null,
-              serviceId: billPayment.service_id || '',
-              requestId: billPayment.request_id || '',
-            });
+        if (notice.status === 'FAILED') {
+          setPaymentNotice(notice);
+          setTransactionId(billPayment.service_id || billPayment.request_id || 'N/A');
+        } else if (onPaymentSuccess) {
+          if (notice.status === 'SUCCESS') {
+            try {
+              const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+              const osc = audioCtx.createOscillator();
+              const gain = audioCtx.createGain();
+              osc.connect(gain);
+              gain.connect(audioCtx.destination);
+              osc.frequency.value = 880;
+              gain.gain.setValueAtTime(0.04, audioCtx.currentTime);
+              osc.start();
+              osc.stop(audioCtx.currentTime + 0.2);
+            } catch (_) {}
           }
-        }, 900);
+          onPaymentSuccess({
+            paymentId: billPayment.id || null,
+            serviceId: billPayment.service_id || '',
+            requestId: billPayment.request_id || '',
+          });
+        }
       } else {
         const parsed = applyApiError(result, 'Payment could not be completed.');
         const mustRefetch =
@@ -812,20 +776,41 @@ const CreditCardBill = ({
 
   return (
     <>
-      {showSuccessNotification && (
+      {paymentNotice && (
         <div className="fixed inset-0 z-[70] bg-black/35 backdrop-blur-[1px] flex items-center justify-center p-4">
-          <div className="bg-white dark:bg-slate-900 border border-emerald-200 dark:border-emerald-800 rounded-2xl shadow-2xl p-6 max-w-lg w-full">
+          <div className={`bg-white dark:bg-slate-900 border rounded-2xl shadow-2xl p-6 max-w-lg w-full ${
+            paymentNotice.tone === 'failed'
+              ? 'border-red-200 dark:border-red-800'
+              : paymentNotice.tone === 'pending'
+                ? 'border-amber-200 dark:border-amber-800'
+                : 'border-emerald-200 dark:border-emerald-800'
+          }`}>
             <div className="flex justify-end">
-              <span className="inline-flex items-center gap-2 rounded-full border border-emerald-300 dark:border-emerald-800 bg-emerald-50 dark:bg-emerald-950/40 px-3 py-1 text-xs font-semibold text-emerald-800 dark:text-emerald-300">
+              <span className={`inline-flex items-center gap-2 rounded-full border px-3 py-1 text-xs font-semibold ${
+                paymentNotice.tone === 'failed'
+                  ? 'border-red-300 dark:border-red-800 bg-red-50 dark:bg-red-950/40 text-red-800 dark:text-red-300'
+                  : paymentNotice.tone === 'pending'
+                    ? 'border-amber-300 dark:border-amber-800 bg-amber-50 dark:bg-amber-950/40 text-amber-800 dark:text-amber-300'
+                    : 'border-emerald-300 dark:border-emerald-800 bg-emerald-50 dark:bg-emerald-950/40 text-emerald-800 dark:text-emerald-300'
+              }`}>
                 <FaCircleCheck size={14} />
-                Payment Successful
+                {paymentNotice.title}
               </span>
             </div>
-            <div className="mt-4 rounded-lg border border-emerald-100 dark:border-emerald-900 bg-emerald-50/60 dark:bg-emerald-950/40 p-4">
-              <p className="text-sm text-gray-700 dark:text-slate-300">Your payment has been processed successfully.</p>
+            <div className="mt-4 rounded-lg border border-slate-100 dark:border-slate-800 bg-slate-50/80 dark:bg-slate-950/40 p-4">
+              <p className="text-sm text-gray-700 dark:text-slate-300">{paymentNotice.body}</p>
               <p className="mt-1 text-sm font-semibold text-gray-900 dark:text-slate-100">
                 B-Connect Transaction ID: <span className="font-mono">{transactionId}</span>
               </p>
+              {paymentNotice.tone === 'failed' ? (
+                <button
+                  type="button"
+                  className="mt-3 text-sm font-medium text-blue-700"
+                  onClick={() => setPaymentNotice(null)}
+                >
+                  Close
+                </button>
+              ) : null}
             </div>
           </div>
         </div>
@@ -1373,46 +1358,6 @@ const CreditCardBill = ({
           </Card>
         )}
 
-        {lastReceipt && (
-          <Card title="B-Connect Receipt" subtitle="Payment confirmation with enterprise receipt fields" padding="lg">
-            <div className="mpay-paper rounded-lg p-4">
-            <BAssuredReceiptHeader title="Payment receipt" className="mb-3" logoAlign="center" />
-            <div className="grid md:grid-cols-2 gap-3 text-sm">
-              <div className="border rounded p-2">B-Connect Transaction ID: <strong>{lastReceipt.bConnectTxnId}</strong></div>
-              <div className="border rounded p-2">Transaction Ref ID: <strong>{lastReceipt.txnRefId}</strong></div>
-              <div className="border rounded p-2">Biller ID: <strong>{lastReceipt.billerId}</strong></div>
-              <div className="border rounded p-2">Biller Name: <strong>{lastReceipt.billerName}</strong></div>
-              <div className="border rounded p-2">Customer Name: <strong>{lastReceipt.customerName}</strong></div>
-              <div className="border rounded p-2">{lastReceipt.identityLabel || 'Customer Number'}: <strong>{lastReceipt.customerNumber}</strong></div>
-              <div className="border rounded p-2">Bill Date: <strong>{formatDate(lastReceipt.billDate)}</strong></div>
-              <div className="border rounded p-2">Bill Period: <strong>{lastReceipt.billPeriod}</strong></div>
-              <div className="border rounded p-2">Bill Number: <strong>{lastReceipt.billNumber}</strong></div>
-              <div className="border rounded p-2">Due Date: <strong>{formatDate(lastReceipt.dueDate)}</strong></div>
-              <div className="border rounded p-2">Bill Amount: <strong>{formatCurrency(lastReceipt.billAmount)}</strong></div>
-              <div className="border rounded p-2">Service Charge: <strong>{formatCurrency(lastReceipt.serviceCharge)}</strong></div>
-              <div className="border rounded p-2">CCF: <strong>{formatCurrency(lastReceipt.ccfAmount || 0)}</strong></div>
-              <div className="border rounded p-2">Total Amount: <strong>{formatCurrency(lastReceipt.totalAmount)}</strong></div>
-              <div className="border rounded p-2">Payment Mode: <strong>{lastReceipt.paymentMode}</strong></div>
-              <div className="border rounded p-2">Initiating Channel: <strong>{lastReceipt.initChannel}</strong></div>
-              <div className="border rounded p-2">Status: <strong>{lastReceipt.status}</strong></div>
-              <div className="border rounded p-2">Approval Number: <strong>{lastReceipt.approvalNumber}</strong></div>
-              <div className="border rounded p-2 md:col-span-2">Transaction Date & Time: <strong>{formatDate(lastReceipt.txnAt)}</strong></div>
-            </div>
-            {Array.isArray(lastReceipt.statusHistory) && lastReceipt.statusHistory.length ? (
-              <div className="mt-4 border rounded p-3">
-                <div className="font-semibold text-sm mb-2">Transaction Status History</div>
-                <div className="space-y-1 text-xs">
-                  {lastReceipt.statusHistory.map((item, idx) => (
-                    <div key={`${item.created_at || idx}`} className="border rounded p-2">
-                      <strong>{item.status || 'UNKNOWN'}</strong> ({item.response_code || '-'}) at {formatDate(item.created_at)}
-                    </div>
-                  ))}
-                </div>
-              </div>
-            ) : null}
-            </div>
-          </Card>
-        )}
         </div>
         </div>
         </MaintenanceModuleLock>

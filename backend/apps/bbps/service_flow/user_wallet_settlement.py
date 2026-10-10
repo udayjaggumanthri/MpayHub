@@ -234,28 +234,38 @@ def refund_settled_payment(*, attempt, reason: str = 'refund') -> bool:
 
 
 def release_stale_bbps_holds(*, older_than_hours: int = 48) -> int:
-    """Release holds on AWAITED/PAY_INITIATED attempts older than N hours."""
+    """
+    Do not release or fail in-flight BBPS payments.
+
+    Pay initiated, Awaited, and Pending rows stay reserved until status-sync
+    or an admin mark success / mark failed says the result is final. A missing
+    B-Connect id is not enough to release the reserve: BillAvenue may still
+    have the payment after a timeout or an unparsed reply.
+    """
     from datetime import timedelta
 
     from apps.bbps.models import BbpsPaymentAttempt
 
     cutoff = timezone.now() - timedelta(hours=max(1, older_than_hours))
-    qs = BbpsPaymentAttempt.objects.filter(
+    held = BbpsPaymentAttempt.objects.filter(
         status__in=('AWAITED', 'PAY_INITIATED'),
         is_deleted=False,
         wallet_hold_amount__gt=0,
         created_at__lt=cutoff,
-    ).select_related('user', 'bill_payment')
-    count = 0
-    for attempt in qs:
-        if release_payment_hold(attempt=attempt, reason='stale_hold_sweeper'):
-            attempt.status = 'FAILED'
-            attempt.last_error_message = 'Hold expired by sweeper'
-            attempt.settled_at = timezone.now()
-            attempt.save(update_fields=['status', 'last_error_message', 'settled_at', 'updated_at'])
-            if attempt.bill_payment_id:
-                attempt.bill_payment.status = 'FAILED'
-                attempt.bill_payment.failure_reason = 'Hold expired by sweeper'
-                attempt.bill_payment.save(update_fields=['status', 'failure_reason'])
-            count += 1
-    return count
+    ).filter(
+        models_q_pending(),
+    )
+    skipped = held.count()
+    if skipped:
+        logger.info(
+            'bbps stale-hold sweeper left %s in-flight payment(s) reserved (older than %sh)',
+            skipped,
+            older_than_hours,
+        )
+    return 0
+
+
+def models_q_pending():
+    from django.db.models import Q
+
+    return Q(bill_payment__isnull=True) | Q(bill_payment__status='PENDING') | Q(status__in=('AWAITED', 'PAY_INITIATED'))

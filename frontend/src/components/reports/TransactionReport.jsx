@@ -22,6 +22,7 @@ import {
 import { balanceFromRow, formatReportBalance } from '../../utils/reportBalanceDisplay';
 import ReportDateRange from '../common/ReportDateRange';
 import ReportPagination from '../common/ReportPagination';
+import StickyHorizontalScroll from '../common/StickyHorizontalScroll';
 import {
   CollapsibleReportFilters,
   FILTER_INPUT_CLASS,
@@ -855,7 +856,7 @@ const TransactionReport = ({ type = 'all' }) => {
         ) : (
           <div className={isRefreshing ? 'opacity-60 pointer-events-none' : ''}>
         {isLedgerStyle ? (
-          <div className="-mx-2 overflow-x-auto rounded-none border-y border-gray-200 dark:border-slate-700 sm:mx-0 sm:rounded-lg sm:border">
+          <StickyHorizontalScroll className="-mx-2 rounded-none border-y border-gray-200 dark:border-slate-700 sm:mx-0 sm:rounded-lg sm:border">
             <table className="w-full min-w-[1280px] border-collapse text-left whitespace-nowrap">
               <thead>
                 <tr className="border-b border-gray-200 dark:border-slate-700 bg-gray-50 dark:bg-slate-800/50">
@@ -1071,9 +1072,9 @@ const TransactionReport = ({ type = 'all' }) => {
                 })}
               </tbody>
             </table>
-          </div>
+          </StickyHorizontalScroll>
         ) : (
-          <div className="-mx-2 overflow-x-auto sm:mx-0">
+          <StickyHorizontalScroll className="-mx-2 sm:mx-0">
             <table className="w-full border-collapse">
               <thead>
                 <tr className="bg-gray-50 dark:bg-slate-800/50 border-b border-gray-200 dark:border-slate-700">
@@ -1096,7 +1097,7 @@ const TransactionReport = ({ type = 'all' }) => {
                 ))}
               </tbody>
             </table>
-          </div>
+          </StickyHorizontalScroll>
         )}
         <ReportPagination
           page={page}

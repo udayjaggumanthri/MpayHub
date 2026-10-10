@@ -1,11 +1,14 @@
-"""Release stale BBPS user-wallet holds on AWAITED/PAY_INITIATED attempts."""
+"""Leave in-flight BBPS wallet reserves in place until status is final."""
 from django.core.management.base import BaseCommand
 
 from apps.bbps.service_flow.user_wallet_settlement import release_stale_bbps_holds
 
 
 class Command(BaseCommand):
-    help = 'Release BBPS main-wallet holds older than --hours (default 48).'
+    help = (
+        'In-flight BBPS holds (Pay initiated, Awaited, Pending) are not released. '
+        'Reports how many aged holds were left reserved.'
+    )
 
     def add_arguments(self, parser):
         parser.add_argument('--hours', type=int, default=48)

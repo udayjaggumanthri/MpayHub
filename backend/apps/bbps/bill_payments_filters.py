@@ -21,7 +21,8 @@ def apply_bill_payments_list_filters(qs: QuerySet, request) -> QuerySet:
             | Q(request_id__icontains=search)
             | Q(biller__icontains=search)
             | Q(biller_id__icontains=search)
-        )
+            | Q(attempts__txn_ref_id__icontains=search)
+        ).distinct()
 
     date_from = parse_date((request.query_params.get('date_from') or '').strip())
     date_to = parse_date((request.query_params.get('date_to') or '').strip())

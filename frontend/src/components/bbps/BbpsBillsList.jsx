@@ -13,6 +13,7 @@ import {
 } from '../../utils/dashboardDrillDown';
 import { reportPeriodFilterDates } from '../../utils/reportPeriodRange';
 import Card from '../common/Card';
+import StickyHorizontalScroll from '../common/StickyHorizontalScroll';
 import ReportSummaryPeriodToggle from '../common/ReportSummaryPeriodToggle';
 import {
   FaCircleCheck,
@@ -121,6 +122,8 @@ const BbpsBillsList = ({
   const [selectedTransaction, setSelectedTransaction] = useState(null);
   const [showDetailsModal, setShowDetailsModal] = useState(false);
   const [detailsLoading, setDetailsLoading] = useState(false);
+  const [checkStatusBusy, setCheckStatusBusy] = useState(false);
+  const [checkStatusNote, setCheckStatusNote] = useState('');
   const [listScope, setListScope] = useState(() => {
     if (!isAdminUser(user)) return defaultScope;
     // Admin / Super Admin: never start on My activity.
@@ -326,6 +329,7 @@ const BbpsBillsList = ({
   };
 
   const handleViewDetails = async (transaction) => {
+    setCheckStatusNote('');
     setShowDetailsModal(true);
     setSelectedTransaction(transaction);
     setDetailsLoading(true);
@@ -343,6 +347,45 @@ const BbpsBillsList = ({
     }
   };
 
+  const applyStatusResult = (txn, res) => {
+    const payment = res?.data?.bill_payment;
+    if (payment) {
+      const enriched = mapApiPaymentToReceiptTransaction(payment);
+      setTransactions((prev) => prev.map((row) => (row.id === txn.id ? { ...row, ...enriched } : row)));
+      setSelectedTransaction((current) =>
+        current && current.id === txn.id ? { ...current, ...enriched } : current
+      );
+    }
+    if (res?.data?.cooling_active) {
+      const wait = Number(res.data.retry_after_seconds || 0);
+      setCheckStatusNote(res.message || `Next check is allowed in ${wait} seconds.`);
+      return;
+    }
+    const status = String(res?.data?.status || payment?.status || '').toUpperCase();
+    if (status === 'PENDING') {
+      setCheckStatusNote(res.message || 'Still pending. The reserve stays until BillAvenue is final.');
+    } else if (status) {
+      setCheckStatusNote(res.message || `Status is now ${status}.`);
+    } else {
+      setCheckStatusNote(res?.message || 'Could not check status.');
+    }
+  };
+
+  const handleCheckStatus = async (transaction) => {
+    if (!transaction?.id) return;
+    setCheckStatusBusy(true);
+    setCheckStatusNote('');
+    const res = await bbpsAPI.checkPaymentStatus(transaction.id, { scope: effectiveListScope });
+    setCheckStatusBusy(false);
+    if (!res?.success) {
+      setCheckStatusNote(res?.message || 'Could not check status.');
+      return;
+    }
+    setShowDetailsModal(true);
+    setSelectedTransaction(transaction);
+    applyStatusResult(transaction, res);
+  };
+
   const closeDetailsModal = () => {
     setShowDetailsModal(false);
     setSelectedTransaction(null);
@@ -350,11 +393,17 @@ const BbpsBillsList = ({
   };
 
   useEffect(() => {
-    if (autoOpenDoneRef.current) return;
-    if (loading || !transactions.length) return;
+    const ref = location.state?.openReceipt;
+    const drillServiceId = drillDown.openReceipt ? String(drillDown.filters.serviceId || '') : '';
+    const openKey = ref
+      ? `${ref.paymentId || ''}|${ref.serviceId || ''}|${ref.requestId || ''}`
+      : drillServiceId
+        ? `drill|${drillServiceId}`
+        : '';
+    if (!openKey || autoOpenDoneRef.current === openKey) return;
+    if (loading) return;
 
     let target = null;
-    const ref = location.state?.openReceipt;
     if (ref) {
       if (ref.paymentId != null) {
         target = transactions.find((t) => String(t.id) === String(ref.paymentId));
@@ -366,27 +415,45 @@ const BbpsBillsList = ({
         target = transactions.find((t) => String(t.requestId || '') === String(ref.requestId));
       }
     }
-
-    if (!target && drillDown.openReceipt && drillDown.filters.serviceId) {
-      const sid = String(drillDown.filters.serviceId);
-      target = transactions.find((t) => String(t.serviceId || '') === sid);
+    if (!target && drillServiceId) {
+      target = transactions.find((t) => String(t.serviceId || '') === drillServiceId);
     }
 
-    if (!target) return;
-
-    autoOpenDoneRef.current = true;
-    handleViewDetails(target);
-    if (!isEmbedded && location.state?.openReceipt) {
-      navigate('/bill-payments/my-bills', { replace: true, state: null });
-    }
+    let cancelled = false;
+    const openReceipt = async () => {
+      let rowTarget = target;
+      if (!rowTarget && ref?.paymentId) {
+        const detail = await bbpsAPI.getBillPaymentDetail(ref.paymentId, { scope: effectiveListScope });
+        const row = detail?.data?.payment;
+        if (!cancelled && detail?.success && row) {
+          rowTarget = mapApiPaymentToReceiptTransaction(row);
+        }
+      }
+      if (cancelled) return;
+      autoOpenDoneRef.current = openKey;
+      if (!rowTarget) return;
+      handleViewDetails(rowTarget);
+      if (ref) {
+        navigate(
+          { pathname: location.pathname, search: location.search },
+          { replace: true, state: null }
+        );
+      }
+    };
+    openReceipt();
+    return () => {
+      cancelled = true;
+    };
   }, [
     loading,
     transactions,
     location.state,
+    location.pathname,
+    location.search,
     navigate,
-    isEmbedded,
     drillDown.openReceipt,
     drillDown.filters.serviceId,
+    effectiveListScope,
   ]);
 
   const downloadReceipt = (txn, { mobile = false } = {}) => {
@@ -574,7 +641,7 @@ const BbpsBillsList = ({
           </div>
         ) : (
           <div className={isRefreshing ? 'opacity-60 pointer-events-none' : ''}>
-          <div className="overflow-x-auto -mx-2 sm:mx-0">
+          <StickyHorizontalScroll className="-mx-2 sm:mx-0">
             <div className="inline-block min-w-full align-middle">
               <table className="min-w-[1280px] w-full divide-y divide-gray-200 dark:divide-slate-700 whitespace-nowrap">
                 <thead className="bg-gray-50 dark:bg-slate-800/50">
@@ -633,7 +700,10 @@ const BbpsBillsList = ({
                         {formatDateTime(txn.date)}
                       </td>
                       <td className="px-3 py-2.5 whitespace-nowrap">
-                        <div className="text-sm font-medium text-blue-600 dark:text-blue-400">{txn.serviceId || txn.id}</div>
+                        <div className="text-sm font-medium text-blue-600 dark:text-blue-400 font-mono">
+                          {txn.bConnectId || '—'}
+                        </div>
+                        <div className="text-xs text-gray-500 dark:text-slate-400 font-mono">{txn.serviceId || txn.id}</div>
                       </td>
                       <td className="px-3 py-2.5 whitespace-nowrap">
                         <div className="text-sm text-gray-900 dark:text-slate-100 font-mono">{txn.requestId || 'N/A'}</div>
@@ -677,21 +747,32 @@ const BbpsBillsList = ({
                         </span>
                       </td>
                       <td className="px-3 py-2.5 whitespace-nowrap text-center">
-                        <button
-                          type="button"
-                          onClick={() => handleViewDetails(txn)}
-                          className="text-blue-600 dark:text-blue-400 hover:text-blue-800 dark:hover:text-blue-200 transition-colors p-1 rounded hover:bg-blue-50 dark:hover:bg-blue-950/60"
-                          title="View Details"
-                        >
-                          <FaEye size={18} />
-                        </button>
+                        <div className="inline-flex items-center gap-2">
+                          {String(txn.status || '').toUpperCase() === 'PENDING' ? (
+                            <button
+                              type="button"
+                              onClick={() => handleCheckStatus(txn)}
+                              className="text-xs font-medium text-amber-800 dark:text-amber-300"
+                            >
+                              Check current status
+                            </button>
+                          ) : null}
+                          <button
+                            type="button"
+                            onClick={() => handleViewDetails(txn)}
+                            className="text-blue-600 dark:text-blue-400 hover:text-blue-800 dark:hover:text-blue-200 transition-colors p-1 rounded hover:bg-blue-50 dark:hover:bg-blue-950/60"
+                            title="View Details"
+                          >
+                            <FaEye size={18} />
+                          </button>
+                        </div>
                       </td>
                     </tr>
                   ))}
                 </tbody>
               </table>
             </div>
-          </div>
+          </StickyHorizontalScroll>
           <ReportPagination
             page={page}
             pageSize={pageSize}
@@ -727,6 +808,13 @@ const BbpsBillsList = ({
               loading={detailsLoading}
               onPrint={() => downloadReceipt(selectedTransaction)}
               onMobilePrint={() => downloadReceipt(selectedTransaction, { mobile: true })}
+              onCheckStatus={
+                selectedTransaction?.id
+                  ? () => handleCheckStatus(selectedTransaction)
+                  : undefined
+              }
+              checkStatusBusy={checkStatusBusy}
+              checkStatusNote={checkStatusNote}
               onRaiseComplaint={
                 String(selectedTransaction?.status || '').toUpperCase() === 'SUCCESS'
                   ? () => {

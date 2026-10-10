@@ -41,6 +41,7 @@ export const roleMenus = {
         { name: 'Pay-in packages', path: '/admin/pay-in-packages' },
         { name: 'Payout slabs', path: '/admin/payout-slabs' },
         { name: 'Payout recovery', path: '/admin/payout-recovery' },
+        { name: 'BBPS recovery', path: '/admin/bbps-recovery' },
       ],
     },
     {

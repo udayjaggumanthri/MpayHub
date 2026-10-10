@@ -121,7 +121,7 @@ const BillPayment = () => {
   const catalogReady = catalogResolved;
 
   const handlePaymentSuccess = (receiptRef = {}) => {
-    navigate('/bill-payments/my-bills', {
+    navigate('/reports/bbps', {
       state: {
         openReceipt: {
           paymentId: receiptRef?.paymentId || null,

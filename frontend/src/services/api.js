@@ -1634,6 +1634,15 @@ export const bbpsAPI = {
    * Get Bill Payment Detail
    * GET /api/bbps/payments/{id}/
    */
+  checkPaymentStatus: async (paymentId, params = {}) => {
+    try {
+      const response = await apiClient.post(`/bbps/payments/${paymentId}/check-status/`, null, { params });
+      return extractData(response);
+    } catch (error) {
+      return handleError(error);
+    }
+  },
+
   getBillPaymentDetail: async (paymentId, params = {}) => {
     try {
       const response = await apiClient.get(`/bbps/payments/${paymentId}/`, { params });
@@ -3109,6 +3118,77 @@ export const adminAPI = {
         rrn,
         provider_txn_id: providerTxnId,
         internal_note: internalNote,
+      });
+      return extractData(response);
+    } catch (error) {
+      return handleError(error);
+    }
+  },
+
+  getBbpsRecoveryStats: async () => {
+    try {
+      const response = await apiClient.get('/admin/bbps-recovery/stats/');
+      return extractData(response);
+    } catch (error) {
+      return handleError(error);
+    }
+  },
+
+  listBbpsRecovery: async (params = {}) => {
+    try {
+      const response = await apiClient.get('/admin/bbps-recovery/', { params });
+      return extractData(response);
+    } catch (error) {
+      return handleError(error);
+    }
+  },
+
+  getBbpsRecoveryDetail: async (id) => {
+    try {
+      const response = await apiClient.get(`/admin/bbps-recovery/${id}/`);
+      return extractData(response);
+    } catch (error) {
+      return handleError(error);
+    }
+  },
+
+  checkBbpsRecoveryStatus: async (id) => {
+    try {
+      const response = await apiClient.post(`/admin/bbps-recovery/${id}/check-status/`);
+      return extractData(response);
+    } catch (error) {
+      return handleError(error);
+    }
+  },
+
+  markBbpsRecoverySuccess: async (id, { internalNote = '' } = {}) => {
+    try {
+      const response = await apiClient.post(`/admin/bbps-recovery/${id}/mark-success/`, {
+        internal_note: internalNote,
+      });
+      return extractData(response);
+    } catch (error) {
+      return handleError(error);
+    }
+  },
+
+  markBbpsRecoveryFailed: async (id, { reason = '', internalNote = '' } = {}) => {
+    try {
+      const response = await apiClient.post(`/admin/bbps-recovery/${id}/mark-failed/`, {
+        reason,
+        internal_note: internalNote,
+      });
+      return extractData(response);
+    } catch (error) {
+      return handleError(error);
+    }
+  },
+
+  raiseBbpsRecoveryComplaint: async (id, { complaintDesc = '', complaintDisposition = '' } = {}) => {
+    try {
+      const response = await apiClient.post(`/admin/bbps-recovery/${id}/complaint/`, {
+        complaint_desc: complaintDesc,
+        complaint_disposition: complaintDisposition,
       });
       return extractData(response);
     } catch (error) {

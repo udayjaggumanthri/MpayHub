@@ -144,6 +144,7 @@ export const mapApiPaymentToReceiptTransaction = (p = {}) => {
     serviceId: p.service_id || p.id,
     requestId: p.request_id || null,
     bConnectTxnId: p.bconnect_txn_id || p.request_id || p.service_id || null,
+    bConnectId: p.bconnect_txn_id || '',
     approvalRefNumber: p.approval_ref_number || null,
     amount: parseFloat(p.amount || 0),
     charge: parseFloat(p.charge || p.service_charge || 0),

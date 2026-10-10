@@ -601,6 +601,12 @@ class BbpsPaymentAttempt(BaseModel):
         help_text='Amount settled (debited) from the user main wallet on SUCCESS.',
     )
     settled_at = models.DateTimeField(null=True, blank=True)
+    last_status_checked_at = models.DateTimeField(
+        null=True,
+        blank=True,
+        db_index=True,
+        help_text='Last time transaction-status was called for this attempt.',
+    )
 
     class Meta:
         db_table = 'bbps_payment_attempt'
@@ -627,6 +633,21 @@ class BbpsStatusPollLog(BaseModel):
     request_payload = models.JSONField(default=dict, blank=True)
     response_payload = models.JSONField(default=dict, blank=True)
     error_message = models.TextField(blank=True, default='')
+    requested_by = models.ForeignKey(
+        User,
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        related_name='bbps_status_polls_requested',
+    )
+    source = models.CharField(
+        max_length=20,
+        blank=True,
+        default='',
+        db_index=True,
+        help_text='Who asked: job, user, or admin.',
+    )
+    status_changed = models.BooleanField(default=False)
 
     class Meta:
         db_table = 'bbps_status_poll_log'

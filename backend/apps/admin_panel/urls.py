@@ -6,6 +6,7 @@ from rest_framework.routers import DefaultRouter
 from apps.admin_panel import views
 from apps.fund_management import views_qr_admin
 from apps.fund_management import views_payout_admin
+from apps.bbps import views_recovery as views_bbps_recovery
 
 router = DefaultRouter()
 router.register(r'announcements', views.AnnouncementViewSet, basename='announcement')
@@ -69,5 +70,28 @@ urlpatterns = [
         'payout-recovery/<int:pk>/mark-failed/',
         views_payout_admin.payout_recovery_mark_failed_view,
         name='payout-recovery-mark-failed',
+    ),
+    path('bbps-recovery/stats/', views_bbps_recovery.bbps_recovery_stats_view, name='bbps-recovery-stats'),
+    path('bbps-recovery/', views_bbps_recovery.bbps_recovery_list_view, name='bbps-recovery-list'),
+    path('bbps-recovery/<int:pk>/', views_bbps_recovery.bbps_recovery_detail_view, name='bbps-recovery-detail'),
+    path(
+        'bbps-recovery/<int:pk>/check-status/',
+        views_bbps_recovery.bbps_recovery_check_status_view,
+        name='bbps-recovery-check-status',
+    ),
+    path(
+        'bbps-recovery/<int:pk>/mark-success/',
+        views_bbps_recovery.bbps_recovery_mark_success_view,
+        name='bbps-recovery-mark-success',
+    ),
+    path(
+        'bbps-recovery/<int:pk>/mark-failed/',
+        views_bbps_recovery.bbps_recovery_mark_failed_view,
+        name='bbps-recovery-mark-failed',
+    ),
+    path(
+        'bbps-recovery/<int:pk>/complaint/',
+        views_bbps_recovery.bbps_recovery_complaint_view,
+        name='bbps-recovery-complaint',
     ),
 ]

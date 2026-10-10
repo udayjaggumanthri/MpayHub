@@ -870,10 +870,17 @@ def pay_bill_view(request):
                     http_status=status.HTTP_400_BAD_REQUEST,
                 )
             response_data = BillPaymentSerializer(bill_payment).data if bill_payment else None
+            saved_status = str(getattr(bill_payment, 'status', '') or '').upper()
+            if saved_status == 'FAILED':
+                message = (getattr(bill_payment, 'failure_reason', None) or 'Bill payment failed')
+            elif saved_status == 'PENDING':
+                message = 'Bill payment is pending with the biller'
+            else:
+                message = 'Bill payment processed successfully'
             return Response({
                 'success': True,
-                'data': {'bill_payment': response_data},
-                'message': 'Bill payment processed successfully',
+                'data': {'bill_payment': response_data, 'payment_status': saved_status},
+                'message': message,
                 'errors': []
             }, status=status.HTTP_201_CREATED)
         except InsufficientBalance as e:
@@ -1052,6 +1059,53 @@ def bill_payments_export_csv_view(request):
             status=status.HTTP_403_FORBIDDEN,
         )
     return stream_bill_payments_csv('bbps_bill_payments', list(payments[:5000]))
+
+
+@api_view(['POST'])
+@permission_classes([IsAuthenticated])
+def check_payment_status_view(request, payment_id):
+    """
+    Retailer status sync for a payment they own.
+    POST /api/bbps/payments/<id>/check-status/
+    """
+    from apps.bbps.bill_payments_scope import can_access_bill_payment
+    from apps.core.roles import is_platform_operator
+
+    payment = BillPayment.objects.filter(pk=payment_id, is_deleted=False).first()
+    if not payment or not can_access_bill_payment(request, payment):
+        return Response(
+            {'success': False, 'data': None, 'message': 'Bill payment not found', 'errors': []},
+            status=status.HTTP_404_NOT_FOUND,
+        )
+    attempt = (
+        payment.attempts.filter(is_deleted=False).order_by('-created_at').first()
+    )
+    if not attempt:
+        return Response(
+            {'success': False, 'data': None, 'message': 'Payment attempt not found', 'errors': []},
+            status=status.HTTP_404_NOT_FOUND,
+        )
+    result = poll_attempt_status(
+        attempt,
+        requested_by=request.user,
+        source='admin' if is_platform_operator(request.user) else 'user',
+    )
+    payment.refresh_from_db()
+    return Response(
+        {
+            'success': True,
+            'data': {
+                'bill_payment': BillPaymentSerializer(payment).data,
+                'status': payment.status,
+                'status_changed': result.status_changed,
+                'cooling_active': result.cooling_active,
+                'retry_after_seconds': result.retry_after_seconds,
+            },
+            'message': result.message,
+            'errors': [],
+        },
+        status=status.HTTP_200_OK,
+    )
 
 
 @api_view(['GET'])
@@ -3414,11 +3468,22 @@ def poll_status_view(request):
         attempt = BbpsPaymentAttempt.objects.filter(txn_ref_id=ser.validated_data['txn_ref_id'], is_deleted=False).order_by('-created_at').first()
     if not attempt:
         return Response({'success': False, 'data': None, 'message': 'Attempt not found', 'errors': []}, status=404)
-    try:
-        updated = poll_attempt_status(attempt)
-    except TransactionFailed as exc:
-        return Response({'success': False, 'data': None, 'message': str(exc), 'errors': []}, status=400)
-    return Response({'success': True, 'data': {'attempt_id': updated.pk, 'status': updated.status}, 'message': 'Status polled', 'errors': []}, status=200)
+    result = poll_attempt_status(attempt, requested_by=request.user, source='admin')
+    return Response(
+        {
+            'success': True,
+            'data': {
+                'attempt_id': result.attempt.pk,
+                'status': result.attempt.status,
+                'status_changed': result.status_changed,
+                'cooling_active': result.cooling_active,
+                'retry_after_seconds': result.retry_after_seconds,
+            },
+            'message': result.message,
+            'errors': [],
+        },
+        status=200,
+    )
 
 
 @api_view(['POST'])

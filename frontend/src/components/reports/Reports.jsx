@@ -133,8 +133,8 @@ const Reports = () => {
   };
 
   return (
-    <div className="space-y-4 sm:space-y-6">
-      <div className="-mx-2 overflow-hidden rounded-none border-y border-gray-200 bg-white shadow-sm dark:border-slate-700 dark:bg-slate-900 sm:mx-0 sm:rounded-xl sm:border">
+    <div className="min-w-0 max-w-full space-y-4 sm:space-y-6">
+      <div className="-mx-2 min-w-0 max-w-full overflow-x-hidden rounded-none border-y border-gray-200 bg-white shadow-sm dark:border-slate-700 dark:bg-slate-900 sm:mx-0 sm:rounded-xl sm:border">
         <div className="border-b border-gray-200 dark:border-slate-700">
           <nav className="flex flex-nowrap -mb-px gap-0 overflow-x-auto px-2 sm:flex-wrap sm:px-6">
             {tabs.map((tab) => (

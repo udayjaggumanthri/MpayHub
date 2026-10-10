@@ -512,6 +512,118 @@ def _build_remitter_payment_info(*, service_id: str, request_id: str, payment_mo
     ]
 
 
+_EXPLICIT_SUCCESS_STATUSES = frozenset({
+    'SUCCESS',
+    'SUCCESSFUL',
+    'PAID',
+    'COMPLETED',
+})
+
+
+def _approval_is_real(approval: str) -> bool:
+    text = str(approval or '').strip()
+    if not text:
+        return False
+    return not set(text) <= {'0'}
+
+
+def _code_is_accept(code: str) -> bool:
+    return str(code or '').strip() in ('000', '0')
+
+
+def classify_immediate_pay_reply(
+    *,
+    envelope_code: str = '',
+    inner_code: str = '',
+    txn_resp_type: str = '',
+    txn_status: str = '',
+    txn_ref_id: str = '',
+    approval_ref_number: str = '',
+    reason: str = '',
+    payload: dict | None = None,
+    timed_out: bool = False,
+    service_id: str = '',
+) -> dict:
+    """
+    Classify an immediate bill-pay reply.
+
+    Success requires code 000, a real approval, and an explicit success transaction status.
+    Code 000 plus a real approval without that status stays in process.
+    A clear rejection with no transaction id is Failed. Anything unclear stays in process.
+    """
+    body = payload if isinstance(payload, dict) else {}
+    txn_ref = str(txn_ref_id or '').strip()
+    approval = str(approval_ref_number or '').strip()
+    resp_type = str(txn_resp_type or '').strip().upper()
+    status_token = str(txn_status or '').strip().upper()
+    reason_text = str(reason or '').strip()
+    reason_u = reason_text.upper()
+    env = str(envelope_code or '').strip()
+    inner = str(inner_code or '').strip()
+
+    def pack(status: str, message: str) -> dict:
+        return {
+            'status': status,
+            'message': message,
+            'transaction_id': txn_ref or service_id,
+            'txn_ref_id': txn_ref,
+            'approval_ref_number': approval,
+            'response_code': inner or env,
+            'response_payload': body,
+        }
+
+    if timed_out:
+        return pack('AWAITED', reason_text or 'Payment in process (timeout)')
+
+    # BillAvenue's normal paid reply has responseReason "Successful" and
+    # txnRespType "FORWARD TYPE RESPONSE", with no txnStatus field.
+    explicit_success = (
+        status_token in _EXPLICIT_SUCCESS_STATUSES
+        or resp_type in _EXPLICIT_SUCCESS_STATUSES
+        or reason_u in _EXPLICIT_SUCCESS_STATUSES
+    )
+    code_ok = _code_is_accept(env) or _code_is_accept(inner)
+    hard_code = any(c and not _code_is_accept(c) for c in (env, inner))
+    if explicit_success and code_ok and not hard_code and _approval_is_real(approval):
+        return pack('SUCCESS', reason_text or 'Payment processed successfully')
+
+    in_process = False
+    if not body and not reason_text and not txn_ref and not env and not inner:
+        in_process = True
+    if env == '999' or inner == '999':
+        in_process = True
+    if 'PNR003' in reason_u or 'IN PROCESS' in reason_u or 'IN-PROCESS' in reason_u:
+        in_process = True
+    if 'AWAIT' in resp_type or 'FORWARD' in resp_type:
+        in_process = True
+    if approval and not _approval_is_real(approval):
+        in_process = True
+    if code_ok and _approval_is_real(approval) and not explicit_success:
+        in_process = True
+    if txn_ref and not explicit_success:
+        in_process = True
+    if status_token in ('AWAITED', 'PENDING', 'IN PROCESS', 'INPROCESS'):
+        in_process = True
+
+    if in_process:
+        return pack('AWAITED', reason_text or 'Payment awaiting final status')
+
+    explicit_fail = status_token in ('FAILURE', 'FAILED', 'REJECTED', 'DECLINED') or resp_type in (
+        'FAILURE',
+        'FAILED',
+        'REJECTED',
+        'DECLINED',
+    )
+    clear_reject = (not txn_ref) and (hard_code or explicit_fail or bool(reason_text))
+    if clear_reject:
+        msg = reason_text or 'Payment declined'
+        if inner and not _code_is_accept(inner):
+            msg = f'{msg} (responseCode={inner})'.strip()
+        return pack('FAILED', msg)
+
+    return pack('AWAITED', reason_text or 'Payment awaiting final status')
+
+
 class BBPSClient(BaseIntegration):
     """
     BBPS API client for bill fetching and payment processing.
@@ -670,71 +782,59 @@ class BBPSClient(BaseIntegration):
             try:
                 out = client.bill_pay(payload, request_id=pay_transport or None)
             except BillAvenueTransportError as exc:
-                if 'TIMEOUT' not in str(exc).upper():
-                    raise
-                out = client.bill_pay(payload, request_id=pay_transport or None)
+                # One pay call only. A timeout must not send bill_pay again.
+                self.handle_error(exc)
+                return classify_immediate_pay_reply(
+                    reason=str(exc),
+                    payload={'error': str(exc), 'timeout': 'TIMEOUT' in str(exc).upper()},
+                    timed_out=True,
+                    service_id=str(service_id or ''),
+                )
             normalized = out.normalized if isinstance(out.normalized, dict) else {}
             body = _best_bill_pay_transaction_dict(normalized)
-            txn_raw = _txn_resp_type_value(body)
-            txn_type = str(txn_raw).upper()
+            txn_resp = ''
+            for hint in ('txnRespType', 'txnResponseType', 'respType', 'transactionResponseType'):
+                txn_resp = _value_by_key_suffix(body, hint)
+                if txn_resp:
+                    break
+            txn_status = _value_by_key_suffix(body, 'txnStatus')
             reason = _value_by_key_suffix(body, 'responseReason') or _value_by_key_suffix(body, 'responseDesc')
+            if not reason:
+                reason = _first_nested_reason(normalized)
             txn_ref = _value_by_key_suffix(body, 'txnRefId')
             approval_ref = _value_by_key_suffix(body, 'approvalRefNumber') or _value_by_key_suffix(
                 body, 'approvalRefNum'
             )
             inner_code = _value_by_key_suffix(body, 'responseCode')
-            env_ok = str(out.response_code or '').strip() in ('000', '0', '')
-            if env_ok and txn_ref and approval_ref and inner_code in ('', '000', '0') and not txn_type:
-                return {
-                    'status': 'SUCCESS',
-                    'message': reason or 'Payment processed successfully',
-                    'transaction_id': txn_ref or service_id,
-                    'txn_ref_id': txn_ref or '',
-                    'approval_ref_number': approval_ref or '',
-                    'response_payload': normalized,
-                }
-            if 'FORWARD' in txn_type:
-                return {
-                    'status': 'SUCCESS',
-                    'message': reason or 'Payment processed successfully',
-                    'transaction_id': txn_ref or service_id,
-                    'txn_ref_id': txn_ref or '',
-                    'approval_ref_number': approval_ref or '',
-                    'response_payload': normalized,
-                }
-            if 'AWAIT' in txn_type:
-                return {
-                    'status': 'AWAITED',
-                    'message': reason or 'Payment awaiting final status',
-                    'transaction_id': txn_ref or service_id,
-                    'txn_ref_id': txn_ref or '',
-                    'approval_ref_number': approval_ref or '',
-                    'response_payload': normalized,
-                }
-            msg = reason.strip() if reason else _first_nested_reason(normalized)
-            if not msg:
-                top_keys = list(normalized.keys())[:12] if isinstance(normalized, dict) else []
-                msg = (
-                    f'Bill pay declined (txnRespType={txn_raw or "?"})'
-                    + (f'; response keys: {top_keys}' if top_keys else '')
-                )
-            if inner_code and inner_code not in ('000', '0', ''):
-                msg = f'{msg} (responseCode={inner_code})'.strip()
-            return {
-                'status': 'FAILED',
-                'message': msg,
-                'transaction_id': txn_ref or service_id,
-                'response_payload': normalized,
-            }
+            return classify_immediate_pay_reply(
+                envelope_code=str(out.response_code or ''),
+                inner_code=inner_code,
+                txn_resp_type=txn_resp,
+                txn_status=txn_status,
+                txn_ref_id=txn_ref,
+                approval_ref_number=approval_ref,
+                reason=reason,
+                payload=normalized,
+                service_id=str(service_id or ''),
+            )
         except BillAvenueClientError as e:
             self.handle_error(e)
-            return {'status': 'FAILED', 'message': str(e)}
+            timed_out = 'TIMEOUT' in str(e).upper()
+            return classify_immediate_pay_reply(
+                inner_code=str(getattr(e, 'provider_code', '') or ''),
+                reason=str(e),
+                payload={'error': str(e)},
+                timed_out=timed_out,
+                service_id=str(service_id or ''),
+            )
         except Exception as e:
             self.handle_error(e)
-            return {
-                'status': 'FAILED',
-                'message': str(e)
-            }
+            return classify_immediate_pay_reply(
+                reason=str(e),
+                payload={'error': str(e)},
+                timed_out=True,
+                service_id=str(service_id or ''),
+            )
 
     def _build_bill_payment_payload(self, *, service_id, request_id, amount, bill_data: dict) -> dict:
         biller_id = str(bill_data.get('biller_id') or '').strip()

@@ -1,4 +1,9 @@
-import { deriveFormReceiptIdentity, deriveReceiptIdentity, pickPrimaryIdentity } from './bbpsBillsHelpers';
+import {
+  deriveFormReceiptIdentity,
+  deriveReceiptIdentity,
+  describeSavedPaymentStatus,
+  pickPrimaryIdentity,
+} from './bbpsBillsHelpers';
 
 describe('BBPS receipt identity', () => {
   test('electricity uses Service Number from input_params', () => {
@@ -100,5 +105,14 @@ describe('BBPS receipt identity', () => {
       ],
     });
     expect(primary).toEqual({ label: 'CA Number', value: '998877' });
+  });
+});
+
+describe('saved BBPS pay status', () => {
+  test('pending and success come from the saved payment status', () => {
+    expect(describeSavedPaymentStatus('PENDING').status).toBe('PENDING');
+    expect(describeSavedPaymentStatus('SUCCESS').tone).toBe('success');
+    expect(describeSavedPaymentStatus('FAILED').status).toBe('FAILED');
+    expect(describeSavedPaymentStatus('').status).toBe('PENDING');
   });
 });

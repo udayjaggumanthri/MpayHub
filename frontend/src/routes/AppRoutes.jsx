@@ -54,6 +54,7 @@ import PaymentGatewaysAdmin from '../components/admin/PaymentGatewaysAdmin';
 import PayInQrAccountsAdmin from '../components/admin/PayInQrAccountsAdmin';
 import PayInQrOperations from '../components/admin/PayInQrOperations';
 import PayoutRecovery from '../components/admin/PayoutRecovery';
+import BbpsRecovery from '../components/admin/BbpsRecovery';
 import PayInPackagesAdmin from '../components/admin/PayInPackagesAdmin';
 import PayInPackageFormPage from '../components/admin/PayInPackageFormPage';
 import PayInPackageCalculationPreview from '../components/admin/PayInPackageCalculationPreview';
@@ -724,6 +725,19 @@ const AppRoutes = () => {
             <AdminRoute>
               <Layout>
                 <PayInQrOperations />
+              </Layout>
+            </AdminRoute>
+          </ProtectedRoute>
+        }
+      />
+
+      <Route
+        path="/admin/bbps-recovery"
+        element={
+          <ProtectedRoute>
+            <AdminRoute>
+              <Layout>
+                <BbpsRecovery />
               </Layout>
             </AdminRoute>
           </ProtectedRoute>
