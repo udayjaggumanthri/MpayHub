@@ -26,6 +26,31 @@ import {
   FaStar,
 } from 'react-icons/fa6';
 
+const PROVIDER_OPTIONS = [
+  { value: 'toucan', label: 'Toucan' },
+  { value: 'razorpay', label: 'Razorpay' },
+  { value: 'payu', label: 'PayU' },
+  { value: 'mock', label: 'Mock' },
+];
+
+function suggestProvider(name) {
+  const text = String(name || '').toLowerCase();
+  if (text.includes('toucan') || text.includes('token')) return 'toucan';
+  if (text.includes('payu')) return 'payu';
+  if (text.includes('razor')) return 'razorpay';
+  return '';
+}
+
+function collectionModeForPackage(pkg) {
+  const gatewayCount = Array.isArray(pkg?.package_gateways) ? pkg.package_gateways.length : 0;
+  const qrCount = Array.isArray(pkg?.package_qr_accounts) ? pkg.package_qr_accounts.length : 0;
+  const hasGateway = gatewayCount > 0 || Boolean(pkg?.payment_gateway || pkg?.payment_gateway_id);
+  const hasQr = qrCount > 0;
+  if (hasGateway && hasQr) return 'both';
+  if (hasQr) return 'qr';
+  return 'gateway';
+}
+
 const PayInPackageFormPage = () => {
   const { id } = useParams();
   const navigate = useNavigate();
@@ -38,6 +63,17 @@ const PayInPackageFormPage = () => {
   const [gatewayPickerId, setGatewayPickerId] = useState('');
   const [qrPickerId, setQrPickerId] = useState('');
   const [packageForm, setPackageForm] = useState(defaultPackageForm());
+  const [collectionMode, setCollectionMode] = useState('gateway');
+  const [providerTouched, setProviderTouched] = useState(false);
+  const chooseCollectionMode = (next) => {
+    if (collectionMode === 'both' && next !== 'both') {
+      const dropping = next === 'gateway' ? 'QR accounts' : 'payment gateways';
+      if (!window.confirm(`This package currently uses both. Switching will unlink its ${dropping} when you save.`)) {
+        return;
+      }
+    }
+    setCollectionMode(next);
+  };
 
   useEffect(() => {
     const load = async () => {
@@ -55,6 +91,7 @@ const PayInPackageFormPage = () => {
         if (res.success && res.data) {
           setEditingPackage(res.data);
           setPackageForm(packageFormFromPkg(res.data, gwList, qrRes.data?.results || []));
+          setCollectionMode(collectionModeForPackage(res.data));
         }
       } else {
         setPackageForm(defaultPackageForm(gwList));
@@ -113,8 +150,11 @@ const PayInPackageFormPage = () => {
     (q) => !packageForm.qr_account_ids.includes(String(q.id))
   );
 
+  const gatewaysInTotal = collectionMode === 'qr' ? [] : selectedGatewayRows;
+  const qrsInTotal = collectionMode === 'gateway' ? [] : selectedQrRows;
+
   const totalDeductionPct = useMemo(() => {
-    const maxGw = maxRailFeeFromForm(selectedGatewayRows, selectedQrRows);
+    const maxGw = maxRailFeeFromForm(gatewaysInTotal, qrsInTotal);
     return (
       maxGw +
       parseFloat(packageForm.admin_pct || 0) +
@@ -122,12 +162,13 @@ const PayInPackageFormPage = () => {
       parseFloat(packageForm.master_distributor_pct || 0) +
       parseFloat(packageForm.distributor_pct || 0)
     ).toFixed(2);
-  }, [packageForm, selectedGatewayRows, selectedQrRows]);
+  }, [packageForm, gatewaysInTotal, qrsInTotal]);
 
   const addGatewayFromPicker = () => {
     if (!gatewayPickerId) return;
     const gid = String(gatewayPickerId);
     const gw = gateways.find((g) => String(g.id) === gid);
+    const suggested = suggestProvider(gw?.name);
     setPackageForm((prev) => {
       if (prev.payment_gateway_ids.includes(gid)) return prev;
       const nextIds = [...prev.payment_gateway_ids, gid];
@@ -137,6 +178,7 @@ const PayInPackageFormPage = () => {
         payment_gateway_ids: nextIds,
         default_payment_gateway_id: prev.default_payment_gateway_id || gid,
         gateway_fees: { ...prev.gateway_fees, [gid]: fee },
+        provider: !isEdit && !providerTouched && suggested ? suggested : prev.provider,
       };
     });
     setGatewayPickerId('');
@@ -216,10 +258,16 @@ const PayInPackageFormPage = () => {
       alert('Code and Display Name are required');
       return;
     }
-    const hasGateways = (packageForm.payment_gateway_ids || []).length > 0;
-    const hasQr = (packageForm.qr_account_ids || []).length > 0;
-    if (!hasGateways && !hasQr) {
-      alert('Link at least one payment gateway or one QR account.');
+    const useGateways = collectionMode !== 'qr';
+    const useQr = collectionMode !== 'gateway';
+    const hasGateways = useGateways && (packageForm.payment_gateway_ids || []).length > 0;
+    const hasQr = useQr && (packageForm.qr_account_ids || []).length > 0;
+    if (useGateways && !hasGateways) {
+      alert('Add the payment gateway for this package. A QR account is not required.');
+      return;
+    }
+    if (useQr && !hasQr) {
+      alert('Add a QR account for this package. A payment gateway is not required.');
       return;
     }
     setSaving(true);
@@ -237,15 +285,17 @@ const PayInPackageFormPage = () => {
             gateway_fee_pct: g.gateway_fee_pct,
           }))
         : [],
-      qr_account_ids: (packageForm.qr_account_ids || []).map((qid) => Number(qid)),
-      default_qr_account_id: packageForm.default_qr_account_id
+      qr_account_ids: hasQr ? (packageForm.qr_account_ids || []).map((qid) => Number(qid)) : [],
+      default_qr_account_id: hasQr && packageForm.default_qr_account_id
         ? Number(packageForm.default_qr_account_id)
         : null,
-      package_qr_accounts: selectedQrRows.map((q) => ({
-        id: Number(q.id),
-        qr_account_id: Number(q.id),
-        gateway_fee_pct: q.gateway_fee_pct,
-      })),
+      package_qr_accounts: hasQr
+        ? selectedQrRows.map((q) => ({
+            id: Number(q.id),
+            qr_account_id: Number(q.id),
+            gateway_fee_pct: q.gateway_fee_pct,
+          }))
+        : [],
       min_amount: packageForm.min_amount,
       max_amount_per_txn: packageForm.max_amount_per_txn,
       admin_pct: packageForm.admin_pct,
@@ -256,6 +306,7 @@ const PayInPackageFormPage = () => {
       is_active: packageForm.is_active,
       sort_order: Number(packageForm.sort_order || 0),
       is_default: editingPackage ? !!editingPackage.is_default : false,
+      provider: packageForm.provider || 'razorpay',
     };
 
     if (hasGateways) {
@@ -333,6 +384,22 @@ const PayInPackageFormPage = () => {
               onChange={(e) => setPackageForm((p) => ({ ...p, display_name: e.target.value }))}
               required
             />
+            <div className="md:col-span-2">
+              <SelectField
+                label="Checkout provider"
+                value={packageForm.provider || 'razorpay'}
+                onChange={(val) => {
+                  setProviderTouched(true);
+                  setPackageForm((p) => ({ ...p, provider: val }));
+                }}
+                options={PROVIDER_OPTIONS}
+                includeEmptyOption={false}
+                required
+              />
+              <p className="mt-1 text-xs text-gray-500 dark:text-slate-400">
+                This is the payment engine stored on the package. Linking a gateway suggests it, and you can change it here. It is separate from the gateway display name.
+              </p>
+            </div>
           </div>
 
           <label className="mt-4 inline-flex cursor-pointer items-center gap-2">
@@ -346,13 +413,46 @@ const PayInPackageFormPage = () => {
           </label>
         </Card>
 
+          <Card shadow="sm" padding="lg" title="How this package collects money">
+            <p className="mb-3 text-sm text-slate-600 dark:text-slate-400">
+              A token or Toucan package only needs a payment gateway. A QR package only needs a QR account.
+            </p>
+            <div className="flex flex-col gap-2 sm:flex-row sm:gap-6">
+              <label className="inline-flex items-center gap-2 text-sm">
+                <input
+                  type="radio"
+                  name="collection_mode"
+                  checked={collectionMode === 'gateway'}
+                  onChange={() => chooseCollectionMode('gateway')}
+                />
+                Payment gateway
+              </label>
+              <label className="inline-flex items-center gap-2 text-sm">
+                <input
+                  type="radio"
+                  name="collection_mode"
+                  checked={collectionMode === 'qr'}
+                  onChange={() => chooseCollectionMode('qr')}
+                />
+                QR account
+              </label>
+              {collectionMode === 'both' && (
+                <label className="inline-flex items-center gap-2 text-sm">
+                  <input type="radio" name="collection_mode" checked readOnly />
+                  Gateway and QR
+                </label>
+              )}
+            </div>
+          </Card>
+
+          {(collectionMode === 'gateway' || collectionMode === 'both') && (
           <Card shadow="sm" padding="lg" title="Payment gateways">
             <p className="text-xs text-slate-600 dark:text-slate-400 mb-4">
               Set gateway fee % per rail. Minimum fee comes from Payment Gateways admin.
             </p>
             {selectedGatewayRows.length === 0 ? (
               <p className="mb-4 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-800 dark:border-amber-800 dark:bg-amber-950/40 dark:text-amber-300">
-                No gateway linked. Add one below, or link a QR account in the next section.
+                No gateway linked yet. Add the Toucan or other payment gateway. A QR account is not required.
               </p>
             ) : (
               <ul className="mb-4 space-y-2">
@@ -424,8 +524,10 @@ const PayInPackageFormPage = () => {
               </div>
             )}
           </Card>
+          )}
 
-          <Card shadow="sm" padding="lg" title="Linked QR accounts (optional)">
+          {(collectionMode === 'qr' || collectionMode === 'both') && (
+          <Card shadow="sm" padding="lg" title="QR accounts">
             {selectedQrRows.length === 0 ? (
               <p className="text-sm text-slate-500 dark:text-slate-400">No QR accounts linked.</p>
             ) : (
@@ -496,6 +598,7 @@ const PayInPackageFormPage = () => {
               </div>
             )}
           </Card>
+          )}
 
           <Card shadow="sm" padding="lg">
             <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
@@ -541,10 +644,12 @@ const PayInPackageFormPage = () => {
             </div>
             <div className="mt-3 p-3 bg-slate-50 dark:bg-slate-800/50 border rounded-xl text-sm">
               <span className="font-semibold">
-                Sum (max rail fee + admin + SD + MD + D): {totalDeductionPct}%
+                Sum of the rails on this form + admin + SD + MD + D: {totalDeductionPct}%
               </span>
               <p className="text-slate-600 dark:text-slate-400 mt-1 text-xs">
-                Gateway fee is set per gateway/QR above — not added again here.
+                {gatewaysInTotal.length || qrsInTotal.length
+                  ? 'The rail fee above is included once. Role shares are added on top.'
+                  : 'No rail is linked yet, so this total is only the role shares.'}
               </p>
             </div>
           </Card>

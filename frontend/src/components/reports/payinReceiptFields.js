@@ -31,6 +31,11 @@ const formatReceiptDate = (value) => {
   }
 };
 
+export function canCheckToucanPayin(row = {}) {
+  const rail = String(row.collection_rail || row.collectionRail || 'gateway').toLowerCase();
+  return rail !== 'qr';
+}
+
 const displayValue = (value) => {
   const s = String(value ?? '').trim();
   return s || '—';
@@ -69,6 +74,8 @@ export const mapPayinRowToReceiptTransaction = (row = {}) => {
     failureReason: row.reject_reason || rd.failure_reason || '',
     proofReceiptUrl: row.proof_receipt_url || rd.proof_receipt_url || '',
     hasProofImage: Boolean(rd.has_proof_image || row.proof_receipt_url),
+    providerOrderId: row.provider_order_id || '',
+    canCheckGateway: canCheckToucanPayin(row),
     openingBalance: row.opening_balance,
     closingBalance: row.closing_balance,
     receiptDetails: rd,

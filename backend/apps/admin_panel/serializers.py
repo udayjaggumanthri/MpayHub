@@ -453,7 +453,6 @@ class PayInPackageAdminSerializer(serializers.ModelSerializer):
             'total_deduction_pct',
             'max_rail_gateway_fee_pct',
             'gateway_fee_pct',
-            'provider',
         ]
 
     def get_payout_slabs(self, obj):
@@ -646,15 +645,18 @@ class PayInPackageAdminSerializer(serializers.ModelSerializer):
         qr_ids = validated_data.pop('qr_account_ids', None)
         default_qr_id = validated_data.pop('default_qr_account_id', None)
 
+        chosen_provider = (validated_data.get('provider') or '').strip()
         if gateway_ids:
             primary_id = default_gateway_id or gateway_ids[0]
             primary_gw = PaymentGateway.objects.filter(id=primary_id).first()
             validated_data['payment_gateway'] = primary_gw
-            validated_data['provider'] = derive_provider_from_gateway(primary_gw)
+            if not chosen_provider:
+                validated_data['provider'] = derive_provider_from_gateway(primary_gw)
         elif payment_gateway_id:
             primary_gw = PaymentGateway.objects.filter(id=payment_gateway_id).first()
             validated_data['payment_gateway'] = primary_gw
-            validated_data['provider'] = derive_provider_from_gateway(primary_gw)
+            if not chosen_provider:
+                validated_data['provider'] = derive_provider_from_gateway(primary_gw)
 
         validated_data['retailer_commission_pct'] = Decimal('0')
         instance = super().create(validated_data)
@@ -704,13 +706,15 @@ class PayInPackageAdminSerializer(serializers.ModelSerializer):
             validated_data['payment_gateway'] = (
                 PaymentGateway.objects.filter(id=pg_id).first() if pg_id else None
             )
+        chosen_provider = (validated_data.get('provider') or '').strip()
         if gateway_ids is not None:
             primary_id = default_gateway_id or (gateway_ids[0] if gateway_ids else None)
             if primary_id:
                 primary_gw = PaymentGateway.objects.filter(id=primary_id).first()
                 validated_data['payment_gateway'] = primary_gw
-                validated_data['provider'] = derive_provider_from_gateway(primary_gw)
-        elif validated_data.get('payment_gateway'):
+                if not chosen_provider:
+                    validated_data['provider'] = derive_provider_from_gateway(primary_gw)
+        elif validated_data.get('payment_gateway') and not chosen_provider:
             validated_data['provider'] = derive_provider_from_gateway(validated_data['payment_gateway'])
 
         validated_data['retailer_commission_pct'] = Decimal('0')
@@ -747,6 +751,7 @@ class PayInPackageListSerializer(serializers.ModelSerializer):
     gateway_count = serializers.SerializerMethodField(read_only=True)
     qr_count = serializers.SerializerMethodField(read_only=True)
     default_gateway_name = serializers.SerializerMethodField(read_only=True)
+    rails_label = serializers.SerializerMethodField(read_only=True)
 
     class Meta:
         model = PayInPackage
@@ -766,6 +771,7 @@ class PayInPackageListSerializer(serializers.ModelSerializer):
             'gateway_count',
             'qr_count',
             'default_gateway_name',
+            'rails_label',
             'is_active',
             'is_default',
             'sort_order',
@@ -809,7 +815,28 @@ class PayInPackageListSerializer(serializers.ModelSerializer):
             return link.payment_gateway.name
         if obj.payment_gateway:
             return obj.payment_gateway.name
-        return obj.provider or '—'
+        return ''
+
+    def get_rails_label(self, obj):
+        names = []
+        gateway_links = (
+            obj.package_gateways.filter(is_deleted=False, is_active=True)
+            .select_related('payment_gateway')
+            .order_by('sort_order', 'id')
+        )
+        for link in gateway_links:
+            if link.payment_gateway and link.payment_gateway.name:
+                names.append(link.payment_gateway.name)
+        qr_links = (
+            obj.package_qr_links.filter(is_deleted=False, is_active=True)
+            .select_related('qr_account')
+            .order_by('sort_order', 'id')
+        )
+        for link in qr_links:
+            account = link.qr_account
+            if account and account.display_name:
+                names.append(account.display_name)
+        return ', '.join(names)
 
 
 class PayoutSlabConfigSerializer(serializers.ModelSerializer):

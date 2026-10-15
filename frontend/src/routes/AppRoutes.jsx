@@ -18,6 +18,7 @@ import ServicesPage from '../components/dashboard/ServicesPage';
 import LoadMoney from '../components/fundManagement/LoadMoney';
 import QrPayInPage from '../components/fundManagement/QrPayInPage';
 import Payout from '../components/fundManagement/Payout';
+import { PaymentFailure, PaymentSuccess } from '../components/fundManagement/ToucanReturn';
 
 // BBPS
 import BillPayment from '../components/bbps/BillPayment';
@@ -53,6 +54,7 @@ import AnnouncementManagement from '../components/admin/AnnouncementManagement';
 import PaymentGatewaysAdmin from '../components/admin/PaymentGatewaysAdmin';
 import PayInQrAccountsAdmin from '../components/admin/PayInQrAccountsAdmin';
 import PayInQrOperations from '../components/admin/PayInQrOperations';
+import PayInRecovery from '../components/admin/PayInRecovery';
 import PayoutRecovery from '../components/admin/PayoutRecovery';
 import BbpsRecovery from '../components/admin/BbpsRecovery';
 import PayInPackagesAdmin from '../components/admin/PayInPackagesAdmin';
@@ -70,6 +72,7 @@ import TestUsageMode from '../components/admin/TestUsageMode';
 import RolesPermissions from '../components/admin/RolesPermissions';
 import SuperAdminRoute from '../components/common/SuperAdminRoute';
 import AppearanceSettings from '../components/admin/AppearanceSettings';
+import TransactionIdSettings from '../components/admin/TransactionIdSettings';
 import KycApprovalDashboard from '../components/admin/KycApprovalDashboard';
 import UserManagementSettings from '../components/admin/UserManagementSettings';
 import WalletAdjustments from '../components/admin/WalletAdjustments';
@@ -118,6 +121,26 @@ const AppRoutes = () => {
     <Routes>
       {/* Public Routes */}
       <Route path="/login" element={<Login />} />
+      <Route
+        path="/payment/success"
+        element={
+          <ProtectedRoute>
+            <Layout>
+              <PaymentSuccess />
+            </Layout>
+          </ProtectedRoute>
+        }
+      />
+      <Route
+        path="/payment/failure"
+        element={
+          <ProtectedRoute>
+            <Layout>
+              <PaymentFailure />
+            </Layout>
+          </ProtectedRoute>
+        }
+      />
       <Route path="/forgot-password" element={<ForgotPassword />} />
       <Route path="/forgot-mpin" element={<ForgotMPIN />} />
       <Route path="/mpin-verification" element={<MPINVerification />} />
@@ -567,6 +590,19 @@ const AppRoutes = () => {
         }
       />
 
+      <Route
+        path="/admin/transaction-ids"
+        element={
+          <ProtectedRoute>
+            <AdminRoute>
+              <Layout>
+                <TransactionIdSettings />
+              </Layout>
+            </AdminRoute>
+          </ProtectedRoute>
+        }
+      />
+
       {/* Admin - Appearance & theme */}
       <Route
         path="/admin/appearance"
@@ -738,6 +774,19 @@ const AppRoutes = () => {
             <AdminRoute>
               <Layout>
                 <BbpsRecovery />
+              </Layout>
+            </AdminRoute>
+          </ProtectedRoute>
+        }
+      />
+
+      <Route
+        path="/admin/payin-recovery"
+        element={
+          <ProtectedRoute>
+            <AdminRoute>
+              <Layout>
+                <PayInRecovery />
               </Layout>
             </AdminRoute>
           </ProtectedRoute>

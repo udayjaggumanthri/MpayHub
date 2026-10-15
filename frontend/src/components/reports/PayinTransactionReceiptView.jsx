@@ -25,6 +25,9 @@ const PayinTransactionReceiptView = ({
   loading = false,
   onPrint,
   onMobilePrint,
+  onCheckGateway,
+  checkBusy = false,
+  checkNote = '',
   showActions = true,
   className = '',
 }) => {
@@ -119,6 +122,16 @@ const PayinTransactionReceiptView = ({
 
       {showActions ? (
         <div className="flex flex-wrap items-center gap-3 pt-2">
+          {transaction.canCheckGateway && onCheckGateway ? (
+            <button
+              type="button"
+              onClick={onCheckGateway}
+              disabled={checkBusy}
+              className="px-4 py-2 text-sm font-medium text-white bg-blue-700 rounded hover:bg-blue-800 disabled:opacity-60"
+            >
+              {checkBusy ? 'Checking…' : 'Check with gateway'}
+            </button>
+          ) : null}
           <button
             type="button"
             onClick={onPrint}
@@ -133,6 +146,7 @@ const PayinTransactionReceiptView = ({
           >
             Mobile Print
           </button>
+          {checkNote ? <p className="w-full text-sm text-gray-600">{checkNote}</p> : null}
         </div>
       ) : null}
 

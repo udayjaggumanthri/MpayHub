@@ -109,7 +109,12 @@ def apply_operational_report_filters(
 
     service_id = (request.query_params.get('service_id') or '').strip()
     if service_id:
-        qs = qs.filter(**{f'{id_field}__icontains': service_id})
+        id_query = Q(**{f'{id_field}__icontains': service_id})
+        field_names = {field.name for field in qs.model._meta.get_fields() if hasattr(field, 'name')}
+        for extra in ('provider_order_id', 'provider_payment_id', 'gateway_transaction_id'):
+            if extra in field_names and extra != id_field:
+                id_query |= Q(**{f'{extra}__icontains': service_id})
+        qs = qs.filter(id_query)
 
     mobile = _norm_mobile(request.query_params.get('mobile'))
     if mobile:

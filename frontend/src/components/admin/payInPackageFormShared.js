@@ -94,8 +94,17 @@ export const defaultPackageForm = (gateways = []) => {
     distributor_pct: '0.03',
     is_active: true,
     sort_order: '0',
+    provider: suggestProviderName(gw?.name) || 'razorpay',
   };
 };
+
+function suggestProviderName(name) {
+  const text = String(name || '').toLowerCase();
+  if (text.includes('toucan') || text.includes('token')) return 'toucan';
+  if (text.includes('payu')) return 'payu';
+  if (text.includes('razor')) return 'razorpay';
+  return '';
+}
 
 export const packageFormFromPkg = (pkg, gateways, qrAccounts) => {
   const gwIds = gatewayIdsFromPackage(pkg, gateways);
@@ -134,6 +143,7 @@ export const packageFormFromPkg = (pkg, gateways, qrAccounts) => {
     distributor_pct: formatDecimalInput(pkg.distributor_pct) || '0.00',
     is_active: Boolean(pkg.is_active),
     sort_order: pkg.sort_order?.toString?.() || '0',
+    provider: pkg.provider || 'razorpay',
   };
 };
 

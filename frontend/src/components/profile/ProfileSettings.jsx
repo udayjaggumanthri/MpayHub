@@ -11,6 +11,7 @@ import KycProfileSyncAlert from '../onboarding/KycProfileSyncAlert';
 import ActivityAuditPanel from '../userManagement/profile/ActivityAuditPanel';
 import MpinInput from '../common/MpinInput';
 import { canViewCommissionWallet } from '../../utils/rolePermissions';
+import PasswordField from '../common/PasswordField';
 
 const ProfileSettings = () => {
   const navigate = useNavigate();
@@ -568,8 +569,7 @@ const ProfileSettings = () => {
               <div className="space-y-4">
                 <div>
                   <label className="block text-sm font-medium text-gray-700 dark:text-slate-300 mb-2">Current Password</label>
-                  <input
-                    type="password"
+                  <PasswordField
                     value={passwordData.currentPassword}
                     onChange={(e) => setPasswordData({ ...passwordData, currentPassword: e.target.value })}
                     className="w-full px-4 py-3 border border-gray-300 dark:border-slate-600 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
@@ -579,8 +579,7 @@ const ProfileSettings = () => {
 
                 <div>
                   <label className="block text-sm font-medium text-gray-700 dark:text-slate-300 mb-2">New Password</label>
-                  <input
-                    type="password"
+                  <PasswordField
                     value={passwordData.newPassword}
                     onChange={(e) => setPasswordData({ ...passwordData, newPassword: e.target.value })}
                     className="w-full px-4 py-3 border border-gray-300 dark:border-slate-600 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
@@ -591,8 +590,7 @@ const ProfileSettings = () => {
 
                 <div>
                   <label className="block text-sm font-medium text-gray-700 dark:text-slate-300 mb-2">Confirm New Password</label>
-                  <input
-                    type="password"
+                  <PasswordField
                     value={passwordData.confirmPassword}
                     onChange={(e) => setPasswordData({ ...passwordData, confirmPassword: e.target.value })}
                     className="w-full px-4 py-3 border border-gray-300 dark:border-slate-600 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"

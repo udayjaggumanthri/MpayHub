@@ -20,6 +20,7 @@ urlpatterns = [
     path('pay-in/quote/', views.pay_in_quote_view, name='pay-in-quote'),
     path('pay-in/create-order/', views.pay_in_create_order_view, name='pay-in-create-order'),
     path('pay-in/verify-razorpay/', views.pay_in_verify_razorpay_view, name='pay-in-verify-razorpay'),
+    path('pay-in/status-check/', views.pay_in_status_check_view, name='pay-in-status-check'),
     path('pay-in/complete-mock/', views.pay_in_complete_mock_view, name='pay-in-complete-mock'),
     path('pay-in/qr/submit/', views_qr.pay_in_qr_submit_view, name='pay-in-qr-submit'),
     path(

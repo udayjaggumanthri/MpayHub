@@ -102,6 +102,7 @@ const QrPayInPage = () => {
       const res = await fundManagementAPI.payInQuote({
         packageId: Number(selected.package_id),
         amount: String(amount),
+        qrAccountId: selected.qr_account_id,
       });
       setQuoteLoading(false);
       if (res.success && res.data) {
@@ -112,7 +113,7 @@ const QrPayInPage = () => {
       }
     }, 350);
     return () => clearTimeout(t);
-  }, [selected?.package_id, amount]);
+  }, [selected?.package_id, selected?.qr_account_id, amount]);
 
   const handleReceiptChange = async (e) => {
     const file = e.target.files?.[0];

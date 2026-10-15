@@ -141,6 +141,8 @@ const LoadMoney = () => {
     : '';
   const selectedGatewayId =
     !isQrRail && selectedCheckout?.gateway_id ? String(selectedCheckout.gateway_id) : '';
+  const selectedQrAccountId =
+    isQrRail && selectedCheckout?.qr_account_id ? String(selectedCheckout.qr_account_id) : '';
 
   useEffect(() => {
     if (!selectedPackageId || !amount) {
@@ -160,6 +162,8 @@ const LoadMoney = () => {
       const res = await fundManagementAPI.payInQuote({
         packageId: Number(selectedPackageId),
         amount: String(amount),
+        gatewayId: selectedGatewayId || undefined,
+        qrAccountId: selectedQrAccountId || undefined,
       });
       setQuoteLoading(false);
       if (res.success && res.data) {
@@ -171,7 +175,7 @@ const LoadMoney = () => {
       }
     }, 350);
     return () => clearTimeout(t);
-  }, [selectedCheckoutKey, selectedPackageId, amount]);
+  }, [selectedCheckoutKey, selectedPackageId, selectedGatewayId, selectedQrAccountId, amount]);
 
   useEffect(() => {
     if (!isAdminUser(user)) setShowPriceBreakdown(false);
@@ -880,7 +884,24 @@ const LoadMoney = () => {
                 </p>
               )}
 
-              {!['razorpay', 'payu'].includes(orderPayload.provider) && (
+              {orderPayload.provider === 'toucan' && orderPayload.redirect_url && (
+                <div className="space-y-3">
+                  <p className="text-sm text-gray-600 dark:text-slate-400">
+                    You will complete this payment on the Toucan checkout page. Your wallet is credited only after the payment hub confirms it.
+                  </p>
+                  <Button
+                    onClick={() => { window.location.href = orderPayload.redirect_url; }}
+                    disabled={loading}
+                    variant="primary"
+                    size="lg"
+                    fullWidth
+                  >
+                    Continue to payment
+                  </Button>
+                </div>
+              )}
+
+              {!['razorpay', 'payu', 'toucan'].includes(orderPayload.provider) && (
                 <p className="text-sm text-red-800 dark:text-red-300 bg-red-50 dark:bg-red-950/40 border border-red-200 dark:border-red-800 rounded-lg p-4">
                   Unknown provider "{orderPayload.provider}". Please contact support or select a different package.
                 </p>

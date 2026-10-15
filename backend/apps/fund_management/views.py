@@ -128,7 +128,13 @@ def pay_in_quote_view(request):
             status=status.HTTP_403_FORBIDDEN,
         )
     try:
-        q = quote_payin(pkg, ser.validated_data['amount'], request.user)
+        q = quote_payin(
+            pkg,
+            ser.validated_data['amount'],
+            request.user,
+            gateway_id=ser.validated_data.get('gateway_id'),
+            qr_account_id=ser.validated_data.get('qr_account_id'),
+        )
     except ValueError as e:
         return Response(
             {'success': False, 'data': None, 'message': str(e), 'errors': []},
@@ -211,6 +217,57 @@ def pay_in_complete_mock_view(request):
             'success': True,
             'data': {'load_money': LoadMoneySerializer(lm, context={'request': request}).data},
             'message': 'Payment completed',
+            'errors': [],
+        },
+        status=status.HTTP_200_OK,
+    )
+
+
+@api_view(['POST'])
+@permission_classes([IsAuthenticated])
+def pay_in_status_check_view(request):
+    """POST /api/fund-management/pay-in/status-check/ — ask Toucan for this pay-in."""
+    from apps.core.roles import is_platform_operator
+    from apps.fund_management.toucan_hub import check_toucan_payin
+
+    transaction_id = str(request.data.get('transaction_id') or '').strip()
+    if not transaction_id:
+        return Response(
+            {'success': False, 'data': None, 'message': 'transaction_id is required.', 'errors': []},
+            status=status.HTTP_400_BAD_REQUEST,
+        )
+    load_money = LoadMoney.objects.select_related('payment_gateway').filter(transaction_id=transaction_id).first()
+    if load_money is None:
+        return Response(
+            {'success': False, 'data': None, 'message': 'Pay-in not found.', 'errors': []},
+            status=status.HTTP_404_NOT_FOUND,
+        )
+    if load_money.user_id != request.user.id and not is_platform_operator(request.user):
+        return Response(
+            {'success': False, 'data': None, 'message': 'You cannot check this pay-in.', 'errors': []},
+            status=status.HTTP_403_FORBIDDEN,
+        )
+    try:
+        gateway = check_toucan_payin(load_money)
+    except TransactionFailed as exc:
+        return Response(
+            {'success': False, 'data': None, 'message': str(exc), 'errors': []},
+            status=status.HTTP_400_BAD_REQUEST,
+        )
+    load_money.refresh_from_db()
+    message = gateway.get('message') or 'Toucan status check finished.'
+    if gateway.get('payment_status') == 'SUCCESS' and load_money.status != 'SUCCESS':
+        message = 'Toucan confirmed this payment. The wallet credit is still finishing.'
+    return Response(
+        {
+            'success': True,
+            'data': {
+                'payment_status': gateway.get('payment_status') or '',
+                'action_code': gateway.get('action_code') or '',
+                'load_money_status': load_money.status,
+                'message': message,
+            },
+            'message': message,
             'errors': [],
         },
         status=status.HTTP_200_OK,
@@ -985,7 +1042,7 @@ def set_default_package_view(request):
     Set a package as the default (Admin only).
     Body: { package_id: int }
     
-    Only one package can be default at a time.
+    Several packages may apply to everyone at the same time.
     """
     requester_role = (getattr(request.user, 'role', None) or '').strip()
     if not is_platform_operator(requester_role):
@@ -1013,9 +1070,22 @@ def set_default_package_view(request):
             status=status.HTTP_404_NOT_FOUND,
         )
 
-    # Setting is_default=True will auto-clear other defaults in model.save()
-    package.is_default = True
-    package.save(update_fields=['is_default', 'updated_at'])
+    from django.db import transaction as db_transaction
+
+    with db_transaction.atomic():
+        package = (
+            PayInPackage.objects.select_for_update()
+            .filter(pk=package.pk, is_deleted=False)
+            .first()
+        )
+        if package is None:
+            return Response(
+                {'success': False, 'data': None, 'message': 'Package not found.', 'errors': []},
+                status=status.HTTP_404_NOT_FOUND,
+            )
+        if not package.is_default:
+            package.is_default = True
+            package.save(update_fields=['is_default', 'updated_at'])
 
     logger.info(
         'Default package set: package=%s (%s) by admin=%s',
@@ -1028,7 +1098,7 @@ def set_default_package_view(request):
         {
             'success': True,
             'data': {'package': PayInPackageSerializer(package).data},
-            'message': f'"{package.display_name}" is now the default package.',
+            'message': f'"{package.display_name}" now applies to everyone without a special package.',
             'errors': [],
         },
         status=status.HTTP_200_OK,
@@ -1041,8 +1111,9 @@ def clear_default_package_view(request):
     """
     POST /api/fund-management/packages/clear-default/
     
-    Clear the default package (Admin only).
-    No package will be auto-assigned to new users.
+    Stop one package from applying to everyone (Admin only).
+    Other packages marked for everyone are left as they are.
+    Body: { package_id: int }
     """
     requester_role = (getattr(request.user, 'role', None) or '').strip()
     if not is_platform_operator(requester_role):
@@ -1051,16 +1122,27 @@ def clear_default_package_view(request):
             status=status.HTTP_403_FORBIDDEN,
         )
 
-    updated = PayInPackage.objects.filter(is_default=True).update(is_default=False)
-
-    if updated:
-        logger.info('Default package cleared by admin=%s', request.user.user_id)
+    package_id = request.data.get('package_id')
+    package = PayInPackage.objects.filter(pk=package_id, is_deleted=False).first() if package_id else None
+    if package is None:
         return Response(
-            {'success': True, 'data': None, 'message': 'Default package cleared.', 'errors': []},
-            status=status.HTTP_200_OK,
+            {'success': False, 'data': None, 'message': 'Package not found.', 'errors': []},
+            status=status.HTTP_404_NOT_FOUND,
         )
-    else:
-        return Response(
-            {'success': True, 'data': None, 'message': 'No default package was set.', 'errors': []},
-            status=status.HTTP_200_OK,
+    if package.is_default:
+        package.is_default = False
+        package.save(update_fields=['is_default', 'updated_at'])
+        logger.info(
+            'Package removed from everyone: package=%s by admin=%s',
+            package.pk,
+            request.user.user_id,
         )
+    return Response(
+        {
+            'success': True,
+            'data': None,
+            'message': f'"{package.display_name}" no longer applies to everyone.',
+            'errors': [],
+        },
+        status=status.HTTP_200_OK,
+    )

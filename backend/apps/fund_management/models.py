@@ -32,6 +32,7 @@ class PayInPackage(BaseModel):
         ('razorpay', 'Razorpay'),
         ('payu', 'PayU'),
         ('mock', 'Mock / Dev'),
+        ('toucan', 'Toucan'),
     ]
 
     code = models.SlugField(max_length=80, unique=True, db_index=True)
@@ -61,7 +62,7 @@ class PayInPackage(BaseModel):
     is_default = models.BooleanField(
         default=False,
         db_index=True,
-        help_text='If true, this package is auto-assigned to new users. Only one package can be default.',
+        help_text='If true, users without a special package assignment can use this package. Several packages may be marked at once.',
     )
     sort_order = models.PositiveIntegerField(default=0)
 
@@ -73,8 +74,6 @@ class PayInPackage(BaseModel):
         return f"{self.display_name} ({self.code})"
 
     def save(self, *args, **kwargs):
-        if self.is_default:
-            PayInPackage.objects.filter(is_default=True).exclude(pk=self.pk).update(is_default=False)
         super().save(*args, **kwargs)
 
 

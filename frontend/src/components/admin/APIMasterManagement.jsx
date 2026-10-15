@@ -112,9 +112,52 @@ const vimopayEndpointsFromConfig = (cfg = {}) => {
   return out;
 };
 
+const PAYMENT_PROVIDERS = {
+  razorpay: {
+    code: 'razorpay',
+    name: 'Razorpay',
+    base_url: 'https://api.razorpay.com',
+    secrets: [
+      { key: 'key_id', value: '', maskedPreview: '' },
+      { key: 'key_secret', value: '', maskedPreview: '' },
+    ],
+  },
+  toucan: {
+    code: 'toucan',
+    name: 'Toucan payment hub',
+    base_url: 'https://uat.prajnadharaedu.com',
+    secrets: [
+      { key: 'api_key', value: '', maskedPreview: '' },
+      { key: 'hmac_secret', value: '', maskedPreview: '' },
+    ],
+  },
+};
+
 const kycProviderOptions = Object.values(KYC_PROVIDERS);
 const bankingProviderOptions = Object.values(BANKING_PROVIDERS);
 const payoutProviderOptions = Object.values(PAYOUT_PROVIDERS);
+const paymentProviderOptions = Object.values(PAYMENT_PROVIDERS);
+
+const defaultPaymentForm = (providerCode = 'razorpay') => {
+  const preset = PAYMENT_PROVIDERS[providerCode] || PAYMENT_PROVIDERS.razorpay;
+  return {
+    provider_code: preset.code,
+    provider_name: preset.name,
+    provider_type: 'payments',
+    kyc_service: '',
+    base_url: preset.base_url,
+    auth_type: 'api_key',
+    status: 'inactive',
+    priority: '0',
+    is_default: false,
+    supports_webhook: false,
+    webhook_path: '',
+    pan_mode: 'sync',
+    redirect_url: '',
+    config_json_text: '{}',
+    secrets: preset.secrets.map((s) => ({ ...s })),
+  };
+};
 
 const moduleApiLabel = (module) => {
   if (module === 'kyc') return 'KYC API';
@@ -235,26 +278,19 @@ const APIMasterManagement = () => {
       setForm(defaultPayoutForm());
       return;
     }
-    setForm({
-      provider_code: 'razorpay',
-      provider_name: 'Razorpay',
-      provider_type: 'payments',
-      kyc_service: '',
-      base_url: 'https://api.razorpay.com',
-      auth_type: 'api_key',
-      status: 'inactive',
-      priority: '0',
-      is_default: false,
-      supports_webhook: false,
-      webhook_path: '',
-      pan_mode: 'sync',
-      redirect_url: '',
-      config_json_text: '{}',
-      secrets: [
-        { key: 'key_id', value: '', maskedPreview: '' },
-        { key: 'key_secret', value: '', maskedPreview: '' },
-      ],
-    });
+    setForm(defaultPaymentForm('razorpay'));
+  };
+
+  const onPaymentProviderChange = (providerCode) => {
+    const preset = PAYMENT_PROVIDERS[providerCode];
+    if (!preset) return;
+    setForm((prev) => ({
+      ...prev,
+      provider_code: preset.code,
+      provider_name: preset.name,
+      base_url: preset.base_url,
+      secrets: preset.secrets.map((s) => ({ ...s })),
+    }));
   };
 
   const openCreate = () => {
@@ -274,7 +310,8 @@ const APIMasterManagement = () => {
     const preset =
       KYC_PROVIDERS[providerCode] ||
       BANKING_PROVIDERS[providerCode] ||
-      PAYOUT_PROVIDERS[providerCode];
+      PAYOUT_PROVIDERS[providerCode] ||
+      PAYMENT_PROVIDERS[providerCode];
     let secretRows;
     if (maskedKeys.length > 0) {
       secretRows = maskedKeys.map((k) => ({
@@ -282,6 +319,8 @@ const APIMasterManagement = () => {
         value: '',
         maskedPreview: masked[k] || '••••',
       }));
+    } else if ((row.provider_type || '').toLowerCase() === 'payments' && PAYMENT_PROVIDERS[providerCode]) {
+      secretRows = PAYMENT_PROVIDERS[providerCode].secrets.map((s) => ({ ...s }));
     } else if ((row.provider_type || '').toLowerCase() === 'payments') {
       secretRows = [
         { key: 'key_id', value: '', maskedPreview: '' },
@@ -833,22 +872,27 @@ const APIMasterManagement = () => {
                     </p>
                   </div>
                 ) : (
-                  <Input
-                    label="Provider Code *"
-                    value={form.provider_code}
-                    onChange={(e) => setForm((p) => ({ ...p, provider_code: e.target.value }))}
-                    onBlur={(e) =>
-                      setForm((p) => ({
-                        ...p,
-                        provider_code: String(e.target.value || '')
-                          .trim()
-                          .toLowerCase()
-                          .replace(/[^a-z0-9\s_-]/g, '')
-                          .replace(/\s+/g, '-'),
-                      }))
-                    }
-                    required
-                  />
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 dark:text-slate-300 mb-2">Payment provider</label>
+                    <select
+                      value={form.provider_code}
+                      onChange={(e) => onPaymentProviderChange(e.target.value)}
+                      disabled={Boolean(editing)}
+                      className="w-full px-4 py-3 border border-gray-300 dark:border-slate-600 rounded-lg"
+                    >
+                      {paymentProviderOptions.map((s) => (
+                        <option key={s.code} value={s.code}>
+                          {s.name}
+                        </option>
+                      ))}
+                      {!PAYMENT_PROVIDERS[form.provider_code] && form.provider_code ? (
+                        <option value={form.provider_code}>{form.provider_code}</option>
+                      ) : null}
+                    </select>
+                    <p className="text-xs text-gray-500 dark:text-slate-400 mt-1">
+                      Razorpay keeps key_id and key_secret. Toucan payment hub asks for the API key and HMAC secret from the payment hub.
+                    </p>
+                  </div>
                 )}
                 <Input
                   label="Provider Name *"
@@ -1050,7 +1094,7 @@ const APIMasterManagement = () => {
                   </Button>
                 </div>
                 <div className="space-y-3">
-                  {activeModule === 'payments' && (
+                  {activeModule === 'payments' && form.provider_code !== 'toucan' && (
                     <p className="text-xs text-amber-800 dark:text-amber-300 bg-amber-50 dark:bg-amber-950/40 border border-amber-100 dark:border-amber-900 rounded-lg px-3 py-2 mb-2">
                       <strong>Razorpay:</strong> In the <strong>Key</strong> column type the literal names{' '}
                       <code className="bg-amber-100/80 dark:bg-amber-900/40 px-1 rounded">key_id</code> and{' '}
@@ -1058,6 +1102,14 @@ const APIMasterManagement = () => {
                       <code className="bg-amber-100/80 dark:bg-amber-900/40 px-1 rounded">rzp_test_…</code> string. Put the Key ID and
                       secret in the <strong>Value</strong> column. Load Money reads live credentials from API Master
                       (and your payment gateway link / default Razorpay entry); .env is optional.
+                    </p>
+                  )}
+                  {activeModule === 'payments' && form.provider_code === 'toucan' && (
+                    <p className="text-xs text-emerald-900 dark:text-emerald-200 bg-emerald-50 dark:bg-emerald-950/40 border border-emerald-100 dark:border-emerald-900 rounded-lg px-3 py-2 mb-2">
+                      <strong>Toucan payment hub:</strong> Paste the API key into{' '}
+                      <code className="bg-emerald-100/80 dark:bg-emerald-900/40 px-1 rounded">api_key</code> and the HMAC secret into{' '}
+                      <code className="bg-emerald-100/80 dark:bg-emerald-900/40 px-1 rounded">hmac_secret</code>. Base URL is the hub host.
+                      Then link this record from Payment gateways and attach that gateway on a pay-in package.
                     </p>
                   )}
                   {(activeModule === 'kyc' || activeModule === 'banking') && (

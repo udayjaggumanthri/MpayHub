@@ -12,27 +12,43 @@ from typing import Optional
 from django.conf import settings
 
 
+DEFAULT_SERVICE_PREFIXES = {
+    'payin': 'PMPI',
+    'payout': 'PMPO',
+    'bbps': 'PMBBPS',
+    'load_money': 'PMLM',
+    'wallet_transfer': 'PMWT',
+}
+
+
+def service_id_prefixes():
+    """Admin-configured prefixes. Missing settings keep the original defaults."""
+    try:
+        from apps.admin_panel.models import TransactionIdSettings
+        row = TransactionIdSettings.objects.filter(key='global').first()
+    except Exception:
+        row = None
+    if row is None:
+        return dict(DEFAULT_SERVICE_PREFIXES)
+    return {
+        'payin': (row.payin or DEFAULT_SERVICE_PREFIXES['payin']).upper(),
+        'payout': (row.payout or DEFAULT_SERVICE_PREFIXES['payout']).upper(),
+        'bbps': (row.bbps or DEFAULT_SERVICE_PREFIXES['bbps']).upper(),
+        'load_money': (row.load_money or DEFAULT_SERVICE_PREFIXES['load_money']).upper(),
+        'wallet_transfer': (row.wallet_transfer or DEFAULT_SERVICE_PREFIXES['wallet_transfer']).upper(),
+    }
+
+
 def generate_service_id(transaction_type):
     """
-    Generate a unique service ID for transactions.
-    
-    Format:
-    - Pay In: PMPI{YYYYMMDD}{random_number}
-    - Pay Out: PMPO{YYYYMMDD}{random_number}
-    - BBPS: PMBBPS{YYYYMMDD}{random_number}
+    Generate a unique service ID for a new transaction.
+
+    Format: {prefix}{YYYYMMDD}{random_number}
+    The prefix comes from Transaction ID settings. Existing IDs are not rewritten.
     """
     date_str = datetime.now().strftime('%Y%m%d')
     random_number = ''.join(random.choices(string.digits, k=5))
-    
-    prefix_map = {
-        'payin': 'PMPI',
-        'payout': 'PMPO',
-        'bbps': 'PMBBPS',
-        'load_money': 'PMLM',
-        'wallet_transfer': 'PMWT',
-    }
-    
-    prefix = prefix_map.get(transaction_type.lower(), 'PMTX')
+    prefix = service_id_prefixes().get((transaction_type or '').lower(), 'PMTX')
     return f"{prefix}{date_str}{random_number}"
 
 

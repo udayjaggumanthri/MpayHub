@@ -246,6 +246,32 @@ def _razorpay_keypair_for_payin_package(package: PayInPackage, payment_gateway=N
     return resolve_razorpay_credentials(key_id, key_secret)
 
 
+def _toucan_api_master(payment_gateway):
+    master = getattr(payment_gateway, 'api_master', None) if payment_gateway else None
+    if master is None or getattr(master, 'is_deleted', False):
+        return None
+    if (master.provider_type or '') != 'payments':
+        return None
+    if (master.provider_code or '').lower() != 'toucan':
+        return None
+    return master
+
+
+def _toucan_credentials_from_gateway(payment_gateway):
+    """Return (base_url, api_key, hmac_secret) when this rail is the payment hub."""
+    master = _toucan_api_master(payment_gateway)
+    if master is None:
+        return None
+    if master.status not in ('active', 'sandbox'):
+        raise TransactionFailed('Toucan payment hub is turned off in API Master.')
+    secrets = decrypt_secret_payload(master.secrets_encrypted or '') or {}
+    return (
+        (master.base_url or '').strip(),
+        str(secrets.get('api_key') or secrets.get('hub_api_key') or '').strip(),
+        str(secrets.get('hmac_secret') or '').strip(),
+    )
+
+
 def create_payin_order(
     user,
     *,
@@ -325,7 +351,27 @@ def create_payin_order(
         'fee_preview': q['snapshot'],
     }
 
-    if package.provider == 'razorpay':
+    try:
+        toucan_creds = _toucan_credentials_from_gateway(selected_gateway)
+    except TransactionFailed as exc:
+        LoadMoney.objects.filter(pk=lm.pk).update(
+            status='FAILED',
+            failure_reason=str(exc),
+        )
+        raise
+    if toucan_creds is not None:
+        base_url, api_key, hmac_secret = toucan_creds
+        response['provider'] = 'toucan'
+        from apps.fund_management.toucan_hub import start_toucan_payin
+        start_toucan_payin(
+            lm,
+            contact,
+            response,
+            base_url=base_url,
+            api_key=api_key,
+            hmac_secret=hmac_secret,
+        )
+    elif package.provider == 'razorpay':
         from apps.integrations.razorpay_orders import create_order as rz_order
 
         checkout_key_id, checkout_key_secret = _razorpay_keypair_for_payin_package(
@@ -364,6 +410,9 @@ def create_payin_order(
             'amount': order.get('amount'),
             'currency': order.get('currency', 'INR'),
         }
+    elif package.provider == 'toucan':
+        from apps.fund_management.toucan_hub import start_toucan_payin
+        start_toucan_payin(lm, contact, response)
     else:
         response['mock'] = True
         response['message'] = 'Mock provider: call POST /fund-management/pay-in/complete-mock/ with transaction_id'
@@ -672,7 +721,7 @@ def get_user_accessible_packages(user: User):
     """
     Returns packages the user can access for pay-in:
     1. Packages explicitly assigned to the user
-    2. If no explicit assignments exist, returns default package (if any)
+    2. If no explicit assignments exist, every package marked for everyone
 
     Admin users have access to ALL active packages.
 
@@ -722,7 +771,7 @@ def get_user_accessible_packages(user: User):
             )
         )
 
-    # Fallback to default package
+    # Packages marked for everyone. A user with no special assignment sees all of them.
     return _with_links(
         PayInPackage.objects.filter(
             is_default=True,
@@ -1017,48 +1066,15 @@ def remove_package_assignment(
 
 def auto_assign_default_package(user: User, assigner: User = None) -> dict:
     """
-    Automatically assign the default package to a new user.
-    Called during user creation.
-    
-    Returns dict with 'success', 'assignment', 'message'.
+    New users are not pinned to one package.
+    With no special assignment they can use every package marked for everyone.
     """
-    from apps.fund_management.models import UserPackageAssignment
-
-    default_pkg = PayInPackage.objects.filter(
-        is_default=True, is_active=True, is_deleted=False
-    ).first()
-
-    if not default_pkg:
-        return {
-            'success': False,
-            'message': 'No default package configured.',
-            'assignment': None,
-        }
-
-    assignment, created = UserPackageAssignment.objects.get_or_create(
-        user=user,
-        package=default_pkg,
-        defaults={'assigned_by': assigner},
-    )
-
-    if created:
-        logger.info(
-            'Default package auto-assigned: package=%s (%s) to new user=%s',
-            default_pkg.pk,
-            default_pkg.display_name,
-            user.user_id,
-        )
-        return {
-            'success': True,
-            'message': f'Default package "{default_pkg.display_name}" assigned.',
-            'assignment': assignment,
-        }
-    else:
-        return {
-            'success': True,
-            'message': 'User already has the default package.',
-            'assignment': assignment,
-        }
+    del user, assigner
+    return {
+        'success': True,
+        'message': 'No personal package assigned. Packages marked for everyone stay available.',
+        'assignment': None,
+    }
 
 
 def get_assignable_packages_for_user(assigner: User):

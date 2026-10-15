@@ -355,13 +355,55 @@ def _credit_platform_payin_slices(
 
 
 
-@db_transaction.atomic
-def _distribute_payin_commissions(load_money: LoadMoney, package: PayInPackage, gross: Decimal, tx_ref: str):
-    """
-    Credit commission wallets using the same upline-aware split as quote/create-order.
-    Missing chain roles roll up to the nearest present upline; remainder goes to platform (Admin) settlement.
-    """
-    gross = money_q(gross)
+def _locked_fee_snapshot(load_money: LoadMoney):
+    """Quote stored when the order was created. Empty when the row has no snapshot."""
+    snap = load_money.fee_breakdown_snapshot if isinstance(load_money.fee_breakdown_snapshot, dict) else {}
+    if not snap:
+        return None
+    if snap.get('net_credit') in (None, '') or snap.get('total_deduction') in (None, ''):
+        return None
+    return snap
+
+
+def _snapshot_line_amount(snap: dict, key: str) -> Decimal:
+    for line in snap.get('lines') or []:
+        if isinstance(line, dict) and line.get('key') == key:
+            return money_q(line.get('amount') or 0)
+    return money_q(Decimal('0'))
+
+
+def _users_for_locked_slices(load_money: LoadMoney) -> dict:
+    from apps.fund_management.payin_distribution import CHAIN_COMMISSION_ROLES, _chain_role_assignments
+    from apps.fund_management.payin_hierarchy import upline_chain
+
+    user = load_money.user
+    if user is None:
+        return {role: None for role in CHAIN_COMMISSION_ROLES}
+    assign = _chain_role_assignments(upline_chain(user))
+    role = (getattr(user, 'role', None) or '').strip()
+    if role in CHAIN_COMMISSION_ROLES:
+        assign[role] = user
+    return assign
+
+
+def _distribution_for_settlement(load_money: LoadMoney, package: PayInPackage, gross: Decimal) -> dict:
+    """Use the locked quote lines. Recompute only when that snapshot was never stored."""
+    snap = _locked_fee_snapshot(load_money)
+    if snap and snap.get('lines'):
+        assign = _users_for_locked_slices(load_money)
+        return {
+            'sd_user': assign.get('Super Distributor'),
+            'md_user': assign.get('Master Distributor'),
+            'dt_user': assign.get('Distributor'),
+            'sd_payout': _snapshot_line_amount(snap, 'super_distributor'),
+            'md_payout': _snapshot_line_amount(snap, 'master_distributor'),
+            'dt_payout': _snapshot_line_amount(snap, 'distributor'),
+            'gw': _snapshot_line_amount(snap, 'gateway_fee'),
+            'ad_total': _snapshot_line_amount(snap, 'admin'),
+            'ad_base': _snapshot_line_amount(snap, 'admin'),
+            'absorbed': money_q(snap.get('absorbed_to_admin_amount') or 0),
+            'retailer_absorbed_to_admin': money_q(snap.get('retailer_share_absorbed_to_admin') or 0),
+        }
     from apps.fund_management.rail_fees import resolve_rail_gateway_fee_pct
 
     rail_fee = resolve_rail_gateway_fee_pct(
@@ -369,7 +411,17 @@ def _distribute_payin_commissions(load_money: LoadMoney, package: PayInPackage, 
         gateway_id=load_money.payment_gateway_id,
         qr_account_id=load_money.pay_in_qr_account_id,
     )
-    dist = _compute_payin_distribution(package, gross, load_money.user, gateway_fee_pct=rail_fee)
+    return _compute_payin_distribution(package, gross, load_money.user, gateway_fee_pct=rail_fee)
+
+
+@db_transaction.atomic
+def _distribute_payin_commissions(load_money: LoadMoney, package: PayInPackage, gross: Decimal, tx_ref: str):
+    """
+    Credit commission wallets using the same upline-aware split as quote/create-order.
+    Missing chain roles roll up to the nearest present upline; remainder goes to platform (Admin) settlement.
+    """
+    gross = money_q(gross)
+    dist = _distribution_for_settlement(load_money, package, gross)
 
     _pay_chain_commission_slice(
         load_money,
@@ -469,7 +521,15 @@ def finalize_payin_success(
 
     package = lm.package
     gross = money_q(lm.amount)
-    if package:
+    snap = _locked_fee_snapshot(lm)
+    if snap:
+        net_credit = money_q(snap['net_credit'])
+        total_charge = money_q(snap['total_deduction'])
+        if money_q(lm.net_credit) != net_credit or money_q(lm.charge) != total_charge:
+            lm.net_credit = net_credit
+            lm.charge = total_charge
+            lm.save(update_fields=['net_credit', 'charge', 'updated_at'])
+    elif package:
         from apps.fund_management.rail_fees import resolve_rail_gateway_fee_pct
 
         rail_fee = resolve_rail_gateway_fee_pct(

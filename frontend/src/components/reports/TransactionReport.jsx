@@ -3,7 +3,7 @@ import { FiDownload, FiEye, FiFilter, FiHelpCircle, FiX } from 'react-icons/fi';
 import { MdReceiptLong } from 'react-icons/md';
 import { useSearchParams, useLocation } from 'react-router-dom';
 import { useAuth } from '../../context/AuthContext';
-import { reportsAPI } from '../../services/api';
+import { fundManagementAPI, reportsAPI } from '../../services/api';
 import { DRILLDOWN_SCOPE_PLATFORM, parseDrillDownSearchParams } from '../../utils/dashboardDrillDown';
 import { canUseTeamReportScope, isAdminUser } from '../../utils/rolePermissions';
 import FeedbackModal from '../common/FeedbackModal';
@@ -96,6 +96,8 @@ const TransactionReport = ({ type = 'all' }) => {
   const [summaryPeriod, setSummaryPeriod] = useState('day');
   const [detailRecord, setDetailRecord] = useState(null);
   const [receiptTxn, setReceiptTxn] = useState(null);
+  const [gatewayCheckBusy, setGatewayCheckBusy] = useState(false);
+  const [gatewayCheckNote, setGatewayCheckNote] = useState('');
   const [payoutReceiptTxn, setPayoutReceiptTxn] = useState(null);
   const [helpTxnId, setHelpTxnId] = useState(null);
   const [reportScope, setReportScope] = useState(() => {
@@ -468,8 +470,33 @@ const TransactionReport = ({ type = 'all' }) => {
       closing_balance: txn.closingBalance,
       receipt_details: txn.receiptDetails,
       reference: txn.requestId,
+      provider_order_id: txn.detail?.providerOrderId || '',
+      mode: txn.modeOfPayment,
     });
+    setGatewayCheckNote('');
     setReceiptTxn(receiptTransaction);
+  };
+
+  const checkGatewayStatus = async () => {
+    if (!receiptTxn?.transactionId || gatewayCheckBusy) return;
+    setGatewayCheckBusy(true);
+    setGatewayCheckNote('');
+    try {
+      const result = await fundManagementAPI.payInCheckGatewayStatus(receiptTxn.transactionId);
+      const nextStatus = String(result?.data?.load_money_status || result?.data?.payment_status || '').toUpperCase();
+      const note = result?.message || result?.data?.message || 'Toucan status check finished.';
+      setGatewayCheckNote(note);
+      if (nextStatus) {
+        setReceiptTxn((current) => (current ? { ...current, status: nextStatus } : current));
+        setTransactions((rows) => rows.map((row) => (
+          String(row.transactionId) === String(receiptTxn.transactionId) ? { ...row, status: nextStatus } : row
+        )));
+      }
+    } catch (error) {
+      setGatewayCheckNote('Toucan status check failed.');
+    } finally {
+      setGatewayCheckBusy(false);
+    }
   };
 
   const printPayinReceipt = (txn, { mobile = false } = {}) => {
@@ -555,6 +582,9 @@ const TransactionReport = ({ type = 'all' }) => {
               transaction={receiptTxn}
               onPrint={() => printPayinReceipt(receiptTxn)}
               onMobilePrint={() => printPayinReceipt(receiptTxn, { mobile: true })}
+              onCheckGateway={checkGatewayStatus}
+              checkBusy={gatewayCheckBusy}
+              checkNote={gatewayCheckNote}
             />
           </div>
         </div>
@@ -736,7 +766,7 @@ const TransactionReport = ({ type = 'all' }) => {
                 type="text"
                 value={filters.serviceId}
                 onChange={(e) => setFilters({ ...filters, serviceId: e.target.value })}
-                placeholder={isLedgerStyle ? 'Search transaction id…' : type === 'bbps' ? 'BBPS service id…' : 'Filter…'}
+                placeholder={isLedgerStyle ? 'Transaction id or gateway invoice…' : type === 'bbps' ? 'BBPS service id…' : 'Filter…'}
                 className={FILTER_INPUT_CLASS}
               />
             </ReportFilterField>

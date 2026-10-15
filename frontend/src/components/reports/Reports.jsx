@@ -115,16 +115,12 @@ const Reports = () => {
   }, [location.pathname, navigate, showCommission, showServiceFees]);
 
   const tabs = [
-    { id: 'payin', name: 'Pay In', component: () => <TransactionReport type="payin" /> },
-    { id: 'payout', name: 'Pay Out', component: () => <TransactionReport type="payout" /> },
-    { id: 'bbps', name: 'BBPS', component: () => <BbpsBillsReport /> },
-    { id: 'passbook', name: 'Passbook', component: () => <Passbook /> },
-    ...(showCommission
-      ? [{ id: 'commission', name: 'Commission', component: () => <CommissionReport /> }]
-      : []),
-    ...(showServiceFees
-      ? [{ id: 'service-fees', name: 'Service Fee Tracker', component: () => <ServiceFeeTracker /> }]
-      : []),
+    { id: 'payin', name: 'Pay In' },
+    { id: 'payout', name: 'Pay Out' },
+    { id: 'bbps', name: 'BBPS' },
+    { id: 'passbook', name: 'Passbook' },
+    ...(showCommission ? [{ id: 'commission', name: 'Commission' }] : []),
+    ...(showServiceFees ? [{ id: 'service-fees', name: 'Service Fee Tracker' }] : []),
   ];
 
   const selectTab = (id) => {
@@ -157,8 +153,20 @@ const Reports = () => {
         <div className="px-2 py-3 sm:p-6">
           {showDrillDownHub ? (
             <DashboardDrillDownHub drillDown={drillDown} />
+          ) : activeTab === 'payin' ? (
+            <TransactionReport type="payin" />
+          ) : activeTab === 'payout' ? (
+            <TransactionReport type="payout" />
+          ) : activeTab === 'bbps' ? (
+            <BbpsBillsReport />
+          ) : activeTab === 'passbook' ? (
+            <Passbook />
+          ) : activeTab === 'commission' ? (
+            <CommissionReport />
+          ) : activeTab === 'service-fees' ? (
+            <ServiceFeeTracker />
           ) : (
-            tabs.find((tab) => tab.id === activeTab)?.component()
+            <TransactionReport type="payin" />
           )}
         </div>
       </div>

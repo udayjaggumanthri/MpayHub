@@ -75,11 +75,15 @@ def derive_provider_from_gateway(gateway: Optional[PaymentGateway]) -> str:
     code = (getattr(am, 'provider_code', '') or '').lower() if am else ''
     if 'payu' in code:
         return 'payu'
+    if 'toucan' in code or 'token' in code:
+        return 'toucan'
     if 'razorpay' in code or code.startswith('rz'):
         return 'razorpay'
     name = (gateway.name or '').lower()
     if 'payu' in name:
         return 'payu'
+    if 'toucan' in name or 'token pay' in name or name.strip() == 'token':
+        return 'toucan'
     if 'razorpay' in name or 'razo' in name:
         return 'razorpay'
     return 'razorpay'

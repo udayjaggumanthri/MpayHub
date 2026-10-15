@@ -2042,3 +2042,46 @@ def roles_permissions_view(request):
         },
         status=status.HTTP_200_OK,
     )
+
+
+import re
+
+_PREFIX_RE = re.compile(r'^[A-Za-z0-9]{2,12}$')
+_PREFIX_FIELDS = ('load_money', 'payin', 'payout', 'wallet_transfer', 'bbps')
+
+
+def _prefix_payload(row):
+    from datetime import datetime
+    stamp = datetime.now().strftime('%Y%m%d')
+    data = {field: getattr(row, field) for field in _PREFIX_FIELDS}
+    data['examples'] = {field: f'{getattr(row, field)}{stamp}00000' for field in _PREFIX_FIELDS}
+    return data
+
+
+@api_view(['GET', 'PATCH'])
+@permission_classes([IsAuthenticated, IsAdmin])
+def transaction_id_settings_view(request):
+    """GET/PATCH /api/admin/transaction-ids/ — prefixes for new service IDs only."""
+    from apps.admin_panel.models import TransactionIdSettings
+    from apps.core.utils import DEFAULT_SERVICE_PREFIXES
+
+    row, _ = TransactionIdSettings.objects.get_or_create(
+        key='global',
+        defaults=DEFAULT_SERVICE_PREFIXES,
+    )
+    if request.method == 'GET':
+        return Response({'success': True, 'data': _prefix_payload(row), 'message': 'OK', 'errors': []})
+
+    errors = []
+    for field in _PREFIX_FIELDS:
+        if field not in request.data:
+            continue
+        value = str(request.data.get(field) or '').strip().upper()
+        if not _PREFIX_RE.match(value):
+            errors.append(f'{field} must be 2 to 12 letters or numbers.')
+            continue
+        setattr(row, field, value)
+    if errors:
+        return Response({'success': False, 'data': None, 'message': ' '.join(errors), 'errors': errors}, status=status.HTTP_400_BAD_REQUEST)
+    row.save()
+    return Response({'success': True, 'data': _prefix_payload(row), 'message': 'Transaction ID prefixes saved', 'errors': []})

@@ -6,6 +6,7 @@ import { getPostLoginPath } from '../../utils/onboardingPaths';
 import { FaLock, FaEnvelope, FaPhone, FaCircleCheck } from 'react-icons/fa6';
 import Button from '../common/Button';
 import Card from '../common/Card';
+import PasswordField from '../common/PasswordField';
 
 const SetPasswordOnboarding = () => {
   const navigate = useNavigate();
@@ -163,8 +164,7 @@ const SetPasswordOnboarding = () => {
           <form onSubmit={handleComplete} className="space-y-4">
             <div>
               <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1">New password</label>
-              <input
-                type="password"
+              <PasswordField
                 value={newPassword}
                 onChange={(e) => setNewPassword(e.target.value)}
                 className="w-full rounded-xl border border-slate-200 dark:border-slate-700 px-4 py-3"
@@ -174,8 +174,7 @@ const SetPasswordOnboarding = () => {
             </div>
             <div>
               <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1">Confirm password</label>
-              <input
-                type="password"
+              <PasswordField
                 value={confirmPassword}
                 onChange={(e) => setConfirmPassword(e.target.value)}
                 className="w-full rounded-xl border border-slate-200 dark:border-slate-700 px-4 py-3"

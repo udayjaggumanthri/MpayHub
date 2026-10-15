@@ -9,6 +9,7 @@ from drf_spectacular.views import SpectacularAPIView, SpectacularSwaggerView
 
 from apps.core.media_views import media_serve_view
 from apps.core.views import health_view
+from apps.fund_management.hub_result import payment_result_view
 
 
 def api_root(_request):
@@ -31,6 +32,8 @@ urlpatterns = [
     path('api/users/', include('apps.users.urls')),
     path('api/wallets/', include('apps.wallets.urls')),
     path('api/fund-management/', include('apps.fund_management.urls')),
+    path('api/payment/result', payment_result_view, name='payment-hub-result'),
+    path('api/payment/result/', payment_result_view),
     path('api/integrations/', include('apps.integrations.urls')),
     path('api/bbps/', include('apps.bbps.urls')),
     path('api/aeps/', include('apps.aeps.urls')),

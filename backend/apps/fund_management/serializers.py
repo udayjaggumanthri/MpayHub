@@ -234,6 +234,8 @@ class LegacyLoadMoneyCreateSerializer(serializers.Serializer):
 class PayInQuoteSerializer(serializers.Serializer):
     package_id = serializers.IntegerField(min_value=1)
     amount = serializers.DecimalField(max_digits=12, decimal_places=2, min_value=Decimal('0.01'))
+    gateway_id = serializers.IntegerField(required=False, allow_null=True, min_value=1)
+    qr_account_id = serializers.IntegerField(required=False, allow_null=True, min_value=1)
 
 
 class PayInCreateOrderSerializer(serializers.Serializer):

@@ -1231,12 +1231,15 @@ export const fundManagementAPI = {
    * Pay-in fee quote
    * POST /api/fund-management/pay-in/quote/
    */
-  payInQuote: async ({ packageId, amount }) => {
+  payInQuote: async ({ packageId, amount, gatewayId, qrAccountId }) => {
     try {
-      const response = await apiClient.post('/fund-management/pay-in/quote/', {
+      const body = {
         package_id: packageId,
         amount,
-      });
+      };
+      if (gatewayId != null && gatewayId !== '') body.gateway_id = gatewayId;
+      if (qrAccountId != null && qrAccountId !== '') body.qr_account_id = qrAccountId;
+      const response = await apiClient.post('/fund-management/pay-in/quote/', body);
       return extractData(response);
     } catch (error) {
       return handleError(error);
@@ -1268,6 +1271,17 @@ export const fundManagementAPI = {
    * Verify Razorpay Checkout response and credit wallet (signature + payment fetch).
    * POST /api/fund-management/pay-in/verify-razorpay/
    */
+  payInCheckGatewayStatus: async (transactionId) => {
+    try {
+      const response = await apiClient.post('/fund-management/pay-in/status-check/', {
+        transaction_id: transactionId,
+      });
+      return extractData(response);
+    } catch (error) {
+      return handleError(error);
+    }
+  },
+
   payInVerifyRazorpay: async ({
     transactionId,
     razorpayOrderId,
@@ -3085,6 +3099,66 @@ export const adminAPI = {
     }
   },
 
+  getPayinRecoveryStats: async () => {
+    try {
+      const response = await apiClient.get('/admin/payin-recovery/stats/');
+      return extractData(response);
+    } catch (error) {
+      return handleError(error);
+    }
+  },
+
+  listPayinRecovery: async (params = {}) => {
+    try {
+      const response = await apiClient.get('/admin/payin-recovery/', { params });
+      return extractData(response);
+    } catch (error) {
+      return handleError(error);
+    }
+  },
+
+  getPayinRecoveryDetail: async (id) => {
+    try {
+      const response = await apiClient.get(`/admin/payin-recovery/${id}/`);
+      return extractData(response);
+    } catch (error) {
+      return handleError(error);
+    }
+  },
+
+  markPayinRecoverySuccess: async (id, { utr = '', internalNote = '' } = {}) => {
+    try {
+      const response = await apiClient.post(`/admin/payin-recovery/${id}/mark-success/`, {
+        utr,
+        internal_note: internalNote,
+      });
+      return extractData(response);
+    } catch (error) {
+      return handleError(error);
+    }
+  },
+
+  markPayinRecoveryFailed: async (id, { reason = '', internalNote = '' } = {}) => {
+    try {
+      const response = await apiClient.post(`/admin/payin-recovery/${id}/mark-failed/`, {
+        reason,
+        internal_note: internalNote,
+      });
+      return extractData(response);
+    } catch (error) {
+      return handleError(error);
+    }
+  },
+
+  adjustPayinRecovery: async (id, target) => {
+    try {
+      const response = await apiClient.post(`/admin/payin-recovery/${id}/adjust/`, { target });
+      return extractData(response);
+    } catch (error) {
+      return handleError(error);
+    }
+  },
+
   getPayoutRecoveryStats: async (params = {}) => {
     try {
       const response = await apiClient.get('/admin/payout-recovery/stats/', { params });
@@ -3752,6 +3826,24 @@ export const adminAPI = {
   /**
    * GET /api/admin/appearance/
    */
+  getTransactionIdSettings: async () => {
+    try {
+      const response = await apiClient.get('/admin/transaction-ids/');
+      return extractData(response);
+    } catch (error) {
+      return handleError(error);
+    }
+  },
+
+  patchTransactionIdSettings: async (payload) => {
+    try {
+      const response = await apiClient.patch('/admin/transaction-ids/', payload);
+      return extractData(response);
+    } catch (error) {
+      return handleError(error);
+    }
+  },
+
   getAppearanceConfig: async () => {
     try {
       const response = await apiClient.get('/admin/appearance/');
@@ -3886,9 +3978,11 @@ export const adminAPI = {
    * Clear default package (Admin only)
    * POST /api/fund-management/packages/clear-default/
    */
-  clearDefaultPackage: async () => {
+  clearDefaultPackage: async (packageId) => {
     try {
-      const response = await apiClient.post('/fund-management/packages/clear-default/');
+      const response = await apiClient.post('/fund-management/packages/clear-default/', {
+        package_id: packageId,
+      });
       return extractData(response);
     } catch (error) {
       return handleError(error);

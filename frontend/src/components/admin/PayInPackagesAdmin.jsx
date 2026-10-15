@@ -16,8 +16,14 @@ import {
   FaCreditCard,
   FaArrowRight,
   FaStar,
-  FaXmark,
 } from 'react-icons/fa6';
+
+const PROVIDER_LABELS = {
+  toucan: 'Toucan',
+  razorpay: 'Razorpay',
+  payu: 'PayU',
+  mock: 'Mock',
+};
 
 const PayInPackagesAdmin = () => {
   const navigate = useNavigate();
@@ -62,9 +68,11 @@ const PayInPackagesAdmin = () => {
     await loadPackages();
   };
 
-  const handleSetDefaultPackage = async (pkgId) => {
-    setDefaultLoading(pkgId);
-    const result = await adminAPI.setDefaultPackage(pkgId);
+  const handleSetDefaultPackage = async (pkg) => {
+    const message = `${pkg.display_name} will apply to everyone who does not have a special package. Other packages already marked for everyone stay available. Users who already have a package assigned stay on it.`;
+    if (!window.confirm(message)) return;
+    setDefaultLoading(pkg.id);
+    const result = await adminAPI.setDefaultPackage(pkg.id);
     setDefaultLoading(null);
     if (!result.success) {
       alert(firstErrorMessage(result, 'Could not set default package'));
@@ -73,10 +81,10 @@ const PayInPackagesAdmin = () => {
     await loadPackages();
   };
 
-  const handleClearDefaultPackage = async () => {
-    if (!window.confirm('Clear default package?')) return;
-    setDefaultLoading('clear');
-    const result = await adminAPI.clearDefaultPackage();
+  const handleClearDefaultPackage = async (pkg) => {
+    if (!window.confirm(`${pkg.display_name} will stop applying to everyone. Other packages marked for everyone stay available. Users with a special package assigned are not changed.`)) return;
+    setDefaultLoading(pkg.id);
+    const result = await adminAPI.clearDefaultPackage(pkg.id);
     setDefaultLoading(null);
     if (!result.success) {
       alert(firstErrorMessage(result, 'Could not clear default package'));
@@ -103,21 +111,21 @@ const PayInPackagesAdmin = () => {
                 Fee split for load money: gateway, platform admin, and upline commissions.
               </p>
             </div>
-            <div className="flex flex-wrap gap-2">
+            <div className="flex flex-wrap items-center gap-2">
               <Link
                 to="/admin/gateways"
-                className="inline-flex items-center gap-2 rounded-xl border px-4 py-3 text-sm font-semibold text-slate-700 dark:text-slate-300"
+                className="inline-flex h-11 items-center gap-2 whitespace-nowrap rounded-xl border border-slate-200 px-4 text-sm font-semibold text-slate-700 dark:border-slate-600 dark:text-slate-200"
               >
-                <FaCreditCard size={18} />
+                <FaCreditCard size={16} />
                 Payment gateways
-                <FaArrowRight size={14} />
+                <FaArrowRight size={12} />
               </Link>
               <Link
                 to="/admin/pay-in-qr-accounts"
-                className="inline-flex items-center gap-2 rounded-xl border px-4 py-3 text-sm font-semibold text-emerald-800"
+                className="inline-flex h-11 items-center gap-2 whitespace-nowrap rounded-xl border border-emerald-200 px-4 text-sm font-semibold text-emerald-800 dark:border-emerald-800 dark:text-emerald-200"
               >
                 QR accounts
-                <FaArrowRight size={14} />
+                <FaArrowRight size={12} />
               </Link>
             </div>
           </div>
@@ -133,7 +141,7 @@ const PayInPackagesAdmin = () => {
             </div>
             <Link
               to="/admin/payout-slabs"
-              className="inline-flex items-center gap-2 rounded-xl border border-amber-300 bg-amber-50 px-4 py-2.5 text-sm font-semibold text-amber-900 dark:border-amber-700 dark:bg-amber-950/40 dark:text-amber-100"
+              className="inline-flex h-11 shrink-0 items-center gap-2 whitespace-nowrap rounded-xl border border-amber-300 bg-amber-50 px-4 text-sm font-semibold text-amber-900 dark:border-amber-700 dark:bg-amber-950/40 dark:text-amber-100"
             >
               Open payout slabs
               <FaArrowRight size={14} />
@@ -167,6 +175,7 @@ const PayInPackagesAdmin = () => {
                 variant="primary"
                 icon={FaPlus}
                 iconPosition="left"
+                className="whitespace-nowrap"
               >
                 Add package
               </Button>
@@ -195,71 +204,97 @@ const PayInPackagesAdmin = () => {
               </div>
             ) : (
               <>
+                <p className="mb-3 text-xs leading-5 text-slate-500 dark:text-slate-400">
+                  Checkout provider is stored on the package. Open Edit to change it. Several packages can apply to everyone at the same time. A user with a special assignment still sees only that assignment.
+                </p>
                 <div className="overflow-x-auto rounded-xl border border-slate-200 dark:border-slate-700">
-                  <table className="w-full text-sm">
-                    <thead className="bg-slate-50 dark:bg-slate-800 text-xs uppercase text-slate-500">
+                  <table className="w-full min-w-[1080px] border-separate border-spacing-0 text-sm">
+                    <thead className="bg-slate-50 text-left text-xs font-semibold uppercase tracking-wide text-slate-500 dark:bg-slate-800">
                       <tr>
-                        <th className="p-3 text-left">Package</th>
-                        <th className="p-3 text-left">Provider</th>
-                        <th className="p-3 text-center">Rails</th>
-                        <th className="p-3 text-right">Max rail %</th>
-                        <th className="p-3 text-right">Commission %</th>
-                        <th className="p-3 text-right">Total %</th>
-                        <th className="p-3 text-left">Limits</th>
-                        <th className="p-3 text-center">Status</th>
-                        <th className="p-3 text-right">Actions</th>
+                        <th className="whitespace-nowrap px-4 py-3">Package</th>
+                        <th className="whitespace-nowrap px-4 py-3">Provider</th>
+                        <th className="whitespace-nowrap px-4 py-3">Rails</th>
+                        <th className="whitespace-nowrap px-4 py-3 text-right">Max rail</th>
+                        <th className="whitespace-nowrap px-4 py-3">Commission</th>
+                        <th className="whitespace-nowrap px-4 py-3 text-right">Total</th>
+                        <th className="whitespace-nowrap px-4 py-3">Limits</th>
+                        <th className="whitespace-nowrap px-4 py-3">Status</th>
+                        <th className="whitespace-nowrap px-4 py-3">For everyone</th>
+                        <th className="whitespace-nowrap px-4 py-3 text-right">Actions</th>
                       </tr>
                     </thead>
                     <tbody>
                       {packages.map((pkg) => (
-                        <tr
-                          key={pkg.id}
-                          className="border-t border-slate-100 dark:border-slate-800 hover:bg-slate-50/50 dark:hover:bg-slate-800/30"
-                        >
-                          <td className="p-3">
-                            <div className="font-semibold text-slate-900 dark:text-slate-100">{pkg.display_name}</div>
-                            <code className="text-xs text-slate-500">{pkg.code}</code>
+                        <tr key={pkg.id} className="hover:bg-slate-50/70 dark:hover:bg-slate-800/40">
+                          <td className="border-t border-slate-100 px-4 py-3 align-middle dark:border-slate-800">
+                            <div className="whitespace-nowrap font-semibold text-slate-900 dark:text-slate-100">{pkg.display_name}</div>
+                            <div className="whitespace-nowrap font-mono text-xs text-slate-500">{pkg.code}</div>
                           </td>
-                          <td className="p-3 capitalize">{pkg.default_gateway_name || pkg.provider || '—'}</td>
-                          <td className="p-3 text-center tabular-nums">
-                            {pkg.gateway_count ?? 0}g / {pkg.qr_count ?? 0}qr
+                          <td className="border-t border-slate-100 px-4 py-3 align-middle dark:border-slate-800">
+                            <span className="inline-flex whitespace-nowrap rounded-full bg-slate-100 px-2.5 py-1 text-xs font-semibold text-slate-800 dark:bg-slate-800 dark:text-slate-100">
+                              {PROVIDER_LABELS[pkg.provider] || pkg.provider || '—'}
+                            </span>
                           </td>
-                          <td className="p-3 text-right tabular-nums">{pct(pkg.max_rail_gateway_fee_pct)}%</td>
-                          <td className="p-3 text-right text-xs tabular-nums">
-                            {pct(pkg.admin_pct)} / {pct(pkg.super_distributor_pct)} / {pct(pkg.master_distributor_pct)} /{' '}
-                            {pct(pkg.distributor_pct)}
-                          </td>
-                          <td className="p-3 text-right font-semibold tabular-nums">
-                            {packageTotalDeductionDisplay(pkg)}%
-                          </td>
-                          <td className="p-3 text-xs whitespace-nowrap">
-                            ₹{formatDecimalInput(pkg.min_amount) || '0.00'} – ₹
-                            {formatDecimalInput(pkg.max_amount_per_txn) || '0.00'}
-                          </td>
-                          <td className="p-3 text-center">
-                            <div className="flex flex-col items-center gap-1">
-                              <span
-                                className={`rounded-full px-2 py-0.5 text-xs font-semibold ${
-                                  pkg.is_active
-                                    ? 'bg-emerald-50 text-emerald-800'
-                                    : 'bg-slate-100 text-slate-600'
-                                }`}
-                              >
-                                {pkg.is_active ? 'Active' : 'Off'}
-                              </span>
-                              {pkg.is_default && (
-                                <span className="inline-flex items-center gap-1 text-xs text-amber-700">
-                                  <FaStar size={10} />
-                                  Default
-                                </span>
-                              )}
+                          <td className="border-t border-slate-100 px-4 py-3 align-middle dark:border-slate-800">
+                            <div className="whitespace-nowrap text-sm text-slate-800 dark:text-slate-100">
+                              {pkg.rails_label || 'No rail linked'}
+                            </div>
+                            <div className="whitespace-nowrap text-xs text-slate-500">
+                              {pkg.gateway_count ?? 0} gateway · {pkg.qr_count ?? 0} QR
                             </div>
                           </td>
-                          <td className="p-3">
-                            <div className="flex items-center justify-end gap-1 flex-wrap">
+                          <td className="border-t border-slate-100 px-4 py-3 text-right align-middle tabular-nums dark:border-slate-800">
+                            {pct(pkg.max_rail_gateway_fee_pct)}%
+                          </td>
+                          <td className="border-t border-slate-100 px-4 py-3 align-middle dark:border-slate-800">
+                            <div className="whitespace-nowrap text-xs leading-5 tabular-nums text-slate-700 dark:text-slate-200">
+                              Admin {pct(pkg.admin_pct)}% · SD {pct(pkg.super_distributor_pct)}% · MD {pct(pkg.master_distributor_pct)}% · D {pct(pkg.distributor_pct)}%
+                            </div>
+                          </td>
+                          <td className="border-t border-slate-100 px-4 py-3 text-right align-middle font-semibold tabular-nums dark:border-slate-800">
+                            {packageTotalDeductionDisplay(pkg)}%
+                          </td>
+                          <td className="whitespace-nowrap border-t border-slate-100 px-4 py-3 align-middle text-xs tabular-nums dark:border-slate-800">
+                            ₹{formatDecimalInput(pkg.min_amount) || '0.00'} – ₹{formatDecimalInput(pkg.max_amount_per_txn) || '0.00'}
+                          </td>
+                          <td className="border-t border-slate-100 px-4 py-3 align-middle dark:border-slate-800">
+                            <span
+                              className={`inline-flex whitespace-nowrap rounded-full px-2.5 py-1 text-xs font-semibold ${
+                                pkg.is_active
+                                  ? 'bg-emerald-50 text-emerald-800 dark:bg-emerald-950/50 dark:text-emerald-200'
+                                  : 'bg-slate-100 text-slate-600 dark:bg-slate-800 dark:text-slate-300'
+                              }`}
+                            >
+                              {pkg.is_active ? 'Active' : 'Off'}
+                            </span>
+                          </td>
+                          <td className="border-t border-slate-100 px-4 py-3 align-middle dark:border-slate-800">
+                            {pkg.is_default ? (
+                              <button
+                                type="button"
+                                onClick={() => handleClearDefaultPackage(pkg)}
+                                disabled={defaultLoading === pkg.id}
+                                className="inline-flex h-8 items-center gap-1 whitespace-nowrap rounded-full bg-amber-100 px-3 text-xs font-semibold text-amber-900 disabled:opacity-50 dark:bg-amber-950/50 dark:text-amber-100"
+                              >
+                                <FaStar size={10} />
+                                On
+                              </button>
+                            ) : (
+                              <button
+                                type="button"
+                                onClick={() => handleSetDefaultPackage(pkg)}
+                                disabled={defaultLoading === pkg.id || !pkg.is_active}
+                                className="inline-flex h-8 items-center whitespace-nowrap rounded-full border border-slate-200 px-3 text-xs font-semibold text-slate-600 disabled:opacity-50 dark:border-slate-600 dark:text-slate-300"
+                              >
+                                Off
+                              </button>
+                            )}
+                          </td>
+                          <td className="border-t border-slate-100 px-4 py-3 align-middle dark:border-slate-800">
+                            <div className="flex items-center justify-end gap-1 whitespace-nowrap">
                               <Link
                                 to={`/admin/pay-in-packages/${pkg.id}/calculation-preview`}
-                                className="p-2 text-emerald-700 hover:bg-emerald-50 rounded-lg"
+                                className="inline-flex h-8 w-8 items-center justify-center rounded-lg text-emerald-700 hover:bg-emerald-50 dark:text-emerald-300 dark:hover:bg-emerald-950/40"
                                 title="Calculator"
                               >
                                 <FaCalculator size={14} />
@@ -267,37 +302,15 @@ const PayInPackagesAdmin = () => {
                               <button
                                 type="button"
                                 onClick={() => navigate(`/admin/pay-in-packages/${pkg.id}/edit`)}
-                                className="p-2 text-indigo-700 hover:bg-indigo-50 rounded-lg"
+                                className="inline-flex h-8 w-8 items-center justify-center rounded-lg text-indigo-700 hover:bg-indigo-50 dark:text-indigo-300 dark:hover:bg-indigo-950/40"
                                 title="Edit"
                               >
                                 <FaPenToSquare size={14} />
                               </button>
-                              {!pkg.is_default && pkg.is_active && (
-                                <button
-                                  type="button"
-                                  onClick={() => handleSetDefaultPackage(pkg.id)}
-                                  disabled={defaultLoading === pkg.id}
-                                  className="p-2 text-amber-700 hover:bg-amber-50 rounded-lg disabled:opacity-50"
-                                  title="Set default"
-                                >
-                                  <FaStar size={14} />
-                                </button>
-                              )}
-                              {pkg.is_default && (
-                                <button
-                                  type="button"
-                                  onClick={handleClearDefaultPackage}
-                                  disabled={defaultLoading === 'clear'}
-                                  className="p-2 text-slate-600 hover:bg-slate-100 rounded-lg"
-                                  title="Clear default"
-                                >
-                                  <FaXmark size={14} />
-                                </button>
-                              )}
                               <button
                                 type="button"
                                 onClick={() => handleDeletePackage(pkg.id)}
-                                className="p-2 text-red-600 hover:bg-red-50 rounded-lg"
+                                className="inline-flex h-8 w-8 items-center justify-center rounded-lg text-red-600 hover:bg-red-50 dark:hover:bg-red-950/40"
                                 title="Delete"
                               >
                                 <FaTrash size={14} />

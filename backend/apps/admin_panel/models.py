@@ -158,3 +158,21 @@ class SmtpConfig(BaseModel):
 
     def get_password(self) -> str:
         return str((decrypt_secret_payload(self.password_encrypted or '') or {}).get('v') or '')
+
+
+class TransactionIdSettings(models.Model):
+    """Prefixes for newly created service IDs. Existing IDs stay as stored."""
+
+    key = models.CharField(max_length=32, unique=True, default='global')
+    load_money = models.CharField(max_length=12, default='PMLM')
+    payin = models.CharField(max_length=12, default='PMPI')
+    payout = models.CharField(max_length=12, default='PMPO')
+    wallet_transfer = models.CharField(max_length=12, default='PMWT')
+    bbps = models.CharField(max_length=12, default='PMBBPS')
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        db_table = 'transaction_id_settings'
+
+    def __str__(self):
+        return self.key

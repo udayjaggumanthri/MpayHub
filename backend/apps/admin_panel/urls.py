@@ -6,6 +6,7 @@ from rest_framework.routers import DefaultRouter
 from apps.admin_panel import views
 from apps.fund_management import views_qr_admin
 from apps.fund_management import views_payout_admin
+from apps.fund_management import views_payin_recovery
 from apps.bbps import views_recovery as views_bbps_recovery
 
 router = DefaultRouter()
@@ -48,6 +49,7 @@ urlpatterns = [
     path('email-templates/<str:event_key>/test/', views.email_template_test_view, name='email-template-test'),
     path('maintenance/', views.maintenance_config_view, name='maintenance-config'),
     path('appearance/', views.appearance_config_view, name='appearance-config'),
+    path('transaction-ids/', views.transaction_id_settings_view, name='transaction-ids'),
     path('test-usage/', views.test_usage_config_view, name='test-usage-config'),
     path('roles-permissions/', views.roles_permissions_view, name='roles-permissions'),
     path('pay-in/qr-operations/stats/', views_qr_admin.qr_operations_stats_view, name='qr-operations-stats'),
@@ -58,6 +60,24 @@ urlpatterns = [
     path('pay-in/qr-operations/<int:pk>/approve/', views_qr_admin.qr_operations_approve_view, name='qr-operations-approve'),
     path('pay-in/qr-operations/<int:pk>/reject/', views_qr_admin.qr_operations_reject_view, name='qr-operations-reject'),
     path('pay-in/qr-operations/<int:pk>/release-utr/', views_qr_admin.qr_operations_release_utr_view, name='qr-operations-release-utr'),
+    path('payin-recovery/stats/', views_payin_recovery.payin_recovery_stats_view, name='payin-recovery-stats'),
+    path('payin-recovery/', views_payin_recovery.payin_recovery_list_view, name='payin-recovery-list'),
+    path('payin-recovery/<int:pk>/', views_payin_recovery.payin_recovery_detail_view, name='payin-recovery-detail'),
+    path(
+        'payin-recovery/<int:pk>/mark-success/',
+        views_payin_recovery.payin_recovery_mark_success_view,
+        name='payin-recovery-mark-success',
+    ),
+    path(
+        'payin-recovery/<int:pk>/mark-failed/',
+        views_payin_recovery.payin_recovery_mark_failed_view,
+        name='payin-recovery-mark-failed',
+    ),
+    path(
+        'payin-recovery/<int:pk>/adjust/',
+        views_payin_recovery.payin_recovery_adjust_view,
+        name='payin-recovery-adjust',
+    ),
     path('payout-recovery/stats/', views_payout_admin.payout_recovery_stats_view, name='payout-recovery-stats'),
     path('payout-recovery/', views_payout_admin.payout_recovery_list_view, name='payout-recovery-list'),
     path('payout-recovery/<int:pk>/', views_payout_admin.payout_recovery_detail_view, name='payout-recovery-detail'),

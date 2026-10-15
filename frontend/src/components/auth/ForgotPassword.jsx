@@ -4,6 +4,7 @@ import { authAPI } from '../../services/api';
 import { validatePhone } from '../../utils/validators';
 import { FaPhone, FaLock, FaCircleCheck, FaArrowLeft, FaEnvelope } from 'react-icons/fa6';
 import BrandingLogo from '../common/BrandingLogo';
+import PasswordField from '../common/PasswordField';
 
 const ForgotPassword = () => {
   const navigate = useNavigate();
@@ -390,14 +391,13 @@ const ForgotPassword = () => {
                     <div className="absolute inset-y-0 left-0 pl-4 flex items-center pointer-events-none">
                       <FaLock className="text-gray-400 dark:text-slate-500" size={20} />
                     </div>
-                    <input
-                      type="password"
+                    <PasswordField
                       value={newPassword}
                       onChange={(e) => setNewPassword(e.target.value)}
                       placeholder="Enter new password (min 8 characters)"
                       required
                       minLength={8}
-                      className="w-full pl-12 pr-4 py-3.5 border-2 border-gray-200 dark:border-slate-700 rounded-xl focus:border-blue-500 focus:ring-2 focus:ring-blue-200 transition-all duration-200 text-base bg-gray-50 dark:bg-slate-800/50 focus:bg-white"
+                      className="w-full pl-12 py-3.5 border-2 border-gray-200 dark:border-slate-700 rounded-xl focus:border-blue-500 focus:ring-2 focus:ring-blue-200 transition-all duration-200 text-base bg-gray-50 dark:bg-slate-800/50 focus:bg-white"
                     />
                   </div>
                 </div>
@@ -410,14 +410,13 @@ const ForgotPassword = () => {
                     <div className="absolute inset-y-0 left-0 pl-4 flex items-center pointer-events-none">
                       <FaLock className="text-gray-400 dark:text-slate-500" size={20} />
                     </div>
-                    <input
-                      type="password"
+                    <PasswordField
                       value={confirmPassword}
                       onChange={(e) => setConfirmPassword(e.target.value)}
                       placeholder="Re-enter new password"
                       required
                       minLength={8}
-                      className="w-full pl-12 pr-4 py-3.5 border-2 border-gray-200 dark:border-slate-700 rounded-xl focus:border-blue-500 focus:ring-2 focus:ring-blue-200 transition-all duration-200 text-base bg-gray-50 dark:bg-slate-800/50 focus:bg-white"
+                      className="w-full pl-12 py-3.5 border-2 border-gray-200 dark:border-slate-700 rounded-xl focus:border-blue-500 focus:ring-2 focus:ring-blue-200 transition-all duration-200 text-base bg-gray-50 dark:bg-slate-800/50 focus:bg-white"
                     />
                   </div>
                 </div>
