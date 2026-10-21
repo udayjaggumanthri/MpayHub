@@ -104,17 +104,85 @@ export const aepsBalanceLabel = (txn) => {
   return null;
 };
 
+/** Off-us Fingpay lines arrive as string chunks: "13/10/2026  Dr  89  Narration..." */
+const OFFUS_ROW_RE = /(\d{2}\/\d{2}\/\d{4})\s+(Dr|Cr)\s+(\d+(?:\.\d+)?)\s*/gi;
+const OFFUS_TRAILING_BALANCE_RE = /Balance\s+[\d.,]+\s*$/i;
+
+const normalizeStatementRow = (row) => {
+  if (!row || typeof row !== 'object') {
+    return { date: '', txnType: '', amount: '', narration: '' };
+  }
+  return {
+    date: String(row.date || row.txnDate || row.transactionDate || '').trim(),
+    txnType: String(row.txnType || row.type || row.debitCredit || '').trim(),
+    amount: String(row.amount || row.txnAmount || row.transactionAmount || '').trim(),
+    narration: String(row.narration || row.remarks || row.remark || row.description || '').trim(),
+  };
+};
+
+export const parseOffusStatementText = (text) => {
+  const blob = String(text || '')
+    .replace(OFFUS_TRAILING_BALANCE_RE, '')
+    .trim();
+  if (!blob) return [];
+
+  const matches = [...blob.matchAll(OFFUS_ROW_RE)];
+  if (!matches.length) {
+    return [{ date: '', txnType: '', amount: '', narration: blob.slice(0, 500) }];
+  }
+
+  return matches.map((match, i) => {
+    const narrStart = match.index + match[0].length;
+    const narrEnd = i + 1 < matches.length ? matches[i + 1].index : blob.length;
+    return {
+      date: match[1],
+      txnType: `${match[2].slice(0, 1).toUpperCase()}${match[2].slice(1).toLowerCase()}`,
+      amount: String(match[3] || '').trim(),
+      narration: blob.slice(narrStart, narrEnd).trim(),
+    };
+  });
+};
+
+export const normalizeMiniStatementLines = (raw) => {
+  if (!Array.isArray(raw) || !raw.length) return [];
+
+  if (raw.every((item) => item && typeof item === 'object' && !Array.isArray(item))) {
+    return raw.map(normalizeStatementRow);
+  }
+
+  if (raw.every((item) => typeof item === 'string')) {
+    return parseOffusStatementText(raw.join(''));
+  }
+
+  const rows = raw.filter((item) => item && typeof item === 'object' && !Array.isArray(item)).map(normalizeStatementRow);
+  const strings = raw.filter((item) => typeof item === 'string');
+  if (strings.length) rows.push(...parseOffusStatementText(strings.join('')));
+  return rows;
+};
+
 export const aepsStatementRows = (txn) => {
   const data = txn?.provider_data || txn?.provider_meta?.data || {};
-  const candidates = [
-    txn?.mini_statement,
-    data.miniStatementStructureModel,
-    data.miniOffusStatementStructureModel,
-    data.miniStatement,
-    data.statement,
-  ];
-  for (const c of candidates) {
-    if (Array.isArray(c) && c.length) return c;
+  const offusFlag = Boolean(data.miniOffusFlag);
+  const ordered = offusFlag
+    ? [
+        txn?.mini_statement,
+        data.miniOffusStatementStructureModel,
+        data.miniStatementStructureModel,
+        data.miniStatement,
+        data.statement,
+      ]
+    : [
+        txn?.mini_statement,
+        data.miniStatementStructureModel,
+        data.miniOffusStatementStructureModel,
+        data.miniStatement,
+        data.statement,
+      ];
+
+  for (const candidate of ordered) {
+    if (!Array.isArray(candidate) || !candidate.length) continue;
+    const rows = normalizeMiniStatementLines(candidate);
+    if (rows.length) return rows;
   }
   return [];
 };
@@ -140,13 +208,19 @@ export const aepsBankLabel = (txn) => {
   return '—';
 };
 
-export const buildAepsReceiptRows = (txn) => {
+export const buildAepsReceiptRows = (txn, { includeBalance = false } = {}) => {
   if (!txn) return [];
   const bal = aepsBalanceLabel(txn);
+  const product = String(txn.product || '').toUpperCase();
+  const isEnquiry = product === 'BE' || product === 'MS';
+  // Enquiry receipts already show balance as a hero — skip the duplicate grid cell.
+  const showBalanceInGrid = includeBalance || (!isEnquiry && Boolean(bal));
   return [
     { label: 'Product', value: displayValue(txn.product_label || aepsProductLabel(txn.product)) },
     { label: 'Status', value: displayValue(txn.status), highlight: aepsStatusTone(txn.status) },
-    { label: 'Amount', value: formatAepsAmount(txn.amount), highlight: 'amount' },
+    ...(isEnquiry
+      ? []
+      : [{ label: 'Amount', value: formatAepsAmount(txn.amount), highlight: 'amount' }]),
     { label: 'Bank RRN', value: displayValue(txn.bank_rrn), mono: true },
     { label: 'Txn ID', value: displayValue(txn.merchant_tran_id), mono: true },
     { label: 'Network ref', value: displayValue(txn.fp_transaction_id), mono: true },
@@ -154,7 +228,7 @@ export const buildAepsReceiptRows = (txn) => {
     { label: 'Aadhaar', value: displayValue(txn.masked_aadhaar), mono: true },
     { label: 'Mobile', value: displayValue(txn.customer_mobile) },
     { label: 'Response code', value: displayValue(txn.response_code), mono: true },
-    ...(bal ? [{ label: 'Available balance', value: bal, highlight: 'success' }] : []),
+    ...(showBalanceInGrid ? [{ label: 'Available balance', value: bal, highlight: 'success' }] : []),
     { label: 'When', value: formatAepsDateTime(txn.created_at) },
   ];
 };

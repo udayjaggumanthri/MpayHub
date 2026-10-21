@@ -37,6 +37,26 @@ from apps.wallets.models import Wallet
 
 logger = logging.getLogger(__name__)
 
+_PLACEHOLDER_EMAIL_SUFFIX = '@contact.placeholder'
+
+
+def _validate_payin_contact(contact):
+    """Ensure the selected contact can be sent to the payment hub / gateway."""
+    name = (getattr(contact, 'name', None) or '').strip()
+    if not name:
+        raise ValueError('Selected contact must have a name.')
+    phone = ''.join(ch for ch in str(getattr(contact, 'phone', None) or '') if ch.isdigit())
+    if len(phone) != 10:
+        raise ValueError('Selected contact must have a 10-digit mobile number.')
+    email = (getattr(contact, 'email', None) or '').strip()
+    if not email or '@' not in email:
+        raise ValueError('Selected contact must have a valid email.')
+    if email.lower().endswith(_PLACEHOLDER_EMAIL_SUFFIX):
+        raise ValueError(
+            'Selected contact still has a placeholder email. Update the contact email before pay-in.'
+        )
+    return name, phone, email
+
 
 def calculate_service_charge(amount, gateway_id=None, transaction_type='payin'):
     """
@@ -301,9 +321,10 @@ def create_payin_order(
     except ValueError as exc:
         raise TransactionFailed(str(exc)) from exc
 
-    contact = Contact.objects.filter(id=contact_id, user=user).first()
+    contact = Contact.objects.filter(id=contact_id, user=user, is_deleted=False).first()
     if not contact:
         raise ValueError('Contact not found')
+    customer_name, customer_phone, customer_email = _validate_payin_contact(contact)
 
     q = quote_payin(package, gross, user, gateway_id=selected_gateway.id)
 
@@ -322,9 +343,9 @@ def create_payin_order(
                     charge=q['total_deduction'],
                     net_credit=q['net_credit'],
                     fee_breakdown_snapshot=q['snapshot'],
-                    customer_name=contact.name,
-                    customer_email=contact.email,
-                    customer_phone=contact.phone,
+                    customer_name=customer_name,
+                    customer_email=customer_email,
+                    customer_phone=customer_phone,
                     status='PENDING',
                     transaction_id=tid,
                 )
@@ -345,9 +366,9 @@ def create_payin_order(
         'payment_gateway_name': selected_gateway.name,
         'amount': str(lm.amount),
         'currency': 'INR',
-        'customer_name': contact.name,
-        'customer_email': contact.email,
-        'customer_phone': contact.phone,
+        'customer_name': customer_name,
+        'customer_email': customer_email,
+        'customer_phone': customer_phone,
         'fee_preview': q['snapshot'],
     }
 

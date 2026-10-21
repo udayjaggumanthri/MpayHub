@@ -1252,9 +1252,17 @@ const CreditCardBill = ({
                     </div>
                     {quote?.wallet_service_charge_mode ? (
                       <p className="text-xs text-gray-500 dark:text-slate-400 -mt-1 mb-1">
-                        {String(quote.wallet_service_charge_mode).toLowerCase() === 'percent'
-                          ? `Based on admin setting: ${quote.wallet_service_charge_percent}% of bill amount.`
-                          : `Based on admin setting: flat ${formatCurrency(Number(quote.wallet_service_charge_flat || 0))} per payment.`}
+                        {(() => {
+                          const percentMode = String(quote.wallet_service_charge_mode).toLowerCase() === 'percent';
+                          const detail = percentMode
+                            ? `${quote.wallet_service_charge_percent}% of bill amount`
+                            : `flat ${formatCurrency(Number(quote.wallet_service_charge_flat || 0))} per payment`;
+                          const categoryName = quote.wallet_service_charge_category_name;
+                          if (quote.wallet_service_charge_source === 'category' && categoryName) {
+                            return `${categoryName}: ${detail}.`;
+                          }
+                          return `Default charge: ${detail}.`;
+                        })()}
                       </p>
                     ) : null}
                     <div className="flex justify-between items-center pt-3 bg-blue-50 dark:bg-blue-950/40 p-3 rounded-lg">

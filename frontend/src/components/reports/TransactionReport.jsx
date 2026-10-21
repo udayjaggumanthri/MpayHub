@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
-import { FiDownload, FiEye, FiFilter, FiHelpCircle, FiX } from 'react-icons/fi';
+import { FiDownload, FiEye, FiFileText, FiFilter, FiHelpCircle, FiX } from 'react-icons/fi';
 import { MdReceiptLong } from 'react-icons/md';
-import { useSearchParams, useLocation } from 'react-router-dom';
+import { useSearchParams, useLocation, useNavigate } from 'react-router-dom';
 import { useAuth } from '../../context/AuthContext';
 import { fundManagementAPI, reportsAPI } from '../../services/api';
 import { DRILLDOWN_SCOPE_PLATFORM, parseDrillDownSearchParams } from '../../utils/dashboardDrillDown';
@@ -72,6 +72,7 @@ function mergeDrillDownFilters(drillDown) {
 const TransactionReport = ({ type = 'all' }) => {
   const { user } = useAuth();
   const location = useLocation();
+  const navigate = useNavigate();
   const [searchParams, setSearchParams] = useSearchParams();
   const drillDown = useMemo(() => parseDrillDownSearchParams(searchParams), [searchParams]);
   const initialFilters = useMemo(() => mergeDrillDownFilters(drillDown), [drillDown]);
@@ -234,6 +235,7 @@ const TransactionReport = ({ type = 'all' }) => {
             id: r.id,
             transactionId: r.service_id,
             requestId: r.reference || r.provider_order_id || '—',
+            taxInvoiceNumber: r.tax_invoice_number || '',
             orderAmount: parseFloat(r.principal) || 0,
             billAmount: parseFloat(r.net_credit) || 0,
             modeOfPayment: r.mode || '—',
@@ -899,6 +901,11 @@ const TransactionReport = ({ type = 'all' }) => {
                   <th className="px-3 py-3 text-xs font-semibold uppercase tracking-wide text-gray-600 dark:text-slate-400 sm:px-4">
                     Transaction ID
                   </th>
+                  {type === 'payin' && isAdminUser(user) ? (
+                    <th className="px-3 py-3 text-xs font-semibold uppercase tracking-wide text-gray-600 dark:text-slate-400 sm:px-4">
+                      Tax invoice
+                    </th>
+                  ) : null}
                   <th className="px-3 py-3 text-xs font-semibold uppercase tracking-wide text-gray-600 dark:text-slate-400 sm:px-4">
                     Request ID
                   </th>
@@ -985,6 +992,11 @@ const TransactionReport = ({ type = 'all' }) => {
                     <td className="px-3 py-2.5 text-sm font-medium text-gray-900 dark:text-slate-100 sm:px-4">
                       {txn.transactionId}
                     </td>
+                    {type === 'payin' && isAdminUser(user) ? (
+                      <td className="px-3 py-2.5 text-sm font-mono text-gray-800 dark:text-slate-200 sm:px-4">
+                        {txn.taxInvoiceNumber || '—'}
+                      </td>
+                    ) : null}
                     <td className="px-3 py-2.5 text-sm text-gray-700 dark:text-slate-300 sm:px-4">
                       {txn.requestId}
                     </td>
@@ -1058,6 +1070,17 @@ const TransactionReport = ({ type = 'all' }) => {
                             aria-label="View pay-in receipt"
                           >
                             <MdReceiptLong className="h-5 w-5" />
+                          </button>
+                        ) : null}
+                        {type === 'payin' && isAdminUser(user) ? (
+                          <button
+                            type="button"
+                            onClick={() => navigate(`/reports/payin/${encodeURIComponent(txn.transactionId)}/invoice`)}
+                            className="rounded-full p-2 text-gray-500 dark:text-slate-400 transition hover:bg-gray-100 dark:hover:bg-slate-700 hover:text-blue-600"
+                            title={txn.taxInvoiceNumber ? `Open tax invoice ${txn.taxInvoiceNumber}` : 'Generate tax invoice'}
+                            aria-label={txn.taxInvoiceNumber ? 'Open tax invoice' : 'Generate tax invoice'}
+                          >
+                            <FiFileText className="h-5 w-5" />
                           </button>
                         ) : null}
                         {type === 'payout' ? (

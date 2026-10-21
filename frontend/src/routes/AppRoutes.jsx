@@ -72,7 +72,9 @@ import TestUsageMode from '../components/admin/TestUsageMode';
 import RolesPermissions from '../components/admin/RolesPermissions';
 import SuperAdminRoute from '../components/common/SuperAdminRoute';
 import AppearanceSettings from '../components/admin/AppearanceSettings';
+import InvoiceSettingsAdmin from '../components/admin/InvoiceSettingsAdmin';
 import TransactionIdSettings from '../components/admin/TransactionIdSettings';
+import PayinTaxInvoicePage from '../components/reports/PayinTaxInvoicePage';
 import KycApprovalDashboard from '../components/admin/KycApprovalDashboard';
 import UserManagementSettings from '../components/admin/UserManagementSettings';
 import WalletAdjustments from '../components/admin/WalletAdjustments';
@@ -98,6 +100,7 @@ import {
   AepsAdminMerchants,
   AepsAdminRecon,
   AepsAdminDebugLogs,
+  AepsAdminProviderGrants,
 } from '../modules/aeps/admin/AepsAdminPages';
 import CmsLayout from '../modules/cms/pages/CmsLayout';
 import CmsOverview from '../modules/cms/pages/CmsOverview';
@@ -415,6 +418,19 @@ const AppRoutes = () => {
       />
 
       <Route
+        path="/reports/payin/:transactionId/invoice"
+        element={
+          <ProtectedRoute>
+            <AdminRoute>
+              <Layout>
+                <PayinTaxInvoicePage />
+              </Layout>
+            </AdminRoute>
+          </ProtectedRoute>
+        }
+      />
+
+      <Route
         path="/reports/payout"
         element={
           <ProtectedRoute>
@@ -597,6 +613,19 @@ const AppRoutes = () => {
             <AdminRoute>
               <Layout>
                 <TransactionIdSettings />
+              </Layout>
+            </AdminRoute>
+          </ProtectedRoute>
+        }
+      />
+
+      <Route
+        path="/admin/invoice-settings"
+        element={
+          <ProtectedRoute>
+            <AdminRoute>
+              <Layout>
+                <InvoiceSettingsAdmin />
               </Layout>
             </AdminRoute>
           </ProtectedRoute>
@@ -1043,6 +1072,18 @@ const AppRoutes = () => {
                 <AepsAdminProvider />
               </Layout>
             </AdminRoute>
+          </ProtectedRoute>
+        }
+      />
+      <Route
+        path="/admin/aeps/provider/grants"
+        element={
+          <ProtectedRoute>
+            <SuperAdminRoute>
+              <Layout>
+                <AepsAdminProviderGrants />
+              </Layout>
+            </SuperAdminRoute>
           </ProtectedRoute>
         }
       />

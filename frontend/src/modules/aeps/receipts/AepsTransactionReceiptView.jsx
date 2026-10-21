@@ -22,12 +22,12 @@ const ReceiptCell = ({ label, value, highlight, mono }) => {
   if (highlight === 'success') valueClass = 'text-emerald-700 dark:text-emerald-300 font-semibold';
   if (highlight === 'danger') valueClass = 'text-red-700 dark:text-red-300 font-semibold';
   if (highlight === 'pending') valueClass = 'text-amber-700 dark:text-amber-300 font-semibold capitalize';
-  if (highlight === 'amount') valueClass = 'text-slate-900 dark:text-slate-100 font-semibold';
+  if (highlight === 'amount') valueClass = 'text-slate-900 dark:text-slate-50 font-semibold';
   if (highlight === 'neutral') valueClass = 'text-slate-800 dark:text-slate-200 font-semibold capitalize';
 
   return (
-    <div className="border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 px-3 py-2 min-h-[52px]">
-      <div className="text-[10px] font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400 mb-0.5">
+    <div className="min-h-[52px] border-b border-slate-200 bg-slate-50/80 px-3 py-2.5 dark:border-slate-700 dark:bg-slate-800/60 last:border-b-0 md:border-b md:last:border-b">
+      <div className="mb-0.5 text-[10px] font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">
         {label}
       </div>
       <div className={`text-sm break-all ${mono ? 'font-mono text-xs' : ''} ${valueClass}`}>{value}</div>
@@ -38,12 +38,13 @@ const ReceiptCell = ({ label, value, highlight, mono }) => {
 const StatusBanner = ({ tone, title, subtitle }) => {
   const styles = {
     success:
-      'border-emerald-200 bg-emerald-50 text-emerald-900 dark:border-emerald-900 dark:bg-emerald-950/50 dark:text-emerald-100',
-    danger: 'border-red-200 bg-red-50 text-red-900 dark:border-red-900 dark:bg-red-950/40 dark:text-red-100',
+      'border-emerald-200 bg-emerald-50 text-emerald-900 dark:border-emerald-800 dark:bg-emerald-950/60 dark:text-emerald-100',
+    danger:
+      'border-red-200 bg-red-50 text-red-900 dark:border-red-800 dark:bg-red-950/50 dark:text-red-100',
     pending:
-      'border-amber-200 bg-amber-50 text-amber-950 dark:border-amber-900 dark:bg-amber-950/40 dark:text-amber-100',
+      'border-amber-200 bg-amber-50 text-amber-950 dark:border-amber-800 dark:bg-amber-950/50 dark:text-amber-100',
     neutral:
-      'border-slate-200 bg-slate-50 text-slate-900 dark:border-slate-700 dark:bg-slate-800/50 dark:text-slate-100',
+      'border-slate-200 bg-slate-50 text-slate-900 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-100',
   };
   const Icon = tone === 'success' ? FaCircleCheck : tone === 'danger' ? FaTriangleExclamation : FaClock;
   return (
@@ -57,8 +58,30 @@ const StatusBanner = ({ tone, title, subtitle }) => {
   );
 };
 
+const TxnTypeBadge = ({ type }) => {
+  const t = String(type || '').trim().toLowerCase();
+  if (t === 'dr' || t === 'debit') {
+    return (
+      <span className="inline-flex rounded-md bg-red-100 px-2 py-0.5 text-xs font-semibold text-red-800 dark:bg-red-950/70 dark:text-red-200">
+        Dr
+      </span>
+    );
+  }
+  if (t === 'cr' || t === 'credit') {
+    return (
+      <span className="inline-flex rounded-md bg-emerald-100 px-2 py-0.5 text-xs font-semibold text-emerald-800 dark:bg-emerald-950/70 dark:text-emerald-200">
+        Cr
+      </span>
+    );
+  }
+  return (
+    <span className="text-sm font-medium text-slate-700 dark:text-slate-200">{type || '—'}</span>
+  );
+};
+
 /**
  * On-screen branded AEPS receipt + print actions + gated status/ack.
+ * Theme-aware (no mpay-paper force-light) so dark mode stays readable.
  */
 const AepsTransactionReceiptView = ({
   result,
@@ -123,80 +146,109 @@ const AepsTransactionReceiptView = ({
     <div className={`space-y-4 ${className}`}>
       <StatusBanner tone={tone} title={bannerTitle} subtitle={bannerSubtitle} />
 
-      <div className="mpay-paper space-y-4 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 p-4 shadow-sm">
-        <div className="flex flex-wrap items-start justify-between gap-3 border-b border-slate-100 dark:border-slate-800 pb-3">
+      <div className="space-y-4 rounded-xl border border-slate-200 bg-white p-4 shadow-sm dark:border-slate-600 dark:bg-slate-900 dark:shadow-none dark:ring-1 dark:ring-slate-700/80">
+        <div className="flex flex-wrap items-start justify-between gap-3 border-b border-slate-200 pb-3 dark:border-slate-700">
           <img
             src={getMpayhubLogoSrc()}
             alt="mPayHub"
             className="h-10 w-auto max-w-[min(160px,40%)] shrink-0 object-contain object-left"
           />
           <div className="text-right text-xs text-slate-500 dark:text-slate-400">
-            <div className="font-semibold text-slate-700 dark:text-slate-200">AEPS Receipt</div>
-            <div>{txn.product_label || aepsProductLabel(txn.product)}</div>
-            <div className="mt-1 font-mono text-[11px]">{txn.merchant_tran_id}</div>
+            <div className="font-semibold text-slate-800 dark:text-slate-100">AEPS Receipt</div>
+            <div className="text-slate-600 dark:text-slate-300">
+              {txn.product_label || aepsProductLabel(txn.product)}
+            </div>
+            <div className="mt-1 font-mono text-[11px] text-slate-600 dark:text-slate-300">
+              {txn.merchant_tran_id}
+            </div>
           </div>
         </div>
 
         {balanceLabel && tone === 'success' ? (
-          <div className="rounded-xl bg-emerald-50 px-4 py-3 ring-1 ring-emerald-100 dark:bg-emerald-950/40 dark:ring-emerald-900">
+          <div className="rounded-xl bg-gradient-to-br from-emerald-50 to-teal-50 px-4 py-4 ring-1 ring-emerald-200/80 dark:from-emerald-950/50 dark:to-teal-950/40 dark:ring-emerald-800">
             <p className="text-[10px] font-semibold uppercase tracking-wide text-emerald-700 dark:text-emerald-300">
               Available balance
             </p>
-            <p className="mt-0.5 text-2xl font-bold tabular-nums text-emerald-900 dark:text-emerald-100">
+            <p className="mt-1 text-3xl font-bold tabular-nums tracking-tight text-emerald-950 dark:text-emerald-50">
               {balanceLabel}
             </p>
           </div>
         ) : isEnquiry && tone === 'success' && !balanceLabel ? (
-          <p className="text-sm text-slate-600 dark:text-slate-400">
+          <p className="text-sm text-slate-600 dark:text-slate-300">
             Bank did not return a displayable balance for this account.
           </p>
         ) : null}
 
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-0 border border-slate-200 dark:border-slate-700 rounded-lg overflow-hidden">
-          <div className="grid grid-cols-1">
-            {leftCells.map((cell) => (
-              <ReceiptCell key={cell.label} {...cell} />
-            ))}
-          </div>
-          <div className="grid grid-cols-1 md:border-l md:border-slate-200 dark:md:border-slate-700">
-            {rightCells.map((cell) => (
-              <ReceiptCell key={cell.label} {...cell} />
-            ))}
+        <div className="overflow-hidden rounded-lg border border-slate-200 dark:border-slate-600">
+          <div className="grid grid-cols-1 md:grid-cols-2">
+            <div className="grid grid-cols-1 md:border-r md:border-slate-200 dark:md:border-slate-600">
+              {leftCells.map((cell) => (
+                <ReceiptCell key={cell.label} {...cell} />
+              ))}
+            </div>
+            <div className="grid grid-cols-1">
+              {rightCells.map((cell) => (
+                <ReceiptCell key={cell.label} {...cell} />
+              ))}
+            </div>
           </div>
         </div>
 
         {rows.length ? (
-          <div className="overflow-x-auto rounded-lg border border-slate-100 dark:border-slate-800">
-            <table className="min-w-full text-left text-sm">
-              <thead className="bg-slate-50 dark:bg-slate-800/50 text-xs uppercase text-slate-500 dark:text-slate-400">
-                <tr>
-                  <th className="px-3 py-2">Date</th>
-                  <th className="px-3 py-2">Narration</th>
-                  <th className="px-3 py-2">Amount</th>
-                  <th className="px-3 py-2">Type</th>
-                </tr>
-              </thead>
-              <tbody>
-                {rows.map((r, i) => (
-                  <tr key={i} className="border-t border-slate-100 dark:border-slate-800">
-                    <td className="px-3 py-2">{r.date || r.txnDate || '—'}</td>
-                    <td className="px-3 py-2">{r.narration || r.remarks || '—'}</td>
-                    <td className="px-3 py-2">{r.amount || r.txnAmount || '—'}</td>
-                    <td className="px-3 py-2">{r.txnType || r.type || '—'}</td>
+          <div>
+            <div className="mb-2 flex items-baseline justify-between gap-2">
+              <h4 className="text-sm font-semibold text-slate-800 dark:text-slate-100">Mini statement</h4>
+              <span className="text-xs text-slate-500 dark:text-slate-400">
+                {rows.length} entr{rows.length === 1 ? 'y' : 'ies'}
+              </span>
+            </div>
+            <div className="overflow-x-auto rounded-lg border border-slate-200 dark:border-slate-600">
+              <table className="min-w-full text-left text-sm">
+                <thead className="bg-slate-100 text-xs uppercase tracking-wide text-slate-600 dark:bg-slate-800 dark:text-slate-300">
+                  <tr>
+                    <th className="whitespace-nowrap px-3 py-2.5 font-semibold">Date</th>
+                    <th className="px-3 py-2.5 font-semibold">Narration</th>
+                    <th className="whitespace-nowrap px-3 py-2.5 font-semibold text-right">Amount</th>
+                    <th className="whitespace-nowrap px-3 py-2.5 font-semibold text-center">Type</th>
                   </tr>
-                ))}
-              </tbody>
-            </table>
+                </thead>
+                <tbody className="divide-y divide-slate-200 bg-white dark:divide-slate-700 dark:bg-slate-900/80">
+                  {rows.map((r, i) => {
+                    const amountRaw = r.amount || r.txnAmount || '';
+                    const amountDisplay = amountRaw ? formatAepsAmount(amountRaw) : '—';
+                    return (
+                      <tr
+                        key={`${r.date}-${r.amount}-${i}`}
+                        className="text-slate-800 dark:text-slate-100"
+                      >
+                        <td className="whitespace-nowrap px-3 py-2.5 tabular-nums text-slate-700 dark:text-slate-200">
+                          {r.date || r.txnDate || '—'}
+                        </td>
+                        <td className="max-w-[280px] px-3 py-2.5 text-slate-800 dark:text-slate-100 sm:max-w-md">
+                          {r.narration || r.remarks || '—'}
+                        </td>
+                        <td className="whitespace-nowrap px-3 py-2.5 text-right font-medium tabular-nums text-slate-900 dark:text-slate-50">
+                          {amountDisplay}
+                        </td>
+                        <td className="whitespace-nowrap px-3 py-2.5 text-center">
+                          <TxnTypeBadge type={r.txnType || r.type} />
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
           </div>
         ) : isMini && tone === 'success' ? (
-          <p className="rounded-lg border border-slate-100 bg-slate-50 px-3 py-2 text-sm text-slate-600 dark:border-slate-800 dark:bg-slate-800/50 dark:text-slate-400">
+          <p className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-600 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-300">
             Bank returned no mini-statement lines for this account.
             {balanceLabel ? ' Available balance is shown above.' : ''}
           </p>
         ) : null}
 
         {tone === 'danger' && (display || headline) ? (
-          <div className="rounded-lg border border-red-100 bg-red-50/80 px-3 py-2 text-sm text-red-800 dark:border-red-900 dark:bg-red-950/30 dark:text-red-200">
+          <div className="rounded-lg border border-red-200 bg-red-50/90 px-3 py-2 text-sm text-red-800 dark:border-red-800 dark:bg-red-950/40 dark:text-red-200">
             {display || headline}
           </div>
         ) : null}
@@ -211,7 +263,7 @@ const AepsTransactionReceiptView = ({
               {supportOpen ? 'Hide support details' : 'Show support details (Admin)'}
             </button>
             {supportOpen ? (
-              <pre className="mt-2 whitespace-pre-wrap rounded-lg bg-slate-50 p-2 font-mono text-[11px] text-slate-600 dark:bg-slate-800/60 dark:text-slate-300">
+              <pre className="mt-2 whitespace-pre-wrap rounded-lg border border-slate-200 bg-slate-50 p-2 font-mono text-[11px] text-slate-700 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-200">
                 {txn.response_message || support}
               </pre>
             ) : null}
@@ -236,8 +288,10 @@ const AepsTransactionReceiptView = ({
                 Acknowledge
               </Button>
             ) : null}
-            {!canAck && txn.acknowledged && ['CW', 'AP', 'CD', 'CD_OTP'].includes(String(txn.product || '').toUpperCase()) ? (
-              <span className="inline-flex items-center rounded-lg bg-emerald-50 px-2.5 py-1.5 text-xs font-semibold text-emerald-800 dark:bg-emerald-950/40 dark:text-emerald-200">
+            {!canAck &&
+            txn.acknowledged &&
+            ['CW', 'AP', 'CD', 'CD_OTP'].includes(String(txn.product || '').toUpperCase()) ? (
+              <span className="inline-flex items-center rounded-lg bg-emerald-50 px-2.5 py-1.5 text-xs font-semibold text-emerald-800 dark:bg-emerald-950/50 dark:text-emerald-200">
                 Acknowledged
               </span>
             ) : null}
@@ -256,7 +310,9 @@ const AepsTransactionReceiptView = ({
 
         {tone === 'success' ? (
           <p className="text-xs text-slate-500 dark:text-slate-400">
-            Amount {formatAepsAmount(txn.amount)} · Save or print this receipt for your customer.
+            {isEnquiry
+              ? 'Save or print this receipt for your customer.'
+              : `Amount ${formatAepsAmount(txn.amount)} · Save or print this receipt for your customer.`}
           </p>
         ) : null}
       </div>

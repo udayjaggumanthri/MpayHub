@@ -482,7 +482,10 @@ def process_bill_payment_flow(*, user, bill_data: dict) -> dict:
     if getattr(settings, 'BBPS_COMMISSION_FINANCIAL_IMPACT_ENABLED', False):
         applied_charge = Decimal(str(charge_info.get('charge') or 0))
     else:
-        wallet_meta = resolve_bbps_wallet_service_charge(amount=amount)
+        wallet_meta = resolve_bbps_wallet_service_charge(
+            amount=amount,
+            category_code=str(bill_data.get('bill_type') or ''),
+        )
         applied_charge = wallet_meta['charge']
     charge_info['charge'] = applied_charge
     charge_info['total_deducted'] = amount + applied_charge

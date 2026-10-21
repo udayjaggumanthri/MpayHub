@@ -432,6 +432,33 @@ class LoadMoney(BaseModel):
         return f"{self.transaction_id} - {self.user.user_id} - ₹{self.amount}"
 
 
+class PayinTaxInvoice(BaseModel):
+    """Admin-edited LMS-style tax invoice snapshot for one LoadMoney pay-in."""
+
+    load_money = models.OneToOneField(
+        LoadMoney,
+        on_delete=models.CASCADE,
+        related_name='tax_invoice',
+        db_index=True,
+    )
+    invoice_number = models.CharField(max_length=40, unique=True, db_index=True)
+    payload = models.JSONField(default=dict, blank=True)
+    created_by = models.ForeignKey(
+        User,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name='payin_tax_invoices',
+    )
+
+    class Meta:
+        db_table = 'payin_tax_invoices'
+        ordering = ['-created_at']
+
+    def __str__(self):
+        return f'Invoice {self.invoice_number} ({self.load_money_id})'
+
+
 class PayInQrApprovalAudit(BaseModel):
     """Append-only audit for manual QR pay-in approve/reject actions."""
 

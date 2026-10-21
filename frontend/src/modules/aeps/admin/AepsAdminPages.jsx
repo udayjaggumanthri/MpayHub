@@ -1,6 +1,13 @@
 import React, { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
+import ReportPagination from '../../../components/common/ReportPagination';
 import aepsAPI from '../services/aepsApi';
+
+const yesterdayIsoDate = () => {
+  const d = new Date();
+  d.setDate(d.getDate() - 1);
+  return d.toISOString().slice(0, 10);
+};
 
 const PROD_URLS = {
   environment: 'prod',
@@ -61,8 +68,12 @@ export const AepsAdminProvider = () => {
     gstin_number: '',
     company_or_shop_pan: '',
     notes: '',
+    cw_ap_otp_threshold: 5000,
+    callback_allowed_ips: '',
+    callback_token: '',
   });
   const [meta, setMeta] = useState(null);
+  const [reconTxnDate, setReconTxnDate] = useState(yesterdayIsoDate);
   const [envs, setEnvs] = useState([]);
   const [onboardingEndpoints, setOnboardingEndpoints] = useState([]);
   const [endpointFields, setEndpointFields] = useState([]);
@@ -106,9 +117,14 @@ export const AepsAdminProvider = () => {
       gstin_number: data.gstin_number || '',
       company_or_shop_pan: data.company_or_shop_pan || '',
       notes: data.notes || '',
+      cw_ap_otp_threshold: data.cw_ap_otp_threshold ?? 5000,
+      callback_allowed_ips: data.callback_allowed_ips || '',
+      callback_token: '',
       ...emptySecrets,
     }));
   };
+
+  const canManage = Boolean(meta?.can_manage_provider);
 
   const loadEnv = async (nextEnv) => {
     setEnv(nextEnv);
@@ -245,6 +261,14 @@ export const AepsAdminProvider = () => {
     setSaving(true);
     const res = await aepsAPI.syncBanks();
     setMsg(res.success ? `Bank IIN sync OK — ${res.data?.synced ?? 0} rows.` : res.message || 'Bank sync failed');
+    if (res.success) await loadEnv(env);
+    setSaving(false);
+  };
+
+  const runOutboundRecon = async () => {
+    setSaving(true);
+    const res = await aepsAPI.adminReconRun({ txn_date: reconTxnDate });
+    setMsg(res.success ? res.message || 'Outbound recon submitted.' : res.message || 'Recon run failed');
     setSaving(false);
   };
 
@@ -323,7 +347,7 @@ export const AepsAdminProvider = () => {
                 </div>
                 <button
                   type="button"
-                  disabled={saving || api.is_active}
+                  disabled={saving || api.is_active || !canManage}
                   onClick={() => activateOnboardingApi(api)}
                   className={`shrink-0 rounded-lg px-2.5 py-1.5 text-xs font-semibold ${
                     api.is_active
@@ -365,15 +389,29 @@ export const AepsAdminProvider = () => {
         </div>
       ) : null}
 
+      {!canManage ? (
+        <div className="rounded-xl border border-amber-300 dark:border-amber-800 bg-amber-50 dark:bg-amber-950/40 px-4 py-3 text-sm text-amber-950 dark:text-amber-200">
+          Ask Super Admin for provider edit access. You can view settings; Save, Activate, Test, and secret fields are
+          read-only.
+        </div>
+      ) : null}
+
       <div className="rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 px-4 py-3 shadow-sm">
         <div className="flex flex-wrap items-center justify-between gap-3">
           <div>
             <p className="text-sm font-semibold text-slate-900 dark:text-slate-100">Bank IIN cache</p>
             <p className="text-xs text-slate-500 dark:text-slate-400">Uses the currently active environment URLs.</p>
+            {meta?.banks_last_synced_at ? (
+              <p className="mt-1 text-xs text-slate-600 dark:text-slate-400">
+                Last synced: {new Date(meta.banks_last_synced_at).toLocaleString()}
+              </p>
+            ) : (
+              <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">Not synced yet on this profile.</p>
+            )}
           </div>
           <button
             type="button"
-            disabled={saving}
+            disabled={saving || !canManage}
             onClick={syncBanks}
             className="rounded-lg bg-slate-900 px-4 py-2 text-sm font-semibold text-white disabled:opacity-50"
           >
@@ -381,6 +419,31 @@ export const AepsAdminProvider = () => {
           </button>
         </div>
       </div>
+
+      {canManage ? (
+        <div className="rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 px-4 py-3 shadow-sm space-y-3">
+          <p className="text-sm font-semibold text-slate-900 dark:text-slate-100">Outbound recon (3-way)</p>
+          <div className="flex flex-wrap items-end gap-2">
+            <label className="text-sm">
+              <span className="mb-1 block text-xs text-slate-500 dark:text-slate-400">Transaction date</span>
+              <input
+                type="date"
+                className="rounded-lg border px-3 py-2 text-sm"
+                value={reconTxnDate}
+                onChange={(e) => setReconTxnDate(e.target.value)}
+              />
+            </label>
+            <button
+              type="button"
+              disabled={saving || !reconTxnDate}
+              onClick={runOutboundRecon}
+              className="rounded-lg bg-indigo-600 px-4 py-2 text-sm font-semibold text-white disabled:opacity-50"
+            >
+              Run outbound recon
+            </button>
+          </div>
+        </div>
+      ) : null}
 
       {meta ? (
         <p className="text-xs text-slate-500 dark:text-slate-400">
@@ -390,19 +453,21 @@ export const AepsAdminProvider = () => {
         </p>
       ) : null}
 
-      <form onSubmit={(e) => save(e)} className="space-y-3 rounded-2xl border bg-white dark:bg-slate-900 p-6 shadow-sm">
+      <fieldset disabled={!canManage} className="space-y-3 rounded-2xl border bg-white dark:bg-slate-900 p-6 shadow-sm disabled:opacity-90">
+        <form onSubmit={(e) => save(e)} className="space-y-3">
         <div className="flex flex-wrap gap-2">
           <button
             type="button"
             onClick={applyPresetUrls}
-            className="rounded-lg border border-slate-300 dark:border-slate-600 bg-slate-50 dark:bg-slate-800/50 px-3 py-2 text-sm font-medium text-slate-900 dark:text-slate-100"
+            disabled={!canManage}
+            className="rounded-lg border border-slate-300 dark:border-slate-600 bg-slate-50 dark:bg-slate-800/50 px-3 py-2 text-sm font-medium text-slate-900 dark:text-slate-100 disabled:opacity-50"
           >
             Apply {env.toUpperCase()} URLs
           </button>
           <button
             type="button"
             onClick={activateEnv}
-            disabled={saving}
+            disabled={saving || !canManage}
             className="rounded-lg border border-blue-300 dark:border-blue-800 bg-blue-50 dark:bg-blue-950/40 px-3 py-2 text-sm font-medium text-blue-900 dark:text-blue-300 disabled:opacity-50"
           >
             Save & make {env.toUpperCase()} active
@@ -413,6 +478,7 @@ export const AepsAdminProvider = () => {
           <input
             type="checkbox"
             checked={!!form.debug_mode}
+            disabled={!canManage}
             onChange={(e) => setForm({ ...form, debug_mode: e.target.checked })}
           />
           <span>
@@ -500,7 +566,7 @@ export const AepsAdminProvider = () => {
             />
           </label>
           <label className="block text-xs font-semibold uppercase text-slate-500 dark:text-slate-400">
-            Secret key {isSimple ? '(required for txn / eKYC / 2FA hash)' : '(recon + Simple hashes)'}
+            Secret key {isSimple ? '(required for txn / eKYC / 2FA hash)' : '(recon + hashes — NOT the RSA cert)'}
             <input
               className="mt-1 w-full rounded-lg border px-3 py-2 text-sm"
               type="password"
@@ -509,6 +575,10 @@ export const AepsAdminProvider = () => {
               onChange={(e) => setForm({ ...form, secret_key: e.target.value })}
               placeholder={meta?.has_secret_key ? '•••• leave blank to keep' : ''}
             />
+            <span className="mt-1 block text-[11px] font-normal normal-case text-amber-700 dark:text-amber-300">
+              Short Tapits key only. Never paste -----BEGIN CERTIFICATE----- here — that goes under
+              Advanced → RSA public cert. Mixing them causes Fingpay “Error parsing request data”.
+            </span>
           </label>
           <label className="block text-xs font-semibold uppercase text-slate-500 dark:text-slate-400">
             Egress IP override (leave blank to auto-detect)
@@ -549,6 +619,40 @@ export const AepsAdminProvider = () => {
               <option value="1">1 — FIR</option>
               <option value="2">2 — Full image</option>
             </select>
+          </label>
+        </div>
+
+        <div className="rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800/50 p-3 space-y-3">
+          <p className="text-sm font-semibold text-slate-900 dark:text-slate-100">Transaction &amp; callback settings</p>
+          <label className="block text-xs font-semibold uppercase text-slate-500 dark:text-slate-400">
+            CW / Aadhaar Pay OTP threshold (₹)
+            <input
+              className="mt-1 w-full max-w-xs rounded-lg border px-3 py-2 text-sm"
+              type="number"
+              min={0}
+              value={form.cw_ap_otp_threshold ?? 5000}
+              onChange={(e) => setForm({ ...form, cw_ap_otp_threshold: e.target.value })}
+            />
+          </label>
+          <label className="block text-xs font-semibold uppercase text-slate-500 dark:text-slate-400">
+            Callback allowed IPs (comma or newline separated)
+            <textarea
+              className="mt-1 w-full rounded-lg border px-3 py-2 font-mono text-xs"
+              rows={3}
+              value={form.callback_allowed_ips || ''}
+              onChange={(e) => setForm({ ...form, callback_allowed_ips: e.target.value })}
+            />
+          </label>
+          <label className="block text-xs font-semibold uppercase text-slate-500 dark:text-slate-400">
+            Callback token
+            <input
+              className="mt-1 w-full rounded-lg border px-3 py-2 text-sm font-mono"
+              type="password"
+              autoComplete="new-password"
+              value={form.callback_token || ''}
+              onChange={(e) => setForm({ ...form, callback_token: e.target.value })}
+              placeholder={meta?.has_callback_token ? 'Leave blank to keep saved token' : 'Optional shared secret'}
+            />
           </label>
         </div>
 
@@ -607,8 +711,8 @@ export const AepsAdminProvider = () => {
             className="text-sm font-semibold text-slate-800 dark:text-slate-200"
             onClick={() => setShowAdvanced((v) => !v)}
           >
-            {showAdvanced ? 'Hide' : 'Show'} advanced (base URLs
-            {!isSimple ? ', RSA cert, GSTIN/PAN' : ''})
+            {showAdvanced ? 'Hide' : 'Show'} advanced (base URLs, GSTIN/PAN
+            {!isSimple ? ', RSA cert' : ''})
           </button>
           {showAdvanced ? (
             <div className="mt-3 space-y-3">
@@ -622,18 +726,23 @@ export const AepsAdminProvider = () => {
                   />
                 </label>
               ))}
+              {['gstin_number', 'company_or_shop_pan'].map((k) => (
+                <label key={k} className="block text-xs font-semibold uppercase text-slate-500 dark:text-slate-400">
+                  {k === 'gstin_number' ? 'Super merchant GSTIN (sent for every merchant)' : 'Default company / shop PAN'}
+                  <input
+                    className="mt-1 w-full rounded-lg border px-3 py-2 text-sm"
+                    value={form[k] || ''}
+                    onChange={(e) => setForm({ ...form, [k]: e.target.value })}
+                  />
+                  {k === 'gstin_number' ? (
+                    <span className="mt-1 block text-[11px] font-normal normal-case text-slate-500 dark:text-slate-400">
+                      One GSTIN for the whole Super Merchant. Merchants are not asked for GSTIN on the onboarding form.
+                    </span>
+                  ) : null}
+                </label>
+              ))}
               {!isSimple ? (
                 <>
-                  {['gstin_number', 'company_or_shop_pan'].map((k) => (
-                    <label key={k} className="block text-xs font-semibold uppercase text-slate-500 dark:text-slate-400">
-                      {k === 'gstin_number' ? 'Super merchant GSTIN' : 'Company / shop PAN'}
-                      <input
-                        className="mt-1 w-full rounded-lg border px-3 py-2 text-sm"
-                        value={form[k] || ''}
-                        onChange={(e) => setForm({ ...form, [k]: e.target.value })}
-                      />
-                    </label>
-                  ))}
                   <label className="block text-xs font-semibold uppercase text-slate-500 dark:text-slate-400">
                     Fingpay public certificate (PEM — BEGIN CERTIFICATE)
                     <textarea
@@ -681,7 +790,7 @@ export const AepsAdminProvider = () => {
         </label>
         <button
           type="submit"
-          disabled={saving}
+          disabled={saving || !canManage}
           className="rounded-lg bg-blue-600 px-4 py-2 text-sm font-semibold text-white disabled:opacity-50"
         >
           {saving ? 'Saving…' : `Save ${env.toUpperCase()}`}
@@ -689,7 +798,7 @@ export const AepsAdminProvider = () => {
         <button
           type="button"
           onClick={testCreds}
-          disabled={saving}
+          disabled={saving || !canManage}
           className="ml-2 rounded-lg border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-900 px-4 py-2 text-sm font-semibold text-slate-800 dark:text-slate-200 disabled:opacity-50"
         >
           Test active profile
@@ -721,7 +830,8 @@ export const AepsAdminProvider = () => {
             )}
           </pre>
         ) : null}
-      </form>
+        </form>
+      </fieldset>
     </div>
   );
 };
@@ -733,26 +843,35 @@ export const AepsAdminDebugLogs = () => {
   const [debugOnly, setDebugOnly] = useState(true);
   const [selected, setSelected] = useState(null);
   const [msg, setMsg] = useState('');
+  const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = useState(50);
+  const [total, setTotal] = useState(0);
+  const [loading, setLoading] = useState(false);
 
   const load = async () => {
+    setLoading(true);
+    const offset = (page - 1) * pageSize;
     const res = await aepsAPI.adminDebugLogs({
       endpoint: endpoint || undefined,
       merchant_tran_id: merchantTranId || undefined,
       debug_only: debugOnly ? '1' : undefined,
-      limit: 50,
+      limit: pageSize,
+      offset,
     });
     if (res.success) {
       setRows(res.data?.results || []);
+      setTotal(res.data?.count ?? 0);
       setMsg('');
     } else {
       setMsg(res.message || 'Failed to load logs');
     }
+    setLoading(false);
   };
 
   useEffect(() => {
     load();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [page, pageSize]);
 
   const openDetail = async (id) => {
     const res = await aepsAPI.adminDebugLogDetail(id);
@@ -795,7 +914,14 @@ export const AepsAdminDebugLogs = () => {
           <input type="checkbox" checked={debugOnly} onChange={(e) => setDebugOnly(e.target.checked)} />
           Debug packs only
         </label>
-        <button type="button" onClick={load} className="rounded-lg bg-blue-600 px-3 py-2 text-sm font-semibold text-white">
+        <button
+          type="button"
+          onClick={() => {
+            setPage(1);
+            load();
+          }}
+          className="rounded-lg bg-blue-600 px-3 py-2 text-sm font-semibold text-white"
+        >
           Refresh
         </button>
       </div>
@@ -834,6 +960,17 @@ export const AepsAdminDebugLogs = () => {
           </tbody>
         </table>
         {!rows.length ? <p className="p-6 text-slate-500 dark:text-slate-400">No audit rows yet.</p> : null}
+        <ReportPagination
+          page={page}
+          pageSize={pageSize}
+          total={total}
+          loading={loading}
+          onPageChange={setPage}
+          onPageSizeChange={(size) => {
+            setPageSize(size);
+            setPage(1);
+          }}
+        />
       </div>
       {selected ? (
         <div className="space-y-2 rounded-2xl border bg-white dark:bg-slate-900 p-4 shadow-sm">
@@ -877,13 +1014,46 @@ export const AepsAdminDebugLogs = () => {
 
 export const AepsAdminRequests = () => {
   const [rows, setRows] = useState([]);
-  const load = () => aepsAPI.adminAccessRequests('pending').then((r) => r.success && setRows(r.data?.results || []));
+  const [statusFilter, setStatusFilter] = useState('pending');
+  const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = useState(25);
+  const [total, setTotal] = useState(0);
+  const [loading, setLoading] = useState(false);
+
+  const load = async () => {
+    setLoading(true);
+    const offset = (page - 1) * pageSize;
+    const r = await aepsAPI.adminAccessRequests({ status: statusFilter, limit: pageSize, offset });
+    if (r.success) {
+      setRows(r.data?.results || []);
+      setTotal(r.data?.count ?? 0);
+    }
+    setLoading(false);
+  };
+
   useEffect(() => {
     load();
-  }, []);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [page, pageSize, statusFilter]);
+
   return (
     <div className="space-y-4 p-4">
       <h1 className="text-2xl font-bold">AEPS access requests</h1>
+      <div className="flex flex-wrap gap-2">
+        <select
+          className="rounded-lg border px-3 py-2 text-sm"
+          value={statusFilter}
+          onChange={(e) => {
+            setStatusFilter(e.target.value);
+            setPage(1);
+          }}
+        >
+          <option value="pending">Pending</option>
+          <option value="approved">Approved</option>
+          <option value="rejected">Rejected</option>
+          <option value="all">All</option>
+        </select>
+      </div>
       <div className="rounded-2xl border bg-white dark:bg-slate-900 shadow-sm">
         {rows.map((r) => (
           <div key={r.id} className="flex flex-wrap items-center justify-between gap-3 border-b px-4 py-3">
@@ -917,7 +1087,18 @@ export const AepsAdminRequests = () => {
             </div>
           </div>
         ))}
-        {!rows.length ? <p className="p-6 text-slate-500 dark:text-slate-400">No pending requests.</p> : null}
+        {!rows.length ? <p className="p-6 text-slate-500 dark:text-slate-400">No requests in this filter.</p> : null}
+        <ReportPagination
+          page={page}
+          pageSize={pageSize}
+          total={total}
+          loading={loading}
+          onPageChange={setPage}
+          onPageSizeChange={(size) => {
+            setPageSize(size);
+            setPage(1);
+          }}
+        />
       </div>
     </div>
   );
@@ -926,6 +1107,12 @@ export const AepsAdminRequests = () => {
 export const AepsAdminMerchants = () => {
   const [rows, setRows] = useState([]);
   const [q, setQ] = useState('');
+  const [stageFilter, setStageFilter] = useState('');
+  const [bankEkycFilter, setBankEkycFilter] = useState('');
+  const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = useState(25);
+  const [total, setTotal] = useState(0);
+  const [loading, setLoading] = useState(false);
   const [selectedId, setSelectedId] = useState(null);
   const [detail, setDetail] = useState(null);
   const [detailLoading, setDetailLoading] = useState(false);
@@ -934,8 +1121,22 @@ export const AepsAdminMerchants = () => {
   const [resetMsg, setResetMsg] = useState('');
   const [resetErr, setResetErr] = useState('');
 
-  const load = () =>
-    aepsAPI.adminMerchants({ search: q || undefined }).then((r) => r.success && setRows(r.data?.results || []));
+  const load = async () => {
+    setLoading(true);
+    const offset = (page - 1) * pageSize;
+    const r = await aepsAPI.adminMerchants({
+      search: q || undefined,
+      stage: stageFilter || undefined,
+      bank_ekyc_status: bankEkycFilter || undefined,
+      limit: pageSize,
+      offset,
+    });
+    if (r.success) {
+      setRows(r.data?.results || []);
+      setTotal(r.data?.count ?? 0);
+    }
+    setLoading(false);
+  };
 
   const loadDetail = async (id) => {
     setSelectedId(id);
@@ -975,7 +1176,7 @@ export const AepsAdminMerchants = () => {
   useEffect(() => {
     load();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [page, pageSize]);
 
   return (
     <div className="space-y-4 p-4">
@@ -987,7 +1188,37 @@ export const AepsAdminMerchants = () => {
           value={q}
           onChange={(e) => setQ(e.target.value)}
         />
-        <button type="button" onClick={load} className="rounded-lg bg-blue-600 px-3 py-2 text-sm font-semibold text-white">
+        <select
+          className="rounded-lg border px-3 py-2 text-sm"
+          value={stageFilter}
+          onChange={(e) => setStageFilter(e.target.value)}
+        >
+          <option value="">All stages</option>
+          <option value="not_started">not_started</option>
+          <option value="onboarding_draft">onboarding_draft</option>
+          <option value="onboarding_submitted">onboarding_submitted</option>
+          <option value="ekyc_pending">ekyc_pending</option>
+          <option value="active">active</option>
+        </select>
+        <select
+          className="rounded-lg border px-3 py-2 text-sm"
+          value={bankEkycFilter}
+          onChange={(e) => setBankEkycFilter(e.target.value)}
+        >
+          <option value="">All Bank eKYC</option>
+          <option value="not_required">not_required</option>
+          <option value="pending">pending</option>
+          <option value="done">done</option>
+          <option value="failed">failed</option>
+        </select>
+        <button
+          type="button"
+          onClick={() => {
+            setPage(1);
+            load();
+          }}
+          className="rounded-lg bg-blue-600 px-3 py-2 text-sm font-semibold text-white"
+        >
           Apply
         </button>
       </div>
@@ -998,6 +1229,7 @@ export const AepsAdminMerchants = () => {
               <th className="px-4 py-3 text-left">User</th>
               <th className="px-4 py-3 text-left">Login id</th>
               <th className="px-4 py-3 text-left">Stage</th>
+              <th className="px-4 py-3 text-left">Bank eKYC</th>
               <th className="px-4 py-3 text-left">Device IMEI</th>
               <th className="px-4 py-3 text-left">Masked Aadhaar</th>
               <th className="px-4 py-3 text-left">Last error</th>
@@ -1016,6 +1248,7 @@ export const AepsAdminMerchants = () => {
                 </td>
                 <td className="px-4 py-3 font-mono text-xs">{m.merchant_login_id}</td>
                 <td className="px-4 py-3">{m.stage}</td>
+                <td className="px-4 py-3 text-xs">{m.bank_ekyc_status || '—'}</td>
                 <td className="px-4 py-3 font-mono text-xs">{m.device_ready ? m.device_imei : '—'}</td>
                 <td className="px-4 py-3 font-mono text-xs">{m.masked_aadhaar || '—'}</td>
                 <td className="max-w-[200px] truncate px-4 py-3 text-rose-700 dark:text-rose-300" title={m.last_error || ''}>
@@ -1028,6 +1261,17 @@ export const AepsAdminMerchants = () => {
             ))}
           </tbody>
         </table>
+        <ReportPagination
+          page={page}
+          pageSize={pageSize}
+          total={total}
+          loading={loading}
+          onPageChange={setPage}
+          onPageSizeChange={(size) => {
+            setPageSize(size);
+            setPage(1);
+          }}
+        />
       </div>
 
       {selectedId ? (
@@ -1189,12 +1433,91 @@ export const AepsAdminMerchants = () => {
 export const AepsAdminRecon = () => {
   const [rows, setRows] = useState([]);
   const [openId, setOpenId] = useState(null);
+  const [direction, setDirection] = useState('');
+  const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = useState(25);
+  const [total, setTotal] = useState(0);
+  const [loading, setLoading] = useState(false);
+  const [canManage, setCanManage] = useState(false);
+  const [reconTxnDate, setReconTxnDate] = useState(yesterdayIsoDate);
+  const [msg, setMsg] = useState('');
+
+  const load = async () => {
+    setLoading(true);
+    const offset = (page - 1) * pageSize;
+    const r = await aepsAPI.adminRecon({
+      direction: direction || undefined,
+      limit: pageSize,
+      offset,
+    });
+    if (r.success) {
+      setRows(r.data?.results || []);
+      setTotal(r.data?.count ?? 0);
+    }
+    setLoading(false);
+  };
+
   useEffect(() => {
-    aepsAPI.adminRecon().then((r) => r.success && setRows(r.data?.results || []));
+    aepsAPI.adminProviderGet().then((r) => {
+      if (r.success) setCanManage(Boolean(r.data?.can_manage_provider));
+    });
   }, []);
+
+  useEffect(() => {
+    load();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [page, pageSize, direction]);
+
+  const runOutboundRecon = async () => {
+    setLoading(true);
+    const res = await aepsAPI.adminReconRun({ txn_date: reconTxnDate });
+    setMsg(res.success ? res.message || 'Outbound recon submitted.' : res.message || 'Recon failed');
+    if (res.success) {
+      setPage(1);
+      await load();
+    }
+    setLoading(false);
+  };
+
   return (
     <div className="space-y-4 p-4">
       <h1 className="text-2xl font-bold">AEPS recon batches</h1>
+      <div className="flex flex-wrap items-end gap-2">
+        <select
+          className="rounded-lg border px-3 py-2 text-sm"
+          value={direction}
+          onChange={(e) => {
+            setDirection(e.target.value);
+            setPage(1);
+          }}
+        >
+          <option value="">All directions</option>
+          <option value="inbound">Inbound</option>
+          <option value="outbound">Outbound</option>
+        </select>
+        {canManage ? (
+          <>
+            <label className="text-sm">
+              <span className="mb-1 block text-xs text-slate-500">Txn date</span>
+              <input
+                type="date"
+                className="rounded-lg border px-3 py-2 text-sm"
+                value={reconTxnDate}
+                onChange={(e) => setReconTxnDate(e.target.value)}
+              />
+            </label>
+            <button
+              type="button"
+              disabled={loading || !reconTxnDate}
+              onClick={runOutboundRecon}
+              className="rounded-lg bg-indigo-600 px-4 py-2 text-sm font-semibold text-white disabled:opacity-50"
+            >
+              Run outbound recon
+            </button>
+          </>
+        ) : null}
+      </div>
+      {msg ? <p className="text-sm text-slate-700 dark:text-slate-300">{msg}</p> : null}
       <ul className="rounded-2xl border bg-white dark:bg-slate-900 p-4 text-sm shadow-sm">
         {rows.map((b) => (
           <li key={b.id} className="border-b py-3 last:border-0">
@@ -1204,7 +1527,8 @@ export const AepsAdminRecon = () => {
               onClick={() => setOpenId(openId === b.id ? null : b.id)}
             >
               <span>
-                #{b.id} · {b.txn_date || '—'} · {b.item_count} items ·{' '}
+                #{b.id} · {b.txn_date || '—'} ·{' '}
+                <span className="font-semibold uppercase">{b.direction || 'inbound'}</span> · {b.item_count} items ·{' '}
                 {b.created_at ? new Date(b.created_at).toLocaleString() : ''}
               </span>
               <span className="text-xs font-semibold text-blue-700 dark:text-blue-300">{openId === b.id ? 'Hide' : 'Items'}</span>
@@ -1217,7 +1541,133 @@ export const AepsAdminRecon = () => {
           </li>
         ))}
         {!rows.length ? <li className="text-slate-500 dark:text-slate-400">No recon batches yet.</li> : null}
+        <ReportPagination
+          page={page}
+          pageSize={pageSize}
+          total={total}
+          loading={loading}
+          onPageChange={setPage}
+          onPageSizeChange={(size) => {
+            setPageSize(size);
+            setPage(1);
+          }}
+        />
       </ul>
+    </div>
+  );
+};
+
+export const AepsAdminProviderGrants = () => {
+  const [grants, setGrants] = useState([]);
+  const [admins, setAdmins] = useState([]);
+  const [selectedAdminId, setSelectedAdminId] = useState('');
+  const [msg, setMsg] = useState('');
+  const [busy, setBusy] = useState(false);
+
+  const load = async () => {
+    setBusy(true);
+    const res = await aepsAPI.adminProviderGrantsGet();
+    if (res.success) {
+      setGrants(res.data?.results || []);
+      setAdmins(res.data?.admins || []);
+      setMsg('');
+    } else {
+      setMsg(res.message || 'Failed to load grants');
+    }
+    setBusy(false);
+  };
+
+  useEffect(() => {
+    load();
+  }, []);
+
+  const grant = async () => {
+    if (!selectedAdminId) return;
+    setBusy(true);
+    const res = await aepsAPI.adminProviderGrant({ user_id: Number(selectedAdminId) });
+    setMsg(res.success ? res.message || 'Grant issued' : res.message || 'Grant failed');
+    if (res.success) await load();
+    setBusy(false);
+  };
+
+  const revoke = async (userId) => {
+    setBusy(true);
+    const res = await aepsAPI.adminProviderGrantRevoke(userId);
+    setMsg(res.success ? res.message || 'Grant revoked' : res.message || 'Revoke failed');
+    if (res.success) await load();
+    setBusy(false);
+  };
+
+  return (
+    <div className="mx-auto max-w-3xl space-y-4 p-4">
+      <h1 className="text-2xl font-bold text-slate-900 dark:text-slate-100">AEPS provider edit grants</h1>
+      <p className="text-sm text-slate-500 dark:text-slate-400">
+        Super Admin only. Granted Admins can edit Fingpay provider credentials and run outbound recon.
+      </p>
+      <div className="flex flex-wrap items-end gap-2 rounded-xl border bg-white dark:bg-slate-900 p-4 shadow-sm">
+        <label className="text-sm">
+          <span className="mb-1 block text-xs text-slate-500">Admin user</span>
+          <select
+            className="min-w-[220px] rounded-lg border px-3 py-2 text-sm"
+            value={selectedAdminId}
+            onChange={(e) => setSelectedAdminId(e.target.value)}
+          >
+            <option value="">Select Admin</option>
+            {admins.map((a) => (
+              <option key={a.id} value={a.id}>
+                {a.full_name || a.username} ({a.email || a.username})
+              </option>
+            ))}
+          </select>
+        </label>
+        <button
+          type="button"
+          disabled={busy || !selectedAdminId}
+          onClick={grant}
+          className="rounded-lg bg-emerald-600 px-4 py-2 text-sm font-semibold text-white disabled:opacity-50"
+        >
+          Grant
+        </button>
+      </div>
+      {msg ? <p className="text-sm">{msg}</p> : null}
+      <div className="overflow-x-auto rounded-2xl border bg-white dark:bg-slate-900 shadow-sm">
+        <table className="min-w-full text-sm">
+          <thead className="bg-slate-50 dark:bg-slate-800/50 text-xs uppercase text-slate-500">
+            <tr>
+              <th className="px-4 py-3 text-left">Admin</th>
+              <th className="px-4 py-3 text-left">Role</th>
+              <th className="px-4 py-3 text-left">Granted</th>
+              <th className="px-4 py-3 text-left">Active</th>
+              <th className="px-4 py-3 text-left" />
+            </tr>
+          </thead>
+          <tbody>
+            {grants.map((g) => (
+              <tr key={g.id} className="border-t">
+                <td className="px-4 py-3">
+                  {g.full_name || g.username} <span className="text-xs text-slate-500">#{g.user_id}</span>
+                </td>
+                <td className="px-4 py-3">{g.role}</td>
+                <td className="px-4 py-3 text-xs">{g.granted_at ? new Date(g.granted_at).toLocaleString() : '—'}</td>
+                <td className="px-4 py-3">{g.is_active ? 'yes' : 'no'}</td>
+                <td className="px-4 py-3">
+                  {g.is_active ? (
+                    <button
+                      type="button"
+                      disabled={busy}
+                      onClick={() => revoke(g.user_id)}
+                      className="text-xs font-semibold text-rose-700 dark:text-rose-300"
+                    >
+                      Revoke
+                    </button>
+                  ) : null}
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+        {!grants.length ? <p className="p-6 text-slate-500">No grants yet.</p> : null}
+      </div>
     </div>
   );
 };

@@ -162,6 +162,9 @@ def build_encrypted_request(
     plain_json: str,
     rsa_public_key_pem: str,
     aes_mode: str = 'cbc',
+    secret_key: str = '',
+    hash_with_secret_key: bool = False,
+    trn_timestamp: str | None = None,
 ) -> dict[str, str]:
     """
     Returns headers/body pieces: hash, eskey, body, trnTimestamp.
@@ -169,15 +172,25 @@ def build_encrypted_request(
     aes_mode:
       - 'cbc' (default): PHP sample /php/ APIs
       - 'ecb': Java/.NET sample style
+
+    hash_with_secret_key:
+      Cash Deposit doc: hash = Base64(SHA256(JSON + securitykey)).
+      Other encrypted products (CW/BE/… PHP sample): hash = Base64(SHA256(JSON)).
     """
     session_key = generate_aes128_session_key()
     if (aes_mode or 'cbc').lower() == 'ecb':
         body = encrypt_aes_ecb_pkcs7(session_key, plain_json)
     else:
         body = encrypt_aes_cbc_pkcs7(session_key, plain_json)
+    if hash_with_secret_key:
+        if not secret_key:
+            raise ValueError('secret_key required when hash_with_secret_key=True')
+        hdr_hash = sha256_b64(f'{plain_json}{secret_key}')
+    else:
+        hdr_hash = sha256_b64(plain_json)
     return {
-        'trnTimestamp': trn_timestamp_now(),
-        'hash': sha256_b64(plain_json),
+        'trnTimestamp': trn_timestamp or trn_timestamp_now(),
+        'hash': hdr_hash,
         'eskey': encrypt_session_key_rsa(session_key, rsa_public_key_pem),
         'body': body,
     }

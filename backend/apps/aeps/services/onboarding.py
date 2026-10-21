@@ -637,18 +637,23 @@ def build_fingpay_merchant_payload(*, merchant, flat: dict, latitude, longitude,
 
     defaults = _provider_kyc_defaults()
     user_pan = _safe_str(flat.get('userPan')).upper()
-    # Java field is gstinNumber; table alias gstInNumber — accept both on input.
-    gstin = (
-        _safe_str(flat.get('gstinNumber'))
-        or _safe_str(flat.get('gstInNumber'))
-        or defaults['gstinNumber']
+    # Super-merchant GSTIN is platform-configured once (Admin → AEPS → Provider).
+    # Never collect per-merchant GSTIN on the onboarding form — always send the same value.
+    gstin = _safe_str(defaults.get('gstinNumber'))
+    company_pan = (
+        _safe_str(defaults.get('companyOrShopPan')).upper()
+        or _safe_str(flat.get('companyOrShopPan')).upper()
+        or user_pan
     )
-    company_pan = _safe_str(flat.get('companyOrShopPan')).upper() or defaults['companyOrShopPan'] or user_pan
     if not gstin:
         raise ValidationError(
             {
                 'code': 'GSTIN_REQUIRED',
-                'message': 'GSTIN is mandatory. Admin must set Super Merchant GSTIN in AEPS provider settings, or enter it on the form.',
+                'message': (
+                    'Super Merchant GSTIN is not configured. '
+                    'Admin must set it once under AEPS → Provider (advanced) — '
+                    'the same GSTIN is sent for every merchant onboarding.'
+                ),
             }
         )
     if not company_pan:
@@ -1424,7 +1429,41 @@ def ekyc_status_check(*, user, kyc_type: str = 'EKYC') -> dict:
         )
     except Exception as exc:
         raise ValidationError({'code': 'PROVIDER_REJECTED', 'message': str(exc)}) from exc
-    return scrub_sensitive(resp)
+
+    # Persist Bank eKYC outcome when checking BeKYC
+    msg = str(resp.get('message') or '').lower()
+    ok = bool(resp.get('status') is True or str(resp.get('statusCode')) == '10000')
+    if kyc_type.upper() in ('BEKYC', 'BANK', 'BANKEKYC'):
+        merchant.bank_ekyc_checked_at = timezone.now()
+        merchant.bank_ekyc_message = str(resp.get('message') or '')[:500]
+        if ok and ('bank ekyc done' in msg or 'successfully' in msg or 'done' in msg):
+            merchant.bank_ekyc_status = 'done'
+            if merchant.stage != 'active':
+                merchant.stage = 'active'
+                merchant.activated_at = merchant.activated_at or timezone.now()
+            merchant.last_error = ''
+        elif ok:
+            merchant.bank_ekyc_status = 'done'
+            if merchant.stage != 'active':
+                merchant.stage = 'active'
+                merchant.activated_at = merchant.activated_at or timezone.now()
+        else:
+            merchant.bank_ekyc_status = 'failed' if merchant.bank_ekyc_status != 'done' else merchant.bank_ekyc_status
+        merchant.save(
+            update_fields=[
+                'bank_ekyc_status',
+                'bank_ekyc_checked_at',
+                'bank_ekyc_message',
+                'stage',
+                'activated_at',
+                'last_error',
+                'updated_at',
+            ]
+        )
+    out = scrub_sensitive(resp)
+    out['bank_ekyc_status'] = getattr(merchant, 'bank_ekyc_status', 'not_required')
+    out['merchant_stage'] = merchant.stage
+    return out
 
 
 def ekyc_biometric(*, user, capture_response: dict, latitude, longitude, aadhaar_number: str = '') -> dict:
@@ -1535,9 +1574,12 @@ def ekyc_biometric(*, user, capture_response: dict, latitude, longitude, aadhaar
     )
     if ok and (bank_done or needs_bank or kyc_code in ('',)):
         if needs_bank and not bank_done:
-            # Primary biometric accepted — keep merchant ready for Bank eKYC OTP/biometric.
-            if merchant.stage in ('onboarding_submitted', 'ekyc_pending', 'not_started', 'onboarding_draft'):
-                merchant.stage = 'ekyc_pending'
+            # Primary biometric accepted — activate merchant but gate products until BeKYC.
+            merchant.stage = 'active'
+            merchant.activated_at = merchant.activated_at or timezone.now()
+            merchant.bank_ekyc_status = 'pending'
+            merchant.bank_ekyc_message = provider_msg or 'Complete Bank eKYC (BeKYC)'
+            merchant.bank_ekyc_checked_at = timezone.now()
             merchant.last_error = ''
             merchant.last_latitude = latitude
             merchant.last_longitude = longitude
@@ -1546,12 +1588,16 @@ def ekyc_biometric(*, user, capture_response: dict, latitude, longitude, aadhaar
             txn.save()
             return {
                 'merchant_stage': merchant.stage,
+                'bank_ekyc_status': merchant.bank_ekyc_status,
                 'transaction': _txn_dict(txn),
                 'needs_bank_ekyc': True,
                 'message': provider_msg or 'Primary eKYC done. Complete Bank eKYC next.',
             }
         merchant.stage = 'active'
         merchant.activated_at = timezone.now()
+        merchant.bank_ekyc_status = 'done' if bank_done else 'not_required'
+        merchant.bank_ekyc_message = provider_msg[:500] if bank_done else ''
+        merchant.bank_ekyc_checked_at = timezone.now()
         merchant.fingpay_ekyc_ref = str(data.get('fingpayTransactionId') or merchant.ekyc_encode_fp_txn_id or '')
         merchant.last_error = ''
         merchant.last_latitude = latitude
@@ -1679,6 +1725,13 @@ def admin_merchant_detail_payload(merchant) -> dict:
             'has_merchant_pin': bool(merchant_pin_plain(merchant)),
             'ekyc_primary_key_id': merchant.ekyc_primary_key_id or '',
             'ekyc_encode_fp_txn_id': merchant.ekyc_encode_fp_txn_id or '',
+            'bank_ekyc_status': getattr(merchant, 'bank_ekyc_status', 'not_required') or 'not_required',
+            'bank_ekyc_message': getattr(merchant, 'bank_ekyc_message', '') or '',
+            'bank_ekyc_checked_at': (
+                merchant.bank_ekyc_checked_at.isoformat()
+                if getattr(merchant, 'bank_ekyc_checked_at', None)
+                else None
+            ),
             'activated_at': merchant.activated_at.isoformat() if merchant.activated_at else None,
             'last_2fa_at': merchant.last_2fa_at.isoformat() if merchant.last_2fa_at else None,
             'created_at': merchant.created_at.isoformat() if merchant.created_at else None,

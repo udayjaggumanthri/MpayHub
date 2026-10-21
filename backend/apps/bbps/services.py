@@ -194,19 +194,23 @@ def governance_readiness_for_biller(biller_id: str) -> dict:
     return {'allowed': not blocked, 'blocked_by': blocked}
 
 
-def calculate_bbps_charge(amount):
+def calculate_bbps_charge(amount, category_code=''):
     """
-    Calculate BBPS wallet service charge (admin BillAvenue config or BBPS_SERVICE_CHARGE fallback).
+    Calculate BBPS wallet service charge (category override, else BillAvenue config).
 
     Args:
         amount: Bill amount
+        category_code: bill_type / category slug. Empty uses the global default.
 
     Returns:
         dict with charge and total_deducted
     """
     from apps.bbps.service_flow.bbps_wallet_charge import resolve_bbps_wallet_service_charge
 
-    info = resolve_bbps_wallet_service_charge(amount=Decimal(str(amount)))
+    info = resolve_bbps_wallet_service_charge(
+        amount=Decimal(str(amount)),
+        category_code=str(category_code or ''),
+    )
     charge = info['charge']
     total_deducted = Decimal(str(amount)) + charge
 

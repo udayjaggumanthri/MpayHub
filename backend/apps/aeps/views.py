@@ -9,14 +9,24 @@ from rest_framework.decorators import api_view, permission_classes
 from rest_framework.permissions import AllowAny, IsAuthenticated
 from rest_framework.response import Response
 
-from apps.core.roles import is_platform_operator
-from apps.aeps.models import AepsAccessRequest, AepsEntitlement, AepsMerchantProfile, AepsProviderConfig, AepsReconBatch
+from apps.core.roles import is_platform_operator, is_super_admin
+from apps.core.permissions import IsSuperAdmin
+from apps.aeps.models import (
+    AepsAccessRequest,
+    AepsConfigChangeLog,
+    AepsEntitlement,
+    AepsMerchantProfile,
+    AepsProviderAccessGrant,
+    AepsProviderConfig,
+    AepsReconBatch,
+)
+from apps.aeps.services import config_audit as config_audit_svc
 from apps.aeps.services import entitlement as entitlement_svc
 from apps.aeps.services import onboarding as onboarding_svc
 from apps.aeps.services import products as products_svc
 from apps.aeps.services import recon as recon_svc
 from apps.aeps.services import reports as reports_svc
-from apps.aeps.services.gates import me_status_payload
+from apps.aeps.services.gates import assert_can_manage_aeps_provider, can_manage_aeps_provider, me_status_payload
 from apps.core.utils import decrypt_secret_payload, encrypt_secret_payload
 from apps.integrations.fingpay.endpoints import (
     ENDPOINT_FIELD_META,
@@ -88,6 +98,15 @@ def _exc_exchange(exc):
 
 def _require_admin(request):
     return is_platform_operator(request.user)
+
+
+def _require_provider_manager(request):
+    """Super Admin or Admin with active provider grant."""
+    try:
+        assert_can_manage_aeps_provider(request.user)
+        return True
+    except Exception:
+        return False
 
 
 def _geo(request):
@@ -269,6 +288,12 @@ def _serialize_provider_row(row, *, bundled_cert: str = '') -> dict:
         'has_password': bool(secrets.get('password')),
         'has_secret_key': bool(secrets.get('secret_key')),
         'has_public_key': bool(secrets.get('rsa_public_key_pem') or secrets.get('public_key')),
+        'has_callback_token': bool(getattr(row, 'callback_token', '') if row else False),
+        'cw_ap_otp_threshold': int(getattr(row, 'cw_ap_otp_threshold', None) or 5000) if row else 5000,
+        'banks_last_synced_at': (
+            row.banks_last_synced_at.isoformat() if row and getattr(row, 'banks_last_synced_at', None) else None
+        ),
+        'callback_allowed_ips': (row.callback_allowed_ips or '') if row else '',
         'gstin_number': secrets.get('gstin_number') or secrets.get('gstinNumber') or '',
         'company_or_shop_pan': secrets.get('company_or_shop_pan')
         or secrets.get('companyOrShopPan')
@@ -376,6 +401,8 @@ def admin_provider_config(request):
         payload = _serialize_provider_row(row, bundled_cert=bundled_cert)
         payload['environments'] = envs
         payload['presets'] = ENV_PRESETS
+        payload['can_manage_provider'] = can_manage_aeps_provider(request.user)
+        payload['is_super_admin'] = is_super_admin(request.user)
         payload['default_endpoints'] = {
             e: default_endpoints_for(environment=e, onboarding_api_style='php') for e in ('uat', 'prod', 'simple')
         }
@@ -393,12 +420,24 @@ def admin_provider_config(request):
                 'Simple API: plain JSON, no eskey. Activate exactly one profile for all users.'
             ),
             'onboarding_paths': AepsProviderConfig.ONBOARDING_CREATE_PATHS,
+            'rbac': (
+                'Only Super Admin can edit by default. Super Admin may grant specific Admins '
+                'via /admin/aeps/provider/grants.'
+            ),
         }
         return _ok(payload)
+
+    if not _require_provider_manager(request):
+        return _err(
+            'Only Super Admin (or an Admin granted by Super Admin) can edit AEPS provider credentials.',
+            code='AEPS_PROVIDER_FORBIDDEN',
+            http_status=403,
+        )
 
     data = request.data or {}
     env = _normalize_env(str(data.get('environment') or env))
     row = _get_or_create_env_row(env)
+    before = config_audit_svc.mask_provider_row(row)
     preset = ENV_PRESETS[env]
     for field in (
         'super_merchant_id',
@@ -411,9 +450,19 @@ def admin_provider_config(request):
         'aadhaar_pay_bank_list_url',
         'notes',
         'egress_ip',
+        'callback_allowed_ips',
     ):
         if field in data:
             setattr(row, field, data.get(field) or '')
+    if 'callback_token' in data and data.get('callback_token'):
+        row.callback_token = str(data.get('callback_token') or '').strip()
+    if data.get('clear_callback_token'):
+        row.callback_token = ''
+    if 'cw_ap_otp_threshold' in data:
+        try:
+            row.cw_ap_otp_threshold = max(0, int(data.get('cw_ap_otp_threshold') or 5000))
+        except (TypeError, ValueError):
+            return _err('cw_ap_otp_threshold must be an integer', http_status=400)
     for field in ('capture_ftype_aeps', 'capture_ftype_ekyc'):
         if field in data:
             value = str(data.get(field) or '').strip()
@@ -469,15 +518,6 @@ def admin_provider_config(request):
         row.request_timeout_seconds = int(data.get('request_timeout_seconds') or 180)
     activate = bool(data.get('is_active')) if 'is_active' in data else bool(data.get('activate'))
     activate = activate or bool(data.get('make_active')) or bool(data.get('activate_onboarding_style'))
-    if activate:
-        AepsProviderConfig.objects.filter(is_deleted=False, is_active=True).update(is_active=False)
-        row.is_active = True
-    elif 'is_active' in data:
-        row.is_active = bool(data.get('is_active'))
-        if row.is_active:
-            AepsProviderConfig.objects.filter(is_deleted=False, is_active=True).exclude(pk=row.pk or 0).update(
-                is_active=False
-            )
     secrets = decrypt_secret_payload(row.secrets_encrypted or '') or {}
     if data.get('password'):
         secrets['password'] = data['password']
@@ -485,7 +525,10 @@ def admin_provider_config(request):
         mode = str(data.get('password_mode') or data.get('password_format') or 'plain').strip().lower()
         secrets['password_mode'] = 'md5' if mode in ('md5', 'hashed', 'hash', 'digest') else 'plain'
     if data.get('secret_key'):
-        secrets['secret_key'] = data['secret_key']
+        ok_sk, sk_msg = config_audit_svc.assert_secret_key_not_certificate(data.get('secret_key'))
+        if not ok_sk:
+            return _err(sk_msg, http_status=400)
+        secrets['secret_key'] = str(data.get('secret_key') or '').strip()
     if 'gstin_number' in data:
         secrets['gstin_number'] = (data.get('gstin_number') or '').strip()
     if 'company_or_shop_pan' in data:
@@ -507,12 +550,49 @@ def admin_provider_config(request):
     if secrets.get('password') and not secrets.get('password_mode'):
         secrets['password_mode'] = 'plain'
     row.secrets_encrypted = encrypt_secret_payload(secrets)
+
+    will_activate = activate or (bool(data.get('is_active')) if 'is_active' in data else False)
+    if will_activate or (activate is False and data.get('make_active')):
+        ok_ready, ready_msg = config_audit_svc.encrypted_profile_ready(row, secrets)
+        if activate or bool(data.get('make_active')) or bool(data.get('activate_onboarding_style')):
+            if not ok_ready:
+                return _err(ready_msg or 'Provider credentials incomplete for activation', http_status=400)
+
+    if activate:
+        AepsProviderConfig.objects.filter(is_deleted=False, is_active=True).update(is_active=False)
+        row.is_active = True
+    elif 'is_active' in data:
+        row.is_active = bool(data.get('is_active'))
+        if row.is_active:
+            ok_ready, ready_msg = config_audit_svc.encrypted_profile_ready(row, secrets)
+            if not ok_ready:
+                return _err(ready_msg or 'Provider credentials incomplete for activation', http_status=400)
+            AepsProviderConfig.objects.filter(is_deleted=False, is_active=True).exclude(pk=row.pk or 0).update(
+                is_active=False
+            )
     row.updated_by = request.user
     row.save()
     if not AepsProviderConfig.objects.filter(is_deleted=False, is_active=True).exists():
-        row.is_active = True
-        row.save(update_fields=['is_active', 'updated_at'])
+        ok_ready, ready_msg = config_audit_svc.encrypted_profile_ready(row, secrets)
+        if ok_ready:
+            row.is_active = True
+            row.save(update_fields=['is_active', 'updated_at'])
+    after = config_audit_svc.mask_provider_row(row)
+    action = 'activate' if activate or row.is_active and not before.get('is_active') else 'save'
+    if data.get('reset_endpoints'):
+        action = 'reset_endpoints'
+    if 'debug_mode' in data and before.get('debug_mode') != after.get('debug_mode'):
+        action = 'debug_toggle'
+    config_audit_svc.record_config_change(
+        actor=request.user,
+        environment=env,
+        action=action,
+        before_masked=before,
+        after_masked=after,
+        ip=get_client_ip(request),
+    )
     out = _serialize_provider_row(row, bundled_cert=bundled_cert)
+    out['can_manage_provider'] = True
     return _ok(out, message=f'Provider config saved ({env})')
 
 
@@ -522,6 +602,12 @@ def admin_provider_test(request):
     """Ping Fingpay with saved super-merchant credentials; return plain JSON for email to Tapits."""
     if not _require_admin(request):
         return _err('Admin only', http_status=403)
+    if not _require_provider_manager(request):
+        return _err(
+            'Only Super Admin (or a granted Admin) can run provider credential tests.',
+            code='AEPS_PROVIDER_FORBIDDEN',
+            http_status=403,
+        )
     try:
         from apps.integrations.fingpay.crypto import scrub_sensitive
         from apps.integrations.fingpay.registry import build_client_from_config, get_active_provider
@@ -706,12 +792,10 @@ def admin_debug_logs(request):
         qs = qs.filter(merchant_tran_id__icontains=merchant_tran_id)
     if debug_only:
         qs = qs.filter(debug_enabled=True)
-    try:
-        limit = min(200, max(1, int(request.query_params.get('limit') or 50)))
-    except (TypeError, ValueError):
-        limit = 50
+    limit, offset = _parse_limit_offset(request, default_limit=50, max_limit=200)
+    total = qs.count()
     rows = []
-    for row in qs[:limit]:
+    for row in qs[offset : offset + limit]:
         item = {
             'id': row.pk,
             'endpoint': row.endpoint,
@@ -733,7 +817,7 @@ def admin_debug_logs(request):
             item['response_body'] = row.response_body
             item['exchange_pack'] = row.exchange_pack
         rows.append(item)
-    return _ok({'results': rows, 'count': len(rows)})
+    return _ok({'results': rows, 'count': total, 'limit': limit, 'offset': offset})
 
 
 @api_view(['GET'])
@@ -809,9 +893,11 @@ def admin_access_requests(request):
     if not _require_admin(request):
         return _err('Admin only', http_status=403)
     status_f = request.query_params.get('status') or 'pending'
-    qs = AepsAccessRequest.objects.filter(is_deleted=False).select_related('user')
+    qs = AepsAccessRequest.objects.filter(is_deleted=False).select_related('user').order_by('-created_at')
     if status_f != 'all':
         qs = qs.filter(status=status_f)
+    limit, offset = _parse_limit_offset(request, default_limit=50, max_limit=200)
+    total = qs.count()
     rows = [
         {
             'id': r.pk,
@@ -825,9 +911,9 @@ def admin_access_requests(request):
                 'role': r.user.role,
             },
         }
-        for r in qs[:200]
+        for r in qs[offset : offset + limit]
     ]
-    return _ok({'results': rows})
+    return _ok({'results': rows, 'count': total, 'limit': limit, 'offset': offset})
 
 
 @api_view(['POST'])
@@ -852,10 +938,13 @@ def admin_access_request_decide(request, request_id: int):
 def admin_merchants(request):
     if not _require_admin(request):
         return _err('Admin only', http_status=403)
-    qs = AepsMerchantProfile.objects.filter(is_deleted=False).select_related('user')
+    qs = AepsMerchantProfile.objects.filter(is_deleted=False).select_related('user').order_by('-updated_at')
     stage = request.query_params.get('stage')
     if stage:
         qs = qs.filter(stage=stage)
+    bank_ekyc = (request.query_params.get('bank_ekyc_status') or '').strip()
+    if bank_ekyc:
+        qs = qs.filter(bank_ekyc_status=bank_ekyc)
     search = (request.query_params.get('search') or '').strip()
     if search:
         from django.db.models import Q
@@ -866,6 +955,21 @@ def admin_merchants(request):
             | Q(user__first_name__icontains=search)
             | Q(user__last_name__icontains=search)
         )
+    ordering = (request.query_params.get('ordering') or '-updated_at').strip()
+    allowed_order = {
+        'updated_at',
+        '-updated_at',
+        'stage',
+        '-stage',
+        'merchant_login_id',
+        '-merchant_login_id',
+        'bank_ekyc_status',
+        '-bank_ekyc_status',
+    }
+    if ordering in allowed_order:
+        qs = qs.order_by(ordering)
+    limit, offset = _parse_limit_offset(request, default_limit=50, max_limit=200)
+    total = qs.count()
     rows = [
         {
             'id': m.pk,
@@ -874,6 +978,8 @@ def admin_merchants(request):
             'device_ready': m.device_ready,
             'device_imei': m.device_imei,
             'masked_aadhaar': m.masked_aadhaar or '',
+            'bank_ekyc_status': getattr(m, 'bank_ekyc_status', 'not_required') or 'not_required',
+            'bank_ekyc_message': (getattr(m, 'bank_ekyc_message', '') or '')[:200],
             'last_error': (m.last_error or '')[:200],
             'updated_at': m.updated_at.isoformat() if m.updated_at else None,
             'user': {
@@ -883,9 +989,9 @@ def admin_merchants(request):
                 'name': f'{m.user.first_name} {m.user.last_name}'.strip(),
             },
         }
-        for m in qs[:300]
+        for m in qs[offset : offset + limit]
     ]
-    return _ok({'results': rows})
+    return _ok({'results': rows, 'count': total, 'limit': limit, 'offset': offset})
 
 
 @api_view(['GET'])
@@ -1138,6 +1244,31 @@ def twofa_complete(request):
 
 @api_view(['POST'])
 @permission_classes([IsAuthenticated])
+def txn_otp_send(request):
+    """Aadhaar OTP for CW/AP when amount > threshold (Fingpay send/otp)."""
+    lat, lng = _geo(request)
+    if lat is None or lng is None:
+        return _err('latitude and longitude are required', code='GEO_REQUIRED')
+    product = str(request.data.get('product') or request.data.get('serviceType') or 'CW').upper()
+    try:
+        data = products_svc.send_txn_otp(
+            user=request.user,
+            product=product,
+            payload=request.data,
+            latitude=lat,
+            longitude=lng,
+        )
+    except Exception as exc:
+        code = None
+        detail = getattr(exc, 'detail', None)
+        if isinstance(detail, dict):
+            code = detail.get('code')
+        return _err(_flatten_exc_message(exc), code=code, http_status=400)
+    return _ok(data, message=data.get('message') or 'OTP sent')
+
+
+@api_view(['POST'])
+@permission_classes([IsAuthenticated])
 def txn_cw(request):
     return _product_view(request, products_svc.cash_withdrawal)
 
@@ -1275,6 +1406,7 @@ def banks_list(request):
 @permission_classes([IsAuthenticated])
 def banks_sync(request):
     # Entitled merchants/admins can refresh the bank cache — needed for 2FA / trade.
+    from django.utils import timezone
     from apps.aeps.services.gates import is_entitled
 
     if not (_require_admin(request) or is_entitled(request.user)):
@@ -1283,7 +1415,9 @@ def banks_sync(request):
         n = products_svc.sync_bank_iin_cache()
     except Exception as exc:
         return _err(_flatten_exc_message(exc), http_status=400)
-    return _ok({'synced': n})
+    now = timezone.now()
+    AepsProviderConfig.objects.filter(is_active=True, is_deleted=False).update(banks_last_synced_at=now)
+    return _ok({'synced': n, 'banks_last_synced_at': now.isoformat()})
 
 
 @api_view(['GET'])
@@ -1336,30 +1470,216 @@ def reports_export_csv(request):
     )
 
 
+def _parse_limit_offset(request, *, default_limit=50, max_limit=200):
+    try:
+        limit = min(int(request.query_params.get('limit') or default_limit), max_limit)
+    except (TypeError, ValueError):
+        limit = default_limit
+    try:
+        offset = max(0, int(request.query_params.get('offset') or 0))
+    except (TypeError, ValueError):
+        offset = 0
+    return limit, offset
+
+
 @api_view(['GET'])
 @permission_classes([IsAuthenticated])
 def admin_recon_batches(request):
     if not _require_admin(request):
         return _err('Admin only', http_status=403)
+    qs = AepsReconBatch.objects.all().order_by('-created_at')
+    direction = (request.query_params.get('direction') or '').strip().lower()
+    if direction in ('inbound', 'outbound'):
+        qs = qs.filter(direction=direction)
+    search = (request.query_params.get('search') or '').strip()
+    if search:
+        qs = qs.filter(txn_date__icontains=search)
+    limit, offset = _parse_limit_offset(request)
+    total = qs.count()
     rows = [
         {
             'id': b.pk,
             'txn_date': b.txn_date,
+            'direction': getattr(b, 'direction', 'inbound') or 'inbound',
             'item_count': b.item_count,
             'created_at': b.created_at.isoformat() if b.created_at else None,
+            'triggered_by_id': b.triggered_by_id,
         }
-        for b in AepsReconBatch.objects.all()[:100]
+        for b in qs[offset : offset + limit]
     ]
-    return _ok({'results': rows})
+    return _ok({'results': rows, 'count': total, 'limit': limit, 'offset': offset})
 
 
-# ----- webhooks (no auth — hash verified) -----
+@api_view(['POST'])
+@permission_classes([IsAuthenticated])
+def admin_recon_run(request):
+    """Outbound 3-way recon push to Fingpay (mandatory go-live API)."""
+    if not _require_admin(request):
+        return _err('Admin only', http_status=403)
+    if not _require_provider_manager(request):
+        return _err(
+            'Only Super Admin (or a granted Admin) can run outbound recon.',
+            code='AEPS_PROVIDER_FORBIDDEN',
+            http_status=403,
+        )
+    txn_date = str(request.data.get('txn_date') or request.data.get('txnDate') or '').strip()
+    try:
+        result = recon_svc.run_outbound_recon(txn_date=txn_date or None, actor=request.user)
+    except Exception as exc:
+        return _err(_flatten_exc_message(exc), http_status=400)
+    return _ok(result, message='Outbound recon submitted')
+
+
+@api_view(['GET', 'POST'])
+@permission_classes([IsAuthenticated, IsSuperAdmin])
+def admin_provider_grants(request):
+    """Super Admin: list / grant Admin users permission to edit provider config."""
+    from django.contrib.auth import get_user_model
+    from apps.core.roles import ROLE_ADMIN
+
+    User = get_user_model()
+    if request.method == 'GET':
+        rows = []
+        for g in AepsProviderAccessGrant.objects.filter(is_deleted=False).select_related('user', 'granted_by').order_by(
+            '-updated_at'
+        )[:200]:
+            rows.append(
+                {
+                    'id': g.pk,
+                    'user_id': g.user_id,
+                    'username': getattr(g.user, 'username', '') or getattr(g.user, 'email', ''),
+                    'full_name': getattr(g.user, 'get_full_name', lambda: '')() or '',
+                    'role': getattr(g.user, 'role', ''),
+                    'is_active': g.is_active,
+                    'granted_at': g.granted_at.isoformat() if g.granted_at else None,
+                    'granted_by_id': g.granted_by_id,
+                    'note': g.note,
+                }
+            )
+        admins = [
+            {
+                'id': u.pk,
+                'username': u.username,
+                'full_name': u.get_full_name() or '',
+                'email': getattr(u, 'email', '') or '',
+            }
+            for u in User.objects.filter(role=ROLE_ADMIN, is_active=True).order_by('username')[:200]
+        ]
+        return _ok({'results': rows, 'admins': admins})
+
+    user_id = request.data.get('user_id') or request.data.get('userId')
+    note = str(request.data.get('note') or '')
+    try:
+        user = User.objects.get(pk=int(user_id))
+    except Exception:
+        return _err('Valid Admin user_id required', http_status=400)
+    try:
+        row = config_audit_svc.grant_provider_access(user=user, actor=request.user, note=note)
+    except ValueError as exc:
+        return _err(str(exc), http_status=400)
+    config_audit_svc.record_config_change(
+        actor=request.user,
+        environment='',
+        action='grant',
+        before_masked={},
+        after_masked={'user_id': user.pk, 'is_active': True},
+        changed_fields=['grant'],
+        ip=get_client_ip(request),
+        note=note,
+    )
+    return _ok({'id': row.pk, 'user_id': row.user_id, 'is_active': row.is_active}, message='Grant issued')
+
+
+@api_view(['DELETE', 'POST'])
+@permission_classes([IsAuthenticated, IsSuperAdmin])
+def admin_provider_grant_revoke(request, user_id: int):
+    from django.contrib.auth import get_user_model
+
+    User = get_user_model()
+    try:
+        user = User.objects.get(pk=user_id)
+    except User.DoesNotExist:
+        return _err('User not found', http_status=404)
+    note = str((request.data or {}).get('note') or '')
+    row = config_audit_svc.revoke_provider_access(user=user, actor=request.user, note=note)
+    if not row:
+        return _err('No grant found for user', http_status=404)
+    config_audit_svc.record_config_change(
+        actor=request.user,
+        environment='',
+        action='revoke',
+        before_masked={'user_id': user.pk, 'is_active': True},
+        after_masked={'user_id': user.pk, 'is_active': False},
+        changed_fields=['grant'],
+        ip=get_client_ip(request),
+        note=note,
+    )
+    return _ok({'user_id': user.pk, 'is_active': False}, message='Grant revoked')
+
+
+@api_view(['GET'])
+@permission_classes([IsAuthenticated, IsSuperAdmin])
+def admin_config_change_logs(request):
+    limit, offset = _parse_limit_offset(request, default_limit=50, max_limit=200)
+    qs = AepsConfigChangeLog.objects.all().select_related('actor').order_by('-created_at')
+    env = (request.query_params.get('environment') or '').strip()
+    if env:
+        qs = qs.filter(environment=env)
+    total = qs.count()
+    rows = [
+        {
+            'id': r.pk,
+            'actor_id': r.actor_id,
+            'actor': getattr(r.actor, 'username', '') if r.actor_id else '',
+            'environment': r.environment,
+            'action': r.action,
+            'changed_fields': r.changed_fields,
+            'created_at': r.created_at.isoformat() if r.created_at else None,
+            'note': r.note,
+        }
+        for r in qs[offset : offset + limit]
+    ]
+    return _ok({'results': rows, 'count': total, 'limit': limit, 'offset': offset})
+
+
+def _webhook_allowed(request) -> tuple[bool, str]:
+    """IP allowlist + optional shared token for inbound Fingpay webhooks."""
+    active = (
+        AepsProviderConfig.objects.filter(is_active=True, is_deleted=False)
+        .order_by('-updated_at')
+        .first()
+    )
+    if not active:
+        return True, ''
+    token_cfg = (getattr(active, 'callback_token', '') or '').strip()
+    if token_cfg:
+        header_token = (
+            request.headers.get('X-AEPS-Callback-Token')
+            or request.META.get('HTTP_X_AEPS_CALLBACK_TOKEN')
+            or request.query_params.get('token')
+            or ''
+        )
+        if str(header_token).strip() != token_cfg:
+            return False, 'Invalid or missing callback token'
+    allow = (getattr(active, 'callback_allowed_ips', '') or '').strip()
+    if allow:
+        client = get_client_ip(request) or ''
+        allowed = {p.strip() for p in allow.replace('\n', ',').split(',') if p.strip()}
+        if client and client not in allowed:
+            return False, f'Client IP {client} not in callback allowlist'
+    return True, ''
+
+
+# ----- webhooks (AllowAny — hash / token / IP verified) -----
 
 
 @csrf_exempt
 @api_view(['POST'])
 @permission_classes([AllowAny])
 def webhook_three_way_recon(request):
+    ok, msg = _webhook_allowed(request)
+    if not ok:
+        return Response({'status': False, 'message': msg, 'statusCode': 10001}, status=status.HTTP_403_FORBIDDEN)
     raw = request.body.decode('utf-8') if request.body else ''
     headers = {k: v for k, v in request.headers.items()}
     # Also accept query/header variants
@@ -1379,6 +1699,9 @@ def webhook_three_way_recon(request):
 @api_view(['POST'])
 @permission_classes([AllowAny])
 def webhook_callback(request):
+    ok, msg = _webhook_allowed(request)
+    if not ok:
+        return Response({'ok': False, 'message': msg}, status=status.HTTP_403_FORBIDDEN)
     payload = request.data if isinstance(request.data, dict) else {}
     if not payload and request.body:
         try:

@@ -212,6 +212,73 @@ class ToucanRailTests(TestCase):
         self.assertEqual(request.get_header('Authorization'), 'Bearer hub-key-1')
         self.assertEqual(request.get_header('User-agent'), 'mPayHub-PaymentHub/1.0')
         self.assertTrue(request.full_url.startswith('https://uat.prajnadharaedu.com/api/v1/payments'))
+        posted = json.loads(request.data.decode())
+        self.assertEqual(posted['name'], 'Test Customer')
+        self.assertEqual(posted['phone'], '9876543210')
+        self.assertEqual(posted['email'], 'cust@test.com')
+
+    def _toucan_gateway_package(self):
+        master = ApiMaster.objects.create(
+            provider_code='toucan',
+            provider_name='Toucan payment hub',
+            provider_type='payments',
+            status='active',
+            base_url='https://uat.prajnadharaedu.com',
+            secrets_encrypted=encrypt_secret_payload({'api_key': 'hub-key-1', 'hmac_secret': 'hub-secret-1'}),
+        )
+        package = self._package(f'hub_{PayInPackage.objects.count()}', 'mock')
+        gateway = PaymentGateway.objects.create(
+            name='Toucan',
+            charge_rate=Decimal('1.00'),
+            status='active',
+            visible_to_roles=['Retailer'],
+            api_master=master,
+        )
+        sync_package_gateway_links(package, [gateway.id], default_gateway_id=gateway.id)
+        self._assign(package)
+        return package, gateway
+
+    def test_create_payin_rejects_deleted_contact(self):
+        package, gateway = self._toucan_gateway_package()
+        self.contact.is_deleted = True
+        self.contact.save(update_fields=['is_deleted'])
+        with self.assertRaises(ValueError) as caught:
+            create_payin_order(
+                self.user,
+                package_id=package.id,
+                gross=Decimal('100.00'),
+                contact_id=self.contact.id,
+                gateway_id=gateway.id,
+            )
+        self.assertIn('Contact not found', str(caught.exception))
+
+    def test_create_payin_rejects_placeholder_email(self):
+        package, gateway = self._toucan_gateway_package()
+        self.contact.email = f'legacy-{self.contact.pk}@contact.placeholder'
+        self.contact.save(update_fields=['email'])
+        with self.assertRaises(ValueError) as caught:
+            create_payin_order(
+                self.user,
+                package_id=package.id,
+                gross=Decimal('100.00'),
+                contact_id=self.contact.id,
+                gateway_id=gateway.id,
+            )
+        self.assertIn('placeholder email', str(caught.exception))
+
+    def test_create_payin_rejects_bad_phone(self):
+        package, gateway = self._toucan_gateway_package()
+        self.contact.phone = '12345'
+        self.contact.save(update_fields=['phone'])
+        with self.assertRaises(ValueError) as caught:
+            create_payin_order(
+                self.user,
+                package_id=package.id,
+                gross=Decimal('100.00'),
+                contact_id=self.contact.id,
+                gateway_id=gateway.id,
+            )
+        self.assertIn('10-digit', str(caught.exception))
 
     @patch('apps.fund_management.hub_result.finalize_payin_success')
     @patch('apps.fund_management.hub_result.LoadMoney.objects.filter')

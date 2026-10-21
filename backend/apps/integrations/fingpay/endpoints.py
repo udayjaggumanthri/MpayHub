@@ -48,6 +48,11 @@ ENCRYPTED_PHP_ENDPOINTS: dict[str, str] = {
     'banks_aeps': 'fpaepsservice/api/bankdata/bank/details',
     'banks_aadhaar_pay': 'fpaepsservice/api/bankdata/bank/aadharpay',
     'recon': 'fpcollectservice_uat/api/threeway/aggregators',
+    'recon_uat': 'fpcollectservice_uat/api/threeway/aggregators',
+    'recon_prod': 'fpcollectservice/api/threeway/aggregators',
+    # CW/AP Aadhaar OTP when amount > threshold (encrypted Java path)
+    'txn_otp_send': 'fpaepsservice/api/auth/merchant/send/otp',
+    'txn_otp_send_php': 'fpaepsservice/api/auth/merchant/php/send/otp',
 }
 
 # Encrypted Java/.NET paths (when onboarding_api_style=java for products too)
@@ -67,6 +72,7 @@ ENCRYPTED_JAVA_ENDPOINTS: dict[str, str] = {
     'cd_otp_validate': 'fpaepsservice/api/CashDeposit/merchant/validate/otp',
     'cd_otp_txn': 'fpaepsservice/api/CashDeposit/merchant/transaction',
     'ack_cw': 'fpaepsservice/api/cashWithdrawal/merchant/acknowledgement',
+    'txn_otp_send': 'fpaepsservice/api/auth/merchant/send/otp',
 }
 
 # Simple API plain-JSON paths
@@ -78,15 +84,20 @@ SIMPLE_ENDPOINTS: dict[str, str] = {
     'ekyc_resend_otp': 'fpekyc/api/ekyc/merchant/v1/resendotp',
     'ekyc_biometric': 'fpekyc/api/ekyc/merchant/v1/biometric',
     'twofa_validate': 'fpaepsservice/auth/tfauth/merchant/simple/validate/aadhar',
+    # CW/BE/MS/AP: Tapits Simple uses /v2/ (confirmed working for BE/MS on fingpayap).
     'cw': 'fpaepsservice/api/cashWithdrawal/merchant/v2/withdrawal',
     'be': 'fpaepsservice/api/balanceInquiry/merchant/v2/getBalance',
     'ms': 'fpaepsservice/api/miniStatement/merchant/v2/statement',
     'ap': 'fpaepsservice/api/aadhaarPay/merchant/v2/pay',
-    'cd': 'fpaepsservice/api/CashDeposit/merchant/v2/deposit',
-    'cd_otp_generate': 'fpaepsservice/api/CashDeposit/merchant/v2/generate/otp',
-    'cd_otp_validate': 'fpaepsservice/api/CashDeposit/merchant/v2/validate/otp',
-    'cd_otp_txn': 'fpaepsservice/api/CashDeposit/merchant/v2/transaction',
+    # Cash Deposit: updated docs list NO /v2/ (Java deposit path). /v2/ returns HTTP 404.
+    'cd': 'fpaepsservice/api/CashDeposit/merchant/deposit',
+    'cd_otp_generate': 'fpaepsservice/api/CashDeposit/merchant/generate/otp',
+    'cd_otp_validate': 'fpaepsservice/api/CashDeposit/merchant/validate/otp',
+    'cd_otp_txn': 'fpaepsservice/api/CashDeposit/merchant/transaction',
     'ack_cw': 'fpaepsservice/api/cashWithdrawal/merchant/v2/acknowledgement',
+    # Simple path for >₹5000 OTP unconfirmed by Tapits — use Java path until confirmed
+    'txn_otp_send': 'fpaepsservice/api/auth/merchant/send/otp',
+    'txn_otp_send_php': 'fpaepsservice/api/auth/merchant/php/send/otp',
 }
 
 URL_PRESETS: dict[str, dict[str, str]] = {
@@ -102,7 +113,8 @@ URL_PRESETS: dict[str, dict[str, str]] = {
         'onboarding_base_url': 'https://fingpayap.tapits.in/fpaepsweb',
         'ekyc_base_url': 'https://fpekyc.tapits.in',
         'aeps_base_url': 'https://fingpayap.tapits.in',
-        'recon_base_url': '',
+        # Tapits mail (21 Oct 2026): production 3-way recon host
+        'recon_base_url': 'https://fpanalytics.tapits.in',
         'bank_list_url': 'https://fingpayap.tapits.in/fpaepsservice/api/bankdata/bank/details',
         'aadhaar_pay_bank_list_url': 'https://fingpayap.tapits.in/fpaepsservice/api/bankdata/bank/aadharpay',
     },
@@ -196,7 +208,11 @@ ENDPOINT_FIELD_META: list[dict[str, str]] = [
     {'key': 'status_ap', 'label': 'Status check Aadhaar Pay', 'base': 'onboarding'},
     {'key': 'banks_aeps', 'label': 'Bank list (AEPS)', 'base': 'aeps'},
     {'key': 'banks_aadhaar_pay', 'label': 'Bank list (Aadhaar Pay)', 'base': 'aeps'},
-    {'key': 'recon', 'label': '3-way recon', 'base': 'recon'},
+    {'key': 'txn_otp_send', 'label': 'CW/AP Aadhaar OTP send (Java)', 'base': 'aeps'},
+    {'key': 'txn_otp_send_php', 'label': 'CW/AP Aadhaar OTP send (PHP)', 'base': 'aeps'},
+    {'key': 'recon', 'label': '3-way recon (active)', 'base': 'recon'},
+    {'key': 'recon_uat', 'label': '3-way recon UAT path', 'base': 'recon'},
+    {'key': 'recon_prod', 'label': '3-way recon Prod path (from Tapits mail)', 'base': 'recon'},
 ]
 
 

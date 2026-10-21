@@ -36,6 +36,7 @@ const journeyIndex = (nextAction) => {
     onboarding: 0,
     device: 1,
     ekyc: 2,
+    bank_ekyc: 2,
     twofa: 3,
     ready: 4,
     admin_ops: 4,
@@ -73,6 +74,7 @@ const AepsLayout = ({ children }) => {
     if (n === 'onboarding') return 'Complete merchant onboarding next.';
     if (n === 'device') return 'Register your Mantra fingerprint device.';
     if (n === 'ekyc') return 'Complete eKYC (OTP + biometric).';
+    if (n === 'bank_ekyc') return 'Complete Bank eKYC (BeKYC) before transacting.';
     if (n === 'twofa') return "Complete today's 2FA to unlock cash products.";
     if (n === 'ready') return 'You are ready to transact.';
     return '';

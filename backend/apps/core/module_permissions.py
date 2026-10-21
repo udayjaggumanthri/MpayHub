@@ -24,6 +24,7 @@ DEFAULT_MODULES: list[dict] = [
     {'code': 'manual_qr', 'name': 'Manual QR', 'group': 'admin', 'sort_order': 100},
     {'code': 'notifications', 'name': 'Notifications', 'group': 'admin', 'sort_order': 110},
     {'code': 'bbps_console', 'name': 'BBPS Console', 'group': 'admin', 'sort_order': 120},
+    {'code': 'bbps_settings', 'name': 'BillAvenue Settings', 'group': 'admin', 'sort_order': 121},
     {'code': 'aeps', 'name': 'AEPS', 'group': 'products', 'sort_order': 130},
     {'code': 'cms', 'name': 'CMS', 'group': 'products', 'sort_order': 135},
     {'code': 'fund_management', 'name': 'Fund Management', 'group': 'products', 'sort_order': 140},
@@ -208,6 +209,14 @@ def permissions_payload_for_user(user) -> dict:
     if 'cms' in modules and not entitlements['cms']:
         modules = [m for m in modules if m != 'cms']
 
+    aeps_provider_manage = False
+    try:
+        from apps.aeps.services.gates import can_manage_aeps_provider
+
+        aeps_provider_manage = bool(can_manage_aeps_provider(user))
+    except Exception:
+        aeps_provider_manage = is_super_admin(user)
+
     return {
         'role': role,
         'modules': modules,
@@ -215,6 +224,7 @@ def permissions_payload_for_user(user) -> dict:
         'entitlements': {
             'aeps': entitlements['aeps'],
             'cms': entitlements['cms'],
+            'aeps_provider_manage': aeps_provider_manage,
         },
     }
 

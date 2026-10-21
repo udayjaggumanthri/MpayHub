@@ -155,6 +155,15 @@ def payin_rows_for_transactions(
             'user', 'package', 'package__payment_gateway', 'payment_gateway'
         )
     }
+    from apps.fund_management.models import PayinTaxInvoice
+
+    tax_invoice_map = {
+        row.load_money_id: row.invoice_number
+        for row in PayinTaxInvoice.objects.filter(
+            load_money_id__in=[lm.id for lm in lm_map.values()],
+            is_deleted=False,
+        ).only('load_money_id', 'invoice_number')
+    }
     balance_map = payin_balance_map_for_transactions(transactions)
     direct_flags = _direct_subordinate_for_users(viewer, [t.user for t in transactions])
     out = []
@@ -280,6 +289,7 @@ def payin_rows_for_transactions(
                 'opening_balance': opening_balance,
                 'closing_balance': closing_balance,
                 'fee_breakdown_snapshot': fee_breakdown_snapshot,
+                'tax_invoice_number': tax_invoice_map.get(lm.id) if lm else '',
                 'agent_details': agent_row_from_user(actor),
                 'direct_subordinate': direct_flags.get(int(row_user.pk)) if row_user else None,
             }
@@ -455,6 +465,15 @@ def payin_rows_from_load_money(
     """Platform pay-in report rows from LoadMoney (matches dashboard counts)."""
     viewer = request.user
     balance_map = payin_balance_map_for_load_money(items)
+    from apps.fund_management.models import PayinTaxInvoice
+
+    tax_invoice_map = {
+        row.load_money_id: row.invoice_number
+        for row in PayinTaxInvoice.objects.filter(
+            load_money_id__in=[lm.id for lm in items],
+            is_deleted=False,
+        ).only('load_money_id', 'invoice_number')
+    }
     out = []
     for lm in items:
         actor = lm.user
@@ -561,6 +580,7 @@ def payin_rows_from_load_money(
                 'opening_balance': opening_balance,
                 'closing_balance': closing_balance,
                 'fee_breakdown_snapshot': fee_breakdown_snapshot,
+                'tax_invoice_number': tax_invoice_map.get(lm.id) or '',
                 'agent_details': agent_row_from_user(actor),
                 'direct_subordinate': None,
             }

@@ -4,6 +4,7 @@ URL configuration for reports endpoints.
 from django.urls import path
 from apps.transactions import views
 from apps.transactions import report_revenue
+from apps.fund_management import views_tax_invoice
 
 app_name = 'reports'
 
@@ -26,6 +27,11 @@ urlpatterns = [
     path('analytics/summary/', views.analytics_summary_view, name='analytics-summary'),
     path('payin/', views.payin_report_view, name='payin-report'),
     path('payin/export.csv', views.payin_report_export_csv, name='payin-report-export'),
+    path(
+        'payin/<str:transaction_id>/tax-invoice/',
+        views_tax_invoice.payin_tax_invoice_view,
+        name='payin-tax-invoice',
+    ),
     path('payout/', views.payout_report_view, name='payout-report'),
     path('payout/export.csv', views.payout_report_export_csv, name='payout-report-export'),
     path('bbps/', views.bbps_report_view, name='bbps-report'),

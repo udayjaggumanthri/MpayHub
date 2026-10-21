@@ -76,6 +76,7 @@ export const aepsAPI = {
   cashDepositOtpGenerate: (body) => wrap(client.post('/aeps/transactions/cd/otp/generate/', body)),
   cashDepositOtpValidate: (body) => wrap(client.post('/aeps/transactions/cd/otp/validate/', body)),
   cashDepositOtpSubmit: (body) => wrap(client.post('/aeps/transactions/cd/otp/submit/', body)),
+  sendTxnOtp: (body) => wrap(client.post('/aeps/transactions/otp/send/', body)),
   statusCheck: (merchantTranId, body = {}) =>
     wrap(client.post(`/aeps/transactions/${encodeURIComponent(merchantTranId)}/status-check/`, body)),
   acknowledge: (merchantTranId, body = {}) =>
@@ -115,14 +116,20 @@ export const aepsAPI = {
   adminDisable: (user_id, reason = '') =>
     wrap(client.post('/aeps/admin/entitlements/disable/', { user_id, reason })),
   adminUserEntitlement: (userId) => wrap(client.get(`/aeps/admin/entitlements/user/${userId}/`)),
-  adminAccessRequests: (status = 'pending') =>
-    wrap(client.get('/aeps/admin/access-requests/', { params: { status } })),
+  adminAccessRequests: (params = {}) =>
+    wrap(client.get('/aeps/admin/access-requests/', { params: { status: 'pending', ...params } })),
   adminDecideRequest: (id, decision, notes = '') =>
     wrap(client.post(`/aeps/admin/access-requests/${id}/decide/`, { decision, notes })),
   adminMerchants: (params) => wrap(client.get('/aeps/admin/merchants/', { params })),
   adminMerchantDetail: (id) => wrap(client.get(`/aeps/admin/merchants/${id}/`)),
   adminMerchantResetPin: (id, body = {}) => wrap(client.post(`/aeps/admin/merchants/${id}/reset-pin/`, body)),
-  adminRecon: () => wrap(client.get('/aeps/admin/recon/')),
+  adminRecon: (params) => wrap(client.get('/aeps/admin/recon/', { params })),
+  adminProviderGrantsGet: () => wrap(client.get('/aeps/admin/provider-grants/')),
+  adminProviderGrant: (body) => wrap(client.post('/aeps/admin/provider-grants/', body)),
+  adminProviderGrantRevoke: (userId, body = {}) =>
+    wrap(client.delete(`/aeps/admin/provider-grants/${userId}/`, { data: body })),
+  adminConfigChangeLogs: (params) => wrap(client.get('/aeps/admin/config-change-logs/', { params })),
+  adminReconRun: (body) => wrap(client.post('/aeps/admin/recon/run/', body)),
 };
 
 export default aepsAPI;

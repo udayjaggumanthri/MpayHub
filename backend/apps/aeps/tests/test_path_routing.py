@@ -368,6 +368,42 @@ class ApplyProviderResultTests(SimpleTestCase):
         apply_provider_result(txn, resp, data)
         self.assertEqual(txn.mini_statement, [line])
 
+    def test_ms_parses_offus_string_chunks(self):
+        from apps.aeps.services.products import apply_provider_result, parse_offus_statement_text
+
+        chunks = [
+            '13/10/2026  Dr  89  Account Mainten',
+            'ance charges of Rs. 89.00 for the p',
+            'eriod Jul 26-Sep 26, against the to',
+            'tal amount of Rs. 9913/10/2026  Dr ',
+            ' 89  Account Maintenance charges of',
+            ' Rs. 89.00 for the period Jul 26-Se',
+            'p 26Balance 0.0',
+        ]
+        parsed = parse_offus_statement_text(''.join(chunks))
+        self.assertEqual(len(parsed), 2)
+        self.assertEqual(parsed[0]['date'], '13/10/2026')
+        self.assertEqual(parsed[0]['txnType'], 'Dr')
+        self.assertEqual(parsed[0]['amount'], '89')
+        self.assertIn('Account Maintenance', parsed[0]['narration'])
+        self.assertEqual(parsed[1]['date'], '13/10/2026')
+
+        txn = _FakeTxn()
+        resp = {'status': True, 'statusCode': 10000}
+        data = {
+            'responseCode': '00',
+            'bankRRN': '329329984714',
+            'balanceAmount': 0.0,
+            'miniOffusFlag': True,
+            'miniStatementStructureModel': [],
+            'miniOffusStatementStructureModel': chunks,
+        }
+        apply_provider_result(txn, resp, data)
+        self.assertEqual(txn.status, 'success')
+        self.assertEqual(len(txn.mini_statement), 2)
+        self.assertEqual(txn.mini_statement[0]['txnType'], 'Dr')
+        self.assertEqual(txn.mini_statement[0]['amount'], '89')
+
     def test_status_check_preserves_original_meta_and_marks_failed(self):
         from apps.aeps.services.products import apply_provider_result
 

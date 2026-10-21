@@ -17,6 +17,11 @@ export default function EkycStep({ aepsStatus: status, refreshStatus, loadingSta
   const [busy, setBusy] = useState(false);
   const [busyLabel, setBusyLabel] = useState('');
   const [loading, setLoading] = useState(true);
+  const [bankEkycFlow, setBankEkycFlow] = useState(false);
+
+  const bankEkycStatus = status?.merchant?.bank_ekyc_status || 'not_required';
+  const bankEkycPending = ['pending', 'failed'].includes(bankEkycStatus);
+  const showBankEkycSection = bankEkycPending || bankEkycFlow;
 
   const stage = status?.merchant?.stage || meta?.stage || 'not_started';
   const maskedHint = meta?.masked_aadhaar || status?.merchant?.masked_aadhaar || '';
@@ -132,13 +137,13 @@ export default function EkycStep({ aepsStatus: status, refreshStatus, loadingSta
       }
     });
 
-  const checkEkycStatus = () =>
-    runBusy('Checking status…', async () => {
-      const res = await aepsAPI.ekycStatus('EKYC');
+  const checkEkycStatus = (bankMode = false) =>
+    runBusy(bankMode ? 'Checking BeKYC…' : 'Checking status…', async () => {
+      const res = await aepsAPI.ekycStatus(bankMode ? 'BeKYC' : 'EKYC');
       if (res.success) {
         showInfo(
           res.message || res.data?.message || JSON.stringify(res.data?.status || res.data || {}).slice(0, 300),
-          'eKYC status'
+          bankMode ? 'Bank eKYC (BeKYC) status' : 'eKYC status'
         );
         await refreshStatus?.();
       } else {
@@ -169,6 +174,7 @@ export default function EkycStep({ aepsStatus: status, refreshStatus, loadingSta
       if (res.success) {
         await refreshStatus?.();
         if (res.data?.needs_bank_ekyc) {
+          setBankEkycFlow(true);
           showInfo(
             res.data?.message ||
               'Primary eKYC done. Send OTP again for Bank eKYC, then capture fingerprint.',
@@ -210,7 +216,7 @@ export default function EkycStep({ aepsStatus: status, refreshStatus, loadingSta
     );
   }
 
-  if (stage === 'active') {
+  if (stage === 'active' && !bankEkycPending) {
     return (
       <SetupPageShell>
         {FeedbackPortal}
@@ -243,13 +249,21 @@ export default function EkycStep({ aepsStatus: status, refreshStatus, loadingSta
       <AepsBusyOverlay show={busy} message={busyLabel} />
 
       <SetupHeader
-        title="eKYC verification"
-        subtitle="OTP + fingerprint. Identity details are taken from onboarding — no re-entry unless missing."
+        title={bankEkycPending && stage === 'active' ? 'Bank eKYC (BeKYC)' : 'eKYC verification'}
+        subtitle={
+          bankEkycPending && stage === 'active'
+            ? 'Primary eKYC is done. Complete Bank eKYC before transacting — OTP, validate, fingerprint, then check BeKYC status.'
+            : 'OTP + fingerprint. Identity details are taken from onboarding — no re-entry unless missing.'
+        }
         merchantLoginId={meta?.merchant_login_id || status?.merchant?.merchant_login_id}
         stage={stage}
         activeStepId={activeStep}
         steps={SETUP_STEPS}
       />
+
+      {bankEkycPending && status?.merchant?.bank_ekyc_message ? (
+        <InlineAlert type="info" text={status.merchant.bank_ekyc_message} />
+      ) : null}
 
       {inline.text ? <InlineAlert type={inline.type} text={inline.text} /> : null}
 
@@ -314,34 +328,70 @@ export default function EkycStep({ aepsStatus: status, refreshStatus, loadingSta
         </div>
       </Section>
 
-      <Section title="Step 2 — OTP & biometric">
-        <div className="flex flex-wrap items-end gap-3">
-          <Btn onClick={startEkyc} disabled={busy}>
-            {busy && busyLabel.includes('Sending') ? 'Sending…' : 'Send OTP'}
-          </Btn>
-          <Btn onClick={resendOtp} disabled={busy}>
-            Resend OTP
-          </Btn>
-          <Field label="OTP">
-            <input
-              className={inputCls('w-36')}
-              value={otp}
-              onChange={(e) => setOtp(e.target.value.replace(/\D/g, '').slice(0, 6))}
-              placeholder="6-digit OTP"
-              inputMode="numeric"
-            />
-          </Field>
-          <Btn onClick={verifyOtp} disabled={busy || !otp}>
-            Verify OTP
-          </Btn>
-          <Btn onClick={biometric} disabled={busy} primary>
-            Capture fingerprint
-          </Btn>
-          <Btn onClick={checkEkycStatus} disabled={busy}>
-            Check status
-          </Btn>
-        </div>
-      </Section>
+      {!(bankEkycPending && stage === 'active') ? (
+        <Section title="Step 2 — OTP & biometric">
+          <div className="flex flex-wrap items-end gap-3">
+            <Btn onClick={startEkyc} disabled={busy}>
+              {busy && busyLabel.includes('Sending') ? 'Sending…' : 'Send OTP'}
+            </Btn>
+            <Btn onClick={resendOtp} disabled={busy}>
+              Resend OTP
+            </Btn>
+            <Field label="OTP">
+              <input
+                className={inputCls('w-36')}
+                value={otp}
+                onChange={(e) => setOtp(e.target.value.replace(/\D/g, '').slice(0, 6))}
+                placeholder="6-digit OTP"
+                inputMode="numeric"
+              />
+            </Field>
+            <Btn onClick={verifyOtp} disabled={busy || !otp}>
+              Verify OTP
+            </Btn>
+            <Btn onClick={biometric} disabled={busy} primary>
+              Capture fingerprint
+            </Btn>
+            <Btn onClick={() => checkEkycStatus(false)} disabled={busy}>
+              Check status
+            </Btn>
+          </div>
+        </Section>
+      ) : null}
+
+      {showBankEkycSection ? (
+        <Section title="Bank eKYC (BeKYC)">
+          <p className="mb-3 text-sm text-slate-600 dark:text-slate-400">
+            Send OTP to the merchant mobile, validate, capture fingerprint, then check BeKYC status with Fingpay.
+          </p>
+          <div className="flex flex-wrap items-end gap-3">
+            <Btn onClick={startEkyc} disabled={busy}>
+              {busy && busyLabel.includes('Sending') ? 'Sending…' : 'Send OTP'}
+            </Btn>
+            <Btn onClick={resendOtp} disabled={busy}>
+              Resend OTP
+            </Btn>
+            <Field label="OTP">
+              <input
+                className={inputCls('w-36')}
+                value={otp}
+                onChange={(e) => setOtp(e.target.value.replace(/\D/g, '').slice(0, 6))}
+                placeholder="6-digit OTP"
+                inputMode="numeric"
+              />
+            </Field>
+            <Btn onClick={verifyOtp} disabled={busy || !otp}>
+              Validate OTP
+            </Btn>
+            <Btn onClick={biometric} disabled={busy} primary>
+              Capture fingerprint
+            </Btn>
+            <Btn onClick={() => checkEkycStatus(true)} disabled={busy}>
+              Check BeKYC status
+            </Btn>
+          </div>
+        </Section>
+      ) : null}
     </SetupPageShell>
   );
 }

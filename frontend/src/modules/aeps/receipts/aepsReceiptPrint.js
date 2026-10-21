@@ -15,8 +15,17 @@ export const buildAepsReceiptPrintHtml = (txn, { mobile = false } = {}) => {
   const pagePad = mobile ? '16px' : '28px 32px';
   const statusClass =
     ctx.statusTone === 'success' ? 'status-ok' : ctx.statusTone === 'danger' ? 'status-bad' : 'status-other';
+  const formatStmtAmount = (raw) => {
+    if (raw == null || raw === '') return '—';
+    const n = Number(String(raw).replace(/,/g, '').trim());
+    if (!Number.isFinite(n)) return escapeHtml(raw);
+    return escapeHtml(
+      `₹${n.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
+    );
+  };
   const statementHtml = (ctx.statementRows || []).length
     ? `
+      <div class="stmt-title">Mini statement (${ctx.statementRows.length})</div>
       <table class="stmt">
         <thead><tr><th>Date</th><th>Narration</th><th>Amount</th><th>Type</th></tr></thead>
         <tbody>
@@ -25,7 +34,7 @@ export const buildAepsReceiptPrintHtml = (txn, { mobile = false } = {}) => {
               (r) => `<tr>
                 <td>${escapeHtml(r.date || r.txnDate || '—')}</td>
                 <td>${escapeHtml(r.narration || r.remarks || '—')}</td>
-                <td>${escapeHtml(r.amount || r.txnAmount || '—')}</td>
+                <td class="amt">${formatStmtAmount(r.amount || r.txnAmount)}</td>
                 <td>${escapeHtml(r.txnType || r.type || '—')}</td>
               </tr>`
             )
@@ -76,9 +85,11 @@ export const buildAepsReceiptPrintHtml = (txn, { mobile = false } = {}) => {
           .cell-label { font-size: 11px; color: #6b7280; margin-bottom: 2px; }
           .cell-value { font-size: 13px; font-weight: 600; color: #111827; word-break: break-all; }
           .mono { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 12px; }
-          .stmt { width: 100%; border-collapse: collapse; margin-top: 12px; font-size: 12px; }
-          .stmt th, .stmt td { border: 1px solid #e5e7eb; padding: 6px 8px; text-align: left; }
-          .stmt th { background: #f9fafb; color: #6b7280; text-transform: uppercase; font-size: 10px; }
+          .stmt-title { margin: 16px 0 6px; font-size: 13px; font-weight: 700; color: #111827; }
+          .stmt { width: 100%; border-collapse: collapse; font-size: 12px; }
+          .stmt th, .stmt td { border: 1px solid #e5e7eb; padding: 7px 8px; text-align: left; vertical-align: top; }
+          .stmt th { background: #f3f4f6; color: #4b5563; text-transform: uppercase; font-size: 10px; }
+          .stmt td.amt { text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; }
           .note { margin-top: 18px; font-size: 12px; color: #6b7280; }
           @media print { body { padding: 12px; } }
         </style>

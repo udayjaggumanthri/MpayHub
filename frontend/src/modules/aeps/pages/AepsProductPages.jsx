@@ -51,10 +51,10 @@ const OutcomeModal = ({ open, onClose, children }) => {
       <div
         role="dialog"
         aria-modal="true"
-        className="max-h-[92vh] w-full max-w-2xl overflow-y-auto rounded-2xl bg-white p-4 shadow-2xl dark:bg-slate-900 sm:p-5"
+        className="max-h-[92vh] w-full max-w-2xl overflow-y-auto rounded-2xl border border-slate-200 bg-white p-4 shadow-2xl dark:border-slate-600 dark:bg-slate-950 sm:p-5"
       >
         <div className="mb-3 flex items-center justify-between gap-2">
-          <h3 className="text-lg font-bold text-slate-900 dark:text-slate-100">Transaction result</h3>
+          <h3 className="text-lg font-bold text-slate-900 dark:text-slate-50">Transaction result</h3>
           <Button size="sm" variant="secondary" onClick={onClose}>
             Close
           </Button>
@@ -96,6 +96,13 @@ const AepsProductPage = ({
   const [outcomeOpen, setOutcomeOpen] = useState(false);
   const [msg, setMsg] = useState('');
   const [busy, setBusy] = useState(false);
+  const [txnOtpRequestId, setTxnOtpRequestId] = useState('');
+  const [txnOtpValue, setTxnOtpValue] = useState('');
+  const [txnOtpSent, setTxnOtpSent] = useState(false);
+
+  const cwApOtpThreshold = status?.cw_ap_otp_threshold ?? 5000;
+  const amountNum = requireAmount ? Number(form.transactionAmount) || 0 : 0;
+  const needsTxnOtp = requireAmount && amountNum > cwApOtpThreshold;
 
   const showUserMsg = (raw) => {
     const text = isOperator ? String(raw || '') : sanitizeAepsUserMessage(raw);
@@ -217,8 +224,56 @@ const AepsProductPage = ({
     }
   };
 
+  const sendCwApOtp = async () => {
+    setBusy(true);
+    clearOutcome();
+    setTxnOtpRequestId('');
+    setTxnOtpSent(false);
+    const geo = await getBrowserGeo();
+    if (geo.status !== 'granted') {
+      showUserMsg('Location is required for AEPS transactions.');
+      setBusy(false);
+      return;
+    }
+    if (!form.nationalBankIdentificationNumber) {
+      showUserMsg('Select a bank before sending OTP.');
+      setBusy(false);
+      return;
+    }
+    const res = await aepsAPI.sendTxnOtp({
+      product,
+      aadhaarNumber: form.aadhaarNumber.replace(/\s/g, ''),
+      mobileNumber: form.mobileNumber,
+      nationalBankIdentificationNumber: form.nationalBankIdentificationNumber,
+      transactionAmount: form.transactionAmount,
+      latitude: geo.latitude,
+      longitude: geo.longitude,
+      indicatorforUID: 0,
+    });
+    if (res.success) {
+      const ref = res.data?.txnOtpRequestId || res.data?.fpTransactionId || '';
+      setTxnOtpRequestId(ref);
+      setTxnOtpSent(true);
+      showUserMsg(res.message || 'OTP sent to customer mobile. Enter OTP, then capture fingerprint.');
+    } else {
+      showUserMsg(res.message || 'Could not send OTP');
+      if (res.data?.transaction) openOutcome(res.data);
+    }
+    setBusy(false);
+  };
+
   const onSubmitBio = async (e) => {
     e.preventDefault();
+    if (needsTxnOtp) {
+      if (!txnOtpRequestId) {
+        showUserMsg(`Amount above ₹${cwApOtpThreshold.toLocaleString('en-IN')} requires Aadhaar OTP first.`);
+        return;
+      }
+      if (!txnOtpValue.trim()) {
+        showUserMsg('Enter the customer OTP before capture.');
+        return;
+      }
+    }
     setBusy(true);
     clearOutcome();
     const geo = await getBrowserGeo();
@@ -227,7 +282,9 @@ const AepsProductPage = ({
       setBusy(false);
       return;
     }
-    const cap = await captureMantraFingerprint();
+    const cap = await captureMantraFingerprint(
+      needsTxnOtp ? { otp: txnOtpValue.trim() } : {}
+    );
     if (!cap.success) {
       showUserMsg(cap.message);
       setBusy(false);
@@ -241,9 +298,15 @@ const AepsProductPage = ({
       longitude: geo.longitude,
       captureResponse: cap.captureResponse,
       indicatorforUID: 0,
+      ...(needsTxnOtp && txnOtpRequestId ? { txnOtpRequestId } : {}),
     });
     const res = await submit(body);
     await afterTxn(res, { otpMode: false });
+    if (res.success) {
+      setTxnOtpRequestId('');
+      setTxnOtpValue('');
+      setTxnOtpSent(false);
+    }
     setBusy(false);
   };
 
@@ -355,6 +418,9 @@ const AepsProductPage = ({
     setOtpStep('idle');
     setOtpValue('');
     setPendingTranId('');
+    setTxnOtpRequestId('');
+    setTxnOtpValue('');
+    setTxnOtpSent(false);
   };
 
   const friendlyDescription = isOperator
@@ -476,11 +542,53 @@ const AepsProductPage = ({
               label="Amount (max ₹10,000)"
               type="number"
               value={form.transactionAmount}
-              onChange={(e) => setForm({ ...form, transactionAmount: e.target.value })}
+              onChange={(e) => {
+                setForm({ ...form, transactionAmount: e.target.value });
+                setTxnOtpRequestId('');
+                setTxnOtpValue('');
+                setTxnOtpSent(false);
+              }}
               required
               min={1}
               max={10000}
             />
+          ) : null}
+
+          {product === 'CD' ? (
+            <p className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-950 dark:border-amber-800 dark:bg-amber-950/40 dark:text-amber-200">
+              NPCI maintains a 30-minute cooling period between Cash Withdrawal and Cash Deposit.
+            </p>
+          ) : null}
+
+          {needsTxnOtp && !(allowCdOtp && cdMode === 'otp') ? (
+            <div className="space-y-3 rounded-lg border border-slate-100 bg-slate-50 p-3 dark:border-slate-800 dark:bg-slate-800/50">
+              <p className="text-xs text-slate-600 dark:text-slate-400">
+                Amount above ₹{cwApOtpThreshold.toLocaleString('en-IN')} requires customer Aadhaar OTP before
+                fingerprint capture.
+              </p>
+              {!txnOtpSent ? (
+                <Button
+                  type="button"
+                  loading={busy}
+                  onClick={sendCwApOtp}
+                  disabled={!form.nationalBankIdentificationNumber || !form.transactionAmount}
+                >
+                  Send Aadhaar OTP
+                </Button>
+              ) : (
+                <>
+                  <Input
+                    label="Customer OTP"
+                    value={txnOtpValue}
+                    onChange={(e) => setTxnOtpValue(e.target.value.replace(/\D/g, '').slice(0, 8))}
+                    className="max-w-[180px]"
+                  />
+                  <Button type="button" size="sm" variant="secondary" loading={busy} onClick={sendCwApOtp}>
+                    Resend OTP
+                  </Button>
+                </>
+              )}
+            </div>
           ) : null}
 
           {allowCdOtp && cdMode === 'otp' ? (
@@ -517,7 +625,11 @@ const AepsProductPage = ({
               ) : null}
             </div>
           ) : (
-            <Button type="submit" loading={busy}>
+            <Button
+              type="submit"
+              loading={busy}
+              disabled={needsTxnOtp && (!txnOtpRequestId || !txnOtpValue.trim())}
+            >
               Capture & submit
             </Button>
           )}

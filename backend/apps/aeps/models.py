@@ -97,6 +97,25 @@ class AepsProviderConfig(BaseModel):
     bank_list_url = models.URLField(max_length=500, blank=True, default='')
     aadhaar_pay_bank_list_url = models.URLField(max_length=500, blank=True, default='')
 
+    # CW / AP Aadhaar OTP threshold (Fingpay: mandatory above ₹5000)
+    cw_ap_otp_threshold = models.PositiveIntegerField(
+        default=5000,
+        help_text='Amount above which CW/AP must call send/otp and pass txnOtpRequestId',
+    )
+    banks_last_synced_at = models.DateTimeField(null=True, blank=True)
+    # Callback / recon inbound security
+    callback_allowed_ips = models.TextField(
+        blank=True,
+        default='',
+        help_text='Comma/newline-separated IPs allowed for Fingpay callbacks and inbound recon',
+    )
+    callback_token = models.CharField(
+        max_length=128,
+        blank=True,
+        default='',
+        help_text='Shared secret: require header X-AEPS-Callback-Token (or query token=)',
+    )
+
     request_timeout_seconds = models.PositiveIntegerField(default=180)
     notes = models.TextField(blank=True, default='')
     updated_by = models.ForeignKey(
@@ -265,6 +284,21 @@ class AepsMerchantProfile(BaseModel):
     ekyc_encode_fp_txn_id = models.CharField(max_length=128, blank=True, default='')
     masked_aadhaar = models.CharField(max_length=20, blank=True, default='')
 
+    BANK_EKYC_CHOICES = [
+        ('not_required', 'Not required'),
+        ('pending', 'Pending'),
+        ('done', 'Done'),
+        ('failed', 'Failed'),
+    ]
+    bank_ekyc_status = models.CharField(
+        max_length=16,
+        choices=BANK_EKYC_CHOICES,
+        default='not_required',
+        db_index=True,
+    )
+    bank_ekyc_checked_at = models.DateTimeField(null=True, blank=True)
+    bank_ekyc_message = models.CharField(max_length=500, blank=True, default='')
+
     device_imei = models.CharField(
         max_length=64,
         blank=True,
@@ -401,12 +435,24 @@ class AepsBankIinCache(TimestampedModel):
 
 
 class AepsReconBatch(TimestampedModel):
+    DIRECTION_CHOICES = [
+        ('inbound', 'Inbound (Fingpay → us)'),
+        ('outbound', 'Outbound (us → Fingpay)'),
+    ]
     txn_date = models.CharField(max_length=64, blank=True, default='')
+    direction = models.CharField(max_length=16, choices=DIRECTION_CHOICES, default='inbound', db_index=True)
     request_hash = models.CharField(max_length=128, blank=True, default='')
     item_count = models.PositiveIntegerField(default=0)
     raw_request = models.JSONField(default=dict, blank=True)
     raw_response = models.JSONField(default=dict, blank=True)
     client_ip = models.GenericIPAddressField(null=True, blank=True)
+    triggered_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        related_name='aeps_recon_batches',
+    )
 
     class Meta:
         db_table = 'aeps_recon_batches'
@@ -461,4 +507,63 @@ class AepsApiAuditLog(TimestampedModel):
 
     class Meta:
         db_table = 'aeps_api_audit_logs'
+        ordering = ['-created_at']
+
+
+class AepsProviderAccessGrant(BaseModel):
+    """Super Admin may grant a specific Admin the right to edit Fingpay provider config."""
+
+    user = models.OneToOneField(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.CASCADE,
+        related_name='aeps_provider_grant',
+    )
+    is_active = models.BooleanField(default=True, db_index=True)
+    granted_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        related_name='aeps_provider_grants_given',
+    )
+    granted_at = models.DateTimeField(null=True, blank=True)
+    revoked_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        related_name='aeps_provider_grants_revoked',
+    )
+    revoked_at = models.DateTimeField(null=True, blank=True)
+    note = models.CharField(max_length=500, blank=True, default='')
+
+    class Meta:
+        db_table = 'aeps_provider_access_grants'
+        ordering = ['-updated_at']
+
+    def __str__(self):
+        state = 'active' if self.is_active else 'revoked'
+        return f'AEPS provider grant {self.user_id} ({state})'
+
+
+class AepsConfigChangeLog(TimestampedModel):
+    """Append-only audit of provider config / grant changes (never stores secret values)."""
+
+    actor = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        related_name='aeps_config_changes',
+    )
+    environment = models.CharField(max_length=16, blank=True, default='', db_index=True)
+    action = models.CharField(max_length=64, db_index=True)
+    changed_fields = models.JSONField(default=list, blank=True)
+    before_masked = models.JSONField(default=dict, blank=True)
+    after_masked = models.JSONField(default=dict, blank=True)
+    ip = models.GenericIPAddressField(null=True, blank=True)
+    note = models.CharField(max_length=500, blank=True, default='')
+
+    class Meta:
+        db_table = 'aeps_config_change_logs'
         ordering = ['-created_at']

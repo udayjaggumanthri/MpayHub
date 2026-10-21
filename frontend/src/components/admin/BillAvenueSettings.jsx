@@ -30,9 +30,6 @@ const defaultForm = {
   push_callback_url: '',
   enabled: false,
   is_active: false,
-  bbps_wallet_service_charge_mode: 'FLAT',
-  bbps_wallet_service_charge_flat: 5,
-  bbps_wallet_service_charge_percent: 0,
   remitter_compliance_enabled: false,
 };
 
@@ -88,9 +85,6 @@ const BillAvenueSettings = () => {
         max_retries: c.max_retries ?? 2,
         mdm_refresh_hours: c.mdm_refresh_hours ?? 24,
         mdm_max_calls_per_day: c.mdm_max_calls_per_day ?? 15,
-        bbps_wallet_service_charge_mode: c.bbps_wallet_service_charge_mode || 'FLAT',
-        bbps_wallet_service_charge_flat: Number(c.bbps_wallet_service_charge_flat ?? 5),
-        bbps_wallet_service_charge_percent: Number(c.bbps_wallet_service_charge_percent ?? 0),
         remitter_compliance_enabled: !!c.remitter_compliance_enabled,
       }));
       setHasSecrets({
@@ -192,6 +186,9 @@ const BillAvenueSettings = () => {
       activated_at: _aa,
       created_at: _ca,
       updated_at: _ua,
+      bbps_wallet_service_charge_mode: _chargeMode,
+      bbps_wallet_service_charge_flat: _chargeFlat,
+      bbps_wallet_service_charge_percent: _chargePercent,
       ...configPayload
     } = form;
     const preset = PRESETS[env] || PRESETS.uat;
@@ -510,51 +507,16 @@ const BillAvenueSettings = () => {
 
         <div className="mt-6 pt-4 border-t border-gray-200 dark:border-slate-700">
           <h2 className="text-lg font-semibold text-gray-900 dark:text-slate-100 mb-1">BBPS wallet service charge</h2>
-          <p className="text-sm text-gray-500 dark:text-slate-400 mb-4">
-            Shown on the pay screen (quote) before Proceed to Pay. Separate from BillAvenue CCF fields.
+          <p className="text-sm text-gray-500 dark:text-slate-400">
+            Charges are set per category, with a default for categories that do not have their own rate.
+            Saving these credentials does not change the charge.
           </p>
-          <div className="grid md:grid-cols-2 gap-4">
-            <div>
-              <label className="block text-xs font-medium text-gray-600 dark:text-slate-400 mb-1">Charge type</label>
-              <select
-                className="w-full border border-gray-300 dark:border-slate-600 rounded-lg px-3 py-2 text-sm"
-                value={form.bbps_wallet_service_charge_mode || 'FLAT'}
-                onChange={(e) => setForm((p) => ({ ...p, bbps_wallet_service_charge_mode: e.target.value }))}
-              >
-                <option value="FLAT">Flat (fixed INR)</option>
-                <option value="PERCENT">Percent of bill amount</option>
-              </select>
-            </div>
-            <div>
-              <label className="block text-xs font-medium text-gray-600 dark:text-slate-400 mb-1">Flat amount (INR)</label>
-              <input
-                type="number"
-                min={0}
-                step="0.01"
-                className="w-full border border-gray-300 dark:border-slate-600 rounded-lg px-3 py-2 text-sm"
-                value={form.bbps_wallet_service_charge_flat ?? 0}
-                onChange={(e) =>
-                  setForm((p) => ({ ...p, bbps_wallet_service_charge_flat: parseFloat(e.target.value) || 0 }))
-                }
-                disabled={(form.bbps_wallet_service_charge_mode || 'FLAT') !== 'FLAT'}
-              />
-            </div>
-            <div className="md:col-span-2">
-              <label className="block text-xs font-medium text-gray-600 dark:text-slate-400 mb-1">Percent of bill (%)</label>
-              <input
-                type="number"
-                min={0}
-                max={100}
-                step="0.0001"
-                className="w-full border border-gray-300 dark:border-slate-600 rounded-lg px-3 py-2 text-sm"
-                value={form.bbps_wallet_service_charge_percent ?? 0}
-                onChange={(e) =>
-                  setForm((p) => ({ ...p, bbps_wallet_service_charge_percent: parseFloat(e.target.value) || 0 }))
-                }
-                disabled={(form.bbps_wallet_service_charge_mode || 'FLAT') !== 'PERCENT'}
-              />
-            </div>
-          </div>
+          <Link
+            to="/admin/bbps/wallet-charges"
+            className="mt-3 inline-flex text-sm font-semibold text-blue-700 underline dark:text-blue-300"
+          >
+            Open wallet service charges
+          </Link>
         </div>
 
         <div className="mt-6 pt-4 border-t border-gray-200 dark:border-slate-700">

@@ -1,6 +1,7 @@
 """AEPS product flows: 2FA, BE, MS, CW, AP, CD + status mid-points / ack."""
 from __future__ import annotations
 
+import re
 from decimal import Decimal
 
 from django.utils import timezone
@@ -330,7 +331,139 @@ def _simple_txn_body(
     # Encrypted PHP Balance Enquiry used merchantTransactionId — keep both for BE.
     if product == 'BE':
         body['merchantTransactionId'] = merchant_tran_id
+    otp_ref = str(
+        payload.get('txnOtpRequestId')
+        or payload.get('txn_otp_request_id')
+        or payload.get('fpTransactionId')
+        or ''
+    ).strip()
+    if otp_ref and product in ('CW', 'AP'):
+        body['txnOtpRequestId'] = otp_ref
     return body
+
+
+def _otp_threshold(client=None) -> int:
+    from apps.aeps.models import AepsProviderConfig
+
+    row = (
+        AepsProviderConfig.objects.filter(is_active=True, is_deleted=False)
+        .order_by('-updated_at')
+        .first()
+    )
+    try:
+        return int(getattr(row, 'cw_ap_otp_threshold', None) or 5000)
+    except (TypeError, ValueError):
+        return 5000
+
+
+def send_txn_otp(*, user, product: str, payload: dict, latitude, longitude) -> dict:
+    """
+    Fingpay Aadhaar OTP for CW/AP when amount > threshold.
+    transactionType: CO (CW) / MO (AP); serviceType: CW / AP.
+    Response data.fpTransactionId becomes txnOtpRequestId on the product call.
+    """
+    merchant = assert_merchant_active(user)
+    assert_device_ready(merchant)
+    assert_daily_2fa(merchant)
+    product = str(product or '').upper()
+    if product not in ('CW', 'AP'):
+        raise ValidationError({'message': 'Aadhaar OTP send is only for CW or AP', 'code': 'OTP_PRODUCT'})
+    amount = payload.get('transactionAmount') or payload.get('amount') or 0
+    try:
+        amt = float(amount)
+    except (TypeError, ValueError) as exc:
+        raise ValidationError({'message': 'Invalid amount'}) from exc
+    threshold = _otp_threshold()
+    if amt <= threshold:
+        raise ValidationError(
+            {
+                'message': f'Aadhaar OTP is only required when amount is above ₹{threshold}',
+                'code': 'OTP_NOT_REQUIRED',
+            }
+        )
+    client = get_fingpay_client()
+    card = _card_from_payload(payload)
+    merchant_tran_id = generate_merchant_tran_id('OTP')
+    txn_type = 'CO' if product == 'CW' else 'MO'
+    body = {
+        'transactionType': txn_type,
+        'serviceType': product,
+        'mobileNumber': str(payload.get('mobileNumber') or '').strip(),
+        'latitude': float(latitude),
+        'longitude': float(longitude),
+        'requestRemarks': str(payload.get('requestRemarks') or f'{product} OTP request'),
+        'paymentType': str(payload.get('paymentType') or 'AEPS'),
+        'merchantTransactionId': merchant_tran_id,
+        'superMerchantId': _super_merchant_id(client),
+        'merchantUserName': _merchant_user_name(merchant),
+        'merchantPin': _txn_merchant_pin(merchant, client),
+        'transactionAmount': amt,
+        'cardnumberORUID': card,
+    }
+    if not body['mobileNumber']:
+        raise ValidationError({'message': 'Customer mobile number is required for Aadhaar OTP'})
+
+    style = getattr(client, 'onboarding_api_style', '') or getattr(client, 'resolved_onboarding_api_style', '') or ''
+    if str(style).lower() == 'php' or (getattr(client, 'api_mode', '') != 'simple' and 'php' in str(style).lower()):
+        path_key = 'txn_otp_send_php'
+        fallback = 'fpaepsservice/api/auth/merchant/php/send/otp'
+    else:
+        path_key = 'txn_otp_send'
+        fallback = 'fpaepsservice/api/auth/merchant/send/otp'
+    path = client.endpoint(path_key, fallback)
+
+    txn = AepsTransaction.objects.create(
+        user=user,
+        merchant=merchant,
+        merchant_tran_id=merchant_tran_id,
+        product=product,
+        status='initiated',
+        amount=Decimal(str(amt)),
+        latitude=latitude,
+        longitude=longitude,
+        device_imei=merchant.device_imei or '',
+        customer_mobile=body['mobileNumber'],
+        masked_aadhaar=mask_aadhaar(card.get('adhaarNumber')),
+        bank_iin=str(card.get('nationalBankIdentificationNumber') or ''),
+        provider_meta={'otp_request': True},
+    )
+    try:
+        resp = client.aeps_post(path, body, device_imei=merchant.device_imei, endpoint_key=path_key)
+    except Exception as exc:
+        txn.status = 'failed'
+        txn.response_message = str(exc)[:500]
+        txn.save(update_fields=['status', 'response_message', 'updated_at'])
+        raise ValidationError({'code': 'PROVIDER_REJECTED', 'message': str(exc)}) from exc
+
+    data = resp.get('data') if isinstance(resp.get('data'), dict) else {}
+    fp_id = str(data.get('fpTransactionId') or data.get('fingpayTransactionId') or '')
+    ok = bool(resp.get('status') is True or str(resp.get('statusCode')) == '10000') and bool(fp_id)
+    txn.fp_transaction_id = fp_id
+    txn.response_code = str(data.get('responseCode') or resp.get('statusCode') or '')
+    txn.response_message = str(resp.get('message') or data.get('bankResponseMessage') or '')[:500]
+    txn.provider_meta = {
+        **(txn.provider_meta or {}),
+        'otp_request': {'fpTransactionId': fp_id, 'response': scrub_sensitive(resp)},
+    }
+    txn.status = 'success' if ok else 'failed'
+    txn.save()
+    if not ok:
+        raise ValidationError(
+            {
+                'code': 'OTP_SEND_FAILED',
+                'message': txn.response_message or 'Aadhaar OTP send failed',
+            }
+        )
+    return {
+        'merchant_tran_id': merchant_tran_id,
+        'txnOtpRequestId': fp_id,
+        'fpTransactionId': fp_id,
+        'threshold': threshold,
+        'amount': amt,
+        'product': product,
+        'message': txn.response_message or 'OTP sent. Enter OTP, then capture fingerprint.',
+        'transaction': serialize_txn(txn),
+    }
 
 
 def complete_daily_2fa(*, user, capture_response: dict, latitude, longitude, payload: dict | None = None) -> dict:
@@ -503,6 +636,22 @@ def _run_product(
             raise ValidationError({'message': 'Invalid amount'}) from exc
         if amt <= 0 or amt > 10000:
             raise ValidationError({'message': 'Amount must be between 1 and 10000'})
+        if product in ('CW', 'AP') and amt > _otp_threshold():
+            otp_ref = str(
+                payload.get('txnOtpRequestId')
+                or payload.get('txn_otp_request_id')
+                or ''
+            ).strip()
+            if not otp_ref:
+                raise ValidationError(
+                    {
+                        'code': 'OTP_REQUIRED',
+                        'message': (
+                            f'Amount ₹{amt:.0f} is above ₹{_otp_threshold()}. '
+                            'Send Aadhaar OTP first, then submit with txnOtpRequestId.'
+                        ),
+                    }
+                )
 
     txn = _create_pending_txn(
         user=user,
@@ -528,6 +677,9 @@ def _run_product(
             merchant_tran_id=txn.merchant_tran_id,
         )
     else:
+        # Encrypted Java/PHP body — keep field parity with Simple (deviceTransactionId,
+        # non-empty remarks). Missing deviceTransactionId caused Fingpay edge HTTP 400
+        # / apiStatusCode 10005 ("Error parsing request data") on Cash Deposit.
         card = _card_from_payload(payload)
         body = {
             **_base_merchant_fields(merchant, client),
@@ -536,13 +688,21 @@ def _run_product(
             'transactionType': {'CW': 'CW', 'BE': 'BE', 'MS': 'MS', 'AP': 'M', 'CD': 'CD'}.get(product, product),
             'latitude': float(latitude),
             'longitude': float(longitude),
-            'requestRemarks': payload.get('requestRemarks') or '',
+            'requestRemarks': payload.get('requestRemarks') or product,
             'captureResponse': capture_response,
             'transactionAmount': float(amount or 0),
             'merchantTranId': txn.merchant_tran_id,
+            'deviceTransactionId': txn.merchant_tran_id,
         }
         if product == 'BE':
             body['merchantTransactionId'] = txn.merchant_tran_id
+        otp_ref = str(
+            payload.get('txnOtpRequestId')
+            or payload.get('txn_otp_request_id')
+            or ''
+        ).strip()
+        if otp_ref and product in ('CW', 'AP'):
+            body['txnOtpRequestId'] = otp_ref
 
     txn.status = 'pending'
     txn.save(update_fields=['status', 'updated_at'])
@@ -735,8 +895,93 @@ def _parse_balance_amount(data: dict):
     return None
 
 
+# Off-us mini statements arrive as List[str] chunks (docs), not structured objects.
+# Banks often concatenate lines without separators: "...Rs. 9913/10/2026  Dr  89  ..."
+_OFFUS_ROW_RE = re.compile(
+    r'(\d{2}/\d{2}/\d{4})\s+(Dr|Cr)\s+(\d+(?:\.\d+)?)\s*',
+    re.IGNORECASE,
+)
+_OFFUS_TRAILING_BALANCE_RE = re.compile(r'Balance\s+[\d.,]+\s*$', re.IGNORECASE)
+
+
+def _normalize_statement_row(row: dict) -> dict:
+    """Map common Fingpay / bank field aliases onto date/txnType/amount/narration."""
+    date = row.get('date') or row.get('txnDate') or row.get('transactionDate') or ''
+    txn_type = row.get('txnType') or row.get('type') or row.get('debitCredit') or ''
+    amount = row.get('amount') or row.get('txnAmount') or row.get('transactionAmount') or ''
+    narration = (
+        row.get('narration')
+        or row.get('remarks')
+        or row.get('remark')
+        or row.get('description')
+        or ''
+    )
+    return {
+        'date': str(date).strip(),
+        'txnType': str(txn_type).strip(),
+        'amount': str(amount).strip(),
+        'narration': str(narration).strip(),
+    }
+
+
+def parse_offus_statement_text(text: str) -> list:
+    """
+    Split Fingpay miniOffusStatementStructureModel joined text into structured rows.
+
+    Typical chunk: "13/10/2026  Dr  89  Account Maintenance charges..."
+    """
+    if not text or not str(text).strip():
+        return []
+    blob = _OFFUS_TRAILING_BALANCE_RE.sub('', str(text)).strip()
+    matches = list(_OFFUS_ROW_RE.finditer(blob))
+    if not matches:
+        # Fallback: keep one readable line so the UI is not blank.
+        return [{'date': '', 'txnType': '', 'amount': '', 'narration': blob[:500]}]
+
+    rows = []
+    for i, match in enumerate(matches):
+        narr_start = match.end()
+        narr_end = matches[i + 1].start() if i + 1 < len(matches) else len(blob)
+        rows.append(
+            {
+                'date': match.group(1),
+                'txnType': match.group(2).title(),
+                'amount': match.group(3).strip(),
+                'narration': blob[narr_start:narr_end].strip(),
+            }
+        )
+    return rows
+
+
+def normalize_mini_statement_lines(raw) -> list:
+    """
+    Coerce on-us objects or off-us string chunks into a uniform list of dicts.
+    Empty list is valid (bank returned no lines).
+    """
+    if not isinstance(raw, list):
+        return []
+    if not raw:
+        return []
+
+    if all(isinstance(item, dict) for item in raw):
+        return [_normalize_statement_row(item) for item in raw]
+
+    if all(isinstance(item, str) for item in raw):
+        return parse_offus_statement_text(''.join(raw))
+
+    # Mixed payloads — prefer dicts; join leftover strings as off-us text.
+    dicts = [_normalize_statement_row(item) for item in raw if isinstance(item, dict)]
+    strings = [item for item in raw if isinstance(item, str)]
+    if strings:
+        dicts.extend(parse_offus_statement_text(''.join(strings)))
+    return dicts
+
+
 def _parse_mini_statement(data: dict):
-    """Prefer on-us lines; fall back to off-us / legacy keys. Empty list is valid."""
+    """
+    Prefer on-us structured lines; when miniOffusFlag is true, prefer off-us chunks.
+    Always normalize to [{date, txnType, amount, narration}, ...]. Empty list is valid.
+    """
     if not isinstance(data, dict):
         return None
     on_us = data.get('miniStatementStructureModel')
@@ -744,12 +989,16 @@ def _parse_mini_statement(data: dict):
     legacy = data.get('miniStatement')
     if not isinstance(legacy, list):
         legacy = data.get('statement')
-    for candidate in (on_us, off_us, legacy):
+
+    offus_flag = bool(data.get('miniOffusFlag'))
+    ordered = (off_us, on_us, legacy) if offus_flag else (on_us, off_us, legacy)
+
+    for candidate in ordered:
         if isinstance(candidate, list) and candidate:
-            return candidate
-    for candidate in (on_us, off_us, legacy):
+            return normalize_mini_statement_lines(candidate)
+    for candidate in ordered:
         if isinstance(candidate, list):
-            return candidate
+            return []
     return None
 
 
@@ -795,10 +1044,45 @@ def explain_provider_failure(resp: dict, data: dict, merchant=None) -> str:
         return identity
 
     data = data if isinstance(data, dict) else {}
-    inner_code = str(data.get('responseCode') or data.get('errorCode') or '')
+    inner_code = str(data.get('responseCode') or data.get('errorCode') or data.get('kycResponseCode') or '')
     inner_msg = str(
         data.get('responseMessage') or data.get('errorMessage') or data.get('hindiErrorMessage') or ''
     )
+    envelope = _envelope_message(resp)
+    combined = f'{envelope} {inner_msg}'.lower()
+
+    # FAQ / Services-doc mappings
+    if inner_code.upper() == 'FP097' or 'please complete bank ekyc' in combined:
+        return (
+            'Bank eKYC required (FP097). Complete Bank eKYC: Send OTP → Validate → '
+            'Biometric, then check status with kycType=BeKYC before transacting.'
+        )[:500]
+    if 'invalid encryption of skey' in combined or 'pad block corrupted' in combined:
+        return (
+            f'{envelope or inner_msg}. Check RSA public certificate and AES mode '
+            '(PHP CBC vs Java ECB) on Admin → AEPS Provider.'
+        )[:500]
+    if 'invalid pid xml' in combined:
+        return (
+            'Invalid PID XML format. Recapture fingerprint with Mantra RD Service; '
+            'do not send empty wadh on AEPS/2FA captures.'
+        )[:500]
+    if 'authentication failed' in combined and 'biometric' in combined:
+        return (
+            'Authentication failed — invalid biometric data. For daily 2FA, omit WADH in PidOptions '
+            '(FAQ). Recapture and retry.'
+        )[:500]
+    if 'bad request' in combined and not inner_msg:
+        return 'Bad Request — check mandatory headers (trnTimestamp, hash, deviceIMEI, eskey if encrypted).'[:500]
+    if 'error occurred in model creation' in combined:
+        return (
+            'Error Occurred in Model Creation — remove unexpected square brackets or timestamp '
+            'fields from the JSON body.'
+        )[:500]
+    if 'internal server error' in combined:
+        return (
+            'Internal Server Error — confirm Production URLs are used (not UAT) for live credentials.'
+        )[:500]
 
     biometric = _biometric_reject_message(inner_code, inner_msg)
     if biometric:
@@ -806,7 +1090,6 @@ def explain_provider_failure(resp: dict, data: dict, merchant=None) -> str:
 
     if inner_msg:
         return (f'{inner_msg} ({inner_code})' if inner_code else inner_msg)[:500]
-    envelope = _envelope_message(resp)
     return envelope[:500] if envelope else ''
 
 

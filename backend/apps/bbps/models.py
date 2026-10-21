@@ -3,7 +3,7 @@ BBPS (Bharat Bill Payment System) models.
 """
 from django.db import models
 from decimal import Decimal
-from apps.core.models import BaseModel
+from apps.core.models import BaseModel, TimestampedModel
 from apps.authentication.models import User
 from django.conf import settings
 
@@ -902,3 +902,40 @@ class BbpsCatalogUxSettings(BaseModel):
   def __str__(self):
       flag = 'cash-only' if self.cash_only_for_users else 'standard'
       return f'{self.environment} catalog UX ({flag})'
+
+
+class BbpsCategoryWalletCharge(TimestampedModel):
+    """
+    Per-category BBPS wallet service charge.
+
+    An active row overrides the global BillAvenueConfig charge for that
+    canonical category. Inactive or missing rows keep the global charge.
+    Historical payments store the applied amount on bill_payments.charge
+    and are never rewritten from this table.
+    """
+
+    MODE_CHOICES = [
+        ('FLAT', 'Flat amount'),
+        ('PERCENT', 'Percent of bill amount'),
+    ]
+
+    category_code = models.SlugField(max_length=80, unique=True, db_index=True)
+    mode = models.CharField(max_length=10, choices=MODE_CHOICES, default='FLAT')
+    flat = models.DecimalField(max_digits=18, decimal_places=4, default=Decimal('0'))
+    percent = models.DecimalField(max_digits=9, decimal_places=4, default=Decimal('0'))
+    is_active = models.BooleanField(default=True, db_index=True)
+    updated_by = models.ForeignKey(
+        User,
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        related_name='bbps_category_wallet_charge_updates',
+    )
+
+    class Meta:
+        db_table = 'bbps_category_wallet_charge'
+        ordering = ['category_code']
+
+    def __str__(self):
+        state = 'active' if self.is_active else 'inactive'
+        return f'{self.category_code} {self.mode} ({state})'

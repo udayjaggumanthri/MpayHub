@@ -7,6 +7,7 @@ from apps.admin_panel import views
 from apps.fund_management import views_qr_admin
 from apps.fund_management import views_payout_admin
 from apps.fund_management import views_payin_recovery
+from apps.fund_management import views_tax_invoice
 from apps.bbps import views_recovery as views_bbps_recovery
 
 router = DefaultRouter()
@@ -50,6 +51,7 @@ urlpatterns = [
     path('maintenance/', views.maintenance_config_view, name='maintenance-config'),
     path('appearance/', views.appearance_config_view, name='appearance-config'),
     path('transaction-ids/', views.transaction_id_settings_view, name='transaction-ids'),
+    path('invoice-settings/', views_tax_invoice.invoice_settings_view, name='invoice-settings'),
     path('test-usage/', views.test_usage_config_view, name='test-usage-config'),
     path('roles-permissions/', views.roles_permissions_view, name='roles-permissions'),
     path('pay-in/qr-operations/stats/', views_qr_admin.qr_operations_stats_view, name='qr-operations-stats'),

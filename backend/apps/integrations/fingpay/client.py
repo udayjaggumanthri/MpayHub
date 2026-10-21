@@ -346,23 +346,49 @@ class FingpayClient:
         user=None,
     ) -> dict:
         url_l = (url or '').lower()
+        label_l = str(endpoint_label or '').lower()
         is_php_path = '/php/' in url_l
         resolved_mode = (aes_mode or ('cbc' if is_php_path else 'ecb')).lower()
         resolved_ct = content_type
         if resolved_ct is None and is_php_path:
             resolved_ct = 'text/xml'
 
-        plain = json.dumps(payload, separators=(',', ':'), ensure_ascii=False)
+        # Cash Deposit API doc: hash = Base64(SHA256(JSON + securitykey)).
+        # Other encrypted products follow PHP sample: Base64(SHA256(JSON)) only.
+        cd_hash = ('cashdeposit' in url_l) or label_l.startswith('cd') or ('/cd' == label_l) or label_l in (
+            'cd',
+            'cd_otp_generate',
+            'cd_otp_validate',
+            'cd_otp_txn',
+            'ack_cd',
+            'ack_cd_otp',
+            'status_cd',
+            'status_cd_otp',
+        )
+
+        # Keep body.timestamp identical to header trnTimestamp (hash covers the JSON).
+        ts = trn_timestamp_now()
+        wire_payload = dict(payload) if isinstance(payload, dict) else payload
+        if isinstance(wire_payload, dict) and 'timestamp' in wire_payload:
+            wire_payload['timestamp'] = ts
+
+        plain = json.dumps(wire_payload, separators=(',', ':'), ensure_ascii=False)
         enc = build_encrypted_request(
             plain_json=plain,
             rsa_public_key_pem=self.rsa_public_key_pem,
             aes_mode=resolved_mode,
+            secret_key=self.secret_key,
+            hash_with_secret_key=cd_hash,
+            trn_timestamp=ts,
         )
         headers = {
             'trnTimestamp': enc['trnTimestamp'],
             'hash': enc['hash'],
             'eskey': enc['eskey'],
         }
+        # Cash Deposit (and several Java paths) document superMerchantId as a header.
+        if self.super_merchant_id not in (None, ''):
+            headers['superMerchantId'] = str(self.super_merchant_id)
         if resolved_ct:
             headers['Content-Type'] = resolved_ct
         if device_imei:
@@ -383,11 +409,11 @@ class FingpayClient:
                 method='POST',
                 url=url,
                 request_headers=headers,
-                plain_payload=payload,
+                plain_payload=wire_payload,
                 encrypted_body_bytes=len(enc.get('body') or '') if isinstance(enc.get('body'), (bytes, str)) else None,
                 mode=wire_mode,
                 transport_error=str(exc),
-                raw_request_body=payload,
+                raw_request_body=wire_payload,
             )
             self._emit_audit(
                 endpoint=label,
@@ -415,7 +441,7 @@ class FingpayClient:
             method='POST',
             url=url,
             request_headers=headers,
-            plain_payload=payload,
+            plain_payload=wire_payload,
             encrypted_body_bytes=len(enc['body']) if isinstance(enc.get('body'), (bytes, str)) else None,
             mode=wire_mode,
             resp=resp,
@@ -425,7 +451,7 @@ class FingpayClient:
                 if len(enc_body_str) > 140
                 else enc_body_str
             ),
-            raw_request_body=payload,
+            raw_request_body=wire_payload,
         )
 
         ok = resp.status_code < 400 and (
@@ -835,3 +861,68 @@ class FingpayClient:
             secret_key=self.secret_key,
         )
         return expected == (provided_hash or '').strip()
+
+    def push_three_way_recon(
+        self,
+        *,
+        items: list,
+        txn_date: str,
+        body_json: str | None = None,
+    ) -> dict:
+        """
+        Outbound mandatory 3-way recon POST to Fingpay collect service.
+        Headers: txnDate, hash, superMerchantLoginId, superMerchantId
+        hash = Base64(SHA256(requestbody + superMerchantLoginId + secretKey))
+        """
+        import json as _json
+        import requests
+
+        if not self.secret_key:
+            raise FingpayClientError(
+                'Provider secret_key missing — required for outbound 3-way recon '
+                '(ask Fingpay Integration Team by email).'
+            )
+        if not self.recon_base_url:
+            raise FingpayClientError(
+                'recon_base_url is empty. Set UAT recon host, or paste production URL from Tapits mail.'
+            )
+        path = self.endpoint('recon', 'fpcollectservice_uat/api/threeway/aggregators')
+        # Prefer environment-specific path when configured
+        env = (getattr(self, 'environment', '') or '').lower()
+        if env == 'prod':
+            path = self.endpoint('recon_prod', path) or path
+        elif env in ('uat', 'simple'):
+            path = self.endpoint('recon_uat', path) or self.endpoint('recon', path)
+        url = self._join(self.recon_base_url, path)
+        body_str = body_json if body_json is not None else _json.dumps(items or [], separators=(',', ':'))
+        req_hash = build_recon_hash(
+            request_body=body_str,
+            super_merchant_login_id=self.super_merchant_login_id,
+            secret_key=self.secret_key,
+        )
+        headers = {
+            'Content-Type': 'application/json',
+            'txnDate': txn_date,
+            'hash': req_hash,
+            'superMerchantLoginId': self.super_merchant_login_id,
+            'superMerchantId': str(self.super_merchant_id),
+            'superMerchantid': str(self.super_merchant_id),
+        }
+        try:
+            http = requests.post(url, data=body_str.encode('utf-8'), headers=headers, timeout=self.timeout)
+        except requests.RequestException as exc:
+            raise FingpayClientError(f'Outbound recon failed ({url}): {exc}') from exc
+        try:
+            data = http.json() if http.content else {}
+        except Exception:
+            data = {'raw': (http.text or '')[:2000]}
+        if not isinstance(data, dict):
+            data = {'data': data}
+        data['_request_hash'] = req_hash
+        data['_http_status'] = http.status_code
+        data['_url'] = url
+        if http.status_code >= 400:
+            raise FingpayClientError(
+                f'Outbound recon HTTP {http.status_code}: {data.get("apiStatusMessage") or data.get("message") or http.text[:300]}'
+            )
+        return data

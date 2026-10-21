@@ -4,16 +4,18 @@ from __future__ import annotations
 from django.utils import timezone
 from rest_framework.exceptions import PermissionDenied
 
-from apps.core.roles import is_platform_operator
+from apps.core.roles import is_platform_operator, is_super_admin, ROLE_ADMIN
 from apps.core.financial_access import FINANCIAL_TX_BLOCKED_ROLES
 from apps.core.maintenance_mode import MODULE_AEPS, assert_module_available
 
 CODE_NOT_ENTITLED = 'NOT_ENTITLED'
 CODE_EKYC_REQUIRED = 'EKYC_REQUIRED'
+CODE_BANK_EKYC_REQUIRED = 'BANK_EKYC_REQUIRED'
 CODE_TWOFA_REQUIRED = 'TWOFA_REQUIRED'
 CODE_DEVICE_REQUIRED = 'DEVICE_REQUIRED'
 CODE_ADMIN_BLOCKED = 'AEPS_ADMIN_BLOCKED'
 CODE_SUSPENDED = 'AEPS_SUSPENDED'
+CODE_PROVIDER_FORBIDDEN = 'AEPS_PROVIDER_FORBIDDEN'
 
 
 def _deny(code: str, message: str) -> PermissionDenied:
@@ -62,6 +64,29 @@ def assert_entitled(user) -> None:
         raise _deny(CODE_NOT_ENTITLED, 'AEPS is not enabled for your account. Request access or contact Admin.')
 
 
+def can_manage_aeps_provider(user) -> bool:
+    """Super Admin always; Admin only with an active AepsProviderAccessGrant."""
+    if not user or not getattr(user, 'is_authenticated', False):
+        return False
+    if is_super_admin(user):
+        return True
+    if getattr(user, 'role', None) != ROLE_ADMIN:
+        return False
+    from apps.aeps.models import AepsProviderAccessGrant
+
+    return AepsProviderAccessGrant.objects.filter(
+        user=user, is_active=True, is_deleted=False
+    ).exists()
+
+
+def assert_can_manage_aeps_provider(user) -> None:
+    if not can_manage_aeps_provider(user):
+        raise _deny(
+            CODE_PROVIDER_FORBIDDEN,
+            'Only Super Admin (or an Admin granted by Super Admin) can edit AEPS provider credentials.',
+        )
+
+
 def assert_merchant_active(user):
     assert_entitled(user)
     merchant = get_merchant(user)
@@ -69,6 +94,17 @@ def assert_merchant_active(user):
         raise _deny(CODE_SUSPENDED, 'Your AEPS merchant is suspended or not set up.')
     if merchant.stage != 'active':
         raise _deny(CODE_EKYC_REQUIRED, 'Complete AEPS onboarding and eKYC before transacting.')
+    bank_status = getattr(merchant, 'bank_ekyc_status', 'not_required') or 'not_required'
+    if bank_status == 'pending':
+        raise _deny(
+            CODE_BANK_EKYC_REQUIRED,
+            'Complete Bank eKYC (BeKYC) before AEPS transactions. Send OTP → Validate → Biometric, then check BeKYC status.',
+        )
+    if bank_status == 'failed':
+        raise _deny(
+            CODE_BANK_EKYC_REQUIRED,
+            'Bank eKYC failed. Retry Bank eKYC or contact Admin.',
+        )
     return merchant
 
 
@@ -112,6 +148,8 @@ def me_status_payload(user) -> dict:
         ).exists()
 
     stage = merchant.stage if merchant else ('entitled' if (ent and ent.enabled) else 'not_entitled')
+    bank_ekyc_status = getattr(merchant, 'bank_ekyc_status', 'not_required') if merchant else 'not_required'
+    bank_ekyc_status = bank_ekyc_status or 'not_required'
     next_action = 'none'
     if is_admin or not can_trade:
         next_action = 'admin_ops'
@@ -124,6 +162,8 @@ def me_status_payload(user) -> dict:
         next_action = 'device'
     elif merchant.stage in ('onboarding_submitted', 'ekyc_pending'):
         next_action = 'ekyc'
+    elif merchant.stage == 'active' and bank_ekyc_status in ('pending', 'failed'):
+        next_action = 'bank_ekyc'
     elif merchant.stage == 'active' and not merchant.device_ready:
         next_action = 'device'
     elif merchant.stage == 'active' and not twofa_ok:
@@ -155,6 +195,13 @@ def me_status_payload(user) -> dict:
             'scanner_serial': merchant.scanner_serial,
             'device_ready': merchant.device_ready,
             'masked_aadhaar': merchant.masked_aadhaar,
+            'bank_ekyc_status': bank_ekyc_status,
+            'bank_ekyc_message': getattr(merchant, 'bank_ekyc_message', '') or '',
+            'bank_ekyc_checked_at': (
+                merchant.bank_ekyc_checked_at.isoformat()
+                if getattr(merchant, 'bank_ekyc_checked_at', None)
+                else None
+            ),
             'last_2fa_at': merchant.last_2fa_at.isoformat() if merchant.last_2fa_at else None,
             'twofa_ok_today': twofa_ok,
             'has_onboarding_draft': bool(raw_payload),
@@ -166,6 +213,8 @@ def me_status_payload(user) -> dict:
     return {
         'module_key': 'aeps',
         'is_admin': is_admin,
+        'is_super_admin': is_super_admin(user),
+        'can_manage_provider': can_manage_aeps_provider(user),
         'entitled': bool(ent and ent.enabled),
         'can_trade': can_trade,
         'pending_access_request': bool(pending_req),
@@ -173,7 +222,22 @@ def me_status_payload(user) -> dict:
         'stage': stage,
         'next_action': next_action,
         'capture_profile': capture_profile_payload(),
+        'cw_ap_otp_threshold': _cw_ap_otp_threshold(),
     }
+
+
+def _cw_ap_otp_threshold() -> int:
+    from apps.aeps.models import AepsProviderConfig
+
+    row = (
+        AepsProviderConfig.objects.filter(is_active=True, is_deleted=False)
+        .order_by('-updated_at')
+        .first()
+    )
+    try:
+        return int(getattr(row, 'cw_ap_otp_threshold', None) or 5000)
+    except (TypeError, ValueError):
+        return 5000
 
 
 def capture_profile_payload() -> dict:

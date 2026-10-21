@@ -1,11 +1,44 @@
 import React, { useEffect, useState } from 'react';
 import { Navigate, Route, Routes } from 'react-router-dom';
-import { billAvenueAdminAPI } from '../../../services/api';
+import { useAuth } from '../../../context/AuthContext';
+import { adminAPI, billAvenueAdminAPI } from '../../../services/api';
 import BillAvenueSettings from '../BillAvenueSettings';
 import BbpsOpsConsole from '../BbpsOpsConsole';
 import BbpsProviderFloat from '../BbpsProviderFloat';
 import BbpsOverview from './BbpsOverview';
 import BbpsCatalogHub from './BbpsCatalogHub';
+import BbpsWalletCharges from './BbpsWalletCharges';
+
+const BillAvenueSettingsGate = () => {
+  const { user } = useAuth();
+  const [allowed, setAllowed] = useState(user?.role === 'Super Admin' ? true : null);
+
+  useEffect(() => {
+    if (user?.role === 'Super Admin') {
+      setAllowed(true);
+      return undefined;
+    }
+    let cancelled = false;
+    (async () => {
+      const res = await adminAPI.getMyPermissions();
+      if (cancelled) return;
+      const modules = res.success && Array.isArray(res.data?.modules) ? res.data.modules : [];
+      const superAdmin = user?.role === 'Super Admin' || !!res.data?.is_super_admin;
+      setAllowed(superAdmin || modules.includes('bbps_settings'));
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [user?.role]);
+
+  if (allowed == null) {
+    return <p className="text-sm text-slate-500 dark:text-slate-400">Checking access…</p>;
+  }
+  if (!allowed) {
+    return <Navigate to="/admin/bbps/wallet-charges" replace />;
+  }
+  return <BillAvenueSettings />;
+};
 
 const CatalogRedirect = ({ tab, mdmEnv }) => {
   const params = new URLSearchParams({ tab });
@@ -80,7 +113,8 @@ const BbpsConsole = () => {
             <Route path="sync" element={<CatalogRedirect tab="sync" />} />
             <Route path="float" element={<BbpsProviderFloat />} />
             <Route path="ops" element={<BbpsOpsConsole />} />
-            <Route path="settings" element={<BillAvenueSettings />} />
+            <Route path="wallet-charges" element={<BbpsWalletCharges />} />
+            <Route path="settings" element={<BillAvenueSettingsGate />} />
           </Routes>
         </main>
       </div>

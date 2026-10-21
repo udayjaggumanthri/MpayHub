@@ -1972,6 +1972,30 @@ export const billAvenueAdminAPI = {
       return handleError(error);
     }
   },
+  getWalletCharges: async () => {
+    try {
+      const response = await apiClient.get('/bbps/admin/wallet-charges/');
+      return extractData(response);
+    } catch (error) {
+      return handleError(error);
+    }
+  },
+  saveWalletChargeDefault: async (payload) => {
+    try {
+      const response = await apiClient.patch('/bbps/admin/wallet-charges/', { default: payload });
+      return extractData(response);
+    } catch (error) {
+      return handleError(error);
+    }
+  },
+  saveWalletChargeCategory: async (payload) => {
+    try {
+      const response = await apiClient.patch('/bbps/admin/wallet-charges/', payload);
+      return extractData(response);
+    } catch (error) {
+      return handleError(error);
+    }
+  },
   listAgentProfiles: async (configId) => {
     try {
       const params = configId ? { config: configId } : {};
@@ -2609,6 +2633,33 @@ export const reportsAPI = {
   getPayInReport: async (params = {}) => {
     try {
       const response = await apiClient.get('/reports/payin/', { params });
+      return extractData(response);
+    } catch (error) {
+      return handleError(error);
+    }
+  },
+
+  /**
+   * GET /api/reports/payin/<transaction_id>/tax-invoice/
+   */
+  getPayinTaxInvoice: async (transactionId) => {
+    try {
+      const response = await apiClient.get(`/reports/payin/${encodeURIComponent(transactionId)}/tax-invoice/`);
+      return extractData(response);
+    } catch (error) {
+      return handleError(error);
+    }
+  },
+
+  /**
+   * PUT /api/reports/payin/<transaction_id>/tax-invoice/
+   */
+  savePayinTaxInvoice: async (transactionId, invoice) => {
+    try {
+      const response = await apiClient.put(
+        `/reports/payin/${encodeURIComponent(transactionId)}/tax-invoice/`,
+        { invoice },
+      );
       return extractData(response);
     } catch (error) {
       return handleError(error);
@@ -3838,6 +3889,27 @@ export const adminAPI = {
   patchTransactionIdSettings: async (payload) => {
     try {
       const response = await apiClient.patch('/admin/transaction-ids/', payload);
+      return extractData(response);
+    } catch (error) {
+      return handleError(error);
+    }
+  },
+
+  getInvoiceSettings: async () => {
+    try {
+      const response = await apiClient.get('/admin/invoice-settings/');
+      return extractData(response);
+    } catch (error) {
+      return handleError(error);
+    }
+  },
+
+  patchInvoiceSettings: async (payload) => {
+    try {
+      const isFormData = typeof FormData !== 'undefined' && payload instanceof FormData;
+      const response = await apiClient.patch('/admin/invoice-settings/', payload, isFormData
+        ? { headers: { 'Content-Type': 'multipart/form-data' } }
+        : undefined);
       return extractData(response);
     } catch (error) {
       return handleError(error);

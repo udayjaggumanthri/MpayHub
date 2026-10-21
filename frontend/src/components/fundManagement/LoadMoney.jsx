@@ -20,6 +20,27 @@ import { FaPhone, FaUser, FaIndianRupeeSign, FaCircleCheck, FaCircleExclamation 
 import { isAdminUser } from '../../utils/rolePermissions';
 import AccountAccessBanner from '../common/AccountAccessBanner';
 
+function payinContactReady(contact) {
+  if (!contact?.id) {
+    return 'Please search and select a customer first';
+  }
+  if (!(contact.name || '').trim()) {
+    return 'Selected contact must have a name. Update the contact before pay-in.';
+  }
+  const phoneDigits = String(contact.phone || '').replace(/\D/g, '');
+  if (phoneDigits.length !== 10) {
+    return 'Selected contact must have a 10-digit mobile number.';
+  }
+  const email = String(contact.email || '').trim();
+  if (!email || !email.includes('@')) {
+    return 'Selected contact must have a valid email. Update the contact before pay-in.';
+  }
+  if (email.toLowerCase().endsWith('@contact.placeholder')) {
+    return 'Selected contact still has a placeholder email. Update the contact email before pay-in.';
+  }
+  return null;
+}
+
 function loadRazorpayScript() {
   return new Promise((resolve, reject) => {
     if (typeof window !== 'undefined' && window.Razorpay) {
@@ -258,8 +279,9 @@ const LoadMoney = () => {
       alert(amountValidation.message);
       return;
     }
-    if (!customerDetails?.id) {
-      alert('Please search and select a customer first');
+    const contactError = payinContactReady(customerDetails);
+    if (contactError) {
+      alert(contactError);
       return;
     }
     if (!selectedCheckoutKey || !selectedPackageId) {
@@ -299,6 +321,11 @@ const LoadMoney = () => {
 
   const handleProceedToPayment = async () => {
     if (!customerDetails?.id || !selectedCheckoutKey || !selectedPackageId) return;
+    const contactError = payinContactReady(customerDetails);
+    if (contactError) {
+      alert(contactError);
+      return;
+    }
     if (checkoutGateways.length > 0 && !selectedGatewayId) {
       alert('Please select a payment gateway');
       return;

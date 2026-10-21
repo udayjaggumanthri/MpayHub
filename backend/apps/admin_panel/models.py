@@ -176,3 +176,63 @@ class TransactionIdSettings(models.Model):
 
     def __str__(self):
         return self.key
+
+
+def invoice_signature_upload_to(instance, filename):
+    ext = filename.rsplit('.', 1)[-1].lower() if '.' in filename else 'bin'
+    return f'invoice/signature/{uuid.uuid4().hex}.{ext}'
+
+
+def invoice_stamp_upload_to(instance, filename):
+    ext = filename.rsplit('.', 1)[-1].lower() if '.' in filename else 'bin'
+    return f'invoice/stamp/{uuid.uuid4().hex}.{ext}'
+
+
+class InvoiceSettings(models.Model):
+    """Partner tax-invoice company branding (independent of LMS)."""
+
+    key = models.CharField(max_length=32, unique=True, default='global')
+    legal_name = models.CharField(max_length=150, default='Prajnadhara')
+    company_line = models.CharField(max_length=150, default='Infotech Pvt Ltd')
+    address = models.TextField(
+        default=(
+            '1st Floor, 7-28-6, Tanvi Castle, Tyaga Raja Nagar, '
+            'Rajamahendravaram, East Godavari, Andhra Pradesh, 533101.'
+        ),
+    )
+    phone = models.CharField(max_length=40, default='+91 9052513666')
+    email = models.EmailField(default='info@prajnadharainfotech.com')
+    gst_number = models.CharField(max_length=20, default='37AAQCP8786M1Z4')
+    gst_rate_percent = models.DecimalField(max_digits=5, decimal_places=2, default=18)
+    declaration = models.TextField(
+        default=(
+            'We declare that this invoice reflects the actual price of the services '
+            'described and that all particulars are true and correct.'
+        ),
+    )
+    signature = models.ImageField(
+        upload_to=invoice_signature_upload_to,
+        blank=True,
+        null=True,
+        max_length=500,
+        validators=[FileExtensionValidator(allowed_extensions=['jpg', 'jpeg', 'png', 'webp', 'gif'])],
+    )
+    stamp = models.ImageField(
+        upload_to=invoice_stamp_upload_to,
+        blank=True,
+        null=True,
+        max_length=500,
+        validators=[FileExtensionValidator(allowed_extensions=['jpg', 'jpeg', 'png', 'webp', 'gif'])],
+    )
+    invoice_next_number = models.PositiveIntegerField(default=1)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        db_table = 'invoice_settings'
+
+    def __str__(self):
+        return self.key
+
+    @property
+    def full_name(self):
+        return f'{(self.legal_name or "").strip()} {(self.company_line or "").strip()}'.strip()

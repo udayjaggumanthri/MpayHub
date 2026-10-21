@@ -12,6 +12,7 @@ const NEXT_CTA = {
   onboarding: { to: '/aeps/setup', label: 'Continue onboarding' },
   device: { to: '/aeps/device', label: 'Register device' },
   ekyc: { to: '/aeps/ekyc', label: 'Complete eKYC' },
+  bank_ekyc: { to: '/aeps/ekyc', label: 'Complete Bank eKYC' },
   twofa: { to: '/aeps/2fa', label: 'Complete daily 2FA' },
   ready: { to: '/aeps/withdraw', label: 'Start cash withdrawal' },
   admin_ops: { to: '/admin/aeps/provider', label: 'Open provider settings' },

@@ -123,8 +123,6 @@ export default function OnboardingFormStep({ aepsStatus: status, refreshStatus, 
       ['companyType', 'Company / shop category'],
       ['userPan', 'PAN'],
       ['aadhaarNumber', 'Aadhaar'],
-      ['gstinNumber', 'GSTIN'],
-      ['companyOrShopPan', 'Company / shop PAN'],
       ['companyBankAccountNumber', 'Bank account number'],
       ['bankIfscCode', 'IFSC'],
       ['bankAccountName', 'Account holder name'],
@@ -220,7 +218,7 @@ export default function OnboardingFormStep({ aepsStatus: status, refreshStatus, 
           kyc: {
             userPan: String(form.userPan).trim().toUpperCase(),
             aadhaarNumber: aadhaarDigits,
-            gstinNumber: String(form.gstinNumber).trim().toUpperCase(),
+            // gstinNumber is injected server-side from Admin → AEPS → Provider (one GSTIN for all merchants)
             companyOrShopPan: String(form.companyOrShopPan || form.userPan).trim().toUpperCase(),
             merchantPanImage: imageOrOmit('merchantPanImage'),
             maskedAadharImage: imageOrOmit('maskedAadharImage'),
@@ -575,10 +573,10 @@ export default function OnboardingFormStep({ aepsStatus: status, refreshStatus, 
               inputMode="numeric"
             />
           </Field>
-          <Field label="GSTIN" required>
-            <input className={inputCls('uppercase')} value={form.gstinNumber} onChange={(e) => setField('gstinNumber', e.target.value.toUpperCase())} maxLength={15} />
-          </Field>
-          <Field label="Company / shop PAN" required>
+          <Field
+            label="Company / shop PAN"
+            hint="Optional — defaults to personal PAN. Super Merchant GSTIN is set once by Admin (not asked here)."
+          >
             <input className={inputCls('uppercase')} value={form.companyOrShopPan} onChange={(e) => setField('companyOrShopPan', e.target.value.toUpperCase())} maxLength={10} />
           </Field>
           <ImageField label="PAN image" fieldKey="merchantPanImage" required />

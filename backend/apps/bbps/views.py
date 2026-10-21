@@ -595,13 +595,18 @@ def quote_view(request):
             applied_charge = Decimal(str(charge_info.get('charge') or 0))
             wallet_meta = {}
         else:
-            wallet = resolve_bbps_wallet_service_charge(amount=amount_dec)
+            wallet = resolve_bbps_wallet_service_charge(
+                amount=amount_dec,
+                category_code=bill_type,
+            )
             applied_charge = wallet['charge']
             wallet_meta = {
                 'wallet_service_charge_mode': wallet.get('mode'),
                 'wallet_service_charge_flat': wallet.get('flat'),
                 'wallet_service_charge_percent': wallet.get('percent'),
                 'wallet_service_charge_source': wallet.get('source'),
+                'wallet_service_charge_category': wallet.get('category_code') or '',
+                'wallet_service_charge_category_name': wallet.get('category_name') or '',
             }
         total = amount_dec + applied_charge
         return Response(
@@ -1136,10 +1141,31 @@ def bill_payment_detail_view(request, payment_id):
     )
 
 
+def _bbps_settings_forbidden(request):
+    """BillAvenue credentials stay with Super Admin unless the role module is on."""
+    from apps.core.module_permissions import has_module
+    from apps.core.roles import is_super_admin
+
+    if is_super_admin(request.user) or has_module(request.user, 'bbps_settings'):
+        return None
+    return Response(
+        {
+            'success': False,
+            'data': None,
+            'message': 'BillAvenue settings are available to Super Admin. Ask a Super Admin to enable BillAvenue Settings for the Admin role.',
+            'errors': [],
+        },
+        status=status.HTTP_403_FORBIDDEN,
+    )
+
+
 @api_view(['GET', 'POST'])
 @permission_classes([IsAuthenticated, IsAdmin])
 def billavenue_config_view(request):
     """Load/save BillAvenue config by mode (uat|prod). One active live row."""
+    denied = _bbps_settings_forbidden(request)
+    if denied is not None:
+        return denied
     mode_param = (
         request.query_params.get('mode')
         or request.data.get('mode')
@@ -1271,6 +1297,9 @@ def billavenue_config_view(request):
 @permission_classes([IsAuthenticated, IsAdmin])
 def billavenue_config_activate_view(request):
     """Switch partner live environment (UAT|PROD) without rewriting credentials."""
+    denied = _bbps_settings_forbidden(request)
+    if denied is not None:
+        return denied
     mode = str(
         (request.data or {}).get('mode')
         or (request.data or {}).get('environment')
@@ -1340,6 +1369,9 @@ def billavenue_config_activate_view(request):
 @api_view(['POST'])
 @permission_classes([IsAuthenticated, IsAdmin])
 def billavenue_config_secrets_view(request):
+    denied = _bbps_settings_forbidden(request)
+    if denied is not None:
+        return denied
     mode = str(request.data.get('mode') or request.query_params.get('mode') or '').strip().lower()
     config_id = request.data.get('config_id') or request.data.get('config')
     config = None
@@ -1377,6 +1409,75 @@ def billavenue_config_secrets_view(request):
             'errors': [],
         },
         status=200,
+    )
+
+
+@api_view(['GET', 'PATCH'])
+@permission_classes([IsAuthenticated, IsAdmin])
+def wallet_service_charges_view(request):
+    """Category wallet charges and the global default. Admin and Super Admin."""
+    from apps.bbps.service_flow.bbps_wallet_charge import (
+        WalletChargeValidationError,
+        list_wallet_charge_catalog,
+        update_global_wallet_service_charge,
+        upsert_category_wallet_charge,
+    )
+
+    if request.method == 'GET':
+        return Response(
+            {
+                'success': True,
+                'data': list_wallet_charge_catalog(),
+                'message': 'Wallet service charges retrieved',
+                'errors': [],
+            },
+            status=status.HTTP_200_OK,
+        )
+
+    payload = request.data or {}
+    try:
+        if isinstance(payload.get('default'), dict):
+            default = payload['default']
+            saved = update_global_wallet_service_charge(
+                mode=default.get('mode'),
+                flat=default.get('flat'),
+                percent=default.get('percent'),
+            )
+            return Response(
+                {
+                    'success': True,
+                    'data': {'default': saved, **list_wallet_charge_catalog()},
+                    'message': 'Default wallet service charge saved',
+                    'errors': [],
+                },
+                status=status.HTTP_200_OK,
+            )
+        saved = upsert_category_wallet_charge(
+            category_code=payload.get('category_code') or '',
+            mode=payload.get('mode'),
+            flat=payload.get('flat'),
+            percent=payload.get('percent'),
+            is_active=payload.get('is_active', True),
+            user=request.user,
+        )
+    except WalletChargeValidationError as exc:
+        return Response(
+            {
+                'success': False,
+                'data': None,
+                'message': 'Invalid wallet service charge',
+                'errors': exc.errors,
+            },
+            status=status.HTTP_400_BAD_REQUEST,
+        )
+    return Response(
+        {
+            'success': True,
+            'data': {'category': saved},
+            'message': 'Category wallet service charge saved',
+            'errors': [],
+        },
+        status=status.HTTP_200_OK,
     )
 
 

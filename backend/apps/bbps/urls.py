@@ -28,6 +28,7 @@ urlpatterns = [
     path('admin/governance/ops-summary/', views.governance_ops_summary_view, name='governance-ops-summary'),
     path('admin/governance/observability/', views.bbps_ops_observability_view, name='governance-observability'),
     path('admin/config/secrets/', views.billavenue_config_secrets_view, name='billavenue-config-secrets'),
+    path('admin/wallet-charges/', views.wallet_service_charges_view, name='wallet-service-charges'),
     path('admin/agent-profiles/', views.billavenue_agent_profiles_view, name='billavenue-agent-profiles'),
     path('admin/mode-channel-policies/', views.billavenue_mode_channel_policies_view, name='billavenue-mode-channel-policies'),
     path('admin/service-categories/', views.service_categories_view, name='service-categories'),

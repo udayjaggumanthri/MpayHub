@@ -2,15 +2,18 @@
 from __future__ import annotations
 
 import json
+from datetime import date, datetime, timedelta
+
+from django.utils import timezone
 
 from apps.aeps.models import AepsReconBatch, AepsReconItem, AepsTransaction
-from apps.integrations.fingpay.crypto import scrub_sensitive
+from apps.integrations.fingpay.crypto import build_recon_hash, scrub_sensitive
 from apps.integrations.fingpay.registry import get_fingpay_client
 
 
 def handle_three_way_recon(*, raw_body: str, headers: dict, client_ip: str | None = None) -> dict:
     """
-    Fingpay posts recon payload; we reply per txn with '00' (success) or 'Failed'.
+    Inbound: Fingpay posts recon payload; we reply per txn with '00' (success) or 'Failed'.
     Hash: Base64(SHA256(requestbody + superMerchantLoginId + secretKey))
     """
     client = get_fingpay_client()
@@ -38,6 +41,7 @@ def handle_three_way_recon(*, raw_body: str, headers: dict, client_ip: str | Non
 
     batch = AepsReconBatch.objects.create(
         txn_date=str(headers.get('txnDate') or headers.get('TxnDate') or ''),
+        direction='inbound',
         request_hash=str(provided_hash)[:128],
         item_count=len(items_in) if isinstance(items_in, list) else 0,
         raw_request=scrub_sensitive(payload if isinstance(payload, (dict, list)) else {}),
@@ -119,3 +123,123 @@ def handle_transaction_callback(*, payload: dict) -> dict:
     txn.provider_meta = {**(txn.provider_meta or {}), 'callback': scrub_sensitive(payload)}
     txn.save()
     return {'ok': True, 'merchant_tran_id': mid, 'status': txn.status}
+
+
+def _service_type_for_product(product: str) -> str:
+    p = str(product or '').upper()
+    if p == 'AP':
+        return 'M'
+    if p in ('CW', 'CD', 'CD_OTP', 'BE', 'MS'):
+        return 'CW' if p in ('CW', 'BE', 'MS') else 'CW'
+    return p or 'CW'
+
+
+def build_recon_items(for_date: date | None = None) -> list[dict]:
+    """Build outbound recon payload items for a calendar day (local)."""
+    day = for_date or timezone.localdate()
+    start = timezone.make_aware(datetime.combine(day, datetime.min.time()))
+    end = start + timedelta(days=1)
+    qs = AepsTransaction.objects.filter(
+        is_deleted=False,
+        product__in=('CW', 'AP', 'CD', 'CD_OTP'),
+        created_at__gte=start,
+        created_at__lt=end,
+    ).exclude(status='initiated').order_by('id')
+    items = []
+    for txn in qs:
+        if txn.status in ('success', 'reconciled') and txn.bank_rrn and txn.response_code in ('00', ''):
+            code = '00'
+        else:
+            code = str(txn.response_code or 'Failed') or 'Failed'
+            if code == '00' and not txn.bank_rrn:
+                code = 'Failed'
+        items.append(
+            {
+                'merchantTransactionId': txn.merchant_tran_id,
+                'fingpayTransactionId': txn.fp_transaction_id or '',
+                'transactionRrn': txn.bank_rrn or '',
+                'responseCode': code if code != '00' or txn.bank_rrn else 'Failed',
+                'transactionDate': day.strftime('%d-%m-%Y'),
+                'serviceType': 'M' if txn.product == 'AP' else 'CW',
+            }
+        )
+    return items
+
+
+def run_outbound_recon(*, txn_date: str | None = None, actor=None) -> dict:
+    """
+    POST recon items to Fingpay fpcollectservice (mandatory go-live).
+    Chunks at 10_000 per docs.
+    """
+    client = get_fingpay_client()
+    if txn_date:
+        try:
+            # Accept YYYY-MM-DD or DD-MM-YYYY
+            raw = str(txn_date).strip()
+            if '-' in raw and len(raw.split('-')[0]) == 4:
+                day = datetime.strptime(raw[:10], '%Y-%m-%d').date()
+            else:
+                day = datetime.strptime(raw[:10], '%d-%m-%Y').date()
+        except ValueError as exc:
+            raise ValueError(f'Invalid txn_date: {txn_date}') from exc
+    else:
+        day = timezone.localdate() - timedelta(days=1)
+
+    items = build_recon_items(day)
+    header_date = day.strftime('%d/%m/%Y %H:%M:%S')
+    batches_out = []
+    chunk_size = 10000
+    for i in range(0, max(len(items), 1), chunk_size):
+        chunk = items[i : i + chunk_size]
+        body_str = json.dumps(chunk, separators=(',', ':'), ensure_ascii=False)
+        if not chunk:
+            body_str = '[]'
+        resp = client.push_three_way_recon(items=chunk, txn_date=header_date, body_json=body_str)
+        batch = AepsReconBatch.objects.create(
+            txn_date=header_date,
+            direction='outbound',
+            request_hash=str((resp or {}).get('_request_hash') or '')[:128],
+            item_count=len(chunk),
+            raw_request=scrub_sensitive(chunk),
+            raw_response=scrub_sensitive(resp or {}),
+            triggered_by=actor if getattr(actor, 'pk', None) else None,
+        )
+        data_rows = (resp or {}).get('data') if isinstance((resp or {}).get('data'), list) else []
+        by_mid = {
+            str(r.get('merchantTransactionId') or ''): r
+            for r in data_rows
+            if isinstance(r, dict)
+        }
+        for item in chunk:
+            mid = item['merchantTransactionId']
+            reply = by_mid.get(mid) or {}
+            reply_code = str(reply.get('responseCode') or item.get('responseCode') or '')
+            txn = AepsTransaction.objects.filter(merchant_tran_id=mid, is_deleted=False).first()
+            if txn and reply_code == '00' and txn.status == 'success':
+                txn.status = 'reconciled'
+                txn.save(update_fields=['status', 'updated_at'])
+            AepsReconItem.objects.create(
+                batch=batch,
+                merchant_tran_id=mid,
+                fp_transaction_id=item.get('fingpayTransactionId') or '',
+                our_status=txn.status if txn else 'missing',
+                reply_code=reply_code or item.get('responseCode') or '',
+                matched_transaction=txn,
+                details=scrub_sensitive(reply or item),
+            )
+        batches_out.append(
+            {
+                'batch_id': batch.pk,
+                'item_count': len(chunk),
+                'apiStatus': (resp or {}).get('apiStatus'),
+                'apiStatusMessage': (resp or {}).get('apiStatusMessage') or (resp or {}).get('message'),
+            }
+        )
+        if not items:
+            break
+
+    return {
+        'txn_date': day.isoformat(),
+        'total_items': len(items),
+        'batches': batches_out,
+    }

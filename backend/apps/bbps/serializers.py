@@ -390,6 +390,10 @@ class BillAvenueConfigSerializer(serializers.ModelSerializer):
             'has_working_key',
             'has_iv',
             'has_callback_secret',
+            # Edited on the wallet-charge screen, not with API credentials.
+            'bbps_wallet_service_charge_mode',
+            'bbps_wallet_service_charge_flat',
+            'bbps_wallet_service_charge_percent',
         ]
 
     def get_has_working_key(self, obj) -> bool:

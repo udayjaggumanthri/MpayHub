@@ -399,7 +399,7 @@ export function getCaptureProfile() {
   return { ...captureFtype };
 }
 
-export function buildPidOptions({ fCount = 1, timeout = 20000, purpose = 'aeps' } = {}) {
+export function buildPidOptions({ fCount = 1, timeout = 20000, purpose = 'aeps', otp } = {}) {
   // env="P" is required by several drivers (incl. Mantra) even on UAT.
   if (purpose === 'ekyc') {
     return (
@@ -410,18 +410,20 @@ export function buildPidOptions({ fCount = 1, timeout = 20000, purpose = 'aeps' 
       `</PidOptions>`
     );
   }
-  // AEPS / 2FA: never send empty wadh or otp — a blank wadh binds the PID and
-  // UIDAI answers "Missing biometric data as specified in Uses".
+  const otpAttr =
+    typeof otp === 'string' && otp.trim() ? ` otp="${otp.trim()}"` : '';
+  // AEPS / 2FA: never send empty wadh — a blank wadh binds the PID and UIDAI
+  // answers "Missing biometric data as specified in Uses". OTP only when provided.
   return (
     `<?xml version="1.0"?>` +
     `<PidOptions ver="1.0">` +
     `<Opts env="P" fCount="${fCount}" fType="${captureFtype.aeps}" iCount="0" iType="0" pCount="0" pType="0" ` +
-    `format="0" pidVer="2.0" timeout="${timeout}" posh="UNKNOWN" />` +
+    `format="0" pidVer="2.0" timeout="${timeout}" posh="UNKNOWN"${otpAttr} />` +
     `</PidOptions>`
   );
 }
 
-export async function captureMantraFingerprint({ fCount = 1, timeout = 20000, purpose = 'aeps' } = {}) {
+export async function captureMantraFingerprint({ fCount = 1, timeout = 20000, purpose = 'aeps', otp } = {}) {
   const disc = await discoverMantraRd();
   if (!disc.ready || !disc.baseUrl) {
     return {
@@ -436,7 +438,7 @@ export async function captureMantraFingerprint({ fCount = 1, timeout = 20000, pu
     {
       method: 'CAPTURE',
       headers: { 'Content-Type': 'text/xml' },
-      body: buildPidOptions({ fCount, timeout, purpose }),
+      body: buildPidOptions({ fCount, timeout, purpose, otp }),
     },
     Math.max(timeout + 5000, 25000)
   );

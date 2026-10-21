@@ -13,7 +13,7 @@ class OnboardingPayloadMappingTests(SimpleTestCase):
     @patch('apps.aeps.services.onboarding.merchant_pin_plain', return_value='4821')
     @patch(
         'apps.aeps.services.onboarding._provider_kyc_defaults',
-        return_value={'gstinNumber': '', 'companyOrShopPan': '', 'userType': 'lakshmi'},
+        return_value={'gstinNumber': '29AAACT9999A1Z5', 'companyOrShopPan': 'ABCDE1234F', 'userType': 'lakshmi'},
     )
     @patch(
         'apps.aeps.services.masters.resolve_company_type',
@@ -45,7 +45,6 @@ class OnboardingPayloadMappingTests(SimpleTestCase):
             'companyType': 4812,
             'userPan': 'ABCDE1234F',
             'aadhaarNumber': '999999990019',
-            'gstinNumber': '29AAACT9999A1Z5',
             'companyOrShopPan': 'ABCDE1234F',
             'companyBankAccountNumber': '1234567890',
             'bankIfscCode': 'SBIN0000001',
@@ -72,7 +71,7 @@ class OnboardingPayloadMappingTests(SimpleTestCase):
         self.assertEqual(payload['kyc']['shopAndPanImage'], 'True')
         self.assertEqual(payload['videoKycWithLatLongData'], 'True')
         self.assertEqual(payload['vedioKycWithLatLongData'], 'True')
-        self.assertIn('gstinNumber', payload['kyc'])
+        self.assertEqual(payload['kyc']['gstinNumber'], '29AAACT9999A1Z5')  # from provider defaults only
         self.assertEqual(payload['settlementV1']['bankBranchName'], 'Abids')
         self.assertIsInstance(payload['merchantKycAddressData']['shopLatitude'], float)
         self.assertIsInstance(payload['merchantKycAddressData']['shopLongitude'], float)
@@ -89,7 +88,7 @@ class OnboardingPayloadMappingTests(SimpleTestCase):
     @patch('apps.aeps.services.onboarding.merchant_pin_plain', return_value='default123')
     @patch(
         'apps.aeps.services.onboarding._provider_kyc_defaults',
-        return_value={'gstinNumber': '', 'companyOrShopPan': '', 'userType': 'lakshmi'},
+        return_value={'gstinNumber': '37AAQCP8786M1Z4', 'companyOrShopPan': 'KRAPK2170N', 'userType': 'lakshmi'},
     )
     @patch('apps.aeps.services.masters.resolve_company_type', return_value=4812)
     @patch('apps.aeps.services.masters.fetch_company_types', return_value=[
@@ -116,7 +115,6 @@ class OnboardingPayloadMappingTests(SimpleTestCase):
             'companyLegalName': 'Navodaya',
             'companyType': 4812,
             'userPan': 'KRAPK2170N',
-            'gstinNumber': '37AAQCP8786M1Z4',
             'companyOrShopPan': 'KRAPK2170N',
             'companyBankAccountNumber': '35736936125',
             'bankIfscCode': 'SBIN0018204',
@@ -146,7 +144,7 @@ class OnboardingPayloadMappingTests(SimpleTestCase):
     @patch('apps.aeps.services.onboarding.merchant_pin_plain', return_value='default123')
     @patch(
         'apps.aeps.services.onboarding._provider_kyc_defaults',
-        return_value={'gstinNumber': '', 'companyOrShopPan': '', 'userType': 'lakshmi'},
+        return_value={'gstinNumber': '37AAQCP8786M1Z4', 'companyOrShopPan': 'KRAPK2170N', 'userType': 'lakshmi'},
     )
     @patch('apps.aeps.services.masters.resolve_company_type', return_value=4812)
     @patch('apps.aeps.services.masters.fetch_company_types', return_value=[
@@ -174,7 +172,6 @@ class OnboardingPayloadMappingTests(SimpleTestCase):
             'companyLegalName': 'uday 1234',
             'companyType': 4,  # legacy master row id → resolved to 4812
             'userPan': 'KRAPK2170N',
-            'gstinNumber': '37AAQCP8786M1Z4',
             'companyOrShopPan': 'KRAPK2170N',
             'companyBankAccountNumber': '35736936125',
             'bankIfscCode': 'SBIN0018204',
